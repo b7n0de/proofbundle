@@ -13,7 +13,10 @@ with a subsection, because it is not yet an entry.
 from __future__ import annotations
 
 import importlib.util
+import itertools
 from pathlib import Path
+
+import pytest
 
 _SPEC = importlib.util.spec_from_file_location(
     "chk_k6", Path(__file__).resolve().parents[1] / "scripts" / "check_version_and_changelog.py")
@@ -179,9 +182,11 @@ def test_RED_text_after_an_invalid_closing_fence_stays_code():
     assert chk._opens_with_a_paragraph(["```", "code", "```  ", "Semantics do not change."]), "blanks may follow"
 
 
-def test_RED_an_invalid_link_reference_definition_is_paragraph_text():
+def test_RED_an_invalid_link_reference_definition_starts_with_a_bracket_and_is_a_finding():
+    """Third reading: these lines render as paragraph text, and the check took them for an opening. Since the owner's
+    answer on its card an opening starts with a word or a number, so they are findings, the price `_OPENING` names."""
     for line in ("[x]: <", "[]: /target", "[x]:", "[x]: /target \"title"):
-        assert chk._opens_with_a_paragraph([line]), line
+        assert not chk._opens_with_a_paragraph([line]), line
     for line in ("[x]: /target", "[x]: <a b>", "[x]: /target \"title\"", "[x]: /target 'title'", "[x]: /t (title)"):
         assert not chk._opens_with_a_paragraph([line]), line
 
@@ -194,9 +199,85 @@ def test_RED_a_version_heading_inside_a_fence_or_a_comment_is_no_duplicate(tmp_p
         assert not [p for p in probs if "twice" in p], (name, probs)
 
 
-def test_a_paragraph_that_starts_with_inline_markup_is_still_a_paragraph():
-    """The other side: what opens a paragraph with markup, a number or a tag inside text is no other block."""
-    for line in ("**Semantics do not change.**", "`proofbundle` 3.0.1 is a patch release.", "3.0.1 is a patch release.",
+def test_an_opening_that_starts_with_markup_is_a_finding_and_one_that_starts_with_a_word_or_a_number_passes():
+    """The owner's answer after the third reading: only an opening that starts with a letter or a digit that begins no
+    list item counts. One that starts with markup, a bracket or a tag renders as a paragraph and is a finding all the
+    same; its fix is to begin the opening with a word."""
+    for line in ("**Semantics do not change.**", "`proofbundle` 3.0.1 is a patch release.",
                  "<span>Semantics</span> do not change.", "[A link](https://example.invalid) opens the entry.",
-                 "*Semantics* do not change.", "2026 brought one change."):
+                 "*Semantics* do not change.", "\"Semantics\" do not change.", "(Semantics) do not change."):
+        assert not chk._opens_with_a_paragraph([line]), line
+    for line in ("Semantics do not change.", "3.0.1 is a patch release.", "2026 brought one change.",
+                 "   Semantics do not change.", "1234567890. is no list item, the marker has at most nine digits."):
         assert chk._opens_with_a_paragraph([line]), line
+
+
+# ── the opening is a narrow form (third reading of 2026-11-01, sol-pro, three P1, and the owner's answer A) ──────────
+#
+# Each reading found the next edge of a hand-made CommonMark reader. An opening now starts with a word or a number
+# after at most three spaces and no tab, everything else is a finding, and markdown-it is the oracle for what the check
+# accepts.
+
+
+def test_RED_a_space_and_a_tab_is_indented_code_and_opens_nothing():
+    """A tab counts to the next multiple of four columns: a space or three and then a tab are four, and the line is
+    code. The check knew only four spaces or a tab at the start."""
+    for prefix in (" \t", "  \t", "   \t"):
+        assert not chk._opens_with_a_paragraph([prefix + "Semantics do not change."]), repr(prefix)
+
+
+def test_RED_a_link_reference_over_two_lines_renders_nothing():
+    """A link reference definition may take its destination or its title from the next line; it renders nothing. The
+    check took the first line, or the title, for paragraph text."""
+    assert not chk._opens_with_a_paragraph(["[x]:", "/target"])
+    assert not chk._opens_with_a_paragraph(["[x]: /target", "\"title\""])
+
+
+def test_RED_a_comment_start_indented_four_columns_is_code_and_hides_no_duplicate(tmp_path):
+    """`    <!--` is indented code, no comment: a second version heading after it is a duplicate. The check took the
+    line for a comment start and hid everything after it."""
+    probs = chk.check(_repo(tmp_path, f"# Changelog\n\n## [{VERSION}]\n\nSemantics do not change.\n\n    <!--\n\n"
+                                      f"## [{VERSION}]\n\n### Added\n\n- x\n"))
+    assert len([p for p in probs if "CHANGELOG.md" in p and "twice" in p]) == 1, probs
+
+
+#: Lines a section can start with, and lines that can follow them, as the corpus of the differential case.
+_PREFIXES = ("", " ", "   ", "    ", "\t", " \t", "   \t")
+_STARTS = ("Semantics do not change.", "3.0.1 is a patch release.", "2026 brought one change.", "x", "1. x", "1) x",
+           "1.", "1234567890. x", "- x", "+ x", "* x", "> x", "# x", "####### x", "<!-- a note -->", "<!--", "<div>",
+           "<span>", "<span>x</span> y", "[x]: /target", "[x]:", "[x]: (", "[x]: <", "```", "~~~", "a | b", "| a | b |",
+           "\"quoted\"", "(paren)", "**bold**", "`code`", "---", "***", "===", "_x_", "\\# escaped", "&amp; entity",
+           "<?php", "\u00e9t\u00e9", "\u2192 arrow")
+_NEXT = ("", "Text follows.", "===", "---", "| --- | --- |", "--- | ---", "- item", "/target", "\"title\"",
+         "    indented", "> quote", "```")
+_PASSED_OVER = ("", "---", "<!-- a note -->", "[x]: /target", "    code")
+
+
+def _first_block(tokens) -> str | None:
+    """The type of the first block markdown-it renders that the check does not pass over: thematic breaks, comments,
+    indented and fenced code are passed over, as the check's docstring names them; link reference definitions render
+    no token."""
+    for token in tokens:
+        if token.nesting == -1 or token.type in ("inline", "hr", "code_block", "fence"):
+            continue
+        if token.type == "html_block" and token.content.lstrip().startswith("<!--"):
+            continue
+        return token.type
+    return None
+
+
+def test_every_opening_the_check_accepts_renders_as_a_paragraph_in_markdown_it():
+    """The differential case of the owner's answer: over a generated corpus of section starts, every start the check
+    accepts renders, in markdown-it with the CommonMark preset and GitHub's tables, as a paragraph after what the check
+    passes over. markdown-it is the version .github/pr-form-requirements.txt pins; where it is not installed the case
+    is a visible skip."""
+    markdown_it = pytest.importorskip("markdown_it")
+    md = markdown_it.MarkdownIt("commonmark").enable("table")
+    accepted = 0
+    for before, prefix, start, after in itertools.product(_PASSED_OVER, _PREFIXES, _STARTS, _NEXT):
+        lines = ([before, ""] if before else []) + [prefix + start] + ([after] if after else [])
+        if chk._opens_with_a_paragraph(lines):
+            accepted += 1
+            assert _first_block(md.parse("\n".join(lines) + "\n")) == "paragraph_open", lines
+    assert accepted > 0
+    assert chk._opens_with_a_paragraph(["Semantics do not change."])
