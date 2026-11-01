@@ -43,7 +43,7 @@ permissions:
 # Measured over the 24 green pull-request runs since the legs run in parts (30.10.2026): the longest test part took
 # 18 to 25 min with five interpreters, `coverage` 42 to 105 min, and `coverage` was the long pole of all 24.
 #   pre-queue  (pull_request): the legs of `test` in parts on five interpreters, the gates, and `coverage` until
-#              the merge queue is required (the repository variable MERGE_QUEUE is `required`).
+#              the rules of the base branch carry a merge queue (job merge-queue-state).
 #   queue      (merge_group, and the push of the landed tree to main): `test` and `coverage`, the whole suite
 #              under its floor once per candidate.
 #   nightly    (schedule, workflow_dispatch): the mutation layer, the cost curves, the five interpreters.
@@ -586,14 +586,18 @@ jobs:
     timeout-minutes: 300
     # THE ONE RUN OF THE WHOLE SUITE UNDER ITS FLOOR IN THE QUEUE (three stages, see the head of this file). In the
     # queue and on the push of the landed tree it runs once per candidate. On a pull request it runs too, until the
-    # owner sets the repository variable MERGE_QUEUE to `required` together with the merge queue on protect-main;
-    # a release/ pull request of this repository always runs it, because its mutation layer needs it. A fork pull
-    # request does not see the variable and runs it as well.
+    # rules of the base branch carry a merge queue, which the job merge-queue-state reads; a release/ pull request of
+    # this repository always runs it, because its mutation layer needs it.
+    # READ, NOT DECLARED (the reading of the head 37137a9d of pull request 462, P1, and the owner's answer A on card
+    # OA-75a1805115): the first form followed a repository variable that nothing tied to the queue. `!cancelled()`
+    # lets this job run when the reader failed, and an answer that is not `true` keeps it running.
+    needs: [merge-queue-state]
     if: >-
-      github.event_name != 'pull_request'
-      || vars.MERGE_QUEUE != 'required'
-      || ( github.event.pull_request.head.repo.full_name == github.repository
-           && startsWith(github.head_ref, 'release/') )
+      !cancelled()
+      && ( github.event_name != 'pull_request'
+           || needs.merge-queue-state.outputs.required != 'true'
+           || ( github.event.pull_request.head.repo.full_name == github.repository
+                && startsWith(github.head_ref, 'release/') ) )
     # Owner note 2026-09-28 (Z281): the Rust second verifier is built in a step before the suite, pinned
     # here, and required. A test that would skip for a missing binary fails in this job, because a
     # skip here would be a green check over an empty set (tests/_pb_verify_rs.py).
@@ -1105,6 +1109,23 @@ jobs:
         # matters for this project's trust model). Re-evaluate when inspect_ai relaxes its click cap.
         run: pip-audit --desc --ignore-vuln PYSEC-2026-2132
 
+  merge-queue-state:
+    # WHETHER THE MERGE QUEUE IS ON, READ FROM THE RULES OF THE BASE BRANCH (scripts/merge_queue_state.py), for
+    # `coverage` and the collector. It runs on every event and always ends with exit 0: an answer it cannot read is
+    # `false`, and `false` keeps `coverage` running. landung.yml asks the same reader.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      required: ${{ steps.read.outputs.required }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Is the merge queue on for the base branch
+        id: read
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.base_ref || 'main' }}
+        run: python3 scripts/merge_queue_state.py
+
   cost-curves:
     # STAGE 3, NIGHTLY: the cost curves of the budget axes (scripts/budget_axis_measurement.py, the assertions of
     # tests/test_budget_kostenkurve.py, recorded). They are wall-clock measurements, so they say most where the
@@ -1175,10 +1196,12 @@ jobs:
     # THREE STAGES (see the head of this file). Each stage has the jobs it must have run, and a needed job the stage
     # does not run must be SKIPPED there, never failed or cancelled:
     #   pre-queue: test, the language gate and the title gate, which block before the queue; coverage too, unless the
-    #              merge queue is required (MERGE_QUEUE), where the queue runs the suite and coverage may be skipped;
+    #              rules of main carry a merge queue (merge-queue-state answers `true`), where the queue runs the
+    #              suite and coverage may be skipped;
     #   queue and nightly: test and coverage; the two gates read a pull request and are skipped there.
+    # merge-queue-state must have succeeded at every stage: without its answer the stage is not known.
     # The full-matrix rule above is unchanged and judged at every stage.
-    needs: [test, coverage, new-lines-english, release-scope-title]
+    needs: [test, coverage, new-lines-english, release-scope-title, merge-queue-state]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -1187,7 +1210,7 @@ jobs:
         env:
           NEEDS: ${{ toJSON(needs) }}
           EVENT: ${{ github.event_name }}
-          MERGE_QUEUE: ${{ vars.MERGE_QUEUE }}
+          MERGE_QUEUE: ${{ needs.merge-queue-state.outputs.required }}
           FULL_MATRIX: >-
             ${{ ( github.event_name == 'workflow_dispatch'
               || github.event.pull_request.head.repo.full_name == github.repository
@@ -1198,11 +1221,11 @@ jobs:
         run: |
           python3 - <<'PY'
           import json, os, sys
-          EXPECTED = {"test", "coverage", "new-lines-english", "release-scope-title"}
+          EXPECTED = {"test", "coverage", "new-lines-english", "release-scope-title", "merge-queue-state"}
           needs = json.loads(os.environ["NEEDS"])
           event = os.environ.get("EVENT", "").strip().lower()
           stage = os.environ.get("CI_STAGE", "").strip()
-          queue = os.environ.get("MERGE_QUEUE", "").strip() == "required"
+          queue = os.environ.get("MERGE_QUEUE", "").strip() == "true"
           full = os.environ.get("FULL_MATRIX", "").strip().lower() == "true"
           if set(needs) != EXPECTED:
               print("::error title=all-checks-passed::needed jobs " + str(sorted(needs)) + " are not the "
@@ -1211,7 +1234,7 @@ jobs:
           if stage not in ("pre-queue", "queue", "nightly"):
               print(f"::error title=all-checks-passed::unknown stage {stage!r} -- no verdict without a stage")
               sys.exit(1)
-          must = {"test", "coverage"}
+          must = {"test", "coverage", "merge-queue-state"}
           if stage == "pre-queue":
               must.update({"new-lines-english", "release-scope-title"})
               if queue:

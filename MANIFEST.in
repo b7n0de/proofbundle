@@ -151,6 +151,12 @@ include Makefile
 # `tests/test_ein_label_startet_keine_ci.py` also reads `.github/workflows/`, which this list prunes,
 # so `tests/conftest.py` skips that module outside a checkout.
 #
+# OUT, and deliberately decided (2026-11-01): scripts/merge_queue_state.py. It asks the GitHub API for
+# the rules of one branch, and `.github/workflows/ci.yml` and `.github/workflows/landung.yml` run it to
+# learn whether the merge queue is on. An installed package has no branch and no repository to ask, the
+# same reason `landung_waits_for_ci.py` stands outside, above. Its contract `tests/test_merge_queue_state.py`
+# names it by its path from the root, so `tests/conftest.py` skips that module outside a checkout.
+#
 # OUT, and deliberately decided (2026-09-28): scripts/b7_pr_form_gate.py. It judges the milestone
 # and the description of one pull request of this repository from the event payload the runner
 # writes, and `.github/workflows/pr-form.yml` runs it on every pull request. An installed package

@@ -31,10 +31,11 @@ def _script():
     return mod
 
 
-def _run(tmp_path, answer, env=None):
+def _run(tmp_path, answer, env=None, s=None):
     """main() with a fake API that returns `answer`, or raises it when it is an exception; the output file as
-    GitHub Actions hands it over."""
-    s = _script()
+    GitHub Actions hands it over. An exception of the script is built from the module `s` that runs it, since
+    a second load of the script brings a second class of the same name."""
+    s = s or _script()
     out = tmp_path / "output"
     out.write_text("", encoding="utf-8")
     asked = []
@@ -69,7 +70,7 @@ def test_without_the_queue_in_the_rules_the_output_is_false(tmp_path):
 def test_an_unreadable_answer_is_off_and_still_exit_0(tmp_path):
     s = _script()
     for answer in (s.ReadError("HTTP 403"), {"message": "Not Found"}, ["merge_queue"], None):
-        rc, out, _ = _run(tmp_path, answer)
+        rc, out, _ = _run(tmp_path, answer, s=s)
         assert rc == 0 and out == "required=false\n", (answer, out)
 
 

@@ -24,6 +24,12 @@ name: Landung
 # reach into another workflow, so the job `ci-prerequisites` waits for them in the ci.yml run of the
 # head and fails unless they succeeded, and `mutation` needs that job (Codex on pull request 310,
 # round two, P1: without it a push to a labelled candidate started 36 shards beside CI).
+#
+# WITH THE MERGE QUEUE ON, THE LABEL STARTS NOTHING (the reading of the head 37137a9d of pull request 462,
+# P1, and the owner's answer A on card OA-75a1805115). `coverage` then runs in the queue and no longer on the
+# pull request, so the waiter could only fail, and the layer runs every night (ci.yml, schedule). The job
+# `ci-prerequisites` asks scripts/merge_queue_state.py, the reader ci.yml asks too, says so in a notice, and
+# the layer and its collector stay away.
 
 on:
   pull_request:
@@ -69,9 +75,22 @@ jobs:
     permissions:
       actions: read
       contents: read
+    outputs:
+      queue: ${{ steps.queue.outputs.required }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - name: Is the merge queue on for the base branch
+        id: queue
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.event.pull_request.base.ref }}
+        run: python3 scripts/merge_queue_state.py
+      - name: With the merge queue on, the label starts nothing
+        if: steps.queue.outputs.required == 'true'
+        run: |
+          echo "::notice title=landung::the merge queue is on for the base branch: coverage runs in the queue and the mutation layer every night (ci.yml, schedule), so this label starts nothing on this pull request"
       - name: Wait for test and coverage of ci.yml on this head
+        if: steps.queue.outputs.required != 'true'
         env:
           GITHUB_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -87,9 +106,10 @@ jobs:
     # it is removed and not for any other label. Only after test and coverage of that head succeeded.
     needs: [ci-prerequisites]
     if: >-
-      ( github.event.action == 'labeled' && github.event.label.name == 'landung' )
-      || ( ( github.event.action == 'synchronize' || github.event.action == 'reopened' )
-           && contains(github.event.pull_request.labels.*.name, 'landung') )
+      ( ( github.event.action == 'labeled' && github.event.label.name == 'landung' )
+        || ( ( github.event.action == 'synchronize' || github.event.action == 'reopened' )
+             && contains(github.event.pull_request.labels.*.name, 'landung') ) )
+      && needs.ci-prerequisites.outputs.queue != 'true'
     # Anti-Goodhart gate (v1.3): the suite must KILL broken implementations, not just be green.
     # Differential vs the baseline; documented-equivalent mutants must keep surviving.
     #
@@ -232,12 +252,15 @@ jobs:
     # Fail-closed collector of the shards, the same as in ci.yml. It carries the SAME predicate as the
     # producer, for the reason written at the job in ci.yml: with always() alone it would run and turn
     # red on every event on which the layer is meant to stay away.
-    needs: [mutation]
+    # With the merge queue on it stays away with the layer (the head of this file), so it needs the answer of
+    # `ci-prerequisites` too.
+    needs: [ci-prerequisites, mutation]
     if: >-
       always()
       && ( ( github.event.action == 'labeled' && github.event.label.name == 'landung' )
            || ( ( github.event.action == 'synchronize' || github.event.action == 'reopened' )
                 && contains(github.event.pull_request.labels.*.name, 'landung') ) )
+      && needs.ci-prerequisites.outputs.queue != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
