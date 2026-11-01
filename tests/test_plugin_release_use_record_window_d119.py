@@ -210,6 +210,60 @@ def test_a_clock_set_back_between_the_choice_and_the_step_of_the_hook_writes_no_
     assert out.release["genutzt"] is False and not (data / gate.RELEASES_USED).exists()
 
 
+def _copy(release: dict, at: float) -> dict:
+    """The same release (card, sha256, session) issued again with a later answer."""
+    return {**release, "antwort": _stamp(0, at), "zeit": at}
+
+
+def test_a_copy_with_a_later_answer_of_a_release_whose_use_was_dropped_is_refused(data):
+    """Follow-up note 28, the first test (external review of the draft, K9): the identity of a release (card, sha256,
+    session) holds no answer time, its window does. Release X is used, its use is dropped once past its window, and a
+    copy of X with a new answer time must be refused: a copy never extends the first use. RED at 7042a57d: the copy
+    was taken."""
+    answered = float(int(time.time()))
+    environ = {"CLAUDE_PLUGIN_DATA": str(data)}
+    x = _release("OA-0000000000", "a", answered + 30)
+    assert gate._release_take(x, environ, answered) is True
+    _seed(data, {**_record(data), **_others(gate.MAX_RELEASES_USED - 1, 0, answered)})
+    later = answered + PAST + 1
+    assert gate._release_take(_release("OA-2000000000", "c", later + 30), environ, later) is True
+    assert not gate._release_used(x, _record(data))
+    assert gate._release_take(_copy(x, later), environ, later) is False
+
+
+def test_a_copy_is_refused_after_its_use_was_pushed_out_by_releases_spread_over_more_than_15_minutes(data):
+    """Follow-up note 28, the second test: 1100 other releases, each used, one each second from the use of X on, so over
+    more than RELEASE_SECONDS + RELEASE_SKEW_SECONDS; the record drops the use of X along the way. A copy of X answered
+    at the end must be refused. RED at 7042a57d: the copy was taken."""
+    answered = float(int(time.time())) - 1200
+    environ = {"CLAUDE_PLUGIN_DATA": str(data)}
+    x = _release("OA-0000000000", "a", answered + 30)
+    assert gate._release_take(x, environ, answered) is True
+    refused = [i for i in range(1, 1101)
+               if not gate._release_take(_release(f"OA-3{i:09x}", "d", answered + i + 30), environ, answered + i)]
+    assert refused == []
+    end = answered + 1100
+    assert end - answered > PAST and not gate._release_used(x, _record(data))
+    assert gate._release_take(_copy(x, end), environ, end) is False
+
+
+def test_a_use_that_would_carry_the_record_past_its_byte_bound_is_not_written(data):
+    """The first reading (line 3, P2): a record below MAX_RELEASES_USED_BYTES with one long key took a new use, and the
+    hook wrote a record past the bound, which it then could not read: every later release was refused. The record the
+    hook writes stays readable, so where the new use would carry it past the bound, the use is not written. RED at
+    7042a57d: the use was written and the record no longer read."""
+    now = time.time()
+    path = data / gate.RELEASES_USED
+    body = {"schema": gate.RELEASES_USED_SCHEMA, "genutzt": {"x": _stamp(60, now)}}
+    filler = gate.MAX_RELEASES_USED_BYTES - len(json.dumps(body)) - 40
+    body["genutzt"] = {"x" * filler: _stamp(60, now)}
+    path.write_text(json.dumps(body), encoding="utf-8")
+    before = path.read_bytes()
+    assert gate.MAX_RELEASES_USED_BYTES - 200 < len(before) <= gate.MAX_RELEASES_USED_BYTES
+    assert gate._release_take(_release("OA-2000000000", "c", now), {"CLAUDE_PLUGIN_DATA": str(data)}, now) is False
+    assert path.read_bytes() == before and len(gate._releases_record(str(data))[0]) == 1
+
+
 def test_a_record_whose_time_of_the_dropped_uses_does_not_read_takes_no_use(data):
     """RED at 2908b8e3: the record's other names were not read, and the release was taken."""
     now = time.time()
