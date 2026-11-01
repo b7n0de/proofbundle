@@ -13,7 +13,8 @@ readers of v0.2; `url` in URI form only, never fetched.
 
 A producer writes no statement its own verifier refuses: `export_svr_dsse` refuses a `time_created`,
 `to_test_result_statement` a `url` and `to_eval_result_predicate` a claim timestamp that is not in that form.
-Every statement a released version wrote has these forms, so it keeps verifying.
+The 14 bundled eval-result v0.1 corpus statements have these forms and keep verifying. An earlier exporter took these
+values from its caller unchecked, so a statement it wrote from a nonconforming value no longer verifies.
 """
 from __future__ import annotations
 
@@ -237,7 +238,7 @@ class Controls(unittest.TestCase):
         res = I.verify_intoto_dsse(env, _pub())
         self.assertIs(res["ok"], True, res["content_root_detail"])
 
-    def test_every_statement_a_released_version_wrote_still_verifies(self):
+    def test_every_bundled_eval_result_v01_corpus_statement_still_verifies(self):
         corpus = json.loads(_G2_CORPUS.read_text(encoding="utf-8"))
         public = base64.b64decode(corpus["public_key_b64"])
         self.assertEqual(len(corpus["entries"]), 14)
