@@ -186,6 +186,25 @@ def test_the_step_of_the_hook_keeps_its_answer_at_a_full_record(env):
     assert (data / gate.RELEASES_USED).read_bytes() == before
 
 
+def test_no_use_judged_past_belongs_to_a_release_that_still_binds():
+    """The window as an oracle of its own, not the gate's code: a release answered at a whole second A (the fetcher's
+    stamp) is used at u with A - RELEASE_SKEW_SECONDS <= u <= A + RELEASE_SECONDS (_autonomy_release), the use is
+    written in whole seconds (time.strftime), and at no later now where _release_use_past judges that use past does the
+    release still bind. Fractions of a second in u and now, uses at both ends of the window."""
+    answered = 1_793_000_000
+    for step in range(0, 4 * (gate.RELEASE_SKEW_SECONDS + gate.RELEASE_SECONDS) + 1, 7):
+        used = answered - gate.RELEASE_SKEW_SECONDS + step / 4 + 0.999 * (step % 2)
+        if used > answered + gate.RELEASE_SECONDS:
+            continue
+        stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(used))
+        for later in (0.0, 0.25, 0.5, 0.999, 1.0, 1.5):
+            for now in (answered + gate.RELEASE_SECONDS + later - 1, answered + gate.RELEASE_SECONDS + later,
+                        used + PAST + later - 1, used + PAST + later):
+                binds = answered - gate.RELEASE_SKEW_SECONDS <= now <= answered + gate.RELEASE_SECONDS
+                assert not (binds and gate._release_use_past(stamp, now)), (used, stamp, now)
+    assert gate._release_use_past(_stamp(PAST + 1, float(answered)), float(answered))
+
+
 def test_control_below_the_capacity_no_use_is_dropped(data):
     now = time.time()
     target, new = _release("OA-0000000000", "a", now), _release("OA-2000000000", "c", now)
