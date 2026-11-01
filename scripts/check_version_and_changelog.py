@@ -471,8 +471,9 @@ def _source_version(repo: Path) -> tuple[str | None, str]:
 
 
 def _changelog_headings(repo: Path) -> list[str]:
-    # Every `## [x.y.z]` or `## [Unreleased]` heading, in file order.
-    return re.findall(r"(?m)^##\s*\[([^\]]+)\]", _read(repo / "CHANGELOG.md"))
+    # Every `## [x.y.z]` or `## [Unreleased]` heading, in file order. An ATX heading needs a space or a tab after its
+    # hashes; `\s` would also take U+2028 or a no-break space, and `*` no space at all (fifth reading of 2026-11-01).
+    return re.findall(r"(?m)^##[ \t]+\[([^\]]+)\]", _read(repo / "CHANGELOG.md"))
 
 
 def check_changelog_opening(repo: Path, version: str) -> list[str]:
@@ -491,7 +492,7 @@ def check_changelog_opening(repo: Path, version: str) -> list[str]:
     """
     # CommonMark ends a line at LF, CR or CRLF only; str.splitlines also splits at U+2028, U+2029 and U+0085.
     zeilen = re.split(r"\r\n|\r|\n", _read(repo / "CHANGELOG.md"))
-    kopf = re.compile(r"^##\s*\[" + re.escape(version) + r"\]")
+    kopf = re.compile(r"^##[ \t]+\[" + re.escape(version) + r"\]")   # the same heading as `_changelog_headings`
     verdeckt = _lines_in_code_or_comments(zeilen)
     starts = [i for i, zeile in enumerate(zeilen) if i not in verdeckt and kopf.match(zeile)]
     if not starts:
