@@ -5806,10 +5806,12 @@ record keeps the newest time of a use it dropped (verworfen_bis) and refuses a r
 RELEASE_SKEW_SECONDS after it, as that release's use may be one it dropped; so a clock set back into the window of a
 release whose use was dropped does not free it again (a Codex pre-run of the reading found that case), and under a clock
 that only moves forward no such release binds any more when it is asked. A time of the dropped uses that does not read
-makes the record one that does not read whole. Below the capacity no use is dropped, and MAX_RELEASES_USED_BYTES stays
-the second bound: the longest record the hook writes stays below it. Not changed: a card the fetcher writes again with a
-later answer binds again once the record has dropped its use, which it does now only past that window and only at the
-capacity; and code an interpreter runs can still remove the record (D111, O44-2).
+makes the record one that does not read whole. The gate chooses a release by the same test the record writes it by
+(_release_free), so a release refused by that time hides no other release of the same line that binds. Below the
+capacity no use is dropped, and MAX_RELEASES_USED_BYTES stays the second bound: the longest record the hook writes stays
+below it. Not changed: a card the fetcher writes again with a later answer binds again once the record has dropped its
+use, which it does now only past that window and only at the capacity; and code an interpreter runs can still remove the
+record (D111, O44-2).
 
 ## D120. The own doors the gate held nowhere are house rule H5, a deny no card opens (O49-1, 2026-10-24)
 
