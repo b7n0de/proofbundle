@@ -2,7 +2,7 @@
 """check_version_and_changelog.py — release-integrity gate for proofbundle.
 
 Closes the "merged but never released / version drift" class (the M2 security fix and the 811-vs-817
-typo both sat unreleased on main because nothing enforced this). Six checks:
+typo both sat unreleased on main because nothing enforced this). Seven checks:
 
   1. VERSION SINGLE-SOURCING: pyproject.toml, src/proofbundle/__init__.py and CITATION.cff MUST agree.
   2. CHANGELOG DOCUMENTS THE VERSION: the current version has a `## [<version>]` section in CHANGELOG.md.
@@ -19,6 +19,9 @@ typo both sat unreleased on main because nothing enforced this). Six checks:
      declare; a new sentence that starts claiming the current release is invisible to it, and the
      place nobody declared is exactly the one that goes stale. Historical forms ("since X.Y.Z",
      "as of X.Y.Z") do not match — only claim shapes that mean "this is the current release".
+  7. VERSION-BOUND LINKS: a README link that names an artefact of the release (its audit directory,
+     its residual-risk record, its pre-tag receipt, its release scope) names the artefact of the
+     source version, in the part of the link the tag does not carry (see `_VERSIONSGEBUNDENE_VERWEISE`).
 
 EVERY NUMBER NAMES ITS OBJECT AND ITS SOURCE. Not "version 0.49.1" but "markdownlint-cli 0.49.1,
 read from package.json". A bare number is real and still says nothing: on 2026-08-07 a single day
@@ -251,6 +254,38 @@ _TRACKED_PLACES = [
      re.compile(_REPO_HOST + r"b7n0de/proofbundle/releases/tag/v?" + _SEMVER + _REF_ENDE,
                 re.IGNORECASE),
      "every link to a release tag of this project"),
+]
+
+# Check 7 — README links that name an artefact OF the release, in a part of the link the tag does not
+# carry. Check 4 keeps every tag `vX.Y.Z` in README.md current; the same links name the audit directory
+# and the residual-risk record by the release's short number (640 for 6.4.0), the pre-tag receipt by
+# both, and the release scope by its file name. The dry run of 6.5.0 (finding K5) raised every tag and
+# left `audit_artifacts/640/README.md`, `RESTRISIKO_640.md` and `docs/release_scope/6.4.0.md` behind
+# them, and the gate stayed green: the front page would have sent a reader to the audit of the previous
+# release under the tag of the new one.
+#
+# Each entry: (description, pattern, the role of each capture group in order). A role "kurz" is
+# compared with the short number of the source version, "version" with the source version itself.
+# THE EARLIER RISK RECORD IS NOT HERE: it names the previous release on purpose. A form that is absent
+# is no finding, because the synthetic trees of this gate's tests carry none of them;
+# tests/test_the_readme_links_name_the_artefacts_of_the_release.py holds the real README to carrying
+# each form, so a reworded link is noticed rather than unwatched.
+_VERSIONSGEBUNDENE_VERWEISE = [
+    ("the audit link `[Audit status and limits](…/audit_artifacts/NNN/README.md)`",
+     re.compile(r"\[Audit status and limits\]\([^)\s]*/audit_artifacts/([0-9]+)/README\.md\)",
+                re.IGNORECASE),
+     ("kurz",)),
+    ("the risk record `[Known limitations for X.Y.Z](…/RESTRISIKO_NNN.md)` or `[Residual risks for …]`",
+     re.compile(r"\[(?:Known limitations|Residual risks) for v?" + _SEMVER
+                + r"\]\([^)\s]*/RESTRISIKO_([0-9]+)\.md\)", re.IGNORECASE),
+     ("version", "kurz")),
+    ("the pre-tag receipt `audit_artifacts/NNN/pre_tag_receipt_vX.Y.Z.json`",
+     re.compile(r"audit_artifacts/([0-9]+)/pre_tag_receipt_v" + _SEMVER + r"\.json"),
+     ("kurz", "version")),
+    ("the release-scope link `[Release scope](…/docs/release_scope/X.Y.Z.md)` or `[Deferred work]`",
+     re.compile(r"\[(?:Release scope|Deferred work)\]\([^)\s]*/docs/release_scope/" + _SEMVER + r"\.md",
+                re.IGNORECASE),
+     ("version",)),
 ]
 
 # Check 6 — shapes that mean "this IS the current release". Deliberately narrow: "since X.Y.Z" and
@@ -596,9 +631,34 @@ def check(repo: Path, nicht_gemessen: list[tuple[int, str]] | None = None) -> li
 
     # 4. Tracked prose places state the current version
     # 6. Places that state a current version without being declared
+    # 7. README links name the artefacts of the current version
     if version:
         problems.extend(check_tracked_places(repo, version, herkunft))
         problems.extend(check_undeclared_places(repo, nicht_gemessen=nicht_gemessen))
+        problems.extend(check_version_bound_links(repo, version, herkunft))
+    return problems
+
+
+def check_version_bound_links(repo: Path, version: str, herkunft: str = "the source file") -> list[str]:
+    """Every README link of `_VERSIONSGEBUNDENE_VERWEISE` names the artefact of `version`.
+
+    The short number is read from the three release numbers of the version (`6.4.0` gives `640`), the
+    form the audit directories and the residual-risk records of this repository carry."""
+    text = _read(repo / "README.md")
+    kern = re.match(r"([0-9]+)\.([0-9]+)\.([0-9]+)", version)
+    if not text or not kern:
+        return []
+    soll = {"kurz": "".join(kern.groups()), "version": version}
+    problems: list[str] = []
+    for beschreibung, muster, rollen in _VERSIONSGEBUNDENE_VERWEISE:
+        for treffer in muster.finditer(text):
+            for rolle, wert in zip(rollen, treffer.groups()):
+                if wert != soll[rolle]:
+                    nr = text.count("\n", 0, treffer.start()) + 1
+                    problems.append(
+                        f"README.md:{nr}: {beschreibung} names {wert!r}, but the source version is "
+                        f"{version}, read from {herkunft}, so it names {soll[rolle]!r}. The tag of the "
+                        f"link moves with the release; this part of it has to move with it.")
     return problems
 
 
@@ -992,7 +1052,8 @@ def main() -> int:
     # 6 as passed when they had been skipped, and a reader of the summary takes it as the verdict.
     offen_nr = {nr for nr, _ in intern_offen}
     teile = ["single-sourced across pyproject.toml/__init__.py/CITATION.cff",
-             "tracked places current", "changelog carries the section"]
+             "tracked places current", "changelog carries the section",
+             "README links name the artefacts of this version"]
     if 3 not in offen_nr:
         teile.append("no undelivered post-tag drift")
     if 6 not in offen_nr:
