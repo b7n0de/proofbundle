@@ -160,6 +160,49 @@ class DecisionVerifyBindsTheEvidenceGiven(unittest.TestCase):
         self.assertIs(bindung["ok"], True)
         self.assertEqual(json.loads(out)["evidence_levels"]["evidenceRefs"]["level_name"], "CONTENT_RESOLVED")
 
+    # ── the aggregate verdict (review of PR 465, P1): a consumer of the JSON reads `ok` and `automation` ──────────
+
+    def _policy(self) -> str:
+        """The strict example policy with this test's signer as the one trusted decision maker, so `policy_ok` is
+        true and only the binding can keep the receipt from an automation release."""
+        policy = json.loads((EXAMPLES / "trust_policy_decision_strict.json").read_text(encoding="utf-8"))
+        maker = _pred()["decisionMaker"]["id"]
+        policy["decision_receipt"]["trusted_decision_makers"] = [{"id": maker, "public_key_b64": self.pub}]
+        return self._schreibe("policy.json", policy)
+
+    def _failed_bindings(self):
+        return (("wrong digest", self._receipt("e" * 64, name="wrong.json"), [self.evidence]),
+                ("extra file", self._receipt(self.root, name="extra.json"), [self.evidence, self._fremd()]))
+
+    def test_red_first_a_failed_binding_is_no_ok_in_the_json_report(self) -> None:
+        for fall, receipt, files in self._failed_bindings():
+            for extra in ((), ("--policy", self._policy())):
+                with self.subTest(case=fall, policy=bool(extra)):
+                    rc, out, _ = self._verify(receipt, *[a for f in files for a in ("--evidence", f)], *extra, "--json")
+                    self.assertEqual(rc, 1)
+                    report = json.loads(out)
+                    self.assertIs(report["evidence_files"]["ok"], False)
+                    self.assertIs(report["ok"], False)
+                    auto = report["automation"]
+                    self.assertIs(auto["safeForAutomation"], False)
+                    self.assertIs(auto["referencesResolved"], False)
+                    self.assertIn("REFERENCES_NOT_RESOLVED", auto["automationBlockers"])
+                    self.assertIn("RECEIPT_NOT_OK", auto["automationBlockers"])
+
+    def test_control_the_policy_makes_the_bound_receipt_safe_for_automation(self) -> None:
+        """The case above can fall: under the same policy the bound receipt is released, and the receipt of the wrong
+        digest WITHOUT --evidence is released too, which is the gap the binding closes."""
+        policy = self._policy()
+        rc, out, err = self._verify(self._receipt(self.root, name="bound.json"), "--evidence", self.evidence,
+                                    "--policy", policy, "--json")
+        self.assertEqual(rc, 0, (out, err))
+        report = json.loads(out)
+        self.assertIs(report["ok"], True)
+        self.assertIs(report["automation"]["safeForAutomation"], True)
+        rc, out, err = self._verify(self._receipt("e" * 64, name="unchecked.json"), "--policy", policy, "--json")
+        self.assertEqual(rc, 0, (out, err))
+        self.assertIs(json.loads(out)["automation"]["safeForAutomation"], True)
+
     # ── controls ────────────────────────────────────────────────────────────────────────────────────────
 
     def test_control_without_the_option_the_json_report_is_unchanged(self) -> None:

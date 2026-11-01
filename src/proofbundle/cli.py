@@ -2637,6 +2637,25 @@ def _bind_evidence(refs: list, files: list) -> dict:
             "entries": eintraege, "unbound_files": ungebunden, "files": len(files)}
 
 
+def _fold_evidence_binding(result: dict, bindung) -> None:
+    """A binding that `--evidence` asked for and that failed is part of the aggregate verdict, not only of the exit
+    code (review of PR 465, P1: the JSON report kept the library's `ok` true and `automation.safeForAutomation` true
+    under a policy that pinned the signer). As the library's own late blockers do, this only ever ADDS: `ok` and
+    `safeForAutomation` turn false, `referencesResolved` false, with the blockers `automation_summary` gives an
+    unresolved reference and a receipt that is not ok. A binding that held lifts nothing."""
+    if bindung is None or bindung["ok"] is True:
+        return
+    result["ok"] = False
+    auto = result.get("automation")
+    if isinstance(auto, dict):
+        blocker = auto.setdefault("automationBlockers", [])
+        for code in ("REFERENCES_NOT_RESOLVED", "RECEIPT_NOT_OK"):
+            if code not in blocker:
+                blocker.append(code)
+        auto["referencesResolved"] = False
+        auto["safeForAutomation"] = False
+
+
 def _cmd_decision_verify(args: argparse.Namespace) -> int:
     import hashlib  # noqa: PLC0415
     from .decision import verify_decision_receipt  # noqa: PLC0415
@@ -2744,6 +2763,7 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         _refs = (_evidence_refs_of(env) if result["crypto_ok"] is True and result["structure_ok"] is True
                  else None)
         bindung = None if belege is None or _refs is None else _bind_evidence(_refs, belege)
+        _fold_evidence_binding(result, bindung)
     except (ProofBundleError, OSError, ValueError) as exc:
         _err(exc)
         return 2
