@@ -24,10 +24,12 @@ WHAT THIS HOLDS, each with a counter-example it fails on:
      the full matrix (round three, P1: a fork's one-leg run is not the release matrix). The script's
      verdict is measured as a program.
   7. With the merge queue on for the base branch, the label starts nothing and turns nothing red: coverage
-     runs in the queue and no longer on the pull request, so the waiter could only fail, and the mutation
-     layer runs every night (ci.yml, schedule). `ci-prerequisites` reads that with the same reader as ci.yml,
-     scripts/merge_queue_state.py, and says so in a notice; the layer and its collector stay away (the reading
-     of the head 37137a9d of pull request 462, P1, and the owner's answer A on card OA-75a1805115).
+     runs in the queue and no longer on the pull request, and the mutation layer runs every night (ci.yml,
+     schedule). landung.yml does not ask the rules itself; the waiter reads the answer from the ci.yml run of
+     the head, where a skipped coverage beside a green collector is `queue`, says so in a notice, and the layer
+     and its collector stay away (the reading of the head 37137a9d of pull request 462, P1, and the owner's
+     answer A on card OA-75a1805115; the reading of b5203121, P1: a second reading of the rules at another time
+     could answer otherwise than ci.yml did).
 """
 from __future__ import annotations
 
@@ -230,29 +232,25 @@ def test_die_schicht_wartet_auf_test_und_coverage_desselben_kopfes():
     assert (WF / s.CI_WORKFLOW).is_file()
 
 
-def test_mit_der_warteschlange_wartet_die_vorbedingung_nicht_und_meldet_es():
-    """Point 7. `ci-prerequisites` asks the reader first; the waiter runs only when the queue is off, a notice
-    says why nothing starts when it is on, and the job hands the answer to the layer and its collector."""
+def test_mit_der_warteschlange_reicht_der_warter_die_antwort_des_ci_laufs_weiter():
+    """Point 7. The waiter always runs, without a condition, and the job hands its `queue` on to the layer and its
+    collector; the waiter's own notice says why nothing starts."""
     job = _lade("landung.yml")["jobs"][VORBEDINGUNG]
     schritte = job.get("steps") or []
-    leser = [i for i, s in enumerate(schritte) if QUEUE_LESER in str(s.get("run", ""))]
-    warter = [i for i, s in enumerate(schritte) if "scripts/landung_waits_for_ci.py" in str(s.get("run", ""))]
-    assert len(leser) == 1 and len(warter) == 1 and leser[0] < warter[0], (leser, warter)
-    assert schritte[leser[0]].get("id") == "queue"
-    assert (schritte[leser[0]].get("env") or {}).get("BRANCH") == "${{ github.event.pull_request.base.ref }}"
-    assert " ".join(str(schritte[warter[0]].get("if")).split()) == "steps.queue.outputs.required != 'true'"
-    hinweis = [s for s in schritte if " ".join(str(s.get("if")).split()) == "steps.queue.outputs.required == 'true'"]
-    assert len(hinweis) == 1 and "::notice" in str(hinweis[0].get("run")), hinweis
-    assert job.get("outputs", {}).get("queue") == "${{ steps.queue.outputs.required }}"
+    warter = [s for s in schritte if "scripts/landung_waits_for_ci.py" in str(s.get("run", ""))]
+    assert len(warter) == 1 and warter[0].get("id") == "wait" and "if" not in warter[0], warter
+    assert job.get("outputs", {}).get("queue") == "${{ steps.wait.outputs.queue }}"
 
 
-def test_ci_yml_und_landung_yml_lesen_die_warteschlange_mit_demselben_skript():
-    """One question, one reader: two readers that disagree would let coverage wait in one workflow and the layer
-    start in the other."""
-    for datei in ("ci.yml", "landung.yml"):
-        laeufe = [s for j in _lade(datei)["jobs"].values() for s in j.get("steps") or []
-                  if QUEUE_LESER in str(s.get("run", ""))]
-        assert len(laeufe) == 1, (datei, laeufe)
+def test_nur_ci_yml_fragt_die_regeln_landung_yml_liest_die_antwort_des_laufs():
+    """One observation, not two (the reading of b5203121, P1): landung.yml asking the rules again could read a
+    read error as off while ci.yml had read on, and then wait for a coverage that never ran. ci.yml asks once;
+    landung.yml reads that run."""
+    def leser(datei):
+        return [s for j in _lade(datei)["jobs"].values() for s in j.get("steps") or []
+                if QUEUE_LESER in str(s.get("run", ""))]
+    assert len(leser("ci.yml")) == 1, leser("ci.yml")
+    assert leser("landung.yml") == [], "landung.yml asks the rules itself, a second observation"
     assert (REPO / QUEUE_LESER).is_file(), QUEUE_LESER
 
 
@@ -290,6 +288,18 @@ GRUEN = [_job("test (3.10)"), _job("test (3.14)"), _job("coverage"), _job("all-c
     # the collector is created only after test and coverage finished
     ([_job("test (3.10)"), _job("coverage")], "in_progress", "wait"),
     ([_job("test (3.10)"), _job("coverage")], "completed", "red"),
+    # point 7: a skipped coverage beside a green collector is that run's reading of the merge queue
+    ([_job("test (3.10)"), _job("coverage", conclusion="skipped"), _job("all-checks-passed")], "completed", "queue"),
+    # ... but only with the collector green, which accepts the skip only when the run read the queue as on
+    ([_job("test (3.10)"), _job("coverage", conclusion="skipped"), _job("all-checks-passed", conclusion="failure")],
+     "completed", "red"),
+    ([_job("test (3.10)"), _job("coverage", conclusion="skipped")], "in_progress", "wait"),
+    ([_job("test (3.10)"), _job("coverage", conclusion="skipped")], "completed", "red"),
+    # ... and a red leg stays red
+    ([_job("test (3.10)", conclusion="failure"), _job("coverage", conclusion="skipped"), _job("all-checks-passed")],
+     "completed", "red"),
+    # a skipped leg of test is no reading of the queue
+    ([_job("test (3.10)", conclusion="skipped"), _job("coverage"), _job("all-checks-passed")], "completed", "red"),
 ])
 def test_das_urteil_des_skripts(jobs, lauf, erwartet):
     assert _skript().judge(jobs, lauf)[0] == erwartet
@@ -335,6 +345,30 @@ def test_das_skript_wartet_bis_der_lauf_erscheint_und_urteilt_dann():
     api = _FalscheApi([[], [], [LAUF]], GRUEN)
     assert _skript().main(fetch=api.fetch, sleep=api.sleep, clock=lambda: api.uhr, env=ENV) == 0
     assert api.schlaf == 2
+
+
+QUEUE_LAUF = [_job("test (3.10)"), _job("coverage", conclusion="skipped"), _job("all-checks-passed")]
+
+
+def test_mit_der_warteschlange_schreibt_das_skript_queue_und_endet_mit_0(tmp_path):
+    """Point 7, as a program: the answer of the ci.yml run reaches GITHUB_OUTPUT, where the layer reads it."""
+    aus = tmp_path / "output"
+    api = _FalscheApi([[LAUF]], QUEUE_LAUF)
+    rc = _skript().main(fetch=api.fetch, sleep=api.sleep, clock=lambda: api.uhr, env=dict(ENV, GITHUB_OUTPUT=str(aus)))
+    assert rc == 0 and aus.read_text(encoding="utf-8") == "queue=true\n"
+    # the control: a green run writes no queue, so the layer starts
+    aus2 = tmp_path / "output2"
+    api = _FalscheApi([[LAUF]], GRUEN)
+    rc = _skript().main(fetch=api.fetch, sleep=api.sleep, clock=lambda: api.uhr, env=dict(ENV, GITHUB_OUTPUT=str(aus2)))
+    assert rc == 0 and not aus2.exists()
+
+
+def test_ein_queue_das_nicht_geschrieben_werden_kann_ist_rot(tmp_path):
+    """An empty output reads as `queue != 'true'` and would start the layer; red keeps it away."""
+    api = _FalscheApi([[LAUF]], QUEUE_LAUF)
+    for env in (dict(ENV, GITHUB_OUTPUT=str(tmp_path)), dict(ENV)):
+        assert _skript().main(fetch=api.fetch, sleep=api.sleep, clock=lambda: api.uhr, env=env) == 1
+        api = _FalscheApi([[LAUF]], QUEUE_LAUF)
 
 
 def test_das_skript_wird_rot_wenn_kein_lauf_erscheint():
