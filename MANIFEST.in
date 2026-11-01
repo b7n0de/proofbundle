@@ -151,6 +151,13 @@ include Makefile
 # `tests/test_ein_label_startet_keine_ci.py` also reads `.github/workflows/`, which this list prunes,
 # so `tests/conftest.py` skips that module outside a checkout.
 #
+# OUT, and deliberately decided (2026-10-25): scripts/quarantine_time_caps.py. It reports every test
+# with a fixed time cap in seconds against `.github/test_quarantine.json`, which `prune .github` keeps out
+# of the package; inside a package it would have no list to report against. The quarantine itself,
+# `tests/_quarantine.py`, ships with the tests and finds no list there, so nothing is quarantined. The
+# contract `tests/test_quarantine.py` reads both through root-relative paths, so `tests/conftest.py`
+# skips that module outside a checkout.
+#
 # OUT, and deliberately decided (2026-09-28): scripts/b7_pr_form_gate.py. It judges the milestone
 # and the description of one pull request of this repository from the event payload the runner
 # writes, and `.github/workflows/pr-form.yml` runs it on every pull request. An installed package

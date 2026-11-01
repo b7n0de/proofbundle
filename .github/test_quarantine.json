@@ -1,0 +1,22 @@
+{
+  "_comment": [
+    "THE QUARANTINE LIST, read by tests/_quarantine.py on every pytest run of this repository and reported against by",
+    "scripts/quarantine_time_caps.py. A listed test keeps running and reports, but does not block, through its deadline",
+    "(UTC); from the next day it blocks again. No test is skipped and none is deleted.",
+    "Each entry: test (a pytest node id; without a parameter id it covers every parameter), reason, deadline",
+    "(YYYY-MM-DD), owner. A missing field, another field, a malformed date or a test listed twice stops the run.",
+    "The first entries, 2026-10-25: the two time caps the owner named in Nachtrag 7 of card",
+    "CLOUD-640-BESCHLEUNIGER-AUF-MAIN-01, until their deadline or until a fix of the cap lands, whichever comes first.",
+    "The fix of the cap of tests/test_c12_1_nicht_anwendbar_vor_dem_tag.py landed on main on 2026-10-31 (68d3f020,",
+    "timeout=900), and its four entries left the list; tests/test_quarantine.py holds that every entry names the cap",
+    "the tree carries."
+  ],
+  "quarantine": [
+    {
+      "test": "tests/test_budget_kostenkurve.py::TestObergrenzeAmGroesstenZugelassenenWert::test_kosten_am_limit_unter_der_obergrenze[renewal_work]",
+      "reason": "The cost at the limit is asserted against achsen x GRENZE_S (1.0 s) x the machine factor (`assert k <= latte`). The owner named the cost curve of renewal_work under 3.14 on 2026-10-25 (Nachtrag 7 of card CLOUD-640-BESCHLEUNIGER-AUF-MAIN-01). The entry ends with its deadline, and from the next day the test blocks again whether or not its cap has changed.",
+      "deadline": "2026-11-08",
+      "owner": "b7n0de"
+    }
+  ]
+}
