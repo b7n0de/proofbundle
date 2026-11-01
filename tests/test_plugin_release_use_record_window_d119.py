@@ -152,6 +152,29 @@ def test_a_dropped_use_does_not_let_its_release_act_again_when_the_clock_goes_ba
     assert gate._release_take(_release("OA-2100000000", "f", later + 30), environ, later) is True
 
 
+@pytest.mark.parametrize("take", [True, False], ids=["the use written before the pass", "the use written by the step"])
+def test_a_release_the_record_refuses_by_its_dropped_uses_does_not_hide_another_that_binds(env, take):
+    """A Codex pre-run of the reading: with the clock set back, a release whose use the record dropped fits again and
+    comes first; the gate chose it, the record refused it, and the other release of the same line, answered after the
+    dropped uses, was never tried. RED at 32d7005a: nothing was released."""
+    answered = int(time.time())
+    data = pathlib.Path(os.environ["CLAUDE_PLUGIN_DATA"])
+    command = d119.FREED[1]
+    folder = env / "gatedir" / "freigaben"
+    folder.mkdir(parents=True)
+    for name, card, at in (("a.json", "OA-00000000aa", answered), ("b.json", "OA-00000000bb", answered + 90)):
+        (folder / name).write_text(json.dumps({"schema": d111.SCHEMA, "karte": card, "sitzung": SESSION,
+                                               "sha256": gate.command_sha256(command), "antwort": _stamp(0, at)}))
+    (data / gate.RELEASES_USED).write_text(json.dumps({"schema": gate.RELEASES_USED_SCHEMA, "genutzt": {},
+                                                       "verworfen_bis": _stamp(0, answered)}), encoding="utf-8")
+    out = gate._autonomy_release(gate.Outcome("deny", "", []), command, d119._settle_env(), answered + 90, take=take)
+    assert out is not None and out.decision == "pass" and out.release["freigabe"]["karte"] == "OA-00000000bb"
+    if not take:
+        answer, _asked = gate.release_settle({"tool_name": "Bash"}, out, d119._settle_env())
+        assert answer.decision == "pass" and out.release["genutzt"] is True
+    assert list(_record(data)) == [f"OA-00000000bb:{gate.command_sha256(command)}:{SESSION}"]
+
+
 def test_a_record_whose_time_of_the_dropped_uses_does_not_read_takes_no_use(data):
     """RED at 2908b8e3: the record's other names were not read, and the release was taken."""
     now = time.time()
