@@ -29,8 +29,10 @@ counts as a cap too; the report shows its line.
 
 OUTPUT. One block per test with a cap: its node id, each cap (line, kind, seconds, the function it stands in) and its
 place on the list (in force through the deadline, expired, or NOT ON THE LIST); then every entry of the list that
-names no test function of the tree. Exit 0 with the report; 1 when the list is malformed or an entry names no test
-function of the tree; 2 on a usage error.
+names no test function of the tree, every expired entry, and every entry with a parameter id that pytest does not
+collect for its function. Exit 0 with the report; 1 when the list is malformed, an entry names no test function of
+the tree, an entry has expired, an entry's parameter id names no collected case, or the cases of such a function
+cannot be collected; 2 on a usage error.
 
 Usage: quarantine_time_caps.py [--tree <dir>] [--list <file>] [--today YYYY-MM-DD] [--json]
 """
@@ -259,6 +261,27 @@ def all_test_functions(tree: Path) -> set[str]:
     return out
 
 
+def collected_cases(tree: Path, functions: list[str]) -> tuple[set[str], list[str]]:
+    """The node ids pytest collects in `tree` for each of the test functions named, and the functions whose collection
+    could not be read. A parameter id is what pytest makes of the arguments at collection, so it is read from a
+    collection of the function, not from its source."""
+    import subprocess  # noqa: PLC0415
+    cases: set[str] = set()
+    unread: list[str] = []
+    for fn in sorted(set(functions)):
+        try:
+            r = subprocess.run([sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider", fn],
+                               cwd=tree, capture_output=True, text=True, timeout=600)
+        except (OSError, subprocess.SubprocessError) as exc:
+            unread.append(f"{fn} ({type(exc).__name__})")
+            continue
+        found = {ln.strip() for ln in r.stdout.splitlines() if ln.strip().startswith(fn + "[")}
+        if r.returncode != 0 or not found:
+            unread.append(f"{fn} (pytest --collect-only rc {r.returncode}, {len(found)} parametrized cases)")
+        cases |= found
+    return cases, unread
+
+
 def check(tree: Path, list_file: Path, today: dt.date) -> tuple[dict, int]:
     q = _quarantine_module(tree)
     try:
@@ -281,11 +304,21 @@ def check(tree: Path, list_file: Path, today: dt.date) -> tuple[dict, int]:
                   f" (owner {e.owner})" for e in listed] or ["NOT ON THE LIST"])
         rows.append({"test": nodeid, "caps": caps[nodeid], "list": place})
     ghosts = [e.test for e in entries if e.test.split("[")[0] not in functions]
+    # AN EXPIRED ENTRY IS RED (the reading of 8ec67d5a, P1): past its deadline it marks nothing, a passing test leaves
+    # the run green, and the entry would stay on the list unseen. Red here stops the job `test` until it leaves.
+    expired = [f"{e.test} (expired on {e.deadline}, owner {e.owner})" for e in entries if not e.in_force(today)]
+    # A PARAMETER ID IS CHECKED AGAINST THE COLLECTED CASES (the reading of 8ec67d5a, P2): by the function name alone
+    # a typo in the id passed while the plugin covered no test.
+    parametrized = [e.test for e in entries if "[" in e.test and e.test.split("[")[0] in functions]
+    cases, unread = collected_cases(tree, [t.split("[")[0] for t in parametrized]) if parametrized else (set(), [])
     report = {"tree": str(tree), "list": str(list_file), "today": today.isoformat(), "tests_with_a_cap": rows,
               "listed_without_a_cap": [e.test for e in entries
                                        if e.test.split("[")[0] in functions and e.test.split("[")[0] not in caps],
-              "entries_naming_no_test": ghosts}
-    return report, (1 if ghosts else 0)
+              "entries_naming_no_test": ghosts, "entries_expired": expired,
+              "entries_naming_no_collected_case": [t for t in parametrized if t not in cases],
+              "collection_not_readable": unread}
+    red = ghosts or expired or report["entries_naming_no_collected_case"] or unread
+    return report, (1 if red else 0)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -316,6 +349,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"listed, but no time cap found: {t}")
     for t in report["entries_naming_no_test"]:
         print(f"LISTED, BUT NO SUCH TEST FUNCTION IN THE TREE: {t}")
+    for t in report["entries_expired"]:
+        print(f"EXPIRED, IT BLOCKS UNTIL IT LEAVES THE LIST: {t}")
+    for t in report["entries_naming_no_collected_case"]:
+        print(f"LISTED, BUT PYTEST COLLECTS NO SUCH CASE: {t}")
+    for t in report["collection_not_readable"]:
+        print(f"NOT MEASURABLE, THE CASES OF THIS FUNCTION COULD NOT BE COLLECTED: {t}")
     return rc
 
 

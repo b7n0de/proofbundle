@@ -388,8 +388,9 @@ jobs:
         if: matrix.part == 1
         run: python scripts/doc_link_check.py
       # THE QUARANTINE (2026-10-25): every test with a fixed time cap in seconds, and whether it stands on
-      # .github/test_quarantine.json, which tests/_quarantine.py reads on every pytest run below. Red only when
-      # the list is malformed or names a test that does not exist; the report itself blocks nothing.
+      # .github/test_quarantine.json, which tests/_quarantine.py reads on every pytest run below. Red when the
+      # list is malformed, names a test that does not exist or a parameter pytest does not collect, or holds an
+      # expired entry, which stops this job until the entry leaves the list; the report itself blocks nothing.
       # Once per version, in part 1, like the other checks that are not the suite.
       - name: Time caps and the quarantine list
         if: matrix.part == 1
