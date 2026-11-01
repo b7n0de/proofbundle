@@ -1,5 +1,5 @@
 {
-  "description": "Guard Preview hooks for Claude Code. The public configuration starts the base decision path without the combined autonomous flag. Recognized git and gh shell forms can check declared evidence. Supported MCP write tools ask because their target and bytes are unbound; local evidence is diagnostic only. Recognized configuration and hook writes receive a base ask. An explicitly enabled house autonomous adapter can change base answers; it grants no standing authorization as a public default. Unrecognized code-carried operations and unresolved write targets can receive no decision. Level 1 is not a security boundary. The installed git pre-push hook is a separate, bypassable check. Host behaviour after a hook timeout is not measured.",
+  "description": "Guard Preview hooks for Claude Code. The public configuration starts the base decision path without the combined autonomous flag. Recognized git and gh shell forms can check declared evidence. Supported MCP write tools ask because their target and bytes are unbound; local evidence is diagnostic only. Recognized configuration and hook writes receive a base ask. An explicitly enabled house autonomous adapter can change base answers; it grants no standing authorization as a public default. Unrecognized code-carried operations and unresolved write targets can receive no decision. Level 1 is not a security boundary. The installed git pre-push hook is a separate, bypassable check. Host behaviour after a hook timeout is not measured. The Stop and TaskCompleted hooks run the done check of a declaring repository, and a SessionStart hook hands an open done blocker on (D127). A Read or Grep of a key file is denied (D102). The PostToolUse hooks count a session's open pull requests (D110) and, with the house's flag, the answered asks (D94).",
   "hooks": {
     "PreToolUse": [
       {
@@ -124,6 +124,17 @@
           {
             "type": "command",
             "command": "out=$(python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py\" task-completed) || { echo 'proofbundle done check: the check could not run, so the task stays open' >&2; exit 2; }; if [ -n \"$out\" ]; then printf '%s\\n' \"$out\" >&2; exit 2; fi",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py\" session-start || printf '%s\\n' '{\"systemMessage\": \"proofbundle done check: the hand-over could not run, so an open blocker was not handed on; the done check at Stop is unchanged (D127).\"}'",
             "timeout": 120
           }
         ]
