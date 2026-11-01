@@ -1872,8 +1872,13 @@ jobs:
                 # OA-0f65aa76aa). It cannot need itself; what it must need are the legs it stands
                 # for, and that set is the workflow's own EXPECTED line, measured elsewhere in this
                 # file (TestTheCollectorJob). Here: the legs are needed, and nothing else is.
-                self.assertEqual(needs, {"test", "coverage"},
-                                 "the collector stands for exactly the test and coverage legs")
+                # SINCE THE THREE STAGES it also stands for the language gate and the title gate, which
+                # a pull request must pass before the queue (tests/test_ci_three_stages.py), and it reads
+                # whether the merge queue is on from the job merge-queue-state.
+                self.assertEqual(needs, {"test", "coverage", "new-lines-english", "release-scope-title",
+                                         "merge-queue-state"},
+                                 "the collector stands for the test and coverage legs, the two gates of a pull "
+                                 "request and the reader of the merge queue")
                 continue
             self.assertIn(job_id, needs, f"required context {k!r} is produced by job {job_id!r}, "
                                           f"which the collector does not need")
@@ -1913,15 +1918,25 @@ class TestTheCollectorScript(unittest.TestCase):
         assert "python3 -" in kopf and body.strip(), "the collector step is not the heredoc this test expects"
         return body
 
-    def _run(self, needs: dict, full: str, event: str):
+    #: The stage of each event, as ci.yml's workflow-level env CI_STAGE gives it (tests/test_ci_three_stages.py).
+    STAGE = {"pull_request": "pre-queue", "merge_group": "queue", "push": "queue", "schedule": "nightly",
+             "workflow_dispatch": "nightly"}
+
+    def _run(self, needs: dict, full: str, event: str, queue: str = "", stage: "str | None" = None):
         import os
         import subprocess
         r = subprocess.run([sys.executable, "-"], input=self._script(), capture_output=True, text=True,
-                           env={**os.environ, "NEEDS": json.dumps(needs), "FULL_MATRIX": full, "EVENT": event},
+                           env={**os.environ, "NEEDS": json.dumps(needs), "FULL_MATRIX": full, "EVENT": event,
+                                "CI_STAGE": self.STAGE.get(event, "") if stage is None else stage,
+                                "MERGE_QUEUE": queue},
                            timeout=60)
         return r.returncode, r.stdout
 
-    OK = {"test": {"result": "success"}, "coverage": {"result": "success"}}
+    OK = {"test": {"result": "success"}, "coverage": {"result": "success"},
+          "new-lines-english": {"result": "success"}, "release-scope-title": {"result": "success"},
+          "merge-queue-state": {"result": "success"}}
+    #: In the queue, on a push and at night the two gates of a pull request do not run.
+    WITHOUT_PR_GATES = {**OK, "new-lines-english": {"result": "skipped"}, "release-scope-title": {"result": "skipped"}}
 
     def test_all_success_on_the_full_matrix_passes(self):
         rc, out = self._run(self.OK, "true", "pull_request")
@@ -1935,9 +1950,12 @@ class TestTheCollectorScript(unittest.TestCase):
         self.assertIn("test=failure", out)
 
     def test_a_skipped_needed_job_is_red_because_skipped_reads_as_passed_elsewhere(self):
-        rc, out = self._run({**self.OK, "coverage": {"result": "skipped"}}, "true", "pull_request")
-        self.assertEqual(rc, 1)
-        self.assertIn("coverage=skipped", out)
+        """Before the queue while the merge queue is not required, and in the queue: coverage is the suite."""
+        for event, needs in (("pull_request", self.OK), ("merge_group", self.WITHOUT_PR_GATES)):
+            with self.subTest(event=event):
+                rc, out = self._run({**needs, "coverage": {"result": "skipped"}}, "true", event)
+                self.assertEqual(rc, 1, out)
+                self.assertIn("coverage=skipped", out)
 
     def test_the_fast_layer_on_a_pull_request_is_red_with_the_label_advice(self):
         rc, out = self._run(self.OK, "false", "pull_request")
@@ -1948,7 +1966,7 @@ class TestTheCollectorScript(unittest.TestCase):
         """LENS B, P1: the push after a merge runs the fast layer (the matrix condition has no
         push branch); the merged tree was tested on the full matrix by its pull request under the
         strict ruleset. Green with a notice, never red."""
-        rc, out = self._run(self.OK, "false", "push")
+        rc, out = self._run(self.WITHOUT_PR_GATES, "false", "push")
         self.assertEqual(rc, 0, out)
         self.assertIn("::notice", out)
         self.assertIn("push to main", out)
@@ -1960,6 +1978,64 @@ class TestTheCollectorScript(unittest.TestCase):
         self.assertIn("not the declared", out)
         rc, out = self._run({**self.OK, "extra": {"result": "success"}}, "true", "pull_request")
         self.assertEqual(rc, 1, out)
+
+    # ── three stages (tests/test_ci_three_stages.py holds the workflow side) ──────────────────────
+
+    def test_the_gates_of_a_pull_request_must_pass_before_the_queue(self):
+        for gate in ("new-lines-english", "release-scope-title"):
+            for result in ("failure", "skipped", "cancelled"):
+                with self.subTest(gate=gate, result=result):
+                    rc, out = self._run({**self.OK, gate: {"result": result}}, "true", "pull_request")
+                    self.assertEqual(rc, 1, out)
+                    self.assertIn(f"{gate}={result}", out)
+
+    def test_with_the_merge_queue_on_coverage_may_wait_for_the_queue(self):
+        """The answer of the job merge-queue-state (scripts/merge_queue_state.py), not a variable: only `true`
+        lets coverage wait (the reading of the head 37137a9d of pull request 462, P1)."""
+        rc, out = self._run({**self.OK, "coverage": {"result": "skipped"}}, "true", "pull_request", "true")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("coverage waits for the merge queue", out)
+        rc, out = self._run({**self.OK, "coverage": {"result": "failure"}}, "true", "pull_request", "true")
+        self.assertEqual(rc, 1, "a coverage run that happened must pass, queue or not")
+        for answer in ("", "false", "required", "yes"):
+            with self.subTest(answer=answer):
+                rc, out = self._run({**self.OK, "coverage": {"result": "skipped"}}, "true", "pull_request", answer)
+                self.assertEqual(rc, 1, f"only the answer `true` lets coverage wait for the queue, not {answer!r}")
+
+    def test_the_queue_lets_nothing_wait_in_the_queue_or_at_night(self):
+        for event in ("merge_group", "push", "schedule"):
+            with self.subTest(event=event):
+                rc, out = self._run({**self.WITHOUT_PR_GATES, "coverage": {"result": "skipped"}}, "true", event,
+                                    "true")
+                self.assertEqual(rc, 1, out)
+
+    def test_a_reader_of_the_queue_that_did_not_succeed_is_red(self):
+        """The reader always ends with exit 0; a failed or skipped job means it never ran, and the collector does
+        not judge a stage whose queue state it was not told."""
+        for result in ("failure", "skipped", "cancelled"):
+            with self.subTest(result=result):
+                rc, out = self._run({**self.OK, "merge-queue-state": {"result": result}}, "true", "pull_request")
+                self.assertEqual(rc, 1, out)
+                self.assertIn(f"merge-queue-state={result}", out)
+
+    def test_the_queue_is_green_without_the_gates_of_a_pull_request(self):
+        rc, out = self._run(self.WITHOUT_PR_GATES, "true", "merge_group")
+        self.assertEqual(rc, 0, out)
+        rc, out = self._run({**self.WITHOUT_PR_GATES, "test": {"result": "failure"}}, "true", "merge_group")
+        self.assertEqual(rc, 1, out)
+
+    def test_at_night_one_interpreter_is_not_five(self):
+        rc, out = self._run(self.WITHOUT_PR_GATES, "false", "schedule")
+        self.assertEqual(rc, 1, out)
+        rc, out = self._run(self.WITHOUT_PR_GATES, "true", "schedule")
+        self.assertEqual(rc, 0, out)
+
+    def test_no_verdict_without_a_stage(self):
+        for stage in ("", "pre_queue", "Queue"):
+            with self.subTest(stage=stage):
+                rc, out = self._run(self.OK, "true", "pull_request", stage=stage)
+                self.assertEqual(rc, 1, out)
+                self.assertIn("unknown stage", out)
 
     def test_the_expected_key_set_equals_the_needs_line(self):
         """Two copies of one list, held together: the `needs:` of the job and the EXPECTED set in

@@ -7,8 +7,8 @@ name: Landung
 # cancels a running pull_request run, so every label set on a pull request cancelled its CI and
 # started a full one (measured 2026-09-28 09:28Z and 09:40Z, about 55 minutes each). The one thing
 # that has to start the moment `landung` is set, the mutation layer, runs here instead. Its other
-# ways in (workflow_dispatch, a release/ branch, the merge queue) stay in ci.yml, behind test and
-# coverage.
+# ways in (workflow_dispatch, a release/ branch, and the nightly schedule, which replaced the merge
+# queue with the three stages of ci.yml) stay in ci.yml, behind test and coverage.
 #
 # WHY THE JOBS CARRY A CONDITION HERE, and why that is not the fail-open the owner word rules out.
 # GitHub reports a job skipped by a condition as success, so a skipped REQUIRED check on a head could
@@ -24,6 +24,14 @@ name: Landung
 # reach into another workflow, so the job `ci-prerequisites` waits for them in the ci.yml run of the
 # head and fails unless they succeeded, and `mutation` needs that job (Codex on pull request 310,
 # round two, P1: without it a push to a labelled candidate started 36 shards beside CI).
+#
+# WITH THE MERGE QUEUE ON, THE LABEL STARTS NOTHING (the reading of the head 37137a9d of pull request 462,
+# P1, and the owner's answer A on card OA-75a1805115). `coverage` then runs in the queue and no longer on the
+# pull request, and the layer runs every night (ci.yml, schedule). This workflow does not ask the rules
+# itself: a second reading at another time could answer otherwise than ci.yml did (the reading of b5203121,
+# P1). The waiter reads the answer from the ci.yml run of the head, where a skipped `coverage` beside a green
+# collector means that run read the queue as on, says so in a notice, and the layer and its collector stay
+# away (scripts/landung_waits_for_ci.py, WITH THE MERGE QUEUE ON).
 
 on:
   pull_request:
@@ -53,9 +61,10 @@ jobs:
   ci-prerequisites:
     # The `needs: [test, coverage]` of ci.yml's mutation job, across the two workflows: it waits for
     # those jobs and for the collector `all-checks-passed`, which judges the full matrix, in the
-    # latest ci.yml run of this head, and fails unless all of them succeeded
-    # (scripts/landung_waits_for_ci.py says how, and why each outcome is what it is). It carries the
-    # layer's predicate, so it runs exactly when the layer would, and holds one runner, not 36.
+    # latest ci.yml run of this head, and fails unless all of them succeeded or that run skipped
+    # coverage for the merge queue, which it hands on as `queue` (scripts/landung_waits_for_ci.py says
+    # how, and why each outcome is what it is). It carries the layer's predicate, so it runs exactly
+    # when the layer would, and holds one runner, not 36.
     if: >-
       ( github.event.action == 'labeled' && github.event.label.name == 'landung' )
       || ( ( github.event.action == 'synchronize' || github.event.action == 'reopened' )
@@ -69,9 +78,12 @@ jobs:
     permissions:
       actions: read
       contents: read
+    outputs:
+      queue: ${{ steps.wait.outputs.queue }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - name: Wait for test and coverage of ci.yml on this head
+        id: wait
         env:
           GITHUB_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -87,9 +99,10 @@ jobs:
     # it is removed and not for any other label. Only after test and coverage of that head succeeded.
     needs: [ci-prerequisites]
     if: >-
-      ( github.event.action == 'labeled' && github.event.label.name == 'landung' )
-      || ( ( github.event.action == 'synchronize' || github.event.action == 'reopened' )
-           && contains(github.event.pull_request.labels.*.name, 'landung') )
+      ( ( github.event.action == 'labeled' && github.event.label.name == 'landung' )
+        || ( ( github.event.action == 'synchronize' || github.event.action == 'reopened' )
+             && contains(github.event.pull_request.labels.*.name, 'landung') ) )
+      && needs.ci-prerequisites.outputs.queue != 'true'
     # Anti-Goodhart gate (v1.3): the suite must KILL broken implementations, not just be green.
     # Differential vs the baseline; documented-equivalent mutants must keep surviving.
     #
@@ -232,12 +245,15 @@ jobs:
     # Fail-closed collector of the shards, the same as in ci.yml. It carries the SAME predicate as the
     # producer, for the reason written at the job in ci.yml: with always() alone it would run and turn
     # red on every event on which the layer is meant to stay away.
-    needs: [mutation]
+    # With the merge queue on it stays away with the layer (the head of this file), so it needs the answer of
+    # `ci-prerequisites` too.
+    needs: [ci-prerequisites, mutation]
     if: >-
       always()
       && ( ( github.event.action == 'labeled' && github.event.label.name == 'landung' )
            || ( ( github.event.action == 'synchronize' || github.event.action == 'reopened' )
                 && contains(github.event.pull_request.labels.*.name, 'landung') ) )
+      && needs.ci-prerequisites.outputs.queue != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
