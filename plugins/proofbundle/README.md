@@ -104,7 +104,11 @@ data command and a comment without git or gh are text, every git and gh step get
 answer is free asks after a step that may change the state, `git add` and `git commit -m` are free as the whole
 command or as steps of a plain chain of `&&` and `;` (owner choice of 2026-10-14, D33), a step after a `cd` keeps the
 answer above, a push stays its own only as the first step, a Bash write
-into the configuration or a hook asks like a file-tool write, and code that names git or gh asks at least; every form
+into the configuration or a hook asks like a file-tool write, and recognized interpreter -c arguments, unknown-program
+arguments, the body of a quoted here-document to python3 - and a script file a step runs by its literal path that name
+git or gh receive a base ask or deny (D126). Code that builds the word at run time, code a script loads or starts from
+elsewhere, a script found through PATH, after a cd or behind an option or a wrapper, and a file over 1 MiB can receive
+no gate decision even when their code pushes. Level 1 does not inspect arbitrary executed code; every form
 the parser does not model keeps the answer above. **The former free list for local git commands has been removed** (review round 9, owner
 choice B, 2026-10-03; D3; wording of review round 10, R10-3). Those forms are NOT MEASURED, asked under
 Claude Code and denied under Codex. Only the exact bare command text `git --version` is exempt from
@@ -517,9 +521,10 @@ python3 <plugin folder>/hooks/proofbundle_gate.py done-order --repo <clone> [--d
 
 It reads the done section and the policy (from the clone's `.proofbundle/` or from the files named), writes the order
 to `done-orders/` in the gate directory with the gate's record of its digest, and adds the receipts and the hook's own
-files to the clone's `info/exclude`. The Stop and TaskCompleted hooks then judge that clone at every end, whatever
-directory the session runs in, and an order that changed since it was written blocks. `done-order --list` shows every
-order, `done-order --remove --repo <clone>` removes one, `--replace` makes it again.
+files to the clone's `info/exclude`. Where the hooks' environment sets `PROOFBUNDLE_OWNER_STATE=protected` (D128), the
+Stop and TaskCompleted hooks then judge that clone at every end, whatever directory the session runs in, and an order
+that changed since it was written blocks; without it no hook reads a local order. `done-order --list` shows every order,
+`done-order --remove --repo <clone>` removes one, `--replace` makes it again.
 
 ### As an in-toto Statement
 
