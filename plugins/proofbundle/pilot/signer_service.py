@@ -43,7 +43,10 @@ service signed ALLOW for it; the service writes no use of the hook's, and keeps 
 signed ALLOW for, freigaben-geehrt.json beside its journal, each once. Remembered release keys are not evicted.
 At 4096 remembered releases, a new release gets no signature (release_record_full). The record is written and synced
 before the signature leaves; one it cannot read or write gives no signature (release_record_unread,
-release_record_unwritable), and a release already honoured gives none either (release_honoured).
+release_record_unwritable), and a release already honoured gives none either (release_honoured). Nor does a release an
+archive of a rotated record names (honoured-releases/ of the records, D131): an archive folder or file another account
+owns or may write, or a link, gives no signature at all (release_archive_unsafe), one that does not read whole none
+either (release_record_unread).
 
     signer_service.py --config FILE            decide the request on stdin, have it signed or refuse
 
@@ -67,6 +70,7 @@ import importlib.util
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import tempfile
@@ -81,6 +85,9 @@ CONFIG_OPTIONAL = frozenset({"autonomous"})
 HONOURED = "freigaben-geehrt.json"
 HONOURED_SCHEMA = "proofbundle/pilot-releases-honoured/v1"
 MAX_HONOURED = 4096
+#: D131: the folder of the records the operator rotates a full record into; each file there is an archive of the
+#: record, and the service honours none of its releases again (owner answer A on card OA-ed9c1b5288).
+ARCHIVE = "honoured-releases"
 #: The exit status of a refusal; the gate reads the one reason name on stdout (its PILOT_SIGNER_REFUSES).
 REFUSED = 3
 #: How far a decidedAt may lie after the service's own clock: the two clocks are the same machine's.
@@ -292,7 +299,7 @@ def judge(config: dict, request: object, now_ns: int, started: float, note: dict
     deadline = started + gate.PILOT_SIGNER_SECONDS - MARGIN_SECONDS
     autonomous = config.get("autonomous") is True
     action, key, verdict, reasons, cwd = decide(gate, request, deadline, autonomous,
-                                                honoured(config) if autonomous else {}, held)
+                                                {**archived(config), **honoured(config)} if autonomous else {}, held)
     note.update(surface=action["surface"], verdict=verdict)
     if matched.group(1) != gate._pilot_action_id(pilot, action, key):
         raise Refused("action_differs")
@@ -353,15 +360,59 @@ def honoured(config: dict) -> dict:
         return {}
     except (OSError, ValueError) as exc:
         raise Refused("release_record_unread") from exc
+    return _geehrt(data)
+
+
+def _geehrt(data: object) -> dict:
+    """The releases a record of HONOURED_SCHEMA names; Refused where it is none."""
     if not isinstance(data, dict) or data.get("schema") != HONOURED_SCHEMA or not isinstance(data.get("geehrt"), dict):
         raise Refused("release_record_unread")
     return dict(data["geehrt"])
 
 
+def _kept_by_root_or_us(st: os.stat_result, kind) -> bool:
+    """A folder or file of the kind, no link, that only root or the service's account owns and no other may write (as
+    key_signer.py checks its export folder)."""
+    return kind(st.st_mode) and st.st_uid in (0, os.geteuid()) and not st.st_mode & 0o022
+
+
+def archived(config: dict) -> dict:
+    """D131: the releases of every archive the operator rotated into honoured-releases/ of the records, {key: time}, so
+    that a release the service signed ALLOW for before a rotation stays honoured (owner answer A on card
+    OA-ed9c1b5288). A folder lstat does not find is no archive; any later error of the reading is no empty archive.
+    The folder and each file in it must be root's or the service's account's, written by no other account, and no
+    link: Refused("release_archive_unsafe") otherwise, as an account that may write there could take a release out; a
+    file that does not read whole as a record is Refused("release_record_unread")."""
+    folder = os.path.join(config["records"], ARCHIVE)
+    try:
+        own = os.lstat(folder)
+    except FileNotFoundError:
+        return {}
+    except OSError as exc:
+        raise Refused("release_record_unread") from exc
+    if not _kept_by_root_or_us(own, stat.S_ISDIR):
+        raise Refused("release_archive_unsafe")
+    try:
+        names = sorted(os.listdir(folder))
+    except OSError as exc:   # gone after lstat found it too: a read that failed, never an empty archive
+        raise Refused("release_record_unread") from exc
+    found: dict = {}
+    for name in names:
+        path = os.path.join(folder, name)
+        try:
+            if not _kept_by_root_or_us(os.lstat(path), stat.S_ISREG):
+                raise Refused("release_archive_unsafe")
+            data = _read_json(path)
+        except (OSError, ValueError) as exc:
+            raise Refused("release_record_unread") from exc
+        found.update(_geehrt(data))
+    return found
+
+
 def honour(config: dict, release: dict) -> None:
     """D119: write that the service signed ALLOW for this release, under a lock and synced to the disk, before the
-    signature leaves; Refused where the record names it already (a second request meanwhile), holds MAX_HONOURED
-    releases (release_record_full, no key is evicted) or cannot be written."""
+    signature leaves; Refused where the record or an archive (D131) names it already (a second request meanwhile),
+    holds MAX_HONOURED releases (release_record_full, no key is evicted) or cannot be written."""
     folder = os.path.dirname(config["journal"])
     try:
         os.makedirs(folder, exist_ok=True)
@@ -370,7 +421,7 @@ def honour(config: dict, release: dict) -> None:
         try:
             fcntl.flock(lock, fcntl.LOCK_EX)
             done = honoured(config)
-            if _release_key(release) in done:
+            if _release_key(release) in done or _release_key(release) in archived(config):
                 raise Refused("release_honoured")
             if len(done) >= MAX_HONOURED:
                 raise Refused("release_record_full")

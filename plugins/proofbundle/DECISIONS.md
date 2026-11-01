@@ -4154,6 +4154,10 @@ away.
 Tests: tests/test_plugin_n29_work_profile_d71.py; tests/test_plugin_n20_short_line.py knows free_work_profile as a
 pass.
 
+Addendum (D130, 2026-10-26): "under Claude Code only" now reads "under Claude Code, in the gate started with
+--autonomous only". Owner answer 10 of Nachtrag 7 puts D71 behind the house's opt-in: since D125 the public hook
+commands carry no flag, and without it every form of D71 keeps the answer the gate gives without D71.
+
 ## D72. The short line names the step that decides (2026-10-18)
 
 Account A's review of the real mishaps from 2026-09-27 to 2026-10-18 at 0efaf38d: of 13 mishaps the gate sees before Bash it
@@ -4732,6 +4736,10 @@ of the branch refs/remotes/<remote>/HEAD names. The pass shows one line to the u
 as a call a rule frees does (D25); the log keeps the ask of decide() as the verdict. A chain, a step of a chain, a push
 under Codex and every push that misses one condition keep their answer. Nothing else gets freer. Tests:
 tests/test_plugin_n35_work_branch_go_d87.py.
+
+Addendum (D129, 2026-10-26): the GO no longer comes with --autonomous alone. Since D129 it applies only where the hook's
+environment also sets PROOFBUNDLE_STANDING_GO to `protected`, the house's separate consent to it (owner answer 9 of
+Nachtrag 7); without it the push keeps the answer of the closed list of D85.
 
 ## D88. Owner clicks, detours, catches and blocks, in the log and the bilanz (2026-10-18)
 
@@ -5751,9 +5759,10 @@ The rule:
   signed ALLOW for, freigaben-geehrt.json beside its journal, each once (O44-1 b), written and synced under a lock
   before the signature leaves: a release named there frees nothing again, so a second call and a request rebuilt after
   the use get no ALLOW. The service's names for its record of the releases: release_honoured, release_record_unread,
-  release_record_unwritable, release_record_full. Remembered release keys are not evicted; at 4096 remembered
-  releases, the service refuses new releases. Without the setting the service decides without the autonomous answer
-  and signs no release: under it a release lets nothing run (A0).
+  release_record_unwritable, release_record_full, release_archive_unsafe. Remembered release keys are not evicted; at
+  4096 remembered releases, the service refuses new releases, and a release an archive of a rotated record names it
+  honours no more either (D131). Without the setting the service decides without the autonomous answer and signs no
+  release: under it a release lets nothing run (A0).
 - The binding (point 2): a release frees exactly the line whose words as written have its sha256, in its session, from
   its answer on for RELEASE_SECONDS, and once per card: the use is keyed by card, sha256 and session, no longer by the
   time of the answer as well, so a card the fetcher writes twice frees once (a key of D111 counts too). A changed line
@@ -6349,3 +6358,205 @@ may still make a new order with done-order, which O2 leaves free. The default ke
 directory, and a session can replace it: the gate never reads it, it names its path, and a receipt it signs verifies
 only where the policy the done check reads pins its public key (the one at HEAD, a reviewed commit; with the setting,
 also the policy an order carries). pilot.json is read as before (D124). A real Claude Code or Codex host: NOT MEASURED.
+
+## D129. The standing GO of D87 needs a consent of its own beside --autonomous (owner answer 9 of Nachtrag 7, 2026-10-26)
+
+Owner answer 9 of Nachtrag 7 (2026-10-26, option B), translated: "House configuration D125: B, D87 split off, its GO
+needs its own protected consent." D125 took --autonomous out of the public hook commands and made the flag the house's
+opt-in; started with it, the gate still switched on the standing GO of D87 (free_work_branch_go, _autonomy_go) together
+with the rest of the autonomous answer of D85, and the last paragraph of D125 named the gap: a protected, explicit
+consent channel for the standing GO of D87 does not exist. Owner answer 5 of the same day: the protected channel is to
+be a record signed with a key outside the session, which the house builds; until then a setting of the hook's
+environment, documented as no protection. The order of the slice: the red test first, with no code, then the rule.
+
+Measured at f21f785d (tests/test_plugin_standing_go_consent_d129.py; the repository, the hook environment and the seven
+work-branch pushes of tests/test_plugin_n35_work_branch_go_d87.py, the gate started with --autonomous): 21 of 38 cases
+red on Python 3.12 and 3.14. Each of the seven pushes passed with free_work_branch_go (klasse go) with no consent stated,
+with PROOFBUNDLE_OWNER_STATE=protected of D124 and without it (14); so did `git push origin claude/x` with
+PROOFBUNDLE_STANDING_GO set to an empty value, `1`, `yes`, `Protected` or `protected ` (5); the gate had no reader of such
+a setting (1); and decide() of the signer service with the operator's `"autonomous": true` (D119) gave ALLOW for the push
+without the setting in its environment (1). The 17 controls were green there and are green here: the seven pushes with
+the setting, with and without the owner state setting, pass as before; the gate without the flag and the gate under
+Codex give the same answer with the setting as without it; the service with the setting gives ALLOW.
+
+The rule:
+
+- In the autonomous answer under Claude Code, the standing GO of D87, as D92 widened it, frees a push only where the
+  hook's environment sets PROOFBUNDLE_STANDING_GO (STANDING_GO_VARIABLE) to exactly `protected` (STANDING_GO_PROTECTED).
+  _autonomy_go reads it before every other condition (_standing_go_consented) and without it gives None, so the push
+  keeps the answer the closed list of D85 gives a push that no standing GO covers: an ask, and in the work profile of
+  b7n0de a card of D93 (autonomy_card), which a release can free once as D111 and D119 say, where the owner state is
+  read (D124). A push a rewrite of D85 names is judged by the same path (_autonomy_judge), so without the setting it
+  counts there as an external effect (read in the code, not measured).
+- The setting is the house's consent to the standing GO alone. It stands beside --autonomous, the house's opt-in to the
+  autonomous answer (D125), and beside PROOFBUNDLE_OWNER_STATE (D124), which is no consent to the GO. Only the GO of D87
+  reads it; every other part of the autonomous answer (D85, D86, D88, D91, the edit of D92, D93, D106, D111, D114, D115,
+  D119) answers as before. Without the flag and under Codex it changes no answer.
+- As with D124, the setting is the house's statement and no protection (owner answer 5): the gate does not check who set
+  it, and whoever starts the hook with an environment of their own can set it. The protected channel the answer asks for
+  is a record signed with a key outside the session, which the house builds; the gate reads no such record yet.
+- The signer service (pilot/signer_service.py) decides in the `environment` of its configuration (D58, D119), never in
+  the agent's. With the operator's `"autonomous": true` it frees the push under the standing GO only where that
+  environment sets the same value (its decide() measured above). Where the hooks state the consent and the service's
+  environment does not, the service's verdict differs from the hook's (verdict_differs), it signs no receipt, and the
+  hook's answer stands (D55); a push that then arrives counts under M5 (D113). That refusal is read in the code, as
+  O28B-1 measures it for a service without `"autonomous": true`. The service's code is unchanged.
+
+Changed tests: tests/_standing_go.py gives the setting through an autouse fixture, in the style of tests/_owner_state.py,
+to tests/test_plugin_n35_work_branch_go_d87.py and tests/test_plugin_n37_machine_check_d92.py (whose hooks carry it from
+the case's environment) and to tests/test_plugin_n37_mutants_n35.py (M92b, so that the missing record of the remote's
+HEAD is what keeps the ask); tests/test_plugin_n33_fallbook.py (GO1) and tests/test_plugin_n43_window_note_o28b1.py (the
+GO push of O28B-1) state it in the environment they build. With the setting off, 16 cases of those modules fail at this
+rule: the seven pushes of D87, the seven of D92, GO1 for b7n0de under Claude Code and O28B-1; with it they pass as before.
+Found by a search for --autonomous, AUTONOMOUS_FLAG, free_work_branch_go and the fixtures of D87 and D92 over tests/,
+evals/ and pilot/: no other test relies on the GO (tests/test_plugin_public_hooks_without_autonomous_d125.py asserts its
+absence without the flag and is unchanged; the release tests of D119 push to a branch the GO does not cover); no eval
+starts the gate with --autonomous; the signer service is the place above.
+
+Not changed: the conditions of D87 and D92, the pass's text, its line and its receipt; D124 and D125, so no public hook
+command carries the flag or the setting; every answer under Codex and without the flag.
+
+Not covered, and named: the signed consent record of owner answer 5 does not exist and the gate reads none, so until the
+house builds it the setting keeps nobody out: any process that can set the hook's environment states the consent. The
+answer to a push without the consent gives the closed list's text ("a push to a branch that is no own work branch under
+the standing GO") and does not name the missing setting. No product text names the setting: the row of the autonomous
+answer in m0/PRODUCT_SPEC.md still lists the standing GO under `--autonomous`, and pilot/RUNBOOK.md does not say that
+the service's `environment` needs the setting beside `"autonomous": true`; the README and these texts are unchanged in
+this slice. How the house sets it on its own machines, and a real Claude Code host: NOT MEASURED.
+
+## D130. The work profile of D71 applies only in the gate started with --autonomous, the house's opt-in (owner answer 10 of Nachtrag 7, 2026-10-26)
+
+Owner answer 10 of Nachtrag 7 of 2026-10-26, option A: "D71 in the public default: A, in -4 behind the house's opt-in."
+The finding that prompted the question: D71 stood in the base decision path (_decide_judged calls _work_profile), so it
+applied without any flag, and since D125 the public hook commands carry none. A contributor's clone of a repository of
+b7n0de, one that declares and whose every remote is https://github.com/b7n0de/<repo>, got the owner's work profile in
+the public default: the reads, the local changes that can be taken back and `gh pr merge --auto` of D71 passed without a
+question. D125 made the autonomous answer and the standing GO of D87 the house's opt-in; D71 is no part of the
+autonomous answer and stayed in the default.
+
+Measured at f21f785d (tests/test_plugin_work_profile_house_d130.py, Python 3.12.3 and 3.14.6): 11 of 30 cases red.
+Without the flag tool_outcome passed `git stash`, `git checkout topic`, `git commit --amend --no-edit`, `git tag -l`,
+`git bundle create <file> main`, `gh pr merge 12 -R b7n0de/proofbundle --auto --merge` and `gh pr edit 12 -R
+b7n0de/proofbundle --body text` with free_work_profile, where the base path without D71 asks (git_form_not_free for the
+git forms, net_unmodeled_git for the gh forms); an ask of `git commit --amend --no-edit` whose check found a pre-commit
+hook carried the note of D71 in its text; and the PreToolUse command of hooks/hooks.json, run as the host runs it, let
+`git stash`, `git checkout topic` and the `gh pr merge --auto` form pass without a word. The order's example `git commit
+-m work` is no form D71 frees in that repository: the state check of D3 frees it (free_after_state_check), with and
+without the flag, and it is a control.
+
+The rule: decide() takes autonomous, the hook's --autonomous as main hands it to tool_outcome (AUTONOMOUS_FLAG), and
+_decide_judged runs the step of D71 (_work_profile) only with it, in both judgments of D117. Without the flag every form
+D71 frees gets the answer decide() gives without D71: a deny stays a deny, an ask an ask, and the note of D71 in the
+text of an ask goes with it. With the flag D71 frees as before, ahead of the autonomous answer of D85; a call of a
+rewrite of D85 is judged by decide() with the flag (_autonomy_judge), as the gate started with it judges, so a chain of
+two gh forms of D71 still gets the rewrite into two free calls (umweg) and not the card of D93. Under Codex D71 never
+applied, with or without the flag. The signer service of the pilot decides with tool_outcome and its operator's
+"autonomous" (D119), so it frees a form of D71 only where the operator set it, as for the hook it decides for. An
+addendum at the end of D71 names the rule.
+
+Not changed: _work_profile, its forms (_work_form), the repositories it applies to (_work_repo_problem) and its checks;
+every other step of the base path; D87, D91, D92 and D93, which read the profile of D71 for themselves and apply only in
+the autonomous answer already; the hook commands of both manifests (D125); every answer under Codex, which never had
+D71. No product text names D71 as a default, so README.md and m0/PRODUCT_SPEC.md are unchanged.
+
+Changed tests, each where it tested what D71 frees, or the gate with the flag, through decide() or the hook started
+without it; at the fix without these changes 64 of their cases failed on Python 3.12:
+- tests/test_plugin_n29_work_profile_d71.py (49): _decide judges with autonomous, so do the case of the note of D71 in
+  an ask and, through it, the controls of the repositories, the counter cases and Codex; the hook of Claude Code in
+  test_D71_the_hook_as_the_host_runs_it starts with --autonomous, the one of Codex without, as its manifest does.
+- tests/test_plugin_n30_house_rules_d73.py (3): the counter cases and test_D73_a_house_rule_goes_before_D71 judge with
+  the flag (_house); `gh pr merge --auto` and `git tag -l` are counter cases there as forms D71 frees.
+- tests/test_plugin_n31_own_config_d74.py (6): the forms of D71 with the block of git-lfs, and the control of the forms
+  that bring another tree, judge with the flag; the control was green without it, but tested no D71 there.
+- tests/test_plugin_n37_local_class_d91.py (6, test_D91_control_d71_keeps_its_own_pass_in_b7n0de): answered, the
+  answer of the gate started with the flag (decide, then the autonomous answer), gives decide() the flag. The tests of
+  D106, D114 and D115, D117 and D124 that read answered judge with it as before.
+
+Green at the fix, on Python 3.12.3 and 3.14.6: tests/test_plugin_work_profile_house_d130.py, 30 of 30; and, one run per
+interpreter, the 46 test files that read D71, its tests' helpers or `_work_profile` (the grep of the tests for
+free_work_profile, the D71 module and _work_profile, 33 files), the short line of D72, the bundle reads of D99, the
+signer service and its release capacity, and the readers of DECISIONS.md, of the manifests and of the gate's source
+(decision numbers, D53, owner choice 1, the signer's texts, both plugin manifests, strict decoding, module names): 2769
+passed on each.
+
+Not covered, and named: the house configuration that starts the gate with the flag is no file of the plugin (D125), and
+how the house adds the flag on its own machines is not measured here. The flag is one switch: the house cannot have D71
+without the autonomous answer of D85 to D93, nor the reverse. In the public default the forms of D71 ask again under
+Claude Code (26 forms of account A's command heads in the measurement of D71); what that costs in asks outside the house
+is NOT MEASURED. The sentences of earlier decisions that call a form free under D71 (D73, D74, D76, D91, D92, D99) speak
+of the house configuration since this rule and are not changed. A real Claude Code host: NOT MEASURED.
+
+## D131. A full record of the signer service's releases is rotated by the operator, the service stopped (owner answer 7 of Nachtrag 7, 2026-10-26)
+
+Owner answer 7 of Nachtrag 7 (2026-10-26, option A), on finding S-F1 of the external review: "Signer at full capacity:
+A, a documented rotation by the owner (the record archived and emptied with the service stopped)." Since S-F1 (D119)
+the signer service evicts no release it remembers and refuses a new one at 4096 (release_record_full); the runbook named
+the name and no way on from it, and the slice of S-F1 named how an operator empties or rotates a full record as not
+measured. Measured at f21f785d (tests/test_plugin_signer_rotation_d131.py, Python 3.12.3 and 3.14.6): 6 of 9 cases
+red, the five of the runbook and the one of this entry, as the runbook has no rotation; the 3 cases of the code green,
+as the code supports the steps as the runbook now writes them.
+
+The rule (pilot/RUNBOOK.md, "The rotation of the service's record of releases"; the code is changed for the archives
+only, below):
+
+- The record is freigaben-geehrt.json in the folder of the service's journal, `{"schema":
+  "proofbundle/pilot-releases-honoured/v1", "geehrt": {"<card>:<sha256>:<session>": "<UTC time>"}}`, read by honoured
+  and written by honour. The service has no start and no stop of its own: the gate starts it once per request through
+  the sudo rule of the agent's user, and each start reads the record anew (judge for every request under
+  `"autonomous": true`, honour again under its lock). The runbook's stop is that rule removed and its start the rule
+  put back, the operator's configuration and no code of the plugin.
+- The steps, in this order: stop, archive, empty, start. Stop: the rule removed, and kept so until the newest time in
+  the record lies more than 16 minutes back: the service frees a release only where its answer lies at most
+  RELEASE_SKEW_SECONDS (60 s) after its clock and at most RELEASE_SECONDS (15 minutes) before it, and the record keeps
+  the time it wrote each release, after its decision, in whole seconds, so then no release it names binds with the
+  answer it had. A request that started before the stop does not change a full record: honour refuses before it writes
+  (the S-F1 test of the record byte for byte). Archive: `cp`, as root, into the records folder as
+  `<records folder>/honoured-releases/freigaben-geehrt-<UTC time of the rotation>.json`, in a folder owned by root,
+  mode 755, which neither the agent's user nor the deciding account writes. Empty: `rm` of the record. honoured reads a
+  record that is not there as empty (FileNotFoundError gives an empty record), and a file of zero bytes, `{}` or
+  another form as damaged: release_record_unread, raised in judge before the decision, so the service then signs
+  nothing at all. Start: the rule put back.
+- What the rotation means (owner answer A on card OA-ed9c1b5288, 2026-11-01; the first reading of this slice found
+  the second honouring of a release of the archive as a P1): a release the service signed ALLOW for is refused while
+  its record or an archive names it. archived reads every file in `<records folder>/honoured-releases/` as a record of
+  the same form, in judge before the decision and in honour again under its lock, so a release of the archive gets no
+  ALLOW again, also where a card the fetcher writes again with a later answer binds; the wait leaves none of the record
+  that binds with the answer it had. The folder and each file must be root's or the deciding account's, written by no
+  other account, a folder and regular files and no link (as key_signer.py checks its export folder): else
+  release_archive_unsafe, since an account that may write there could take a release out; a file that does not read
+  whole as a record gives release_record_unread. Either is raised in judge before the decision, so the service then
+  signs nothing at all, as with a damaged record. The reconciliation does not read the archive.
+
+Measured (tests/test_plugin_signer_rotation_d131.py, green at the fix on Python 3.12.3 and 3.14.6), end to end through
+the hook with --autonomous and the service with `"autonomous": true` and a plugin data directory of its own (A2 of
+D119), on a full record: a call without a release gets its receipt DENY; a release gets no signature
+(release_record_full in the service's journal, signer_refused_release_record_full in the gate's), the call stays
+blocked, the hook uses nothing and the record stays byte for byte. After the archive and the emptying as the runbook
+writes them, the next start signs ALLOW, the call runs once, the new record names that release alone, and the archive
+holds the full record byte for byte. On a record of zero bytes a call without a release gets no receipt
+(release_record_unread), and once the record is removed the same call gets its receipt DENY; `{}` and a record without
+`geehrt` read as damaged too. In fresh processes of the service, after the rotation a release of the archive is refused
+(release_honoured) and a new release is honoured; the new record names it alone and the archive stays byte for byte.
+End to end a release an archive names frees nothing: the call stays blocked, the hook uses nothing, and the service,
+asked to sign the ALLOW of a hook whose record of the uses does not name the release, signs nothing (verdict_differs,
+as for a release only the service's record names, A2 of D119); without that archive the same release lets the call run
+once. An archive folder another account may write stops every
+signature (release_archive_unsafe in the service's journal, signer_refused_release_archive_unsafe in the gate's). In
+fresh processes, a folder or a file others may write, a link in the place of either and a folder in the folder give
+release_archive_unsafe, and a file of zero bytes, `{}` or one without `geehrt` release_record_unread; in process, a
+folder another account owns gives release_archive_unsafe. At b0562e10, before the owner's answer, these 15 cases were
+red: the service honoured a release of the archive again and read an archive another account may write.
+
+Not changed: MAX_HONOURED, the reviewer's texts of S-F1 in signer_service.py and in D119, and the
+setup step of the runbook that names release_record_full; the hook's record of the uses (freigaben-genutzt.json, D111)
+is no part of the rotation. Found and named, not changed: release_record_full is raised after the key signer signed, as
+honour runs after the signature (D119); the key signer's journal holds a signed line for that request (measured) and
+the records hold no receipt for it, so the reconciliation counts it among the signed lines without a receipt and ends
+with KEY_JOURNAL_DISAGREES (read in reconcile.py, not run here); the runbook says so. Not covered, and named: the
+plugin ships no command for the rotation; the stop and the start as sudo rules of real accounts are NOT MEASURED; the
+wait rests on the service's clock and on the operator's reading of the record's newest time; during the stop each write
+the gate decides has no receipt and counts under M5 where it arrives, and a release lets nothing run; the deciding
+account can remove or rewrite its record at any time, as D119 says the record holds only under its account, and an
+archive shows only the rotations the operator made; a records folder without the sticky bit, which step 5 of the setup
+forbids, lets another account rename `honoured-releases/` away, and the service then reads no archive; each start reads
+every archive, so its time grows with the rotations (NOT MEASURED).
