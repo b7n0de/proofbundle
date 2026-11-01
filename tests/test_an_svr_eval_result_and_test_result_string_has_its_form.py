@@ -13,8 +13,9 @@ readers of v0.2; `url` in URI form only, never fetched.
 
 A producer writes no statement its own verifier refuses: `export_svr_dsse` refuses a `time_created`,
 `to_test_result_statement` a `url` and `to_eval_result_predicate` a claim timestamp that is not in that form.
-The 14 bundled eval-result v0.1 corpus statements have these forms and keep verifying. An earlier exporter took these
-values from its caller unchecked, so a statement it wrote from a nonconforming value no longer verifies.
+The 14 bundled eval-result v0.1 corpus statements have these forms and keep verifying. Earlier released exporters
+accepted caller-supplied `time_created`, claim timestamps, and test-result `url` values without validating these forms,
+so statements emitted with nonconforming values no longer verify.
 """
 from __future__ import annotations
 
