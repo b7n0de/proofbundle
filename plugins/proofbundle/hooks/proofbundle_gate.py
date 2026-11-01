@@ -18354,10 +18354,20 @@ def _write_releases_used(directory: str, used: dict) -> None:
     os.replace(tmp, os.path.join(directory, RELEASES_USED))
 
 
+def _release_use_past(stamp: object, now: float) -> bool:
+    """Whether a use the record keeps lies more than RELEASE_SECONDS + RELEASE_SKEW_SECONDS before now: a release is used
+    no earlier than RELEASE_SKEW_SECONDS before its answer and binds at most RELEASE_SECONDS after it, so no release binds
+    any more with the answer it had. A time that does not read is no such use."""
+    seconds = _ts_seconds(stamp) if isinstance(stamp, str) else None
+    return seconds is not None and seconds < now - RELEASE_SECONDS - RELEASE_SKEW_SECONDS
+
+
 def _release_take(release: dict, environ, now: float | None = None) -> bool:
     """D111, D119: write the use of a release to RELEASES_USED in the plugin data directory, under the lock of the
-    answer hook (D94); False where the record names it already, or where the gate cannot read or write the record:
-    then the release lets nothing run."""
+    answer hook (D94); False where the record names it already, where it is full, or where the gate cannot read or
+    write the record: then the release lets nothing run. At MAX_RELEASES_USED uses the record first drops the uses with
+    which no release binds any more (_release_use_past); where it is still full, it stays as it is (follow-up note 26
+    of 2026-11-01)."""
     data = environ.get("CLAUDE_PLUGIN_DATA")
     if not data or not os.path.isabs(data) or not os.path.isdir(data):
         return False
@@ -18368,9 +18378,11 @@ def _release_take(release: dict, environ, now: float | None = None) -> bool:
             used = _releases_used(data)
             if _release_used(release, used):
                 return False
+            if len(used) >= MAX_RELEASES_USED:
+                used = {key: stamp for key, stamp in used.items() if not _release_use_past(stamp, now)}
+                if len(used) >= MAX_RELEASES_USED:
+                    return False
             used[_release_key(release)] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))
-            while len(used) > MAX_RELEASES_USED:
-                used.pop(next(iter(used)))
             _write_releases_used(data, used)
     except (OSError, ValueError, UnicodeDecodeError, ImportError, AttributeError, SyntaxError):
         return False

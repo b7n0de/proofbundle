@@ -5793,6 +5793,20 @@ external review: 4095 old releases and one recent one, a new release refused, ac
 tests/test_plugin_n42_release_d111.py (a forced push is no longer released), tests/test_plugin_z405_signer_docs.py
 (the service's names for its record of the releases stand in D119).
 
+Addendum (owner choice of 2026-11-01, follow-up note 26 of KRAXO-MUSK-TEMPO-20261029-01): the hook's record of the
+releases used kept at most MAX_RELEASES_USED (1024) uses and past that dropped the use it held longest, whatever its
+time, so after 1024 other uses within the window of a release that release acted a second time (measured at ba8466d1,
+tests/test_plugin_release_use_record_window_d119.py: 9 of 12 cases red). Since then, at MAX_RELEASES_USED uses the
+record first drops the uses whose time lies more than RELEASE_SECONDS + RELEASE_SKEW_SECONDS back (_release_use_past): a
+release is used no earlier than RELEASE_SKEW_SECONDS before its answer and binds at most RELEASE_SECONDS after it, so
+none of them binds any more with the answer it had; a use whose time does not read is never dropped. Where the record is
+still full, the new release lets nothing run, its use is not written and the record stays as it is, as the signer
+service refuses a new release at its capacity (S-F1); release_settle names it as a use that could not be written. Below
+the capacity no use is dropped, and MAX_RELEASES_USED_BYTES stays the second bound: the longest record the hook writes
+stays below it. Not changed: a card the fetcher writes again with a later answer binds again once the record has dropped
+its use, which it does now only past that window and only at the capacity; and code an interpreter runs can still remove
+the record (D111, O44-2).
+
 ## D120. The own doors the gate held nowhere are house rule H5, a deny no card opens (O49-1, 2026-10-24)
 
 Owner choice A of 2026-10-24, 11:5x Berlin (O49-1, after follow-up note 49): the doors D119 names in its last limit go to the
