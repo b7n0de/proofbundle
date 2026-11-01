@@ -18334,6 +18334,14 @@ def _release_used(release: dict, used: dict) -> bool:
     return _release_key(release) in used or f"{_release_key(release)}:{release['antwort']}" in used
 
 
+def _release_free(release: dict, used: dict, dropped: int | None) -> bool:
+    """Whether the record lets this release be used: it names no use of it (_release_used), and it was answered more
+    than RELEASE_SKEW_SECONDS after the newest use the record dropped (dropped, _releases_record), since a release is
+    used no earlier than RELEASE_SKEW_SECONDS before its answer, so one answered before could be one whose use was
+    dropped."""
+    return not _release_used(release, used) and (dropped is None or release["zeit"] > dropped + RELEASE_SKEW_SECONDS)
+
+
 def _releases_record(directory: str) -> tuple[dict, int | None]:
     """D111: the releases used {key: time of use}, and the seconds of the newest use the record dropped (verworfen_bis,
     None before the first drop); a ValueError where the record does not read whole, so no release is used twice
@@ -18351,11 +18359,6 @@ def _releases_record(directory: str) -> tuple[dict, int | None]:
     if dropped is not None and seconds is None:
         raise ValueError("the record of the releases used does not read whole")
     return dict(data["genutzt"]), seconds
-
-
-def _releases_used(directory: str) -> dict:
-    """D111: the releases used {key: time of use} (_releases_record)."""
-    return _releases_record(directory)[0]
 
 
 def _write_releases_used(directory: str, used: dict, dropped: int | None = None) -> None:
@@ -18392,9 +18395,7 @@ def _release_take(release: dict, environ, now: float | None = None) -> bool:
         hook = _answer_hook()
         with hook.asks_lock(data, RELEASES_USED):
             used, dropped = _releases_record(data)
-            if _release_used(release, used):
-                return False
-            if dropped is not None and release["zeit"] <= dropped + RELEASE_SKEW_SECONDS:
+            if not _release_free(release, used, dropped):
                 return False
             if len(used) >= MAX_RELEASES_USED:
                 kept = {key: stamp for key, stamp in used.items() if not _release_use_past(stamp, now)}
@@ -18446,10 +18447,10 @@ def _autonomy_release(answer: "Outcome", command: str | None, environ, now: floa
         return _release_kept(answer, fitting[0], f"the line touches {_RELEASE_DOORS[door][0]}, an own door of the "
                                                  "owner that no card opens (DECISIONS.md D119)")
     try:
-        used = _releases_used(data)
+        used, dropped = _releases_record(data)
     except (OSError, ValueError, UnicodeDecodeError):
         return None
-    release = next((r for r in fitting if not _release_used(r, used)), None)
+    release = next((r for r in fitting if _release_free(r, used, dropped)), None)
     if release is None or (take and not _release_take(release, environ, now)):
         return None
     verdict = Verdict("pass", f"proofbundle gate: the owner released this command on the card {release['karte']}, "

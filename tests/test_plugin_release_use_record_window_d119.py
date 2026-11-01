@@ -280,6 +280,6 @@ def test_control_the_longest_record_the_hook_writes_stays_below_the_second_bound
     (data / gate.RELEASES_USED).write_text(json.dumps({"schema": gate.RELEASES_USED_SCHEMA, "genutzt": longest,
                                                        "verworfen_bis": _stamp(PAST + 1, now)}), encoding="utf-8")
     assert (data / gate.RELEASES_USED).stat().st_size < gate.MAX_RELEASES_USED_BYTES
-    assert len(gate._releases_used(str(data))) == gate.MAX_RELEASES_USED
+    assert len(gate._releases_record(str(data))[0]) == gate.MAX_RELEASES_USED
     _seed(data, {**_others(10, 60, now), "x" * gate.MAX_RELEASES_USED_BYTES: _stamp(60, now)})
     assert gate._release_take(_release("OA-2000000000", "c", now), {"CLAUDE_PLUGIN_DATA": str(data)}, now) is False
