@@ -7,8 +7,8 @@ name: Landung
 # cancels a running pull_request run, so every label set on a pull request cancelled its CI and
 # started a full one (measured 2026-09-28 09:28Z and 09:40Z, about 55 minutes each). The one thing
 # that has to start the moment `landung` is set, the mutation layer, runs here instead. Its other
-# ways in (workflow_dispatch, a release/ branch, the merge queue) stay in ci.yml, behind test and
-# coverage.
+# ways in (workflow_dispatch, a release/ branch, and the nightly schedule, which replaced the merge
+# queue with the three stages of ci.yml) stay in ci.yml, behind test and coverage.
 #
 # WHY THE JOBS CARRY A CONDITION HERE, and why that is not the fail-open the owner word rules out.
 # GitHub reports a job skipped by a condition as success, so a skipped REQUIRED check on a head could
