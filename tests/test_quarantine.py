@@ -155,6 +155,30 @@ def test_an_entry_with_a_parameter_covers_only_that_parameter(tmp_path):
     assert rc == 1, out
 
 
+WHOLE = "tests/test_planted.py::test_param"
+PARAM_B = "tests/test_planted.py::test_param[b]"
+
+
+@pytest.mark.parametrize("first, whole_deadline, own_deadline, rc_expected", [
+    ("whole", "2026-10-24", "2026-11-08", 0),
+    ("own", "2026-10-24", "2026-11-08", 0),
+    ("whole", "2026-11-08", "2026-10-24", 1),
+    ("own", "2026-11-08", "2026-10-24", 1),
+], ids=["expired whole test listed first", "control, own entry listed first",
+        "whole test in force listed first", "control, own expired entry listed first"])
+def test_a_parameters_own_entry_decides_for_it_whatever_the_order(tmp_path, first, whole_deadline, own_deadline,
+                                                                  rc_expected):
+    """`load` accepts an entry for a whole test beside an entry for one of its parameters. The lookup took the first
+    entry that covered a node id, so the order of the list decided: an expired whole-test entry listed first made the
+    parameter block before its own deadline, and a whole-test entry in force listed first kept the parameter
+    quarantined past its own (Codex on pull request 463, P2). The parameter's own entry decides for it."""
+    whole, own = _entry(WHOLE, deadline=whole_deadline), _entry(PARAM_B, deadline=own_deadline)
+    rc, out, _ = _session(tmp_path, [whole, own] if first == "whole" else [own, whole], [WHOLE])
+    assert rc == rc_expected, out
+    state = "in force through 2026-11-08" if rc_expected == 0 else "EXPIRED on 2026-10-24, the test blocks again"
+    assert f"{PARAM_B} (owner o, {state}): run: failed" in out, out
+
+
 def test_without_a_list_nothing_is_quarantined(tmp_path):
     rc, out, _ = _session(tmp_path, None, [RED])
     assert rc == 1, out
