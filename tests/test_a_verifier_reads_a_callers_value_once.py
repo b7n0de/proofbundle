@@ -131,7 +131,10 @@ def _run(call: Callable[[Any], Any], value: Any, k: int, change: Callable[[Any],
     Every object that exists before the call is frozen for its length (`gc.freeze`), so a collection the sweep starts
     walks only what the call allocates. Measured in the full suite on 2026-09-30: without it each collection walked the
     whole heap of the suite process, and one test of this file ran past ten minutes that takes seconds on its own. The
-    collections start where they started, and the callback runs at each."""
+    collections start where they started, and the callback runs at each.
+
+    The collector is switched on for the call and left as it was found: a collector that is off starts no collection,
+    and a sweep then finds no window and proves nothing (`TheSweepFrameArmsTheCollectorItself`)."""
     seen = {"n": 0}
     gc.freeze()
     try:
@@ -148,12 +151,15 @@ def _run(call: Callable[[Any], Any], value: Any, k: int, change: Callable[[Any],
             if seen["n"] == k:
                 change(value)
             seen["n"] += 1
-        old = gc.get_threshold()
+        old, on = gc.get_threshold(), gc.isenabled()
         gc.callbacks.append(callback)
         gc.set_threshold(1, 1, 1)
+        gc.enable()
         try:
             out = call(value)
         finally:
+            if not on:
+                gc.disable()
             gc.set_threshold(*old)
             gc.callbacks.remove(callback)
     finally:

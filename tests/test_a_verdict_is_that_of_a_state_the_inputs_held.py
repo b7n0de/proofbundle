@@ -395,15 +395,20 @@ class _Registriert(unittest.TestCase):
 
 def _mit_gc(cb: Callable[[str, dict], None], aufruf: Callable[[], Any]) -> Any:
     """``aufruf()`` with the caller's gc callback ``cb`` armed and a collection at nearly every allocation; every object
-    that exists before the call is frozen for its length, as the sweep of the class test does (`_run`)."""
-    alt = gc.get_threshold()
+    that exists before the call is frozen for its length, as the sweep of the class test does (`_run`). The collector
+    is switched on for the call and left as it was found: a collector that is off starts no collection, and the ABA
+    case then reports that no step found its moment (CI at 4f267e9d, `TheMeasuringFrameArmsTheCollectorItself`)."""
+    alt, an = gc.get_threshold(), gc.isenabled()
     gc.freeze()
     try:
         gc.callbacks.append(cb)
         gc.set_threshold(1, 1, 1)
+        gc.enable()
         try:
             return aufruf()
         finally:
+            if not an:
+                gc.disable()
             gc.set_threshold(*alt)
             gc.callbacks.remove(cb)
     finally:
