@@ -330,6 +330,23 @@ def test_an_archive_folder_another_account_owns_lets_no_release_be_honoured(tmp_
         service.honour(config, cap.NEXT)
 
 
+def test_an_archive_folder_that_goes_away_while_it_is_read_lets_no_release_be_honoured(tmp_path, monkeypatch):
+    """P2 of the second reading of this slice: only a folder the service does not find when it looks is no archive; one
+    that goes away between its check and its listing is a read that failed (release_record_unread), never an empty
+    archive."""
+    config, kept = _records_with_archive(tmp_path)
+    listdir = os.listdir
+
+    def gone(path):
+        if pathlib.Path(path) == kept.parent:
+            raise FileNotFoundError(2, "No such file or directory", str(path))
+        return listdir(path)
+
+    monkeypatch.setattr(os, "listdir", gone)
+    with pytest.raises(service.Refused, match="release_record_unread"):
+        service.honour(config, cap.NEXT)
+
+
 @pytest.mark.parametrize("text", ["", "{}", json.dumps({"schema": service.HONOURED_SCHEMA})])
 def test_an_archive_that_does_not_read_whole_lets_no_release_be_honoured(tmp_path, text):
     config, kept = _records_with_archive(tmp_path)
