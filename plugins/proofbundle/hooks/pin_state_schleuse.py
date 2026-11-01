@@ -143,6 +143,8 @@ def plan(folder: pathlib.Path, tree: str) -> dict:
 
 
 def _write_atomic(folder: pathlib.Path, name: str, data: bytes, mode: int = 0o644) -> None:
+    """Mode 644 on purpose for pin-state.json: the pilot's signer service decides with this gate directory under an
+    account of its own (signer_service.py, D58; CodeQL alert 148, kept). A backup is written with 600."""
     fd, tmp = tempfile.mkstemp(dir=folder, prefix=f".{name}.")
     try:
         with os.fdopen(fd, "wb") as out:
