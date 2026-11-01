@@ -263,7 +263,8 @@ class TimestampOverflowFamily(unittest.TestCase):
             bad = fx.policy(valid_until=OVERFLOW_STAMPS[0])
             ok = fx.policy(signature={"allowed_algs": ["ed25519"]})
             receipt = fx.receipt("s")
-            svr = fx.svr({"verifier": {"id": "x"}, "properties": []})
+            svr = fx.svr({"verifier": {"id": "https://example.invalid/verifier"},
+                          "timeCreated": "2026-10-31T00:00:00Z", "properties": []})
             # The envelope must fail for the policy alone: its predicate is a well-formed SVR v0.1 (reading of 451).
             envelope = json.loads(Path(svr).read_text(encoding="utf-8"))
             self.assertTrue(_intoto.classify_svr_predicate_shape(
