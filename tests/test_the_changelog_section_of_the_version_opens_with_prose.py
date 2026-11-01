@@ -351,3 +351,36 @@ def test_the_differential_case_holds_over_two_following_lines_and_unicode_blanks
                 wrong.append(lines)
     assert wrong == [], (len(wrong), wrong[:5])
     assert accepted > 0
+
+
+# ── a version heading is an ATX heading as CommonMark reads it (fifth reading of 2026-11-01, sol-pro, P1, and the
+# owner's answer A on card OA-acecdb2300) ──────────────────────────────────────────────────────────────────────────────
+#
+# `^##\s*\[` took Python's whitespace, U+2028 and a no-break space included, and no space at all, for the space an ATX
+# heading needs after its `##`. Both readers of the gate, the heading list of checks 2 and 3 and the heading of the
+# opening check, now ask for a space or a tab.
+
+
+def test_RED_hashes_without_a_space_or_a_tab_make_no_version_heading(tmp_path):
+    """`##<U+2028>[3.0.1]`, `##<no-break space>[3.0.1]` and `##[3.0.1]` render as paragraph text, so they are no
+    second version heading; the first two since the fourth reading's line split, the last one since d2959a11."""
+    for sep in (" ", " ", "\u0085", " ", ""):
+        t = tmp_path / f"sep_{ord(sep) if sep else 0:04x}"
+        t.mkdir()
+        repo = _repo(t, f"# Changelog\n\n## [{VERSION}]\n\nSemantics do not change.\n\n##{sep}[{VERSION}]\n")
+        assert chk.check_changelog_opening(repo, VERSION) == [], repr(sep)
+        assert chk.check(repo) == [], (repr(sep), chk.check(repo))
+
+
+def test_RED_a_changelog_whose_only_version_line_lacks_the_space_has_no_section_of_the_version(tmp_path):
+    """Check 2 reads the same headings: `##[3.0.1]` alone is no section of the version, and the gate says so."""
+    probs = chk.check(_repo(tmp_path, f"# Changelog\n\n##[{VERSION}]\n\nSemantics do not change.\n"))
+    assert [p for p in probs if f"no `## [{VERSION}]` section" in p], probs
+
+
+def test_a_space_or_a_tab_after_the_hashes_makes_the_version_heading(tmp_path):
+    """The control: a space or a tab, one or more, is the space an ATX heading needs."""
+    for sep in (" ", "\t", "  ", " \t"):
+        t = tmp_path / f"ws_{len(sep)}_{ord(sep[-1])}"
+        t.mkdir()
+        assert chk.check(_repo(t, f"# Changelog\n\n##{sep}[{VERSION}]\n\nSemantics do not change.\n")) == [], repr(sep)
