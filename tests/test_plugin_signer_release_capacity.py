@@ -31,6 +31,11 @@ SERVICE = ROOT / "plugins" / "proofbundle" / "pilot" / "signer_service.py"
 SESSION = "operator-session-1"
 OLD_TIME = "2026-10-01T00:00:00Z"
 
+from _gate_answer import skip_where_the_gate_is_not_shipped  # noqa: E402
+
+# MANIFEST.in prunes plugins/: in the extracted sdist this module is one skip that names the path, not a collection
+# error (hermetic-cleanroom of pull request 460 at eab4fb3d).
+skip_where_the_gate_is_not_shipped(SERVICE, ROOT)
 sys.path.insert(0, str(SERVICE.parent))
 try:
     import signer_service as service
