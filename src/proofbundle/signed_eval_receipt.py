@@ -43,6 +43,8 @@ import re
 from typing import Any, NamedTuple, Optional
 
 from ._membership import is_member
+from .canonical import _ein_stand
+from .dsse import pae as _dsse_pae
 from ._wire_b64 import decode_b64
 from .signature import plain_bytes, verify_ed25519_pinned
 
@@ -51,7 +53,7 @@ PAYLOAD_SCHEMA = "https://signed-evidence.org/eval-receipt/v1"
 COMMIT_ALG = "sha256-salted-v1"
 DRAFT = "draft-gruszka-signed-evaluation-receipts-04"
 
-__all__ = ["RECEIPT_TYPE", "PAYLOAD_SCHEMA", "COMMIT_ALG", "DRAFT", "ReceiptVerdict", "pae",
+__all__ = ["RECEIPT_TYPE", "PAYLOAD_SCHEMA", "COMMIT_ALG", "DRAFT", "ReceiptVerdict",
            "verify_signed_eval_receipt"]
 
 _RECEIPT_MEMBERS = frozenset({"schema", "payload_b64", "signature"})
@@ -260,13 +262,6 @@ def _jcs(v: Any) -> str:
 
 
 # ---- pieces of the procedure ---------------------------------------------------------------------
-def pae(typ: str, body: bytes) -> bytes:
-    """The DSSE pre-authentication encoding, as the draft's Section 4.1 defines it."""
-    t = typ.encode("utf-8")
-    return b"DSSEv1 " + str(len(t)).encode("ascii") + b" " + t + b" " + str(len(body)).encode("ascii") \
-        + b" " + body
-
-
 def _canonical_b64(value: Any, step: int, what: str, length: Optional[int] = None) -> bytes:
     if not isinstance(value, str):
         raise _Fail(step, f"{what} is not a string")
@@ -441,11 +436,12 @@ def _procedure(receipt: bytes, key: bytes) -> bytes:
         hint = _canonical_b64(sig["key"], 10, "signature.key", 32)
         if hint != key:
             raise _Fail(10, "the key hint is not the verification key")
-    _profile(key, sig_bytes, pae(RECEIPT_TYPE, b))                                    # step 11
+    _profile(key, sig_bytes, _dsse_pae(RECEIPT_TYPE, b))                                    # step 11
     return b
 
 
 # ---- public surface ---------------------------------------------------------------------------------
+@_ein_stand
 def verify_signed_eval_receipt(receipt: bytes, key: bytes) -> ReceiptVerdict:
     """Verify receipt BYTES under the verification KEY the Receiver fixed (32 raw bytes), by the draft's
     Section 5. Never raises. Each argument is read once, as the bytes it stores
