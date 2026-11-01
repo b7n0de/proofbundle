@@ -18357,15 +18357,15 @@ def _release_free(release: dict, used: dict, consumed: set, now: float) -> bool:
 
 def _releases_record(directory: str) -> tuple[dict, set]:
     """D111, D119: the releases used {key: time of use}, and the digests of the identities whose use the record dropped
-    (verbraucht, _release_identity), which it never drops; a ValueError where the record does not read whole, so no
-    release is used twice through a record the gate cannot read."""
+    (verbraucht, _release_identity), which it never drops; a ValueError where the record does not read whole, a field
+    it does not know included, so no release is used twice through a record the gate cannot read."""
     try:
         raw = _read_regular(os.path.join(directory, RELEASES_USED), MAX_RELEASES_USED_BYTES + 1)
     except FileNotFoundError:
         return {}, set()
     data = strict_json(raw) if len(raw) <= MAX_RELEASES_USED_BYTES else None
-    if not isinstance(data, dict) or data.get("schema") != RELEASES_USED_SCHEMA or \
-            not isinstance(data.get("genutzt"), dict):
+    if not isinstance(data, dict) or not set(data) <= {"schema", "genutzt", "verbraucht"} or \
+            data.get("schema") != RELEASES_USED_SCHEMA or not isinstance(data.get("genutzt"), dict):
         raise ValueError("the record of the releases used does not read whole")
     consumed = data.get("verbraucht", [])
     if not isinstance(consumed, list) or not all(isinstance(d, str) and _CONSUMED.fullmatch(d) for d in consumed):

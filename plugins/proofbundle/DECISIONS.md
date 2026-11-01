@@ -5812,11 +5812,11 @@ of the record. _release_take checks it again under the lock with the clock that 
 the record hides no other release of the same line, and a clock set back between the choice and the step of the hook
 writes no use. Below the capacity no use is dropped. MAX_RELEASES_USED_BYTES stays the second bound: the hook writes no
 record past it, so where a new use or digest would carry the record past it, the release lets nothing run and the record
-stays readable as it was. A digest that does not read makes the record one that does not read whole. The first reading
-and Codex pre-runs of the readings found the cases of a clock set back, the record written past its byte bound, a
-release refused by the record that hid another, and a key of D111 that let a copy with another answer pass. Not changed:
-code an interpreter runs can still remove the record (D111, O44-2); the digests fill the record over time, and a record
-at its byte bound refuses every new release until a person clears it.
+stays readable as it was. A digest that does not read, or a field the record does not know, makes the record one that
+does not read whole. The first reading and Codex pre-runs of the readings found the cases of a clock set back, the
+record written past its byte bound, a release refused by the record that hid another, and a key of D111 that let a copy
+with another answer pass. Not changed: code an interpreter runs can still remove the record (D111, O44-2); the digests
+fill the record over time, and a record at its byte bound refuses every new release until a person clears it.
 
 ## D120. The own doors the gate held nowhere are house rule H5, a deny no card opens (O49-1, 2026-10-24)
 
