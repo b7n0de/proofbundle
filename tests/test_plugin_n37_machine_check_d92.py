@@ -16,6 +16,9 @@ The rule (D92, in the autonomous answer of D85, under Claude Code):
 
 RED at faeec220 (the head of D91): the free pushes to branches outside claude/, the receipt, the pass and the block of
 the edit. The counter cases are controls, green at both.
+
+Changed by D129: the standing GO applies only where the hook's environment also sets PROOFBUNDLE_STANDING_GO to
+`protected`; every case here runs with it (tests/_standing_go.py). The edit of D92 does not read it.
 """
 from __future__ import annotations
 
@@ -26,6 +29,7 @@ import sys
 import time
 
 import pytest
+from _standing_go import standing_go_consented  # noqa: F401 - D129: the house consents to the standing GO
 
 import _gate_answer as ga
 import test_plugin_n29_work_profile_d71 as d71
@@ -35,6 +39,8 @@ pytestmark = d71.pytestmark
 _clean = d71._clean
 #: The flag with which the plugin's hook of Claude Code starts the gate (hooks.json, D85).
 AUTONOMOUS = [gate.AUTONOMOUS_FLAG] if hasattr(gate, "AUTONOMOUS_FLAG") else []
+#: D129: the house's consent to the standing GO, which _hook carries where the case's environment sets it.
+STANDING_GO = "PROOFBUNDLE_STANDING_GO"
 OWN = "chore/empty-evidence-declaration"
 FOOTER = "Written by an AI session of b7n0de under owner review.\n\nMeasurement, not certification.\n"
 #: A stand-in with the interface of the house's checker (judge(payload) -> (reasons, title)) and rules (b) and (c) in
@@ -84,6 +90,8 @@ def _hook(repo, tmp_path, command, host="claude", env_extra=None):
              "tool_input": {"command": command.replace("{R}", str(repo)).replace("{T}", str(tmp_path))}}
     env = {k: os.environ[k] for k in ("PATH", "HOME", "LC_ALL", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM",
                                       "PROOFBUNDLE_GATE_DIR")}
+    if STANDING_GO in os.environ:   # D129: set where a module takes tests/_standing_go.py
+        env[STANDING_GO] = os.environ[STANDING_GO]
     env["CLAUDE_PLUGIN_DATA"] = env["PLUGIN_DATA"] = str(tmp_path / "data")
     env.update(env_extra or {})
     proc, entry = ga.run_hook([sys.executable, "-I", gate.__file__, "--host", host, *AUTONOMOUS], json.dumps(event), env,

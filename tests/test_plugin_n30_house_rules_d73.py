@@ -267,11 +267,18 @@ COUNTER = {
 }
 
 
+def _house(repo, form, host="claude"):
+    """The answer of decide() in the gate started with --autonomous, where D71 applies (D130); a form D71 does not
+    free answers the same without the flag."""
+    out = gate.decide(form.replace("{R}", str(repo)), str(repo), time.monotonic() + 60, host, autonomous=True)
+    return (None, []) if out is None else (out.decision, [v.reason_id for v in out.verdicts])
+
+
 @pytest.mark.parametrize("host", HOSTS)
 @pytest.mark.parametrize("form", sorted(COUNTER))
 def test_D73_control_a_counter_case_keeps_its_answer(tmp_path, form, host):
     repo = _repo(tmp_path)
-    assert _answer(repo, form, host) == COUNTER[form][HOSTS.index(host)], (form, host)
+    assert _house(repo, form, host) == COUNTER[form][HOSTS.index(host)], (form, host)
 
 
 # --- the house rules weigh against the gate's own answer --------------------------------------------------------------
@@ -299,7 +306,7 @@ def test_D73_a_house_rule_goes_before_every_answer_that_lets_a_call_run(tmp_path
 def test_D73_a_house_rule_goes_before_D71(tmp_path):
     """`gh pr merge --auto` is free under D71 in this repository; with --admin H1 denies it, with a tag H2 asks."""
     repo = _repo(tmp_path)
-    assert _answer(repo, "gh pr merge 12 -R b7n0de/proofbundle --auto --merge") == ("pass", ["free_work_profile"])
+    assert _house(repo, "gh pr merge 12 -R b7n0de/proofbundle --auto --merge") == ("pass", ["free_work_profile"])
     out = _outcome(repo, "gh pr merge 12 -R b7n0de/proofbundle --auto --merge --admin")
     assert out.decision == "deny" and "house_admin_merge" in [v.reason_id for v in out.verdicts]
 

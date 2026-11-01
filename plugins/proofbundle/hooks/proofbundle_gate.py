@@ -9552,11 +9552,23 @@ def _gate_dir(environ: dict) -> str | None:
 #: done-init, which a person runs, still write them, whatever their own environment sets.
 OWNER_STATE_VARIABLE = "PROOFBUNDLE_OWNER_STATE"
 OWNER_STATE_PROTECTED = "protected"
+#: D129 (owner answer 9 of Nachtrag 7, option B): the standing GO of D87 applies, in the autonomous answer, only where
+#: the hook's environment also sets STANDING_GO_VARIABLE to STANDING_GO_PROTECTED, the house's separate consent to it;
+#: --autonomous alone no longer frees a push. Only the GO of D87 reads it. As with D124 the setting is the house's
+#: statement, not a protection: the protected channel is a record signed with a key outside the session that the house
+#: builds (owner answer 5 of Nachtrag 7), and until then the gate takes the setting as it stands.
+STANDING_GO_VARIABLE = "PROOFBUNDLE_STANDING_GO"
+STANDING_GO_PROTECTED = "protected"
 
 
 def _owner_state_read(environ: dict) -> bool:
     """D124: whether the gate reads the owner's files of its directory at all."""
     return environ.get(OWNER_STATE_VARIABLE) == OWNER_STATE_PROTECTED
+
+
+def _standing_go_consented(environ: dict) -> bool:
+    """D129: whether the hook's environment states the house's consent to the standing GO of D87."""
+    return environ.get(STANDING_GO_VARIABLE) == STANDING_GO_PROTECTED
 
 
 def _read_mode(environ: dict) -> str:
@@ -12061,7 +12073,8 @@ def _sh_script_naming_git(step: "_ShStep", environ) -> str | None:
 # declares and whose every remote is a repository of b7n0de on github.com, under Claude Code and never under Codex, a
 # read, a local change that can be taken back and `gh pr merge --auto` are free after the profile of their class finds
 # nothing. D71 only ever turns an ask of the not-modeled kind into a pass: a deny stays, every other ask stays, and the
-# answer of every command that is not one of its forms stays as it is.
+# answer of every command that is not one of its forms stays as it is. Since D130 (owner answer 10 of Nachtrag 7) it
+# applies only in the gate started with --autonomous, the house's opt-in; the public hook commands carry no flag (D125).
 
 #: The owner of the repositories in which D71 frees work, the one of the push that creates a branch (D61).
 WORK_OWNER = NEW_BRANCH_OWNER
@@ -14331,19 +14344,20 @@ def _with_house_rules(outcome: "Outcome | None", command: str, cwd: str | None, 
 
 
 def decide(command: str, cwd: str, deadline: float, host: str = "claude",
-           environ: dict | None = None) -> Outcome | None:
+           environ: dict | None = None, autonomous: bool = False) -> Outcome | None:
     """The answer of _decide_judged, with one rule of D117: a word in data is no call, and so D117 takes
     away an ask, never a deny. Where D117 can change the answer (_d117_touches) and the answer is no deny, the gate
     answers once more without D117; is that answer a deny, it stands (no case that denies today becomes free; the corpus
     counts a here-document that writes `git push --no-verify` into a file as harmful, S373). Both judgments read the
-    state files of a folder once (D96): the memo holds for the whole command and no longer."""
+    state files of a folder once (D96): the memo holds for the whole command and no longer. autonomous is the hook's
+    --autonomous, the house's opt-in (D85, D125): only with it does the work profile of D71 apply (D130)."""
     memo = _STATE_FILES_MEMO.set({})
     try:
-        outcome = _decide_judged(command, cwd, deadline, host, environ)
+        outcome = _decide_judged(command, cwd, deadline, host, environ, autonomous)
         if (outcome is None or outcome.decision != "deny") and _d117_touches(command, host, environ):
             token = _D117_OFF.set(True)
             try:
-                before = _decide_judged(command, cwd, deadline, host, environ)
+                before = _decide_judged(command, cwd, deadline, host, environ, autonomous)
             finally:
                 _D117_OFF.reset(token)
             if before is not None and before.decision == "deny":
@@ -14354,7 +14368,7 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude",
 
 
 def _decide_judged(command: str, cwd: str, deadline: float, host: str = "claude",
-                   environ: dict | None = None) -> Outcome | None:
+                   environ: dict | None = None, autonomous: bool = False) -> Outcome | None:
     """None for a call the gate does not gate, else the combined outcome. Under Codex the judge cannot bind
     a gated shell call to the directory it runs in, so it reports it NOT MEASURED (review round 5, R5-2).
     The former free list for local git commands has been removed. Those forms are NOT MEASURED, asked under
@@ -14398,7 +14412,9 @@ def _decide_judged(command: str, cwd: str, deadline: float, host: str = "claude"
     Under Claude Code, in a repository that declares and whose every remote is a repository of b7n0de on github.com, an
     ask of the not-modeled kind for a form of the work profile becomes a pass where the profile of its class finds
     nothing: a read, a local change that can be taken back, a fetch or ls-remote, `gh pr merge --auto` and `gh pr edit`
-    (D71, _work_profile). A deny, every other ask and every answer under Codex stay as they are.
+    (D71, _work_profile). A deny, every other ask and every answer under Codex stay as they are. D71 applies only where
+    the gate is started with --autonomous, the house's opt-in (autonomous; D130); without it a form of D71 keeps the
+    answer the gate gives without D71.
 
     The house rules go before every answer that lets a call run, D71 included, under both hosts (D73,
     _with_house_rules): `--admin` on `gh pr merge` and a `gh api` call that bypasses or changes a protection rule deny
@@ -14418,7 +14434,8 @@ def _decide_judged(command: str, cwd: str, deadline: float, host: str = "claude"
             outcome = _unknown_program_outcome(unknown, outcome)
     if outcome is not None:
         _name_narrower_spelling(outcome, judged, cwd, deadline, host, environ)
-    outcome = _work_profile(outcome, judged, cwd, deadline, host, environ)
+    if autonomous:   # D130: the work profile of D71 is the house's opt-in, never the public default
+        outcome = _work_profile(outcome, judged, cwd, deadline, host, environ)
     outcome = _with_house_rules(_with_done_order(outcome, judged, host, environ, deadline), judged, cwd, deadline,
                                 environ)   # the house rules and the guards read the environment decide() is given
     outcome = _with_pin_script(outcome, judged, host, environ, deadline)   # D114, follow-up note 51: only a person pins
@@ -16524,7 +16541,7 @@ def _autonomy_judge(call: dict, cwd: str, deadline: float, environ: dict) -> tup
         return ("free", "") if out is None else ("blocked", f"the Write of it is {out.decision}")
     text = _autonomy_text(call, shown=False)
     directory = call["directory"] or cwd
-    out = decide(text, directory, deadline, "claude", environ)
+    out = decide(text, directory, deadline, "claude", environ, autonomous=True)   # D130: as the gate with the flag
     if out is not None and out.decision == "ask":
         out = _autonomy_external(out, text, directory, deadline, environ) or \
             _autonomy_recorded(out, text, directory, deadline, environ) or \
@@ -16889,7 +16906,10 @@ def _autonomy_go(outcome: "Outcome", m: "_PushMeasure", words: list[str], deadli
     a configured remote; the repository is one of D71 (it declares, and every URL of every remote is a repository of
     WORK_OWNER on github.com); the push configuration adds nothing the command does not name and the push URL is the
     fetch URL; GIT_NAMESPACE is unset; the evidence rules at the commit it sends equal those of a local record
-    (_go_rules_equal, D20). Else None, and the ask stays."""
+    (_go_rules_equal, D20). Before all of that, the hook's environment states the house's consent to the standing GO
+    (_standing_go_consented, D129). Else None, and the ask stays."""
+    if not _standing_go_consented(environ):   # D129
+        return None
     dests = m.dests or []
     if len(dests) != 1 or not dests[0].startswith(GO_BRANCHES) or m.force or m.mirror or m.delete or \
             m.tags or m.why is not None or m.remote is None or m.repo is None:
@@ -23991,7 +24011,7 @@ def tool_outcome(event_text: str, host: str, deadline: float,
             tool = "Bash"
             command, cwd = _command_from_event(event)
             actions = sorted({name for name, _, _ in gated_calls(_program_values(command))})
-            verdict = decide(command, cwd, deadline, host=host)
+            verdict = decide(command, cwd, deadline, host=host, autonomous=autonomous)   # D130: D71 with the flag only
         if autonomous and host == "claude" and verdict is not None and verdict.decision == "ask":
             try:   # D85: the autonomous answer; a failure in it keeps the ask, which lets nothing run
                 verdict = autonomous_outcome(verdict, command, cwd, deadline, host, tool=tool, take=False)
