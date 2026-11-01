@@ -282,6 +282,20 @@ def test_a_use_that_would_carry_the_record_past_its_byte_bound_is_not_written(da
     assert path.read_bytes() == before and len(gate._releases_record(str(data))[0]) == 1
 
 
+@pytest.mark.parametrize("extra", [{"verworfen_bis": "2026-11-01T16:00:00Z"}, {"anders": 1}],
+                         ids=["the field of an unlanded state", "any other field"])
+def test_a_record_with_a_field_the_gate_does_not_know_takes_no_use(data, extra):
+    """The second reading (line 3): a record with the field verworfen_bis of 32d7005a, an unlanded state of this branch,
+    was read without it, so what the field held was lost. The record reads only its own fields; any other makes it one
+    that does not read whole, and nothing is released. RED at f4d5ff68: the release was taken."""
+    now = time.time()
+    path = data / gate.RELEASES_USED
+    path.write_text(json.dumps({"schema": gate.RELEASES_USED_SCHEMA, "genutzt": {}, **extra}), encoding="utf-8")
+    before = path.read_bytes()
+    assert gate._release_take(_release("OA-2000000000", "c", now), {"CLAUDE_PLUGIN_DATA": str(data)}, now) is False
+    assert path.read_bytes() == before
+
+
 @pytest.mark.parametrize("consumed", ["not a list", ["not a digest"], ["A" * 32], [5]])
 def test_a_record_whose_digests_of_the_dropped_identities_do_not_read_takes_no_use(data, consumed):
     """RED at 2908b8e3: the record's other names were not read, and the release was taken."""
