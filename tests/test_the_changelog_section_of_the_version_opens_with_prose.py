@@ -281,3 +281,73 @@ def test_every_opening_the_check_accepts_renders_as_a_paragraph_in_markdown_it()
             assert _first_block(md.parse("\n".join(lines) + "\n")) == "paragraph_open", lines
     assert accepted > 0
     assert chk._opens_with_a_paragraph(["Semantics do not change."])
+
+
+# ── the opening paragraph is read up to its blank line (fourth reading of 2026-11-01, sol-pro, two P1, and the owner's
+# answer A on card OA-37bc271387) ────────────────────────────────────────────────────────────────────────────────────
+#
+# A setext heading takes its text from every line of a paragraph, and a no-break space is no blank in CommonMark. The
+# check looked at one line after the opening, and stripped Unicode blanks before `<!--`.
+
+
+def test_RED_a_setext_heading_over_two_lines_opens_nothing():
+    """markdown-it renders `Text`, `Text`, `---` as one heading. The check looked only at the line after the first."""
+    for underline in ("---", "==="):
+        assert not chk._opens_with_a_paragraph(["Semantics do", "not change.", underline]), underline
+    assert not chk._opens_with_a_paragraph(["Semantics do not change.", " ", "---"]), "a no-break space is no blank"
+
+
+def test_RED_a_no_break_space_before_a_comment_start_hides_no_duplicate(tmp_path):
+    """` <!--` is paragraph text, no comment start: a second version heading after it is a duplicate."""
+    probs = chk.check(_repo(tmp_path, f"# Changelog\n\n## [{VERSION}]\n\nSemantics do not change.\n\n <!--\n\n"
+                                      f"## [{VERSION}]\n\n### Added\n\n- x\n"))
+    assert len([p for p in probs if "CHANGELOG.md" in p and "twice" in p]) == 1, probs
+
+
+def test_RED_a_line_that_runs_on_into_a_setext_underline_is_passed_over_nowhere():
+    """The extended corpus of the answer A: `[x]: (` matched the link reference pattern and `---` the thematic break,
+    while markdown-it renders both lines as one setext heading. A link reference or a break is passed over only where a
+    blank line ends it."""
+    assert not chk._opens_with_a_paragraph(["[x]: (", "---", "", "Semantics do not change."])
+
+
+def test_RED_a_link_reference_right_above_the_opening_is_a_finding_the_price_of_the_rule():
+    """The price of the rule above, named on the card: a valid link reference directly above the opening renders
+    nothing, and is a finding all the same; its fix is a blank line between them."""
+    assert not chk._opens_with_a_paragraph(["[x]: /target", "Semantics do not change."])
+    assert chk._opens_with_a_paragraph(["[x]: /target", "", "Semantics do not change."])
+
+
+def test_RED_a_unicode_line_separator_ends_no_line_of_the_changelog(tmp_path):
+    """CommonMark ends a line at LF, CR or CRLF only; str.splitlines also splits at U+2028, U+2029 and U+0085, the class
+    the pin case of the plugin met in its sixth reading. `Text<U+2028>---` is one line of a paragraph, no setext
+    heading."""
+    for sep in (" ", " ", "\u0085"):
+        t = tmp_path / f"sep_{ord(sep):04x}"
+        t.mkdir()
+        probs = chk.check(_repo(t, f"# Changelog\n\n## [{VERSION}] - 2026-10-31\n\nSemantics do not change.{sep}---\n\n"
+                                   "### Fixed\n\n- x\n"))
+        assert probs == [], (repr(sep), probs)
+
+
+#: The extended corpus of the answer A: a second line after the start, no-break and ideographic spaces, and a start
+#: that a following line continues.
+_STARTS_2 = _STARTS + (" x", " <!--", "　Semantics do not change.", "Semantics do")
+_NEXT_2 = _NEXT + (" ", "not change.", " <!--")
+_THEN = ("", "---", "===", "Text follows.", " ")
+
+
+def test_the_differential_case_holds_over_two_following_lines_and_unicode_blanks():
+    """The differential case over the extended corpus: every start the check accepts, followed by two lines, renders in
+    markdown-it as a paragraph after what the check passes over."""
+    markdown_it = pytest.importorskip("markdown_it")
+    md = markdown_it.MarkdownIt("commonmark").enable("table")
+    accepted, wrong = 0, []
+    for before, prefix, start, after, then in itertools.product(_PASSED_OVER, _PREFIXES, _STARTS_2, _NEXT_2, _THEN):
+        lines = ([before, ""] if before else []) + [prefix + start, after, then]
+        if chk._opens_with_a_paragraph(lines):
+            accepted += 1
+            if _first_block(md.parse("\n".join(lines) + "\n")) != "paragraph_open":
+                wrong.append(lines)
+    assert wrong == [], (len(wrong), wrong[:5])
+    assert accepted > 0
