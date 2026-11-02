@@ -126,12 +126,14 @@ def _guard_log(parent: str, base: str, name: str) -> tuple[str, str]:
     written = []
     for guard in known:
         path = os.path.join(parent, guard, LOG_NAME)
-        for candidate in (path, path + ".1"):
+        times = []
+        for candidate in (path, path + ".1"):   # a rotated log counts with its own time (pre-run at 8898c53e)
             try:
-                written.append((os.stat(candidate).st_mtime_ns, guard, path))
-                break
+                times.append(os.stat(candidate).st_mtime_ns)
             except OSError:
                 continue
+        if times:
+            written.append((max(times), guard, path))
     if not written:
         return (os.path.join(parent, GUARD_DATA_DIR, LOG_NAME),
                 f"from {name}, the Guard's data directory beside it (D134); no log yet in {', '.join(known)}")
@@ -145,7 +147,9 @@ def _log_path() -> tuple[str | None, str]:
         if value and os.path.isabs(value):
             own = os.path.normpath(value)
             base = os.path.basename(own)
-            if base.startswith(VERIFY_DATA_PREFIX) and base not in (GUARD_DATA_DIR, GUARD_INLINE_DIR):
+            # only the house's directory is the Guard's own: proofbundle from a marketplace named guard-inline has the
+            # directory proofbundle-guard-inline too, and the Guard brings no MCP server (pre-run at 8898c53e)
+            if base.startswith(VERIFY_DATA_PREFIX) and base != GUARD_DATA_DIR:
                 return _guard_log(os.path.dirname(own), base, name)
             return os.path.join(value, LOG_NAME), f"from {name}"
     return None, ("the server was given no plugin data directory (CLAUDE_PLUGIN_DATA or PLUGIN_DATA), so it "
