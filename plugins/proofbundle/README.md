@@ -1,7 +1,9 @@
 # proofbundle plugin for Claude Code and Codex
 
-Your agent can call a task done only when every check you required has a signed, passing test receipt for exactly
-the commit and tree it leaves behind, and when one is missing it is told which one and the command that runs it.
+With proofbundle-guard installed beside this plugin (D134), in a repository whose declaration names a done check, the
+Stop hook keeps your agent's turn open, up to a set number of blocks, until every check you required has a signed,
+passing test receipt for exactly the commit and tree it leaves behind, and when one is missing it is told which one
+and the command that runs it; it is an early warning, not a boundary.
 
 Verify decision and outcome receipts against your chosen issuer key, check evidence bundles, and review
 verification results separately from recorded claims. Receipt signing is experimental and requires an

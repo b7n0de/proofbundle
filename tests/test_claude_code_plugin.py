@@ -529,9 +529,10 @@ OWNER_TEXTS = {
           "because their target is unbound. Receipt signing is experimental and its skill requests explicit "
           "invocation and confirmation, with host enforcement NOT MEASURED"),
     "6": ("Verify decision and outcome receipts and evidence bundles, and review verification results "
-          "separately from recorded claims. Codex runs the repository checks only after you trust the "
-          "plugin's hooks. When they run, repositories without an evidence declaration get NOT MEASURED "
-          "and no decision, a `git push` gets NOT MEASURED with a warning, and other unmeasurable calls "
+          "separately from recorded claims. The repository checks are the hooks of the separate Guard "
+          "(proofbundle-guard, D134), which Codex runs only after you trust them. When they run, repositories "
+          "without an evidence declaration get NOT MEASURED and no decision, a plain `git push` gets NOT "
+          "MEASURED with a warning, and other unmeasurable calls "
           "are denied. Each `verify_receipt` result states that the server cannot tell whether these "
           "checks ran. Receipt signing is experimental; its skill requests explicit invocation and "
           "confirmation. Enforcement of those restrictions by the host is NOT MEASURED"),
@@ -576,7 +577,10 @@ def test_every_description_carries_the_owners_text_word_for_word():
         assert not found[key].endswith(".")
     assert found["7"].startswith(OWNER_TEXTS["7"] + " "), "the README's second paragraph is the owner's text"
     opening = " ".join((PLUGIN / "README.md").read_text(encoding="utf-8").split("\n\n")[1].split())
-    assert opening.startswith("Your agent can call a task done only when") and opening.count(". ") == 0
+    # owner answer A on card OA-d9328036d3 (2026-11-02): after D134 the sentence names the Guard and the Stop hook's limit
+    assert opening.startswith("With proofbundle-guard installed beside this plugin (D134), in a repository whose "
+                              "declaration names a done check, the Stop hook keeps your agent's turn open")
+    assert opening.count(". ") == 0 and "it is an early warning, not a boundary" in opening
     assert opening.endswith(".")
     for key in ("1", "2", "4", "5", "6", "7"):
         assert found[key].startswith(("Verify ", "Verifies ")), key   # TX43, the Claude Code row: Verifies
