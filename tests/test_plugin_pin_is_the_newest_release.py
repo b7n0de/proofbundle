@@ -41,8 +41,10 @@ _FENCE = re.compile(r" {0,3}(`{3,}|~{3,})")
 _SECTION = re.compile(r"\[([^\]]+)\](.*)")
 _DATED = re.compile(r" - (\d{4})-(\d{2})-(\d{2})(?:\s+\(.*\))?\s*")
 #: A pin of proofbundle as a requirement may write it: the name in any case, extras, blanks around == or ===, and a
-#: version with what PEP 440 may append (a third pre-run of the reading of the pin on main, Codex, P2).
-_ANY_PIN = re.compile(r"proofbundle(?:\s*\[[^\]]*\])?\s*===?\s*(\d+(?:\.\d+)*(?:[-_.+!]?[A-Za-z0-9]+)*)", re.IGNORECASE)
+#: version with what PEP 440 may append (a third pre-run of the reading of the pin on main, Codex, P2); no character of
+#: a PEP 508 name stands right before it, so the pin of another package ending in proofbundle is none (a tenth pre-run).
+_ANY_PIN = re.compile(r"(?<![A-Za-z0-9._-])proofbundle(?:\s*\[[^\]]*\])?\s*===?\s*(\d+(?:\.\d+)*(?:[-_.+!]?[A-Za-z0-9]+)*)",
+                      re.IGNORECASE)
 #: The starts of the HTML blocks of CommonMark 0.31.2, types 1 to 6, which may interrupt a paragraph; a block tag name of
 #: type 6 ends at a blank, a > or the pair /> (an eighth pre-run of the reading of the pin on main, Codex, P2). Lines inside
 #: such a block are no headings, and the reader does not model where a block ends, so a changelog that opens one stops
