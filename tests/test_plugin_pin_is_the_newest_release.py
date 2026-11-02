@@ -80,6 +80,15 @@ _INDENTED_CODE = re.compile(r" {0,3}\t| {4}")
 _CONTAINER = re.compile(r" {0,3}(?:>[ \t]?|(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$))")
 #: A line that opens with a bracket may be a link reference definition, which is no paragraph, or the start of one.
 _LINK_LABEL = re.compile(r" {0,3}\[")
+#: A label closed on its line; not followed by a colon, the line starts no link reference definition (a ninth pre-run of
+#: the reading of the pin on main, Codex, P2).
+_CLOSED_LABEL = re.compile(r" {0,3}\[(?:[^\[\]\\]|\\.)*\]")
+#: A link reference definition complete on one line: label, colon, destination and an optional title. A title may still
+#: follow on the next line, which then opens with a quote or a parenthesis.
+_COMPLETE_DEFINITION = re.compile(r" {0,3}\[(?:[^\[\]\\]|\\.)+\]:[ \t]*(?:<[^<>\n]*>|[^\s<]\S*)"
+                                  r"""(?:[ \t]+(?:"[^"]*"|'[^']*'|\([^()]*\)))?[ \t]*""")
+#: A line that may continue a link reference definition: a title, or another label.
+_TITLE_OR_LABEL = re.compile(r""" {0,3}["'(\[]""")
 
 
 def _fence_opened(line: str) -> re.Match | None:
@@ -103,7 +112,12 @@ def _starts(line: str) -> str:
     if marker:
         inner = _starts(line[marker.end():])
         return "container" if inner == "paragraph" else inner
-    return "open" if _LINK_LABEL.match(line) else "paragraph"
+    if _LINK_LABEL.match(line):
+        label = _CLOSED_LABEL.match(line)
+        if label and line[label.end():label.end() + 1] != ":":
+            return "paragraph"
+        return "definition" if _COMPLETE_DEFINITION.fullmatch(line) else "open"
+    return "paragraph"
 
 
 def _after(state: str, line: str) -> str:
@@ -111,6 +125,8 @@ def _after(state: str, line: str) -> str:
     level, "container" inside a block quote or a list item, "none", or "open" where the reader cannot tell. A paragraph
     continues, inside a container lazily, until a blank line or a block that interrupts it; "open" stays open until
     then; after that, or where none runs, the line starts what `_starts` says."""
+    if state == "definition" and not _NO_PARAGRAPH.fullmatch(line):
+        return "open" if _TITLE_OR_LABEL.match(line) else _starts(line)
     if state != "none" and not _NO_PARAGRAPH.fullmatch(line):
         return state
     return _starts(line)
@@ -144,13 +160,13 @@ def _headings(text: str) -> list[str]:
             fence = opened.group(1)
             state = "none"
             continue
-        assert not (_HTML_BLOCK.match(line) or (_HTML_TYPE7.fullmatch(line) and state in ("none", "open"))), \
+        assert not (_HTML_BLOCK.match(line) or (_HTML_TYPE7.fullmatch(line) and state in ("none", "open", "definition"))), \
             f"the changelog opens an HTML block, which the pin case does not read: {line!r}"
         heading = _HEADING.fullmatch(line)
         # An indented heading may belong to a list item before it, where CommonMark nests it; the reader models no list.
         assert not (heading and line[:1] == " "), \
             f"the changelog indents a heading, which may sit in a list item the pin case does not read: {line!r}"
-        assert not (_SETEXT_UNDERLINE.fullmatch(line) and state in ("paragraph", "open")), \
+        assert not (_SETEXT_UNDERLINE.fullmatch(line) and state in ("paragraph", "open", "definition")), \
             f"the changelog makes a setext heading of {previous!r}, which the pin case does not read"
         if heading:
             found.append(_CLOSING.sub("", heading.group(1) or "").strip(" \t"))
