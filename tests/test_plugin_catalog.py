@@ -11,7 +11,7 @@ Properties checked:
   from it, and the Codex hook run is marked as not yet measured there until it is measured;
 - a plugin folder has no row only when HOUSE_PLUGINS names it and it carries its house marketplace; a folder that
   carries a marketplace of its own without that name still needs its row (second reading of F2, sol-pro; red at
-  b7f30b05, where the marketplace file alone was enough);
+  the commit before the fix, where the marketplace file alone was enough);
 - every link in the catalog resolves to a file in the tree;
 - the catalog states the verification limit: a pass proves integrity, not truth;
 - the repository README links the catalog from the task table and from the integration row, with the
@@ -97,7 +97,7 @@ def _plant(plugins: pathlib.Path, name: str, house: bool) -> None:
 
 def test_only_a_named_house_plugin_with_its_marketplace_goes_without_a_row(tmp_path):
     """A marketplace file in a folder is the folder's own word; it takes no public plugin out of the catalog (second
-    reading of F2, sol-pro, red at b7f30b05)."""
+    reading of F2, sol-pro, red at the commit before the fix)."""
     _plant(tmp_path, "proofbundle-guard", house=True)
     _plant(tmp_path, "someone-else", house=True)
     assert _manifests(tmp_path) == {("someone-else", "Claude Code")}

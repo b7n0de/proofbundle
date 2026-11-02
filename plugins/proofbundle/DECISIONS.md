@@ -6571,7 +6571,7 @@ marketplace got the Guard, whose hook runs before every Bash call and blocks the
 (`|| exit 2`). The order of the slice: the smallest bundle after which a stranger who adds the marketplace gets the
 verifier without the Guard and the owner's machines keep the Guard; the red test first.
 
-The rule was first cut at the end of the guard chain (3a9e1d66), on top of slices 32 to 38. Plugin 0.4.0 goes out
+The rule was first cut at the end of the guard chain, on top of slices 32 to 38. Plugin 0.4.0 goes out
 without those slices (Nachtrag 26), so this is the same rule cut again on main: the files the Guard takes are the
 files of main, and what slices 32 to 38 added (D132, D133, the Level 2 pairs of A-3, the Level 1 witnesses of T-4, the
 reviewer texts TX39 to TX44) is not part of it.
@@ -6582,7 +6582,7 @@ source stays public." Delivery -2 measured with Claude Code 2.1.316 that a marke
 source "./" is valid and that a `file://` Git marketplace is refused.
 
 Measured with Claude Code 2.1.314 (`claude plugin validate`, `marketplace add`, `install`, `details`) in a throwaway
-CLAUDE_CONFIG_DIR, from a local marketplace copied from the end of the guard chain (3a9e1d66), no network and no model:
+CLAUDE_CONFIG_DIR, from a local marketplace copied from the end of the guard chain, no network and no model:
 - As delivered: one entry, `Hooks (6)` (PreToolUse, PostToolUse, PostToolUseFailure, Stop, TaskCompleted,
   SessionStart).
 - The same entry with empty inline hooks for each event: still `Hooks (6)`. The plugin manifest reference says a
@@ -6640,7 +6640,7 @@ with the source "./" (red at the commit before the fix, where the public marketp
 marketplace tests, the lock (a split now needs the house marketplace and no public entry for the Guard, one planted
 case more) and the corpus's Codex hook check (proofbundle-guard@proofbundle-house) follow.
 
-Found by a read-only cross-reading of 18451ad1 and fixed with their red cases first (f11145b7):
+Found by a read-only cross-reading of the split commit of the guard chain and fixed with their red cases first:
 - Claude Code gives each plugin a data directory of its own, ~/.claude/plugins/data/<id>/, <id> the plugin identifier
   with every character other than a letter, digit, _ or - as "-" (plugin manifest reference, read 2026-10-31). The gate
   runs in proofbundle-guard and logs into its directory, so gate_status and the self-test of proofbundle, which read
@@ -6649,7 +6649,7 @@ Found by a read-only cross-reading of 18451ad1 and fixed with their red cases fi
   directory is proofbundle-<marketplace> from whichever marketplace (_log_path, GUARD_DATA_DIR, which the D134 test
   binds to the name of the house marketplace); under any other name it reads its own directory as before. The first
   fix read proofbundle-guard-<marketplace>, and after N2 B no house install has that directory; found in a reading of
-  the D134 test, red first at 6bb47f4a. The second fix still took every directory proofbundle-guard-<rest> for the
+  the D134 test, red first. The second fix still took every directory proofbundle-guard-<rest> for the
   Guard's, and proofbundle from a marketplace named guard-<rest> has that directory, so it read its own (second reading
   of F2, sol-pro; owner answer A on card OA-186d82300b, red first). The Guard brings no MCP server and the server runs
   in the verifier alone, so every directory proofbundle-<anything> but proofbundle-guard-proofbundle-house itself reads
@@ -6678,7 +6678,7 @@ in plugins/proofbundle-guard/hooks/, and plugins/proofbundle holds no hooks/ fol
 generator of delivery -2 checks before it builds the split release (check_public_profile: no hooks/ folder, no
 "hooks" field in the two host manifests or the marketplace entry, no dependency on the Guard). The server stays in
 both folders, byte-equal: proofbundle serves it as its MCP server, and the gate starts <its root>/server/
-proofbundle_mcp.py. Red first: the D134 test's case of that profile, red at 5c79461a, where the verifier kept the
+proofbundle_mcp.py. Red first: the D134 test's case of that profile, red at the commit before the move, where the verifier kept the
 four programs. The lock's split rule now finds a hooks/ folder in the verifier and wants the gate in the Guard's
 folder, one planted case more. Tests that ran or read a program under plugins/proofbundle/hooks take it from
 plugins/proofbundle-guard/hooks, the path only; the strict decoding guard reads the four programs as files of the

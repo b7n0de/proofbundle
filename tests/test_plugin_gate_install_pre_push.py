@@ -215,7 +215,7 @@ def test_the_wrapper_finds_the_newest_installed_version_by_number(tmp_path):
 def test_the_wrapper_finds_the_newest_installed_version_of_the_guard_too(tmp_path):
     """D134: the house installs the Guard as the plugin proofbundle-guard, and the gate a hook runs names the Guard's
     folder, <cache>/<marketplace>/proofbundle-guard/<version>/. A wrapper installed from it follows a Guard update as
-    it follows one of proofbundle. Red at 18451ad1, where the resolver read only a folder named proofbundle: after the
+    it follows one of proofbundle. Red at the split commit, where the resolver read only a folder named proofbundle: after the
     old version folder was gone it found no gate and the wrapper denied every push."""
     old = tmp_path / "cache" / "proofbundle" / "proofbundle-guard" / "0.4.0"
     newer = old.parent / "0.4.1"

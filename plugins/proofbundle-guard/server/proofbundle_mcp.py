@@ -127,7 +127,7 @@ def _guard_log(parent: str, base: str, name: str) -> tuple[str, str]:
     for guard in known:
         path = os.path.join(parent, guard, LOG_NAME)
         times = []
-        for candidate in (path, path + ".1"):   # a rotated log counts with its own time (pre-run at 8898c53e)
+        for candidate in (path, path + ".1"):   # a rotated log counts with its own time (a pre-run of the split)
             try:
                 times.append(os.stat(candidate).st_mtime_ns)
             except OSError:
@@ -148,7 +148,7 @@ def _log_path() -> tuple[str | None, str]:
             own = os.path.normpath(value)
             base = os.path.basename(own)
             # only the house's directory is the Guard's own: proofbundle from a marketplace named guard-inline has the
-            # directory proofbundle-guard-inline too, and the Guard brings no MCP server (pre-run at 8898c53e)
+            # directory proofbundle-guard-inline too, and the Guard brings no MCP server (a pre-run of the split)
             if base.startswith(VERIFY_DATA_PREFIX) and base != GUARD_DATA_DIR:
                 return _guard_log(os.path.dirname(own), base, name)
             return os.path.join(value, LOG_NAME), f"from {name}"

@@ -21,17 +21,17 @@ The properties held here, read from the marketplace and the two plugin folders:
   starts, byte-equal to the server of plugins/proofbundle;
 - the Guard folder adds no skill and no MCP server, so the house, which installs both, gets each once;
 - each entry's name is its manifest's name, and both plugins carry one version.
-Red at 193a66b9, where plugins/proofbundle registers the hooks and the marketplace has one entry.
+Red at the base of this cut, where plugins/proofbundle registers the hooks and the marketplace has one entry.
 
 Owner choice N2 B on delivery -2 of the release plan (2026-10-31): the Guard is in no public catalog. The public
 marketplace lists proofbundle alone; the owner's machines add a house marketplace from a checkout, at the Guard's folder,
 whose one entry has the source "./" (measured valid by delivery -2 with Claude Code 2.1.316). The source stays public.
-Red at cebb7961 for that case, where the public marketplace lists the Guard as a second entry.
+Red at the commit before its fix for that case, where the public marketplace lists the Guard as a second entry.
 
 Owner answer C on 2026-10-31 (card OA-10af190ede): a bundle after the split moves the gate programs out of
 plugins/proofbundle into the Guard's folder before the GO for plugin 0.4.0. The release generator of delivery -2 checks
 the public verifier's profile (check_public_profile): no hooks/ folder at all, no "hooks" field in its two host
-manifests or its marketplace entry, no dependency on the Guard. Red at 5c79461a for that case, where plugins/proofbundle
+manifests or its marketplace entry, no dependency on the Guard. Red at the commit before the move for that case, where plugins/proofbundle
 keeps the four programs under hooks/ unregistered.
 """
 from __future__ import annotations
@@ -96,7 +96,7 @@ def test_the_public_marketplace_lists_only_the_verifier_and_the_house_marketplac
 def test_the_public_catalog_lists_the_verifier_alone():
     """Owner answer A on card OA-08eb65e9e2 (2026-11-01) reads N2 B word for word, "the public catalog lists only
     proofbundle": the plugin catalog plugins/README.md has no row of the Guard, and the house finds the Guard's install
-    in the Guard's own README. Red at 5c79461a, where the catalog listed the Guard with one row per host (reading of
+    in the Guard's own README. Red at the commit before its fix, where the catalog listed the Guard with one row per host (reading of
     F2, sol-pro)."""
     rows = [line for line in (ROOT / "plugins" / "README.md").read_text(encoding="utf-8").split("\n")
             if line.startswith("| ")]
@@ -179,9 +179,9 @@ def test_the_verifier_reads_the_gates_log_in_the_guards_data_directory(tmp_path,
     than a letter, digit, _ or - as "-" (plugin manifest reference, read 2026-10-31). The gate runs in the Guard, which
     the house installs from its house marketplace (N2 B), and logs into the directory of
     proofbundle-guard@proofbundle-house; gate_status and the self-test of proofbundle read from that directory beside
-    their own, whichever marketplace proofbundle came from. Red at 18451ad1, where they read their own and in the house
-    said the hook did not run, and at 4080bcdb, where they read proofbundle-guard-<the verifier's marketplace>, a
-    directory no house install has since the Guard left the public marketplace. Red at b7f30b05 for a marketplace whose
+    their own, whichever marketplace proofbundle came from. Red at the split commit, where they read their own and in the house
+    said the hook did not run, and at the next fix, where they read proofbundle-guard-<the verifier's marketplace>, a
+    directory no house install has since the Guard left the public marketplace. Red at the catalog fix for a marketplace whose
     name begins with guard-: proofbundle from it has the directory proofbundle-guard-<rest>, which the server took for
     the Guard's and read its own (second reading of F2, sol-pro). The Guard brings no MCP server, so the server runs in
     the verifier alone, and every directory proofbundle-<anything> but the Guard's house directory reads the log there."""
@@ -190,7 +190,7 @@ def test_the_verifier_reads_the_gates_log_in_the_guards_data_directory(tmp_path,
     data = tmp_path / "plugins" / "data"
     monkeypatch.delenv("PLUGIN_DATA", raising=False)
     # guard-inline: proofbundle from it has the directory proofbundle-guard-inline, the name of a Guard loaded with
-    # --plugin-dir; the server still takes it for its own and reads the Guard beside it (pre-run at 8898c53e, P2)
+    # --plugin-dir; the server still takes it for its own and reads the Guard beside it (a pre-run of the split, P2)
     for market in (_json(MARKETPLACE)["name"], "a-fork", "guard-internal", "guard-inline"):
         monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(data / _data_id(f"{VERIFY}@{market}")))
         path, source = server._log_path()
@@ -207,7 +207,7 @@ def test_the_verifier_reads_the_log_of_a_guard_loaded_with_plugin_dir(tmp_path, 
     the self-test read proofbundle-guard-proofbundle-house, which does not exist there, and the self-test said NOT
     MEASURABLE for a deny the gate had logged. The server reads beside its own directory the Guard's directories it
     knows (the house marketplace's, the inline one, the one of the verifier's own marketplace) and, of those that hold a
-    log, the one written last; where none holds one, the house's as before. Red at fe78eef2."""
+    log, the one written last; where none holds one, the house's as before. Red at the commit before its fix."""
     server = _server()
     data = tmp_path / "plugins" / "data"
     monkeypatch.delenv("PLUGIN_DATA", raising=False)
@@ -228,7 +228,7 @@ def test_the_verifier_reads_the_log_of_a_guard_loaded_with_plugin_dir(tmp_path, 
         os.utime(first / server.LOG_NAME, ns=(1_000_000_000, 1_000_000_000))
         os.utime(last / server.LOG_NAME, ns=(2_000_000_000, 2_000_000_000))
         assert server._log_path()[0] == str(last / server.LOG_NAME), (first, last)
-    # a rotated log counts with its time where the current one is older (pre-run at 8898c53e, P2)
+    # a rotated log counts with its time where the current one is older (a pre-run of the split, P2)
     (inline / (server.LOG_NAME + ".1")).write_text("{}\n", encoding="utf-8")
     os.utime(inline / server.LOG_NAME, ns=(1_000_000_000, 1_000_000_000))
     os.utime(house / server.LOG_NAME, ns=(2_000_000_000, 2_000_000_000))
