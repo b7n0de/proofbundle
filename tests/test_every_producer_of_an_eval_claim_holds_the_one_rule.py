@@ -645,9 +645,17 @@ class TestAMisshapenContainerIsAReason(_Basis):
         self._abgewiesen(self._test_result(umbau, platzhalter=False), "configuration[1]")
 
     def test_control_absent_containers_make_no_claim(self):
-        """An entry without `digest` verifies: it makes no claim."""
-        res = self._test_result(lambda st: st["predicate"]["configuration"][0].pop("digest"), platzhalter=False)
+        """An entry without `digest` verifies: it makes no claim. It names its resource by `uri`, because a
+        ResourceDescriptor MUST specify one of `uri`, `digest` or `content` (SPEC.md section 7b: a bare
+        `name`-only descriptor is invalid), and one that specifies none is a reason."""
+        def umbau(st):
+            st["predicate"]["configuration"][0].pop("digest")
+            st["predicate"]["configuration"][0]["uri"] = "https://example.invalid/model"
+        res = self._test_result(umbau, platzhalter=False)
         self.assertTrue(res["ok"], res["content_root_detail"])
+        self._abgewiesen(self._test_result(lambda st: st["predicate"]["configuration"][0].pop("digest"),
+                                           platzhalter=False),
+                         "configuration[0]: must specify one of uri, digest or content")
 
     def test_an_absent_configuration_or_predicate_is_a_reason(self):
         """`configuration` and `result` are required members of the test-result predicate, so a statement
