@@ -662,31 +662,6 @@ jobs:
           python scripts/ci_coverage_combine.py --data-dir coverage-data --parts 7 --result "$PARTS_RESULT"
           python -m coverage report -m --fail-under=83
 
-  coverage-reference:
-    # TEMPORARY, FOR ONE RUN AT THE HEAD OF THE PULL REQUEST THAT SPLIT coverage (order DELTA-COVERAGE-IN-TEILEN-01,
-    # point 4): the old way, the whole suite with coverage on one runner, so that its total stands beside the
-    # total the parts give. Nothing needs this job, and the next commit of that pull request removes it again.
-    name: coverage reference (whole suite, one runner)
-    runs-on: ubuntu-latest
-    timeout-minutes: 300
-    env:
-      PROOFBUNDLE_REQUIRE_PB_VERIFY_RS: "1"
-      PROOFBUNDLE_PB_VERIFY_RS: ${{ github.workspace }}/tools/pb_verify_rs/target/release/pb_verify_rs
-      COVERAGE_CORE: sysmon
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
-        with:
-          python-version: "3.12"
-      - name: Install with all test extras
-        run: python -m pip install -e ".[dev,pq,anchors,eval]" coverage pytest pytest-xdist==3.8.0 pytest-cov==7.1.0
-      - name: Build the Rust second verifier the suite requires (pinned above)
-        run: cd tools/pb_verify_rs && cargo build --release
-      - name: Coverage of the whole suite on one runner, as before the split
-        run: |
-          python -m pytest -q --numprocesses=auto --dist=worksteal --cov=src/proofbundle --cov-report=
-          python -m coverage report -m --fail-under=83
-
   crypto-floor:
     # v1.7: prove the declared dependency FLOOR actually works, not just the latest. `cryptography`
     # has an unbounded upper (stable API) — this pins the LOWER bound the project claims to support
