@@ -67,6 +67,19 @@ DOC, VECTORS = _load()
 BY_ID = {v["id"]: v for v in VECTORS}
 
 
+def _neu_signiert(**geaendert) -> bytes:
+    """P1 with members of its payload replaced, B formed anew under RFC 8785 and signed with the draft's PURE TEST seed."""
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from proofbundle.dsse import pae
+    ser = _ser()
+    p1 = json.loads(BY_ID["P1"]["receipt"])
+    payload = {**json.loads(base64.b64decode(p1["payload_b64"])), **geaendert}
+    b = ser._jcs(payload).encode("utf-8")
+    sig = Ed25519PrivateKey.from_private_bytes(_DRAFT_TEST_SEED).sign(pae(ser.RECEIPT_TYPE, b))
+    return json.dumps({"schema": ser.RECEIPT_TYPE, "payload_b64": base64.b64encode(b).decode("ascii"),
+                       "signature": {"alg": "ed25519", "sig": base64.b64encode(sig).decode("ascii")}}).encode("utf-8")
+
+
 def _run(*args):
     return subprocess.run([sys.executable, "-m", "proofbundle.cli", *args], capture_output=True, text=True,
                           cwd=REPO, env={**os.environ, "PYTHONPATH": str(REPO / "src")})
@@ -243,6 +256,30 @@ class NoReceiptBytesRaise(unittest.TestCase):
                 got = ser.verify_signed_eval_receipt(receipt, BY_ID["P1"]["key"])
                 self.assertEqual((got.ok, got.step, got.resource_limit), erwartet, got.reason)
 
+    def test_a_string_past_the_budget_is_a_resource_limit_and_one_below_it_passes(self):
+        """Codex thread 4437338037 at bd1bdf6b: P1 with a `suite` of 1,000,001 characters, signed anew with the draft's
+        test seed, verified with ok=True, and show-eval then refused it while rendering. The verifier now holds the
+        package's whole structural budget (budget.string_len, json_nodes, json_depth), so the verdict says so itself;
+        700,000 characters stay a PASS."""
+        ser = _ser()
+        for laenge, erwartet in ((1_000_001, (False, None, True)), (700_000, (True, None, False))):
+            with self.subTest(length=laenge):
+                got = ser.verify_signed_eval_receipt(_neu_signiert(suite="a" * laenge), BY_ID["P1"]["key"])
+                self.assertEqual((got.ok, got.step, got.resource_limit), erwartet, got.reason)
+
+    def test_a_long_member_name_and_too_many_items_are_a_resource_limit_too(self):
+        """The other two axes of the budget, at the receipt: without them both receipts would fail step 1."""
+        from proofbundle.budget import DEFAULT_BUDGET
+        ser = _ser()
+        lang = json.dumps({"schema": ser.RECEIPT_TYPE, "n" * (DEFAULT_BUDGET.string_len + 1): 1}).encode("utf-8")
+        viele = json.dumps({"schema": ser.RECEIPT_TYPE, "x": [0] * (DEFAULT_BUDGET.json_nodes + 1)}).encode("utf-8")
+        glieder = json.dumps({"schema": ser.RECEIPT_TYPE,
+                              "x": {f"k{i}": 0 for i in range(DEFAULT_BUDGET.json_nodes + 1)}}).encode("utf-8")
+        for name, receipt in (("name", lang), ("items", viele), ("members", glieder)):
+            with self.subTest(axis=name):
+                got = ser.verify_signed_eval_receipt(receipt, BY_ID["P1"]["key"])
+                self.assertEqual((got.ok, got.step, got.resource_limit), (False, None, True), got.reason)
+
     def test_a_receipt_that_is_no_bytes_value_fails_step_1(self):
         ser = _ser()
         self.assertEqual(ser.verify_signed_eval_receipt("not bytes", BY_ID["P1"]["key"]).step, 1)
@@ -323,12 +360,36 @@ class TheCliReadsTheFormatOnlyOnItsSwitch(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             deep = self._file(d, "deep.json", b"[" * 100000 + b"]" * 100000)
             large = self._file(d, "large.json", b" " * (8 * 1024 * 1024 + 1))
-            for path in (deep, large):
+            # Codex thread 4437338037: a receipt that verified and then failed the render was exit 2, not 4.
+            long_suite = self._file(d, "long_suite.json", _neu_signiert(suite="a" * 1_000_001))
+            for path in (deep, large, long_suite):
                 with self.subTest(path=os.path.basename(path)):
                     r = _run("show-eval", path, "--format", "eval-receipt-v1", "--expect-issuer", self.PIN)
                     self.assertEqual(r.returncode, 4, r.stderr)
                     self.assertIn("NO VERDICT, neither PASS nor FAIL", r.stderr)
                     self.assertNotIn("=> OK", r.stdout)
+
+
+class TheRenderOfAPassStaysInsideTheExitCodes(unittest.TestCase):
+    def test_a_refusal_while_rendering_a_pass_is_no_verdict(self):
+        """The mapping of exit codes is total: if the second reading of B for the output refuses it after a PASS, the
+        command says NO VERDICT with exit 4, never exit 2 for an invocation that was well formed."""
+        import contextlib
+        import io
+        from unittest import mock
+        from proofbundle import cli
+        from proofbundle.budget import BudgetExceeded
+        err, out = io.StringIO(), io.StringIO()
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "P1.json")
+            Path(path).write_bytes(BY_ID["P1"]["receipt"])
+            with mock.patch.object(cli, "loads_strict", side_effect=BudgetExceeded("string_len", 2, 1)), \
+                    contextlib.redirect_stderr(err), contextlib.redirect_stdout(out):
+                code = cli.main(["show-eval", path, "--format", "eval-receipt-v1", "--expect-issuer",
+                                 TheCliReadsTheFormatOnlyOnItsSwitch.PIN])
+        self.assertEqual(code, 4, err.getvalue())
+        self.assertIn("NO VERDICT, neither PASS nor FAIL", err.getvalue())
+        self.assertNotIn("=> OK", out.getvalue())
 
 
 if __name__ == "__main__":

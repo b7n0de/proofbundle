@@ -574,7 +574,14 @@ def _show_signed_eval_receipt(args: argparse.Namespace) -> int:
         print(_safe_line(f"=> FAILED at step {verdict.step_label}: {verdict.reason}"), file=sys.stderr)
         return 1
     assert verdict.payload is not None   # an ok verdict carries B (ReceiptVerdict.payload; mypy narrowing)
-    payload = loads_strict(verdict.payload.decode("utf-8"))   # B, verified above
+    try:
+        payload = loads_strict(verdict.payload.decode("utf-8"))   # B, verified above
+    except (ProofBundleError, ValueError) as exc:
+        # The verifier holds the same budget, so this is not reached; kept so the mapping of exit codes is total.
+        # A refusal here was exit 2 for a well formed invocation (Codex thread 4437338037 at bd1bdf6b).
+        print(_safe_line(f"=> NO VERDICT, neither PASS nor FAIL: B verified, but reading it again for the output "
+                         f"stopped: {type(exc).__name__}"), file=sys.stderr)
+        return 4
 
     def _s(v) -> str:
         return _safe_line(str(v))

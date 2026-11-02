@@ -27,11 +27,12 @@ on its own, never by a batch. The procedure is the one of -00, which -04 keeps w
 change of -04 is that a verification key that is not exactly 32 octets is an input error.
 
 NO VERDICT WITHOUT THE STEPS. A verification key that is not exactly 32 octets is an input error: no step
-runs, and the verdict says ``input_error``, with no step. A receipt or a B nested deeper than this package's JSON
-bound (``budget.json_depth``, counted from 1 at the root with scalars, as ``_strict_json`` counts it) stops the
-procedure: the verdict says ``resource_limit``, with no step. The bound is checked here on every interpreter; the
-interpreter's RecursionError is a backstop only, since ``json.loads`` raises it on some builds and parses the same
-100000 levels on others. Neither is PASS nor the failure of a step (the draft's Section 5). The verifier never raises.
+runs, and the verdict says ``input_error``, with no step. A receipt or a B past this package's structural budget
+(``budget.json_depth`` counted from 1 at the root with scalars, ``json_nodes`` and ``string_len``, as ``_strict_json``
+holds them) stops the procedure: the verdict says ``resource_limit``, with no step. The budget is checked here on
+every interpreter, so a B that verifies is one ``loads_strict`` reads; the interpreter's RecursionError is a backstop
+only, since ``json.loads`` raises it on some builds and parses the same 100000 levels on others. Neither is PASS nor
+the failure of a step (the draft's Section 5). The verifier never raises.
 
 The Rust verifier in ``tools/pb_verify_rs`` does not know this format; a receipt of it gets no verdict
 there.
@@ -181,17 +182,31 @@ def _ijson(raw: bytes, what: str, step: int) -> Any:
     except ValueError as exc:
         raise _Fail(step, f"{what} is not one JSON text ({type(exc).__name__})") from None
 
-    # The depth first, before any step judges the text: measured at bd1bdf6b, the Python 3.14 of CI parsed
-    # 100000 nested lists without a RecursionError and step 1 failed, where 3.14.8 on another machine raised it.
-    bound = DEFAULT_BUDGET.json_depth
+    # The package's structural budget first, before any step judges the text, with the axes and the count of
+    # _strict_json: depth (measured at bd1bdf6b, the Python 3.14 of CI parsed 100000 nested lists without a
+    # RecursionError and step 1 failed, where 3.14.8 on another machine raised it), the number of members and items,
+    # and the length of a string, a member name included (Codex thread 4437338037: a `suite` of 1,000,001
+    # characters verified, and loads_strict refused the same B when show-eval rendered it).
+    bound, nodes_cap, text_cap = DEFAULT_BUDGET.json_depth, DEFAULT_BUDGET.json_nodes, DEFAULT_BUDGET.string_len
+    nodes = 0
     levels = [(value, 1)]
     while levels:
         v, depth = levels.pop()
         if depth > bound:
             raise _Limit(f"{what} nests deeper than {bound} levels")
-        if isinstance(v, dict):
-            levels.extend((x, depth + 1) for x in v.values())
+        if isinstance(v, str):
+            if len(v) > text_cap:
+                raise _Limit(f"{what} holds a string of more than {text_cap} characters")
+        elif isinstance(v, dict):
+            nodes += len(v)
+            if nodes > nodes_cap:
+                raise _Limit(f"{what} holds more than {nodes_cap} members and items")
+            for name, x in v.items():
+                levels.extend(((name, depth + 1), (x, depth + 1)))
         elif isinstance(v, list):
+            nodes += len(v)
+            if nodes > nodes_cap:
+                raise _Limit(f"{what} holds more than {nodes_cap} members and items")
             levels.extend((x, depth + 1) for x in v)
 
     stack = [value]
