@@ -234,3 +234,30 @@ def test_the_verifier_reads_the_log_of_a_guard_loaded_with_plugin_dir(tmp_path, 
     os.utime(house / server.LOG_NAME, ns=(2_000_000_000, 2_000_000_000))
     os.utime(inline / (server.LOG_NAME + ".1"), ns=(3_000_000_000, 3_000_000_000))
     assert server._log_path()[0] == str(inline / server.LOG_NAME)
+
+
+def test_the_verifier_does_not_guess_which_of_two_logs_of_one_time_was_written_last(tmp_path, monkeypatch):
+    """A reading of the split (line 3, 2 November 2026): where two Guard logs carry the same newest modification time,
+    the server took the one whose directory name sorts last and said it was written last. A file system with a coarse
+    clock gives two writes close together one time. The server then reads no log and says why (NOT MEASURED in
+    gate_status), the current log or a rotated one alike; a nanosecond apart, the later one is read. Red at the commit
+    before its fix."""
+    server = _server()
+    data = tmp_path / "plugins" / "data"
+    monkeypatch.delenv("PLUGIN_DATA", raising=False)
+    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(data / _data_id(f"{VERIFY}@inline")))
+    inline, house = data / _data_id(f"{GUARD}@inline"), data / server.GUARD_DATA_DIR
+    for folder in (inline, house):
+        folder.mkdir(parents=True)
+        (folder / server.LOG_NAME).write_text("{}\n", encoding="utf-8")
+    for tied in (inline / server.LOG_NAME, inline / (server.LOG_NAME + ".1")):
+        tied.write_text("{}\n", encoding="utf-8")
+        os.utime(inline / server.LOG_NAME, ns=(1_000_000_000, 1_000_000_000))
+        os.utime(tied, ns=(2_000_000_000, 2_000_000_000))
+        os.utime(house / server.LOG_NAME, ns=(2_000_000_000, 2_000_000_000))
+        path, source = server._log_path()
+        assert path is None and "same" in source and "D134" in source, (tied.name, path, source)
+        result, _ok = server.tool_gate_status({})
+        assert result["log_path"] is None and result["note"].startswith("NOT MEASURED"), result
+        os.utime(tied, ns=(2_000_000_001, 2_000_000_001))   # control: a nanosecond later
+        assert server._log_path()[0] == str(inline / server.LOG_NAME), tied.name
