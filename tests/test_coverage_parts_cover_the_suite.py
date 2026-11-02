@@ -99,6 +99,16 @@ PART_JOB_KEYS = frozenset({"name", "runs-on", "timeout-minutes", "strategy", "en
 CLOSING_JOB_KEYS = frozenset({"name", "needs", "if", "runs-on", "timeout-minutes", "steps"})
 
 
+#: A reference to a credential in a workflow expression; a coverage job receives none.
+CREDENTIALS = ("secrets.", "github.token")
+
+
+def _credentials(obj, where: str) -> list[str]:
+    """Every credential reference anywhere in `obj` (a job, a step, an env), whatever key carries it. Pure."""
+    text = json.dumps(obj, sort_keys=True, default=str)
+    return [f"{where} refers to {c!r}: coverage jobs receive no secrets" for c in CREDENTIALS if c in text]
+
+
 def _job_keys(job: dict, allowed: frozenset, reported: frozenset) -> list[str]:
     found = []
     for key in sorted(set(job) - allowed - reported):
@@ -204,6 +214,7 @@ def workflow_findings(workflow: dict) -> list[str]:
     for key in sorted(workflow.get("env") or {}):
         if key in HELD_ENV or key.startswith(("PYTEST", "COVERAGE")):
             found.append(f"the workflow env sets {key}, which changes what the parts collect or measure")
+    found += _credentials(workflow.get("env") or {}, "the workflow env")
     perm = workflow.get("permissions")
     if perm is None:
         found.append("the workflow sets no permissions, so the token has the default of the repository; coverage "
@@ -229,6 +240,10 @@ def part_findings(job: dict) -> list[str]:
     k = None
     if strategy.get("fail-fast") is not False:
         findings.append("fail-fast is not false: one red part would cancel the others")
+    for key in sorted(set(strategy) - {"fail-fast", "matrix"}):
+        findings.append(f"the strategy carries `{key}`: max-parallel would run the parts one after the other, "
+                        "beyond the chain the landing waits for")
+    findings += _credentials(job, "the parts job")
     if not isinstance(parts, list) or len(parts) < 2 or parts != list(range(1, len(parts) + 1)):
         findings.append(f"the parts {parts!r} are not the numbers 1 to K with K of at least 2")
     else:
@@ -311,6 +326,7 @@ def closing_findings(job: dict, k: "int | None") -> list[str]:
     for key in sorted(job.get("env") or {}):
         findings.append(f"the closing job env sets {key}, which the check and the floor do not need")
     findings += _job_keys(job, CLOSING_JOB_KEYS, frozenset({"strategy", "continue-on-error", "defaults", "env"}))
+    findings += _credentials(job, "the closing job")
     steps = job.get("steps") or []
     down = [s for s in steps if str(s.get("uses", "")).startswith(DOWNLOAD)]
     w = (down[0].get("with") or {}) if len(down) == 1 else {}
@@ -478,6 +494,11 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
             "installs nothing else": self._step(self._part(), 1, run=INSTALL_PARTS + " pytest-randomly"),
             "must not receive write permissions": changed(permissions={"contents": "write"}),
             "a coverage job does not have": changed(container="ubuntu:latest"),
+            "the strategy carries `max-parallel`": changed(strategy={"fail-fast": False, "matrix": {"part": [1, 2]},
+                                                                     "max-parallel": 1}),
+            "parts job refers to 'secrets.'": self._step(self._part(), 3, env={
+                "CI_PART": "${{ matrix.part }}/2", "TOKEN": "${{ secrets.X }}"}),
+            "parts job refers to 'github.token'": self._step(self._part(), 0, **{"with": {"token": "${{ github.token }}"}}),
             "without narrowing the checkout": self._step(self._part(), 0, **{"with": {"ref": "c8b5b285"}}),
             "the input(s) ['overwrite']": self._step(self._part(), 5, **{"with": {
                 **self._part()["steps"][5]["with"], "overwrite": True}}),
@@ -511,7 +532,9 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
                                 "env sets COVERAGE_CORE": {**read, "env": {"COVERAGE_CORE": "ctrace"}},
                                 "grants {'contents': 'write'}": {"permissions": {"contents": "write"}},
                                 "grants 'write-all'": {"permissions": "write-all"},
-                                "sets no permissions": {"jobs": {}}}.items():
+                                "sets no permissions": {"jobs": {}},
+                                "workflow env refers to 'secrets.'": {**read, "env": {
+                                    "FOO": "${{ secrets.COVERAGE_TOKEN }}"}}}.items():
             with self.subTest(words):
                 found = workflow_findings(workflow)
                 self.assertTrue(any(words in f for f in found), found)
@@ -545,6 +568,8 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
             "download-artifact@v8', not pinned": self._step(self._closing(), 1, uses="actions/download-artifact@v8"),
             "must not receive write permissions": changed(permissions={"contents": "write"}),
             "without narrowing the checkout": self._step(self._closing(), 0, **{"with": {"repository": "x/y"}}),
+            "closing job refers to 'secrets.'": self._step(self._closing(), 2, env={
+                "PARTS_RESULT": "${{ needs.coverage-part.result }}", "T": "${{ secrets.X }}"}),
             "the input(s) ['run-id']": self._step(self._closing(), 1, **{"with": {
                 **self._closing()["steps"][1]["with"], "run-id": "1"}}),
             "carries `defaults`": changed(defaults={"run": {"shell": "bash {0}"}}),
