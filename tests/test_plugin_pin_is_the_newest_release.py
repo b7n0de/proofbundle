@@ -334,10 +334,11 @@ def test_control_a_closing_sequence_of_hashes_is_no_part_of_the_heading(tmp_path
     (_HEAD + "## [6.4.0] - 2026-10-27\n\n[x]: /u\n<a>\n## [7.0.0] - 2026-11-02\n", "HTML"),
     (_HEAD + "## [6.4.0] - 2026-10-27\n\n</script>\n## [7.0.0] - 2026-11-02\n", "HTML"),
     (_HEAD + "## [6.4.0] - 2026-10-27\n\n[7.0.0] - 2026-11-02\n2. x\n---\n", "setext"),
+    (_HEAD + "<a x=\">\">\n## [9.0.0] - 2026-11-02\n\n## [6.4.0] - 2026-10-27\n", "HTML"),
 ], ids=["a comment", "an HTML block of a block tag", "a lone tag after a blank line", "a setext heading with dashes",
         "a setext heading with equals", "an indented heading in a list item", "an indented fence in a list item",
         "a lone tag after a link reference definition", "a lone closing script tag",
-        "an underline after an ordered item that continues a paragraph"])
+        "an underline after an ordered item that continues a paragraph", "a lone tag with a quoted > in a value"])
 def test_a_block_the_reader_does_not_read_stops_the_case(tmp_path, monkeypatch, text, words):
     """A pre-run of the reading of this pin on main (Codex, P2): a heading line inside an HTML comment was read as a
     release, and a setext heading that renders as a level-two heading was not read at all. CommonMark hides lines in an
@@ -356,6 +357,18 @@ def test_control_a_lone_tag_after_paragraph_text_continues_the_paragraph(tmp_pat
     """A fifth pre-run of the reading of the pin on main (Codex, P2): a complete tag alone on its line starts an HTML
     block of type 7 only where no paragraph runs, since that type cannot interrupt a paragraph (CommonMark 0.31.2,
     section 4.6). After a line of text it continues the paragraph, and the reader must not stop there."""
+    _changelog(tmp_path, monkeypatch, text)
+    assert _newest_release() == "6.4.0"
+
+
+@pytest.mark.parametrize("text", [
+    "## [Unreleased]\n\n<a b=>\n\n## [6.4.0] - 2026-10-27\n",
+    "## [Unreleased]\n## [6.4.0] - 2026-10-27\n> x\nx\n===\n",
+], ids=["a tag without its attribute value", "an underline that lazily continues a quoted paragraph"])
+def test_control_a_line_the_reader_can_place_does_not_stop_the_case(tmp_path, monkeypatch, text):
+    """A sixth pre-run of the reading of the pin on main (Codex, P2): `<a b=>` is no tag in CommonMark, since an
+    attribute's `=` needs a value, so the line is paragraph text; and `===` after a quoted paragraph and a line that
+    continues it lazily continues that paragraph too (CommonMark 0.31.2, example 93). Neither may stop the case."""
     _changelog(tmp_path, monkeypatch, text)
     assert _newest_release() == "6.4.0"
 
