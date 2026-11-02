@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import pathlib
 import re
 
@@ -196,3 +197,32 @@ def test_the_verifier_reads_the_gates_log_in_the_guards_data_directory(tmp_path,
     for own in ("data", guard_id, "proofbundle", "elsewhere-proofbundle"):   # controls: read as before
         monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(tmp_path / own))
         assert server._log_path()[0] == str(tmp_path / own / server.LOG_NAME), own
+
+
+def test_the_verifier_reads_the_log_of_a_guard_loaded_with_plugin_dir(tmp_path, monkeypatch):
+    """Cloud run M1 -4 of 2 November 2026, with Claude Code 2.1.316 and both plugins loaded with --plugin-dir: a plugin
+    loaded so has the identifier <name>@inline, so the Guard logged into proofbundle-guard-inline, while gate_status and
+    the self-test read proofbundle-guard-proofbundle-house, which does not exist there, and the self-test said NOT
+    MEASURABLE for a deny the gate had logged. The server reads beside its own directory the Guard's directories it
+    knows (the house marketplace's, the inline one, the one of the verifier's own marketplace) and, of those that hold a
+    log, the one written last; where none holds one, the house's as before. Red at fe78eef2."""
+    server = _server()
+    data = tmp_path / "plugins" / "data"
+    monkeypatch.delenv("PLUGIN_DATA", raising=False)
+    inline, house = data / _data_id(f"{GUARD}@inline"), data / server.GUARD_DATA_DIR
+    verifiers = (_data_id(f"{VERIFY}@inline"), _data_id(f"{VERIFY}@{_json(MARKETPLACE)['name']}"))
+    for verifier in verifiers:   # control: no log anywhere, the house's directory as before
+        monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(data / verifier))
+        assert server._log_path()[0] == str(house / server.LOG_NAME), verifier
+    inline.mkdir(parents=True)
+    (inline / server.LOG_NAME).write_text("{}\n", encoding="utf-8")
+    for verifier in verifiers:
+        monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(data / verifier))
+        path, source = server._log_path()
+        assert path == str(inline / server.LOG_NAME) and "D134" in source, (verifier, path, source)
+    house.mkdir(parents=True)
+    (house / server.LOG_NAME).write_text("{}\n", encoding="utf-8")
+    for first, last in ((inline, house), (house, inline)):
+        os.utime(first / server.LOG_NAME, ns=(1_000_000_000, 1_000_000_000))
+        os.utime(last / server.LOG_NAME, ns=(2_000_000_000, 2_000_000_000))
+        assert server._log_path()[0] == str(last / server.LOG_NAME), (first, last)
