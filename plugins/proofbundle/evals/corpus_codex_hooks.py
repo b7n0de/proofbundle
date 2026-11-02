@@ -2,12 +2,13 @@
 
     python3 plugins/proofbundle/evals/corpus_codex_hooks.py [--codex PATH]   (from the repository root)
 
-Installs the plugin from this repository's marketplace into a throwaway CODEX_HOME (`codex plugin
-marketplace add`, `codex plugin add`), asks the local app-server (`hooks/list`) which hooks it loaded, and
-prints one JSON object: the Codex version, the hooks with their matcher, command and source file, and
-"ok" true only for exactly the hooks the Codex manifest registers, each starting the gate with --host codex as the
-gate reads it. Nothing leaves the machine; the throwaway CODEX_HOME is removed afterwards. DECISIONS.md, D14 says
-why this can fail.
+Installs the two plugins as the house does, proofbundle from this repository's public marketplace and proofbundle-guard
+from the house marketplace in its folder (D134, owner choice N2 B), into a throwaway CODEX_HOME (`codex plugin marketplace
+add`, `codex plugin add`), asks the local app-server
+(`hooks/list`) which hooks it loaded, and prints one JSON object: the Codex version, the hooks with their matcher,
+command and source file, and "ok" true only for exactly the hooks the Guard's Codex manifest registers, each starting
+the gate with --host codex as the gate reads it, and no hook of proofbundle, which registers none (D134). Nothing
+leaves the machine; the throwaway CODEX_HOME is removed afterwards. DECISIONS.md, D14 says why this can fail.
 """
 from __future__ import annotations
 
@@ -25,7 +26,12 @@ import tempfile
 import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
-MANIFEST = ROOT / "plugins" / "proofbundle" / ".codex-plugin" / "plugin.json"
+#: The Codex manifest of the Guard, the plugin that registers the hooks since D134.
+MANIFEST = ROOT / "plugins" / "proofbundle-guard" / ".codex-plugin" / "plugin.json"
+#: The plugins the house installs: the verifier from the public marketplace, which registers no hook, and the Guard
+#: from the house marketplace in the Guard's folder (owner choice N2 B).
+VERIFY, GUARD = "proofbundle@proofbundle", "proofbundle-guard@proofbundle-house"
+HOUSE = ROOT / "plugins" / "proofbundle-guard"
 #: The programs that start the gate's script, and the options before the script that take no argument. Another program,
 #: or an option such as -c or -m whose argument is the program, starts no gate (reading of G-4, Z4).
 INTERPRETERS = ("python3", "python")
@@ -87,11 +93,18 @@ def passes_host_codex(command: object) -> bool:
                                                                               ["stop", "--host", "codex"])
 
 
+def carries_autonomous(command: object) -> bool:
+    """True where a word of the command is --autonomous: the house's flag of Claude Code, which no Codex hook may
+    carry (D125, D134). passes_host_codex sets it aside, as the gate reads the host without it."""
+    return isinstance(command, str) and "--autonomous" in command.split()
+
+
 def judge(hooks: list[dict], expected: list[tuple[str, str | None]]) -> bool:
     """True only for exactly the expected hooks, each as often as expected and in any order of the answer, each
-    started with --host codex. The order of hooks/list is NOT MEASURED, so a correct load in another order counts."""
+    started with --host codex and none with --autonomous. The order of hooks/list is NOT MEASURED, so a correct load
+    in another order counts."""
     loaded = collections.Counter((h["event"], h["matcher"] or None) for h in hooks)
-    return loaded == collections.Counter(expected) and all(h["host_codex"] for h in hooks)
+    return loaded == collections.Counter(expected) and all(h["host_codex"] and not h.get("autonomous") for h in hooks)
 
 
 def _ask(proc: subprocess.Popen, message: dict, timeout: float = 60) -> dict:
@@ -124,7 +137,8 @@ def main(argv: list[str]) -> int:
     env = dict(os.environ, CODEX_HOME=home)
     try:
         version = subprocess.run([codex, "--version"], capture_output=True, text=True, env=env).stdout.strip()
-        for args in (["plugin", "marketplace", "add", str(ROOT)], ["plugin", "add", "proofbundle@proofbundle"]):
+        for args in (["plugin", "marketplace", "add", str(ROOT)], ["plugin", "add", VERIFY],
+                     ["plugin", "marketplace", "add", str(HOUSE)], ["plugin", "add", GUARD]):
             done = subprocess.run([codex, *args], capture_output=True, text=True, env=env, timeout=120)
             if done.returncode != 0:
                 print(json.dumps({"ok": False, "codex": version, "failed": args, "stderr": done.stderr[-500:]}))
@@ -145,12 +159,15 @@ def main(argv: list[str]) -> int:
         data = (reply.get("result") or {}).get("data") or [{}]
         hooks = [{"event": h.get("eventName"), "matcher": h.get("matcher"),
                   "host_codex": passes_host_codex(h.get("command")),
+                  "autonomous": carries_autonomous(h.get("command")),
                   "source": pathlib.Path(h.get("sourcePath") or "").relative_to(home).as_posix()
                   if (h.get("sourcePath") or "").startswith(home) else h.get("sourcePath"),
                   "trust": h.get("trustStatus")}
-                 for h in data[0].get("hooks", []) if h.get("pluginId") == "proofbundle@proofbundle"]
-        ok = judge(hooks, expected_hooks())
-        print(json.dumps({"ok": ok, "codex": version, "hooks": hooks, "errors": data[0].get("errors")}, indent=1))
+                 for h in data[0].get("hooks", []) if h.get("pluginId") == GUARD]
+        verify = [h.get("eventName") for h in data[0].get("hooks", []) if h.get("pluginId") == VERIFY]
+        ok = judge(hooks, expected_hooks()) and not verify
+        print(json.dumps({"ok": ok, "codex": version, "hooks": hooks, "verify_hooks": verify,
+                          "errors": data[0].get("errors")}, indent=1))
         return 0 if ok else 1
     finally:
         shutil.rmtree(home, ignore_errors=True)

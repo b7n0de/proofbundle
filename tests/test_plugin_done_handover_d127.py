@@ -43,6 +43,7 @@ import test_plugin_gate_nordstern_b as nb
 gate = dc.gate
 GATE = dc.GATE
 PLUGIN = dc.PLUGIN
+GUARD = dc.GUARD
 UNIT = dc.UNIT
 INTEGRATION = dc.INTEGRATION
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
@@ -351,26 +352,26 @@ def test_input_that_is_no_session_start_event_is_named_and_does_not_block(env, r
 # --- (h) the registration -----------------------------------------------------------------------------------------
 
 def test_hooks_json_registers_session_start_for_every_source_and_the_codex_manifest_does_not():
-    hooks = json.loads((PLUGIN / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
+    hooks = json.loads((GUARD / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
     (entry,) = hooks["SessionStart"]
     assert "matcher" not in entry                                   # startup, resume, clear and compact alike
     (hook,) = entry["hooks"]
     assert hook["type"] == "command" and hook["timeout"] > gate.DEADLINE_SECONDS
     assert hook["command"].startswith('python3 -I "${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py" session-start ||')
     assert "--autonomous" not in hook["command"]
-    codex = json.loads((PLUGIN / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    codex = json.loads((GUARD / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
     assert "SessionStart" not in codex["hooks"]["hooks"] and "session-start" not in json.dumps(codex)
 
 
 def test_the_registered_command_hands_over_and_names_a_gate_that_cannot_run(env, repo, keys, tmp_path):
-    (entry,) = json.loads((PLUGIN / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]["SessionStart"]
+    (entry,) = json.loads((GUARD / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]["SessionStart"]
     command = entry["hooks"][0]["command"]
     _green(repo, keys, UNIT)
     _red(repo, keys, INTEGRATION)
     _blocker(env, repo)
     event = json.dumps(_event(repo))
     real = subprocess.run(["sh", "-c", command], input=event, capture_output=True, text=True,
-                          env=dict(env, CLAUDE_PLUGIN_ROOT=str(PLUGIN)), cwd=repo, timeout=180, check=False)
+                          env=dict(env, CLAUDE_PLUGIN_ROOT=str(GUARD)), cwd=repo, timeout=180, check=False)
     assert real.returncode == 0 and "round 1 of the hand-over" in _context(json.loads(real.stdout)), real.stdout
     broken = subprocess.run(["sh", "-c", command], input=event, capture_output=True, text=True,
                             env=dict(env, CLAUDE_PLUGIN_ROOT=str(tmp_path / "absent")), cwd=repo, timeout=60,

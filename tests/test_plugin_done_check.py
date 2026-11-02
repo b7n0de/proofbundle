@@ -37,7 +37,9 @@ from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "proofbundle"
-GATE = PLUGIN / "hooks" / "proofbundle_gate.py"
+#: The house's hooks, the plugin proofbundle-guard beside the verifier (D134); its programs are those of PLUGIN.
+GUARD = ROOT / "plugins" / "proofbundle-guard"
+GATE = GUARD / "hooks" / "proofbundle_gate.py"
 
 skip_where_the_gate_is_not_shipped(GATE, ROOT)
 _bytecode, sys.dont_write_bytecode = sys.dont_write_bytecode, True
@@ -424,7 +426,7 @@ def test_done_init_sets_the_check_up_and_its_key_signs_a_receipt_that_ends_the_s
 
 
 def test_the_stop_hook_is_a_command_hook():
-    hooks = json.loads((PLUGIN / "hooks" / "hooks.json").read_text())["hooks"]
+    hooks = json.loads((GUARD / "hooks" / "hooks.json").read_text())["hooks"]
     (entry,) = hooks["Stop"]
     (hook,) = entry["hooks"]
     assert hook["type"] == "command" and "matcher" not in entry
@@ -689,12 +691,12 @@ def test_task_completed_without_a_done_check_and_on_a_wrong_event(env, repo):
 
 
 def test_the_task_completed_hook_wraps_the_check_and_blocks_when_it_cannot_run(env, ordered, tmp_path):
-    (entry,) = json.loads((PLUGIN / "hooks" / "hooks.json").read_text())["hooks"]["TaskCompleted"]
+    (entry,) = json.loads((GUARD / "hooks" / "hooks.json").read_text())["hooks"]["TaskCompleted"]
     (hook,) = entry["hooks"]
     assert hook["type"] == "command" and "matcher" not in entry and " task-completed) || " in hook["command"]
     event = json.dumps({"hook_event_name": "TaskCompleted", "cwd": str(ordered), "session_id": "s"})
     real = subprocess.run(["sh", "-c", hook["command"]], input=event, capture_output=True, text=True,
-                          env=dict(env, CLAUDE_PLUGIN_ROOT=str(PLUGIN)), cwd=ordered, timeout=180, check=False)
+                          env=dict(env, CLAUDE_PLUGIN_ROOT=str(GUARD)), cwd=ordered, timeout=180, check=False)
     assert real.returncode == 2 and real.stderr.startswith("proofbundle done check: check unit is missing")
     assert "could not run" not in real.stderr
     broken = subprocess.run(["sh", "-c", hook["command"]], input=event, capture_output=True, text=True,
@@ -703,7 +705,7 @@ def test_the_task_completed_hook_wraps_the_check_and_blocks_when_it_cannot_run(e
     assert broken.returncode == 2 and "the check could not run, so the task stays open" in broken.stderr
     _write(ordered / UNIT["receipt"], "{}")                         # the line is the gate's, whatever the receipt holds
     passed = subprocess.run(["sh", "-c", hook["command"]], input=event, capture_output=True, text=True,
-                            env=dict(env, CLAUDE_PLUGIN_ROOT=str(PLUGIN)), cwd=ordered, timeout=180, check=False)
+                            env=dict(env, CLAUDE_PLUGIN_ROOT=str(GUARD)), cwd=ordered, timeout=180, check=False)
     assert passed.returncode == 2 and passed.stderr.count("\n") == 1
 
 
@@ -715,7 +717,7 @@ CODEX_STOP_FIELDS = {"continue", "stopReason", "suppressOutput", "systemMessage"
 
 
 def test_codex_runs_the_same_stop_hook_from_the_same_folder():
-    manifest = json.loads((PLUGIN / ".codex-plugin" / "plugin.json").read_text())
+    manifest = json.loads((GUARD / ".codex-plugin" / "plugin.json").read_text())
     (entry,) = manifest["hooks"]["hooks"]["Stop"]
     (hook,) = entry["hooks"]
     assert hook["type"] == "command" and "matcher" not in entry

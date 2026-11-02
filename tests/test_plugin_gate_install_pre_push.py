@@ -189,7 +189,7 @@ def test_a_folder_that_is_no_repository_is_refused(tmp_path):
 
 def test_the_plugin_never_runs_it_by_itself():
     """Only the user's call installs: no hook configuration of either host and no other gate path names it."""
-    for config in PLUGIN.rglob("*.json"):
+    for config in [p for folder in ("proofbundle", "proofbundle-guard") for p in (PLUGIN.parent / folder).rglob("*.json")]:
         assert "install-pre-push" not in config.read_text(encoding="utf-8"), config
     source = GATE.read_text(encoding="utf-8")
     assert source.count("install_pre_push(") == 2, "defined once and called once, from its own command"
@@ -210,6 +210,27 @@ def test_the_wrapper_finds_the_newest_installed_version_by_number(tmp_path):
     assert _resolve(old) == str(newer / "hooks" / "proofbundle_gate.py")
     shutil.rmtree(newer)
     assert _resolve(old) == str(old / "hooks" / "proofbundle_gate.py")
+
+
+def test_the_wrapper_finds_the_newest_installed_version_of_the_guard_too(tmp_path):
+    """D134: the house installs the Guard as the plugin proofbundle-guard, and the gate a hook runs names the Guard's
+    folder, <cache>/<marketplace>/proofbundle-guard/<version>/. A wrapper installed from it follows a Guard update as
+    it follows one of proofbundle. Red at the split commit, where the resolver read only a folder named proofbundle: after the
+    old version folder was gone it found no gate and the wrapper denied every push."""
+    old = tmp_path / "cache" / "proofbundle" / "proofbundle-guard" / "0.4.0"
+    newer = old.parent / "0.4.1"
+    for root in (old, newer):
+        (root / "hooks").mkdir(parents=True)
+        (root / "hooks" / "proofbundle_gate.py").write_text("", encoding="utf-8")
+    assert _resolve(old) == str(newer / "hooks" / "proofbundle_gate.py")
+    shutil.rmtree(old)
+    assert _resolve(old) == str(newer / "hooks" / "proofbundle_gate.py")
+    other = tmp_path / "cache" / "proofbundle" / "proofbundle-other" / "0.4.0"
+    (other / "hooks").mkdir(parents=True)
+    (other / "hooks" / "proofbundle_gate.py").write_text("", encoding="utf-8")
+    (other.parent / "0.4.1" / "hooks").mkdir(parents=True)
+    (other.parent / "0.4.1" / "hooks" / "proofbundle_gate.py").write_text("", encoding="utf-8")
+    assert _resolve(other) == str(other / "hooks" / "proofbundle_gate.py"), "another plugin's folders stay as they are"
 
 
 def test_the_wrapper_reads_a_development_folder_as_it_is(tmp_path):

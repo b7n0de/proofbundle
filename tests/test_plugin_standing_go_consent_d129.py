@@ -35,7 +35,7 @@ import test_plugin_n35_work_branch_go_d87 as d87
 gate = d71.gate
 pytestmark = d71.pytestmark
 _clean = d71._clean
-PILOT = pathlib.Path(gate.__file__).resolve().parent.parent / "pilot"
+PILOT = pathlib.Path(__file__).resolve().parents[1] / "plugins" / "proofbundle" / "pilot"
 #: D129: the house's statement in the hook's environment that it consents to the standing GO of D87.
 CONSENT = {"PROOFBUNDLE_STANDING_GO": "protected"}
 #: D124: the house's statement that it protects the owner files of the gate directory; it is no consent to the GO.

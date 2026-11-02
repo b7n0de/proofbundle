@@ -88,10 +88,15 @@ def test_D130_without_the_flag_an_ask_whose_check_found_a_hook_does_not_name_the
 
 @pytest.mark.parametrize("form", HOOK_FORMS)
 def test_D130_the_hook_as_hooks_json_starts_it_asks_for_a_form_of_the_work_profile(tmp_path, form):
+    """Changed by D134: proofbundle registers no hook, so a contributor who installs it gets no work profile; the Guard's
+    hooks.json is the house's and starts the gate with the flag. That command without the flag, the gate's base path,
+    asks; as the Guard ships it, it frees the form, the house's opt-in."""
     repo = d71._repo(tmp_path)
-    answer, entry = d125._run_shipped(repo, tmp_path, "Bash", {"command": form})
+    answer, entry = d125._run_shipped(repo, tmp_path, "Bash", {"command": form}, without_flag=True)
     assert d125._decision(answer) == "ask", (form, answer)
     assert "free_work_profile" not in entry["reason_ids"] and "autonomy" not in entry, (form, entry)
+    house, house_entry = d125._run_shipped(repo, tmp_path, "Bash", {"command": form})
+    assert isinstance(house, ga.Silent) and house_entry["reason_ids"] == ["free_work_profile"], (form, house)
 
 
 @pytest.mark.parametrize("form", HOOK_FORMS)
