@@ -494,6 +494,14 @@ def test_a_pin_written_with_spaces_or_extras_is_found():
     assert _ANY_PIN.findall("proofbundle ==6.3.0, proofbundle[eval] == 6.2.0") == ["6.3.0", "6.2.0"]
 
 
+def test_control_a_pin_of_a_package_whose_name_ends_in_proofbundle_is_none():
+    """A tenth pre-run of the reading of the pin on main (Codex, P2): the search found `otherproofbundle==6.3.0`, the pin
+    of another package, and failed the case for a right pin. A name of PEP 508 has no letter, digit, dot, underscore or
+    hyphen right before proofbundle."""
+    assert _ANY_PIN.findall("otherproofbundle==6.3.0, my.proofbundle==6.2.0, x-proofbundle==6.1.0") == []
+    assert _ANY_PIN.findall("(proofbundle==6.4.0) `proofbundle==6.3.0`") == ["6.4.0", "6.3.0"]
+
+
 def test_control_an_atx_heading_before_a_thematic_break_is_read(tmp_path, monkeypatch):
     """The same pre-run: a line of dashes after a heading of any level is a thematic break, no setext underline."""
     _changelog(tmp_path, monkeypatch, "## [Unreleased]\n## [6.4.0] - 2026-10-27\n### Notes\n---\n")
