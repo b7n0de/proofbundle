@@ -29,14 +29,19 @@ SERVER = PLUGIN / "server" / "proofbundle_mcp.py"
 GATE = PLUGIN / "hooks" / "proofbundle_gate.py"
 CHANGELOG = ROOT / "CHANGELOG.md"
 
-_HEADER_PIN = re.compile(r'^# dependencies = \["proofbundle==(\d+\.\d+\.\d+)"\]$', re.M)
+#: The inline script metadata block of PEP 723, by its reference expression; `uv run --script` installs what it names.
+_SCRIPT_BLOCK = re.compile(r"(?m)^# /// (?P<type>[a-zA-Z0-9-]+)$\s(?P<content>(^#(| .*)$\s)+)^# ///$")
+_REQUIRES_PYTHON = re.compile(r'requires-python = "[^"\\]*"')
+_DEPENDENCY_PIN = re.compile(r'dependencies = \["proofbundle==(\d+\.\d+\.\d+)"\]')
 _HEADING = re.compile(r" {0,3}##(?:[ \t]+(.*)|[ \t]*)")
 _LINE_END = re.compile(r"\r\n|\r|\n")
 _CLOSING = re.compile(r"(?:^|[ \t]+)#+[ \t]*$")
 _FENCE = re.compile(r" {0,3}(`{3,}|~{3,})")
 _SECTION = re.compile(r"\[([^\]]+)\](.*)")
 _DATED = re.compile(r" - (\d{4})-(\d{2})-(\d{2})(?:\s+\(.*\))?\s*")
-_ANY_PIN = re.compile(r"proofbundle==(\d+\.\d+\.\d+)")
+#: A pin of proofbundle as a requirement may write it: the name in any case, extras, blanks around == or ===, and a
+#: version with what PEP 440 may append (a third pre-run of the reading of the pin on main, Codex, P2).
+_ANY_PIN = re.compile(r"proofbundle(?:\s*\[[^\]]*\])?\s*===?\s*(\d+(?:\.\d+)*(?:[-_.+!]?[A-Za-z0-9]+)*)", re.IGNORECASE)
 #: The starts of the HTML blocks of CommonMark 0.31.2, types 1 to 7 (a lone complete tag is type 7). Lines inside such a
 #: block are no headings, and the reader does not model where a block ends, so a changelog that opens one stops the case.
 _HTML_BLOCK = re.compile(
@@ -48,6 +53,11 @@ _HTML_BLOCK = re.compile(
     r"|</?[A-Za-z][A-Za-z0-9-]*(?:\s+[^<>]*)?/?>[ \t]*$)", re.IGNORECASE)
 #: A line of = or - after a line of text makes that text a setext heading, which the reader does not read.
 _SETEXT_UNDERLINE = re.compile(r" {0,3}(?:=+|-+)[ \t]*")
+#: A line that ends no paragraph at the top level, so no underline after it makes a heading: a blank line, an ATX
+#: heading of any level, a thematic break, a block quote, a bullet item with content, or an ordered item numbered 1
+#: with content, which interrupts a paragraph (an item of another number may continue one, so it counts as text).
+_NO_PARAGRAPH = re.compile(r"[ \t]*| {0,3}(?:#{1,6}(?:[ \t].*)?|(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,}"
+                           r"|>.*|[-+*][ \t]+\S.*|1[.)][ \t]+\S.*)")
 
 
 def _headings(text: str) -> list[str]:
@@ -82,7 +92,7 @@ def _headings(text: str) -> list[str]:
         # An indented heading may belong to a list item before it, where CommonMark nests it; the reader models no list.
         assert not (heading and line[:1] == " "), \
             f"the changelog indents a heading, which may sit in a list item the pin case does not read: {line!r}"
-        assert not (_SETEXT_UNDERLINE.fullmatch(line) and previous.strip(" \t") and not _HEADING.fullmatch(previous)), \
+        assert not (_SETEXT_UNDERLINE.fullmatch(line) and not _NO_PARAGRAPH.fullmatch(previous)), \
             f"the changelog makes a setext heading of {previous!r}, which the pin case does not read"
         if heading:
             found.append(_CLOSING.sub("", heading.group(1) or "").strip(" \t"))
@@ -153,16 +163,33 @@ def _assigned_strings(source: str, names: tuple[str, ...]) -> dict[str, list[str
     return found
 
 
+def _script_pin(text: str, where: str) -> str:
+    """The proofbundle pin of the one inline script metadata block (PEP 723) of a script, the block `uv run --script`
+    reads; a dependency line elsewhere in the script is a comment and pins nothing. The block holds requires-python and
+    one dependency line that pins proofbundle alone, and another form stops the case rather than read a pin from it (a
+    third pre-run of the reading of the pin on main, Codex, P2: the headers of the two tools were counted together, so a
+    dependency line after the code of one hid a stale pin in the block of the other)."""
+    blocks = [block for block in _SCRIPT_BLOCK.finditer(text) if block.group("type") == "script"]
+    opened = re.findall(r"(?m)^# /// script$", text)
+    assert len(blocks) == len(opened) == 1, f"{where} holds {len(opened)} script metadata block(s), and uv reads one"
+    lines = [line[2:] if line.startswith("# ") else line[1:] for line in blocks[0].group("content").splitlines()]
+    pins = [_DEPENDENCY_PIN.fullmatch(line) for line in lines if line.strip() and not _REQUIRES_PYTHON.fullmatch(line)]
+    assert len(pins) == 1 and pins[0], \
+        f"the metadata block of {where} holds more than requires-python and one pin of proofbundle alone: {lines}"
+    return pins[0].group(1)
+
+
 def _pins() -> dict[str, list[str]]:
     """The four pins. The gate assigns each of PINNED_PROOFBUNDLE, _SIGN_TOOL and _KEY_TOOL exactly once, to a string
-    literal (a pre-run of the reading of the pin on main, Codex, P2: a later assignment in other quotes went unseen)."""
+    literal (a pre-run of the reading of the pin on main, Codex, P2: a later assignment in other quotes went unseen),
+    and each script's pin is read from its own metadata block."""
     gate = _assigned_strings(GATE.read_text(encoding="utf-8"), ("PINNED_PROOFBUNDLE", "_SIGN_TOOL", "_KEY_TOOL"))
     for name, values in gate.items():
         assert len(values) == 1 and values[0] is not None, \
             f"the gate assigns {name} {len(values)} time(s), and the pin is one string literal assigned once: {values}"
-    return {"server header": _HEADER_PIN.findall(SERVER.read_text(encoding="utf-8")),
+    return {"server header": [_script_pin(SERVER.read_text(encoding="utf-8"), "server/proofbundle_mcp.py")],
             "gate PINNED_PROOFBUNDLE": gate["PINNED_PROOFBUNDLE"],
-            "gate tool headers": _HEADER_PIN.findall(gate["_SIGN_TOOL"][0]) + _HEADER_PIN.findall(gate["_KEY_TOOL"][0])}
+            "gate tool headers": [_script_pin(gate[name][0], name) for name in ("_SIGN_TOOL", "_KEY_TOOL")]}
 
 
 _HEAD = "# Changelog\n\n## [Unreleased]\n\n"
