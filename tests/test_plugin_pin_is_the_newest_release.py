@@ -191,6 +191,43 @@ def test_control_a_closing_sequence_of_hashes_is_no_part_of_the_heading(tmp_path
     assert _newest_release() == "6.4.0"
 
 
+@pytest.mark.parametrize("text, words", [
+    (_HEAD + "<!--\n## [7.0.0] - 2026-11-02\n-->\n## [6.4.0] - 2026-10-27\n", "HTML"),
+    (_HEAD + "<div>\n## [7.0.0] - 2026-11-02\n</div>\n\n## [6.4.0] - 2026-10-27\n", "HTML"),
+    (_HEAD + "\n<span>\n## [7.0.0] - 2026-11-02\n\n## [6.4.0] - 2026-10-27\n", "HTML"),
+    (_HEAD + "[7.0.0] - 2026-11-02\n---\n\n## [6.4.0] - 2026-10-27\n", "setext"),
+    (_HEAD + "## [6.4.0] - 2026-10-27\n\n[7.0.0] - 2026-11-02\n===\n", "setext"),
+], ids=["a comment", "an HTML block of a block tag", "a lone tag after a blank line", "a setext heading with dashes",
+        "a setext heading with equals"])
+def test_a_block_the_reader_does_not_read_stops_the_case(tmp_path, monkeypatch, text, words):
+    """A pre-run of the reading of this pin on main (Codex, P2): a heading line inside an HTML comment was read as a
+    release, and a setext heading that renders as a level-two heading was not read at all. CommonMark hides lines in an
+    HTML block and makes a line underlined by = or - a heading. The reader models neither, so a changelog that holds
+    one stops the case rather than choose a pin from a structure it does not read."""
+    _changelog(tmp_path, monkeypatch, text)
+    with pytest.raises(AssertionError, match=words):
+        _newest_release()
+
+
+def test_control_a_tag_inside_a_line_of_text_is_no_html_block(tmp_path, monkeypatch):
+    """CHANGELOG.md carries such a line (an option `<card>` named at the start of a continued sentence): a tag followed by
+    text on its line starts no HTML block, and a line of dashes after a blank line is a thematic break, no heading."""
+    _changelog(tmp_path, monkeypatch, _HEAD + "## [6.4.0] - 2026-10-27\n\n- `decision verify`\n  <card> [--check R]` "
+                                              "mirrors `prereg`.\n\n---\n\n## [6.3.1] - 2026-10-21\n")
+    assert _newest_release() == "6.4.0"
+
+
+def test_a_second_assignment_of_a_pin_is_found(tmp_path, monkeypatch):
+    """The same pre-run (Codex, P2): `_pins` read each pin by one spelling, so a later assignment of PINNED_PROOFBUNDLE
+    in single quotes, which wins at import, left the three checks green. The pins are read from the gate's syntax
+    tree, and a name assigned more than once, or not to a string, fails the agreement."""
+    gate = tmp_path / "proofbundle_gate.py"
+    gate.write_text(GATE.read_text(encoding="utf-8") + "\nPINNED_PROOFBUNDLE = '6.3.0'\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "GATE", gate)
+    with pytest.raises(AssertionError):
+        test_the_four_pins_name_one_version()
+
+
 def test_the_four_pins_name_one_version():
     pins = _pins()
     assert [len(pins["server header"]), len(pins["gate PINNED_PROOFBUNDLE"]), len(pins["gate tool headers"])] == [
