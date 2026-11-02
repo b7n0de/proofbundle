@@ -21,6 +21,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from _lastdeckel import gedeckelt  # LAUF11-L3: a load built from a budget is capped
+
 REPO = Path(__file__).resolve().parents[1]
 FIXTURE = REPO / "tests" / "fixtures" / "signed_eval_receipt" / "draft1_vectors.json"
 SPECCHECK = REPO / "tests" / "fixtures" / "ed25519_speccheck_cases.json"
@@ -232,7 +234,9 @@ class NoReceiptBytesRaise(unittest.TestCase):
         1. No interpreter raises RecursionError at this depth, so only the reader's own bound can decide it; at
         bd1bdf6b the Python 3.14 of CI parsed 100000 levels and step 1 failed."""
         from proofbundle.budget import DEFAULT_BUDGET
-        ser, n = _ser(), DEFAULT_BUDGET.json_depth
+        # Capped by memory, as every load built from a budget (tests/_lastdeckel.py): two bytes per level and the
+        # copy of the join. The guard in tests/test_lauf11_l3_testlast_ist_gedeckelt.py does not follow a tuple target.
+        ser, n = _ser(), gedeckelt(DEFAULT_BUDGET.json_depth, bytes_je_element=4)
         formen = {"lists": lambda k: b"[" * k + b"]" * k,
                   "objects": lambda k: b'{"a":' * (k - 1) + b"{}" + b"}" * (k - 1)}
         for form, bau in formen.items():
@@ -247,7 +251,7 @@ class NoReceiptBytesRaise(unittest.TestCase):
         """The same bound holds for B, read at step 4: past it no step fails, at it step 4 fails, since B is no
         object."""
         from proofbundle.budget import DEFAULT_BUDGET
-        ser, n = _ser(), DEFAULT_BUDGET.json_depth
+        ser, n = _ser(), gedeckelt(DEFAULT_BUDGET.json_depth, bytes_je_element=4)
         for tiefe, erwartet in ((n + 1, (False, None, True)), (n, (False, 4, False))):
             b = b"[" * tiefe + b"]" * tiefe
             receipt = json.dumps({"schema": ser.RECEIPT_TYPE, "payload_b64": base64.b64encode(b).decode("ascii"),
@@ -271,10 +275,15 @@ class NoReceiptBytesRaise(unittest.TestCase):
         """The other two axes of the budget, at the receipt: without them both receipts would fail step 1."""
         from proofbundle.budget import DEFAULT_BUDGET
         ser = _ser()
-        lang = json.dumps({"schema": ser.RECEIPT_TYPE, "n" * (DEFAULT_BUDGET.string_len + 1): 1}).encode("utf-8")
-        viele = json.dumps({"schema": ser.RECEIPT_TYPE, "x": [0] * (DEFAULT_BUDGET.json_nodes + 1)}).encode("utf-8")
-        glieder = json.dumps({"schema": ser.RECEIPT_TYPE,
-                              "x": {f"k{i}": 0 for i in range(DEFAULT_BUDGET.json_nodes + 1)}}).encode("utf-8")
+        # Each load is capped by its memory per element, measured 2026-11-02 with tracemalloc as the peak of building
+        # and encoding on CPython 3.10.12 and 3.14.8: at most 3.25 B per character of the name, 79.0 B per item and
+        # 196.4 B per member. Under today's budget no cap cuts a value, and a value cut below the bound would fail here.
+        lang = json.dumps({"schema": ser.RECEIPT_TYPE,
+                           "n" * (gedeckelt(DEFAULT_BUDGET.string_len, bytes_je_element=4) + 1): 1}).encode("utf-8")
+        viele = json.dumps({"schema": ser.RECEIPT_TYPE,
+                            "x": [0] * (gedeckelt(DEFAULT_BUDGET.json_nodes, bytes_je_element=128) + 1)}).encode("utf-8")
+        glieder = json.dumps({"schema": ser.RECEIPT_TYPE, "x": {
+            f"k{i}": 0 for i in range(gedeckelt(DEFAULT_BUDGET.json_nodes, bytes_je_element=256) + 1)}}).encode("utf-8")
         for name, receipt in (("name", lang), ("items", viele), ("members", glieder)):
             with self.subTest(axis=name):
                 got = ser.verify_signed_eval_receipt(receipt, BY_ID["P1"]["key"])
