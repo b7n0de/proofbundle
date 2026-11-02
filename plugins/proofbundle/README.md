@@ -329,8 +329,9 @@ Every gate call appends one line to `gate-log.jsonl` in the plugin data director
 gate version, session, tool, gated actions, decision, reason ids, and per repository its path, HEAD and the
 sha256 of each evidence file read. It holds no evidence content, no environment and no key. `gate_status`
 and the self-test read it: of the Guard directories the server knows, that of the house marketplace, that of a Guard
-loaded with `--plugin-dir` and that of a Guard from this plugin's own marketplace, they read the log written last. A
-Guard installed from any other marketplace is not found, and they then say they read the house's directory (D134).
+loaded with `--plugin-dir` and that of a Guard from this plugin's own marketplace, they read the log written last;
+where two carry the same newest time, they cannot tell which was written last and say NOT MEASURED. A Guard installed
+from any other marketplace is not found, and they then say they read the house's directory (D134).
 Under Codex the server is not told where the hook writes, so it answers NOT MEASURED (D21).
 
 ### The same check in CI

@@ -6717,7 +6717,8 @@ their red cases first:
   proofbundle-guard-inline, and gate_status and the self-test, which read only the house's directory, reported NOT
   MEASURABLE for a deny the gate had logged. The server now reads, of the Guard directories it knows (the house's,
   proofbundle-guard-inline, and proofbundle-guard-<its own marketplace>), the log written last, a rotated log counted
-  with its own time. Only the house's directory is the Guard's own: a verifier from a marketplace named guard-inline
+  with its own time; where two carry the same newest time, it cannot tell which was written last and reads none, and
+  gate_status says NOT MEASURED (a reading of the split, red first). Only the house's directory is the Guard's own: a verifier from a marketplace named guard-inline
   has the directory proofbundle-guard-inline too and reads the log as any other verifier does (found by a pre-run of
   that fix, red first). A Guard installed from any other marketplace is not found, and gate_status and the self-test
   then say they read the house's directory. Of two Guard logs the one written last wins, so a house log written after

@@ -118,10 +118,11 @@ SERVER_STARTED = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 SELFTEST_PREFIX = "proofbundle-selftest-"
 
 
-def _guard_log(parent: str, base: str, name: str) -> tuple[str, str]:
+def _guard_log(parent: str, base: str, name: str) -> tuple[str | None, str]:
     """The gate's log beside the verifier's data directory `base` in `parent`: of the Guard directories the server
     knows (the house marketplace's, the inline one, the one of the verifier's own marketplace), the one whose log was
-    written last; where none holds a log, the house's."""
+    written last; where none holds a log, the house's; where two carry the same newest time, none, because one time
+    does not say which was written last."""
     known = list(dict.fromkeys((GUARD_DATA_DIR, GUARD_INLINE_DIR, GUARD_DATA_PREFIX + base[len(VERIFY_DATA_PREFIX):])))
     written = []
     for guard in known:
@@ -137,6 +138,11 @@ def _guard_log(parent: str, base: str, name: str) -> tuple[str, str]:
     if not written:
         return (os.path.join(parent, GUARD_DATA_DIR, LOG_NAME),
                 f"from {name}, the Guard's data directory beside it (D134); no log yet in {', '.join(known)}")
+    newest = max(written)[0]
+    tied = [guard for when, guard, _path in written if when == newest]
+    if len(tied) > 1:   # a coarse clock gives two writes close together one time (a reading of the split)
+        return None, (f"from {name}: the Guard logs in {' and '.join(tied)} carry the same newest modification time, "
+                      "so the server cannot tell which was written last (D134)")
     _, guard, path = max(written)
     return path, f"from {name}, the Guard's data directory {guard} beside it, written last of {len(written)} (D134)"
 
