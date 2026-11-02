@@ -43,7 +43,8 @@ _DATED = re.compile(r" - (\d{4})-(\d{2})-(\d{2})(?:\s+\(.*\))?\s*")
 #: A pin of proofbundle as a requirement may write it: the name in any case, extras, blanks around == or ===, and a
 #: version with what PEP 440 may append (a third pre-run of the reading of the pin on main, Codex, P2); no character of
 #: a PEP 508 name stands right before it, so the pin of another package ending in proofbundle is none (a tenth pre-run).
-_ANY_PIN = re.compile(r"(?<![A-Za-z0-9._-])proofbundle(?:\s*\[[^\]]*\])?\s*===?\s*(\d+(?:\.\d+)*(?:[-_.+!]?[A-Za-z0-9]+)*)",
+#: The version may open with a v, which PEP 440 drops (an eleventh pre-run).
+_ANY_PIN = re.compile(r"(?<![A-Za-z0-9._-])proofbundle(?:\s*\[[^\]]*\])?\s*===?\s*([vV]?\d+(?:\.\d+)*(?:[-_.+!]?[A-Za-z0-9]+)*)",
                       re.IGNORECASE)
 #: The starts of the HTML blocks of CommonMark 0.31.2, types 1 to 6, which may interrupt a paragraph; a block tag name of
 #: type 6 ends at a blank, a > or the pair /> (an eighth pre-run of the reading of the pin on main, Codex, P2). Lines inside
@@ -593,6 +594,15 @@ def test_the_pin_is_the_newest_release_the_changelog_records():
     assert {version for found in pins.values() for version in found} == {newest}, (newest, pins)
 
 
+def _names(written: str, newest: str) -> bool:
+    """Whether a pinned version names the newest release as PEP 440 normalizes both: `v6.4.0` and `6.4` name 6.4.0, a
+    version PEP 440 cannot read names none (an eleventh pre-run of the reading of the pin on main, Codex, P2)."""
+    try:
+        return Version(written) == Version(newest)
+    except InvalidVersion:
+        return False
+
+
 def test_every_pin_the_plugin_writes_names_that_version():
     """Every file of the plugin that holds no NUL byte is read, whatever its ending (an eighth pre-run of the reading of
     the pin on main, Codex, P2: a list of endings left `.yml` unread)."""
@@ -605,5 +615,5 @@ def test_every_pin_the_plugin_writes_names_that_version():
         if b"\0" in raw:
             continue
         text = raw.decode("utf-8", errors="replace")
-        stale += [f"{path.relative_to(ROOT)}: proofbundle=={v}" for v in _ANY_PIN.findall(text) if v != newest]
+        stale += [f"{path.relative_to(ROOT)}: proofbundle=={v}" for v in _ANY_PIN.findall(text) if not _names(v, newest)]
     assert not stale, (newest, stale)
