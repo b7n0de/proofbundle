@@ -529,6 +529,77 @@ def _cmd_emit_eval(args: argparse.Namespace) -> int:
     return 0
 
 
+def _show_signed_eval_receipt(args: argparse.Namespace) -> int:
+    """``show-eval --format eval-receipt-v1``: a Signed Evaluation Receipt of draft-gruszka-signed-evaluation-
+    receipts-04 (EXPERIMENTAL, in no release scope). The draft's Receiver fixes the verification key, so
+    exactly one ``--expect-issuer`` is required; a key in the receipt is only a hint. Exit 0 PASS, 1 FAIL
+    with the first failing step of the draft's Section 5, 2 malformed invocation or a refused pin, 4 no
+    verdict: the procedure stopped at a resource limit, the input limit included (the draft's Sections 5
+    and 8). The file is read once, as bytes, and those bytes are what is verified."""
+    from .signed_eval_receipt import DRAFT, verify_signed_eval_receipt  # noqa: PLC0415
+    pins = getattr(args, "expect_issuer", None) or []
+    try:
+        # The pin first, as on the eval-claim path: a weak key is refused when it is supplied (SPEC 4b).
+        _refuse_weak_issuer_pins(pins)
+        for flag in ("context", "eat", "verifier_key", "profile"):
+            if getattr(args, flag, None) is not None:
+                raise ValueError(f"--{flag.replace('_', '-')} is not defined for an eval-receipt-v1 receipt")
+        if len(pins) != 1:
+            raise ValueError("an eval-receipt-v1 receipt is verified under the one key the Receiver fixes: "
+                             "pass exactly one --expect-issuer ed25519:<base64>")
+        if not pins[0].startswith("ed25519:"):
+            raise ValueError("--expect-issuer must be ed25519: followed by the base64 of a 32-byte key")
+        key = decode_b64(pins[0][len("ed25519:"):])
+        if len(key) != 32:
+            raise ValueError("--expect-issuer must name a 32-byte Ed25519 key")
+        with _open_input(args.receipt, binary=True) as handle:
+            raw = handle.read(DEFAULT_BUDGET.input_bytes + 1)
+    except (OSError, ValueError, TypeError, ProofBundleError) as exc:
+        _err(exc)
+        return 2
+    print(f"format     eval-receipt-v1 ({DRAFT}, EXPERIMENTAL)")
+    if len(raw) > DEFAULT_BUDGET.input_bytes:
+        print(_safe_line(f"=> NO VERDICT, neither PASS nor FAIL: stopped at a resource limit: the receipt is "
+                         f"larger than this reader's input limit of {DEFAULT_BUDGET.input_bytes} bytes"),
+              file=sys.stderr)
+        return 4
+    verdict = verify_signed_eval_receipt(raw, key)
+    if verdict.input_error:   # unreachable with the 32-byte pin above; kept so the mapping is total
+        print(_safe_line(f"=> NO VERDICT, neither PASS nor FAIL: {verdict.reason}"), file=sys.stderr)
+        return 2
+    if verdict.resource_limit:
+        print(_safe_line(f"=> NO VERDICT, neither PASS nor FAIL: {verdict.reason}"), file=sys.stderr)
+        return 4
+    if not verdict.ok:
+        print(_safe_line(f"=> FAILED at step {verdict.step_label}: {verdict.reason}"), file=sys.stderr)
+        return 1
+    assert verdict.payload is not None   # an ok verdict carries B (ReceiptVerdict.payload; mypy narrowing)
+    try:
+        payload = loads_strict(verdict.payload.decode("utf-8"))   # B, verified above
+    except (ProofBundleError, ValueError) as exc:
+        # The verifier holds the same budget, so this is not reached; kept so the mapping of exit codes is total.
+        # A refusal here was exit 2 for a well formed invocation (Codex thread 4437338037 at bd1bdf6b).
+        print(_safe_line(f"=> NO VERDICT, neither PASS nor FAIL: B verified, but reading it again for the output "
+                         f"stopped: {type(exc).__name__}"), file=sys.stderr)
+        return 4
+
+    def _s(v) -> str:
+        return _safe_line(str(v))
+    print(f"suite      {_s(payload['suite'])} ({_s(payload['suite_version'])})")
+    print(f"metric     {_s(payload['metric'])} {_s(payload['comparator'])} {_s(payload['threshold'])}")
+    print(f"score      {_s(payload['score'])}")
+    print(f"passed     {_s(payload['passed'])}   (n={_s(payload['n'])})")
+    print(f"model      commit {_s(payload['model_id_commit'])}")
+    print(f"dataset    commit {_s(payload['dataset_id_commit'])}")
+    if "criteria_digest" in payload:
+        print(f"criteria   {_s(payload['criteria_digest'])}")
+    print(f"timestamp  {_s(payload['timestamp'])} (the Issuer's statement)")
+    print("note       the key you fixed signed B; the receipt does not show that it was published or logged, "
+          "that the score is true, or that the named model was the one evaluated (the draft's Section 6)")
+    print("=> OK")
+    return 0
+
+
 def _refuse_weak_issuer_pins(pins) -> None:
     """Raise ValueError when an ``--expect-issuer`` pin names a key the trust-anchor rule refuses.
 
@@ -553,6 +624,8 @@ def _refuse_weak_issuer_pins(pins) -> None:
 
 
 def _cmd_show_eval(args: argparse.Namespace) -> int:
+    if getattr(args, "format", "v0.1") == "eval-receipt-v1":
+        return _show_signed_eval_receipt(args)
     from .bundle import load_bundle  # noqa: PLC0415
     from .evalclaim import (  # noqa: PLC0415
         DEFAULT_ASSURANCE, check_freshness, claim_warnings, decode_eval_claim, enclave_assurance_proven,
@@ -580,6 +653,10 @@ def _cmd_show_eval(args: argparse.Namespace) -> int:
         return 2
     if claim is None:
         print("=> FAILED: not a valid, issuer-bound eval receipt", file=sys.stderr)
+        from .signed_eval_receipt import RECEIPT_TYPE  # noqa: PLC0415
+        if isinstance(bundle, dict) and bundle.get("schema") == RECEIPT_TYPE:
+            print("   the file names the type of a Signed Evaluation Receipt (EXPERIMENTAL); show-eval "
+                  "verifies it only with --format eval-receipt-v1", file=sys.stderr)
         return 1
     # --expect-issuer (adversarial re-check 2026-08-22): without pinning, show-eval verifies
     # against the pubkey EMBEDDED in the receipt — a forged claim RE-SIGNED with a fresh key
@@ -3467,6 +3544,13 @@ def build_parser() -> argparse.ArgumentParser:
                                 "its own embedded key (self-attested scope) — a re-signed forgery would "
                                 "pass; with it, an issuer mismatch fails with exit 1. A pin naming a "
                                 "low-order or non-canonical Ed25519 key is refused (exit 2, SPEC 4b)")
+    show_eval.add_argument("--format", choices=("v0.1", "eval-receipt-v1"), default="v0.1",
+                           help="v0.1 (default): an eval-claim v0.1 receipt bundle, as before. eval-receipt-v1 "
+                                "(EXPERIMENTAL): a Signed Evaluation Receipt of "
+                                "draft-gruszka-signed-evaluation-receipts-04, verified under exactly one "
+                                "--expect-issuer; exit 1 names the first failing step of the draft's Section 5, "
+                                "and exit 4 is no verdict, when the procedure stops at a resource limit or the "
+                                "file is larger than the input limit")
     show_eval.set_defaults(func=_cmd_show_eval)
 
     verify_proof = sub.add_parser(

@@ -1341,6 +1341,21 @@ _OWN_SET = "own value: set({x}) is built from {what}, so the set operation hashe
 #: until it is classified here, and a classified read that is gone has to leave the list or lower its
 #: count.
 _OTHER_USES_CLASSIFIED = {
+    ("proofbundle/signed_eval_receipt.py", "<modulebene>", "frozenset({'alg', 'sig'})", "Tuple"):
+        (1, "own value: one of the two member sets of step 1 of the receipts draft, held in a tuple that is compared "
+         "with frozenset(r[\"signature\"]), the key set of a dict that isinstance checked before"),
+    ("proofbundle/signed_eval_receipt.py", "<modulebene>", "frozenset({'alg', 'sig', 'key'})", "Tuple"):
+        (1, "own value: the other member set of step 1, in the same tuple and compared the same way"),
+    ("proofbundle/signed_eval_receipt.py", "_payload_violation", "_PAYLOAD_MEMBERS",
+     "NotEq set(p) - {_OPTIONAL_PAYLOAD_MEMBER}"):
+        (1, "own value: set(p) is the key set of a dict that isinstance(p, dict) checked before, and comparing "
+         "two sets of text hashes nothing new"),
+    ("proofbundle/signed_eval_receipt.py", "_payload_violation", "_PAYLOAD_MEMBERS", "BitOr {_OPTIONAL_PAYLOAD_MEMBER}"):
+        (1, "passed to is_member: the union of two constants of the module, and is_member reads the issuer's "
+         "name before any hashing"),
+    ("proofbundle/signed_eval_receipt.py", "_procedure", "_RECEIPT_MEMBERS", "NotEq set(r)"):
+        (1, "own value: set(r) is the key set of a dict that isinstance(r, dict) checked before, and comparing two "
+         "sets of text hashes nothing new"),
     ("proofbundle/agent_review.py", "_validate_coverage", "_COVERAGE_FIELDS_V02", "LtE zusatz"):
         (1, "own value: zusatz comes from the package (_COVERAGE_FIELDS_V02 or the empty default), and a "
          "subset test between two frozensets hashes nothing new"),

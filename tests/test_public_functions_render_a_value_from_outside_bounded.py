@@ -553,6 +553,19 @@ def _sigstore_verdict(tmp: Path):
     return [((verify_sigstore_bundle(*a, **k),), {})]
 
 
+def _ser_call():
+    """Vector P1 of tests/fixtures/signed_eval_receipt/draft1_vectors.json, expanded as the conformance test
+    expands it: each @NAME@ of the receipt text becomes the base64 of its payload."""
+    fix = Path(__file__).resolve().parent / "fixtures" / "signed_eval_receipt" / "draft1_vectors.json"
+    doc = json.loads(fix.read_text(encoding="utf-8"))
+    v = next(x for x in doc["vectors"] if x["id"] == "P1")
+    raw = v["receipt_text"].encode("utf-8")
+    for name, p in doc["payloads"].items():
+        b = p["text"].encode("utf-8") if "text" in p else base64.b64decode(p["b64"])
+        raw = raw.replace(b"@" + name.encode("ascii") + b"@", base64.b64encode(b))
+    return (raw, base64.b64decode(v["key_b64"])), {}
+
+
 def _p384_call(tmp: Path):
     """A P-384 key derived from a fixed scalar, never read from a file, and its signature over a message."""
     from cryptography.hazmat.primitives import hashes
@@ -656,6 +669,9 @@ _HAND_SEEDS = {
     # The Sigstore bundle reader for GitHub Artifact Attestations and npm provenance (2026-10-26).
     "proofbundle.adapters.sigstore_bundle.exit_code": _sigstore_verdict,
     "proofbundle.adapters.sigstore_bundle.verify_sigstore_bundle": lambda tmp: [_sigstore_call()],
+    # The verifier of draft-gruszka-signed-evaluation-receipts-04 behind EXPERIMENTAL (2026-11-01):
+    # vector P1 of the draft as the conformance test reads it.
+    "proofbundle.signed_eval_receipt.verify_signed_eval_receipt": lambda tmp: [_ser_call()],
 }
 
 #: Family members with parameters that are not planted into, each with the reason.
