@@ -109,6 +109,32 @@ def write_json(path: pathlib.Path, value: object) -> None:
     path.write_text(json.dumps(value, indent=1, sort_keys=True, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+def file_in(folder: pathlib.Path, name: object) -> pathlib.Path:
+    """The regular file a name read from data names inside folder, or RecordsError. The name is relative, no part of it
+    is empty, . or .., and no part below folder is a symbolic link, so a name in index.json, run.json or
+    pilot_start.json, or an entry of decisions/ or outcomes/, never reads a file outside the folder it names one in: the
+    reconciliation reads the records and nothing else (contract, section 8), and a recorded folder hands the records no
+    file from elsewhere. A name with a backslash, a colon or a NUL is refused on every platform: under Windows the first
+    separates and the second starts a drive, so one folder gives one reading everywhere. So is a part that ends in a
+    space or a period, which the path normalization of Windows trims. A name whose file is not there raises
+    FileNotFoundError, as reading it did before."""
+    if not isinstance(name, str) or any(c in name for c in "\\:\x00"):
+        raise RecordsError(f"{name!r} names no file inside {folder}")
+    parts = name.split("/")
+    if any(part in ("", ".", "..") or part.endswith((" ", ".")) for part in parts):
+        raise RecordsError(f"{name!r} names no file inside {folder}")
+    path = pathlib.Path(folder)
+    for part in parts:
+        path = path / part
+        if path.is_symlink():
+            raise RecordsError(f"{name!r} passes a symbolic link inside {folder}")
+    if not path.is_file():
+        if not path.exists():
+            raise FileNotFoundError(f"{name!r} names no file inside {folder}")
+        raise RecordsError(f"{name!r} names no regular file inside {folder}")
+    return path
+
+
 # --- the records kept before the first decision ------------------------------------------------------------------
 
 def start(records: pathlib.Path, *, contract: pathlib.Path, profile: pathlib.Path, agents: pathlib.Path,
@@ -177,16 +203,18 @@ class Records:
         self._profile = None
 
     def kept_path(self, name: str) -> pathlib.Path:
-        return self.folder / self.files[name]["file"]
+        return file_in(self.folder, self.files[name]["file"])
 
     def kept(self, name: str) -> bytes:
         entry = self.files.get(name)
         if not isinstance(entry, dict):
             raise RecordsError(f"pilot_start.json keeps no {name}")
-        path = self.folder / entry["file"]
-        data = path.read_bytes() if path.is_file() else None
-        if data is None or sha256_hex(data) != entry["sha256"]:
-            raise RecordsError(f"the kept {name} ({entry['file']}) is missing or differs from its digest")
+        try:
+            data = file_in(self.folder, entry.get("file")).read_bytes()
+        except (RecordsError, FileNotFoundError):
+            data = None
+        if data is None or sha256_hex(data) != entry.get("sha256"):
+            raise RecordsError(f"the kept {name} ({entry.get('file')}) is missing or differs from its digest")
         return data
 
     def profile(self):
@@ -207,7 +235,7 @@ class Records:
         """Every decision envelope the gate wrote, with its file name and content root, in file order."""
         found = []
         for path in sorted((self.folder / "decisions").glob("*.json")):
-            envelope = read_json(path)
+            envelope = read_json(file_in(self.folder, f"decisions/{path.name}"))
             found.append({"file": f"decisions/{path.name}", "envelope": envelope,
                           "root": self.profile().content_root(envelope)})
         return found
@@ -216,7 +244,8 @@ class Records:
         """The observer's runs in the order they ran (D121): by the time of a run's first request, its name breaking a
         tie. The order of the names is not the order of the runs (run-10 sorts before run-2), and the match reads the
         effects of the runs in this order. A run whose window or first request names no instant is refused."""
-        found = [dict(read_json(p), folder=p.parent) for p in sorted((self.folder / "api").glob("*/run.json"))]
+        found = [dict(read_json(file_in(self.folder, f"api/{p.parent.name}/run.json")), folder=p.parent)
+                 for p in sorted((self.folder / "api").glob("*/run.json"))]
         for run in found:
             window = run.get("window") if isinstance(run.get("window"), dict) else {}
             requests = run.get("requests") if isinstance(run.get("requests"), list) else []
@@ -260,8 +289,10 @@ class Records:
             if path.name.endswith(".scope.json"):
                 continue
             scope = path.with_name(path.name[:-len(".json")] + ".scope.json")
-            found.append({"file": f"outcomes/{path.name}", "envelope": read_json(path),
-                          "scope": read_json(scope) if scope.is_file() else None})
+            kept_scope = scope.is_file() or scope.is_symlink()
+            found.append({"file": f"outcomes/{path.name}",
+                          "envelope": read_json(file_in(self.folder, f"outcomes/{path.name}")),
+                          "scope": read_json(file_in(self.folder, f"outcomes/{scope.name}")) if kept_scope else None})
         return found
 
 
@@ -354,7 +385,7 @@ def effects_of_run(run: dict, agent_of: dict) -> list[dict]:
     for request in run["requests"]:
         if request.get("kind") != "events" or request.get("status") != 200:
             continue
-        body = json.loads((pathlib.Path(run["folder"]) / request["file"]).read_bytes(),
+        body = json.loads(file_in(pathlib.Path(run["folder"]), request.get("file")).read_bytes(),
                           object_pairs_hook=_reject_duplicate_keys)
         for event in body if isinstance(body, list) else []:
             effect = _event_effect(event) if isinstance(event, dict) else None
