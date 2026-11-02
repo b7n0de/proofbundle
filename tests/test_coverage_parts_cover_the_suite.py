@@ -16,8 +16,9 @@ contract therefore
      silently, every part runs the declared call with `<part>/K`, requires the Rust verifier and sysmon, and
      uploads its data under its own name; the closing job needs the parts, runs on their failure, downloads
      their data merged into the one directory the closing script reads, checks K parts and holds the floor.
-     Every run block the contract holds is compared line for line, and no run step carries a `shell` or a
-     `working-directory`, so a held line cannot sit in a branch that never runs;
+     Every run block the contract holds (suite, build, keep, closing) is compared line for line, no run step
+     carries a `shell` or a `working-directory`, so a held line cannot sit in a branch that never runs, no step
+     sets the Rust verifier or coverage core settings again, and the matrix has the part axis only;
   2. collects the whole suite once and checks that the plugin's assignment puts every collected item in exactly
      one of the K parts and leaves no part empty. That the collection hook keeps exactly the assigned items is
      held by tests/test_ci_test_parts_cover_the_suite.py (ThePluginKeepsExactlyItsFiles), which runs the plugin
@@ -69,6 +70,8 @@ SOURCE = "src/proofbundle"
 KEEP = ("set -euo pipefail", "test -s .coverage", 'mkdir -p "$RUNNER_TEMP/coverage-data"',
         'cp .coverage "$RUNNER_TEMP/coverage-data/.coverage.part-${{ matrix.part }}"')
 KEPT = "${{ runner.temp }}/coverage-data/.coverage.part-${{ matrix.part }}"
+#: The settings every part must measure under; the job sets them, and no step may set them again.
+HELD_ENV = frozenset({"PROOFBUNDLE_REQUIRE_PB_VERIFY_RS", "PROOFBUNDLE_PB_VERIFY_RS", "COVERAGE_CORE"})
 #: What a run step may carry besides `if` and `continue-on-error` (found on their own): a `shell` or a
 #: `working-directory` changes what its lines do.
 RUN_STEP_KEYS = frozenset({"name", "env", "run"})
@@ -115,6 +118,9 @@ def part_findings(job: dict) -> list[str]:
     for key in ("include", "exclude"):
         if key in matrix:
             findings.append(f"the matrix carries `{key}`, which can add or drop a part")
+    for key in sorted(set(matrix) - {"part", "include", "exclude"}):
+        findings.append(f"the matrix carries the axis `{key}`: the parts matrix must contain only the part axis, "
+                        "additional axes repeat parts")
     for key in ("if", "continue-on-error", "needs"):
         if key in job:
             findings.append(f"the job carries `{key}`, so a part may not run or may fail without failing it")
@@ -133,6 +139,10 @@ def part_findings(job: dict) -> list[str]:
         findings.append(f"the suite step runs {suite[0].get('run')!r}, not {SUITE!r}")
     if k is not None and (suite[0].get("env") or {}).get("CI_PART") != f"${{{{ matrix.part }}}}/{k}":
         findings.append(f"the suite step does not take CI_PART as `<part>/{k}` from the matrix")
+    for s in steps:
+        for key in sorted(set(s.get("env") or {}) & HELD_ENV):
+            findings.append(f"the step {s.get('name') or s.get('run') or s.get('uses')!r} sets {key}: a step "
+                            "overrides the required Rust verifier or coverage core settings of the job")
     runs = [str(s.get("run", "")).strip() for s in steps]
     if BUILD not in runs or runs.index(BUILD) > steps.index(suite[0]):
         findings.append("the Rust verifier is not built before the suite")
@@ -306,6 +316,11 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
                                                                      "path": "x/.coverage.part-${{ matrix.part }}"}}),
             "every part needs every step": self._step(self._part(), 5, **{"if": "always()"}),
             "line for line": self._step(self._part(), 4, run="if false; then\n" + "\n".join(KEEP) + "\nfi\n"),
+            "additional axes repeat parts": matrix(replica=[1, 2]),
+            "overrides the required Rust verifier": self._step(self._part(), 3, env={
+                "CI_PART": "${{ matrix.part }}/2", "PROOFBUNDLE_REQUIRE_PB_VERIFY_RS": "0",
+                "PROOFBUNDLE_PB_VERIFY_RS": "/missing/pb_verify_rs", "COVERAGE_CORE": "ctrace"}),
+            "sets COVERAGE_CORE": self._step(self._part(), 2, env={"COVERAGE_CORE": "ctrace"}),
             "changes what its lines do": self._step(self._part(), 4, shell="bash {0}"),
             "upload the file it kept": self._step(self._part(), 5, **{"with": {
                 "name": "coverage-part-${{ matrix.part }}", "include-hidden-files": True, "if-no-files-found": "error",
@@ -475,6 +490,20 @@ class TheClosingScriptRefusesEveryLostPart(unittest.TestCase):
                 self.assertFalse((self.root / ".coverage").exists(), "nothing is combined over foreign data")
         self._part(2, "b")
         self.assertEqual(self._run().returncode, 0, "control: the same parts inside the source combine")
+
+    def test_a_part_that_only_names_a_file_is_refused(self):
+        """Codex pre-run at c385f320: a part whose data names a source file but holds no executed line (coverage
+        records such a name through touch_file) passed as measured, and the other parts carried the floor. The old
+        check let it through; it is refused now, and nothing is combined."""
+        self._part(1, "a")
+        data = coverage.CoverageData(basename=str(self.data / ".coverage.part-2"))
+        data.add_lines({})
+        data.touch_file(str(self.root / "pkg" / "a.py"))
+        data.write()
+        r = self._run()
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn(".coverage.part-2 names 1 file(s) but holds no executed line", r.stdout)
+        self.assertFalse((self.root / ".coverage").exists(), "nothing is combined over a part that measured nothing")
 
     def test_a_source_that_is_no_directory_is_a_usage_error(self):
         self._part(1, "a")

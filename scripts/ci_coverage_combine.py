@@ -17,7 +17,8 @@ smaller suite that looks like the whole one, so every way to lose a part fails h
 
   - the matrix did not succeed (`--result` is anything but `success`: failure, cancelled, skipped, empty);
   - a part's file is missing, or a file is there that no part writes;
-  - a file is empty, is no coverage data, or measured no file at all;
+  - a file is empty, is no coverage data, measured no file at all, or names files but holds no executed line
+    (coverage records a file name without lines through `touch_file`, and a name alone is no measurement);
   - a file measured a file outside `--source`, the directory the suite measures (`--cov=src/proofbundle`): data
     of another checkout or of another source is not the measure of this suite, and the floor would judge it;
   - two files were written by different versions of coverage, or by another version than this one;
@@ -59,12 +60,14 @@ def _writer_version(path: pathlib.Path) -> str:
     return str(row[0])
 
 
-def _measured(path: pathlib.Path) -> list[str]:
-    """The source files the data file measured, as coverage recorded them (absolute, symbolic links resolved)."""
+def _measured(path: pathlib.Path) -> tuple[list[str], int]:
+    """The source files the data file names, as coverage recorded them (absolute, symbolic links resolved), and
+    how many executed lines it holds over them."""
     import coverage  # noqa: PLC0415 - the closing job installs coverage, the module is read only here
     data = coverage.CoverageData(basename=str(path))
     data.read()
-    return sorted(data.measured_files())
+    files = sorted(data.measured_files())
+    return files, sum(len(data.lines(f) or ()) for f in files)
 
 
 def _inside(name: str, root: str) -> bool:
@@ -95,7 +98,7 @@ def check(data_dir: pathlib.Path, parts: int, result: str, running_version: str,
             continue
         try:
             versions[name] = _writer_version(path)
-            files = _measured(path)
+            files, executed = _measured(path)
         except Exception as exc:  # noqa: BLE001 - any unreadable file is a refused part, never a crash
             problems.append(f"{name} is not readable coverage data: {type(exc).__name__}: {exc}")
             continue
@@ -104,8 +107,11 @@ def check(data_dir: pathlib.Path, parts: int, result: str, running_version: str,
             problems.append(f"{name} measured no file")
         elif outside:
             problems.append(f"{name} measured {len(outside)} file(s) outside {source}, the first {outside[0]!r}")
+        elif executed == 0:
+            problems.append(f"{name} names {len(files)} file(s) but holds no executed line")
         else:
-            print(f"{name}: {len(files)} files measured in {source}, written by coverage {versions[name]}")
+            print(f"{name}: {executed} executed lines in {len(files)} files of {source}, written by coverage "
+                  f"{versions[name]}")
     for name, version in sorted(versions.items()):
         if version != running_version:
             problems.append(f"{name} was written by coverage {version}, this job runs {running_version}")
