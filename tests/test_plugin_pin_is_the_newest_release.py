@@ -58,8 +58,9 @@ def _headings(text: str) -> list[str]:
     followed by a space or a tab, and a closing sequence of # after a space or a tab is no part of it. This is no
     Markdown reader beyond that: CHANGELOG.md writes its sections as ATX headings `## [...]` at the start of a line. A
     block the reader does not model and that can hide a heading or make one stops the case: an HTML block or a setext
-    heading (a pre-run of the reading of the pin on main, Codex, P2), and an indented heading, which a list item before
-    it may hold (a generator against markdown-it); indented code, block quotes and list items are not read."""
+    heading (a pre-run of the reading of the pin on main, Codex, P2), and an indented heading or fence, which a list
+    item before it may hold (a generator against markdown-it, a second pre-run); indented code, block quotes and list
+    items are not read."""
     found, fence, previous = [], None, ""
     for line in _LINE_END.split(text):
         opened = _FENCE.match(line)
@@ -70,6 +71,9 @@ def _headings(text: str) -> list[str]:
             previous = ""
             continue
         if opened and not (opened.group(1)[0] == "`" and "`" in line[opened.end():]):
+            # An indented fence may belong to a list item before it, where it hides no heading after the item.
+            assert line[:1] != " ", \
+                f"the changelog indents a fence, which may sit in a list item the pin case does not read: {line!r}"
             fence = opened.group(1)
             previous = ""
             continue
@@ -121,21 +125,31 @@ def _newest_release() -> str:
 
 
 def _assigned_strings(source: str, names: tuple[str, ...]) -> dict[str, list[str | None]]:
-    """Every assignment to one of `names` anywhere in the module, read from its syntax tree, with its value where the
-    value is a string literal and None otherwise; a pin is read from what the module assigns, not from one spelling."""
+    """Every binding of one of `names` anywhere in the module, read from its syntax tree: a name stored or deleted (by
+    an assignment of any kind, an assignment expression, a for, with or comprehension target, del), an import alias, a
+    function or class name, and an except or match capture. A binding carries its value where it is a module-level
+    assignment of a string literal to the name alone, and None otherwise; a pin is read from what the module binds, not
+    from one spelling (two pre-runs of the reading of the pin on main, Codex, P2)."""
+    tree = ast.parse(source)
+    literal = {id(node.targets[0]): node.value.value for node in tree.body
+               if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)
+               and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str)}
     found: dict[str, list[str | None]] = {name: [] for name in names}
-    for node in ast.walk(ast.parse(source)):
-        if isinstance(node, ast.Assign):
-            targets, value = node.targets, node.value
-        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
-            targets, value = [node.target], None if isinstance(node, ast.AugAssign) else node.value
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            bound = (node.id, literal.get(id(node)))
+        elif isinstance(node, ast.alias):
+            bound = ((node.asname or node.name).split(".")[0], None)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            bound = (node.name, None)
+        elif isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)) and node.name:
+            bound = (node.name, None)
+        elif isinstance(node, ast.MatchMapping) and node.rest:
+            bound = (node.rest, None)
         else:
             continue
-        literal = value.value if isinstance(value, ast.Constant) and isinstance(value.value, str) else None
-        for target in targets:
-            for leaf in ast.walk(target):
-                if isinstance(leaf, ast.Name) and leaf.id in found:
-                    found[leaf.id].append(literal if target is leaf else None)
+        if bound[0] in found:
+            found[bound[0]].append(bound[1])
     return found
 
 
