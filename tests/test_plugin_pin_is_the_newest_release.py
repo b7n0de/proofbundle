@@ -43,15 +43,18 @@ _DATED = re.compile(r" - (\d{4})-(\d{2})-(\d{2})(?:\s+\(.*\))?\s*")
 #: A pin of proofbundle as a requirement may write it: the name in any case, extras, blanks around == or ===, and a
 #: version with what PEP 440 may append (a third pre-run of the reading of the pin on main, Codex, P2).
 _ANY_PIN = re.compile(r"proofbundle(?:\s*\[[^\]]*\])?\s*===?\s*(\d+(?:\.\d+)*(?:[-_.+!]?[A-Za-z0-9]+)*)", re.IGNORECASE)
-#: The starts of the HTML blocks of CommonMark 0.31.2, types 1 to 7 (a lone complete tag is type 7). Lines inside such a
+#: The starts of the HTML blocks of CommonMark 0.31.2, types 1 to 6, which may interrupt a paragraph. Lines inside such a
 #: block are no headings, and the reader does not model where a block ends, so a changelog that opens one stops the case.
 _HTML_BLOCK = re.compile(
     r" {0,3}(?:<(?:script|pre|style|textarea)(?:[\s>]|$)|<!--|<\?|<![A-Za-z]|<!\[CDATA\["
     r"|</?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir"
     r"|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li"
     r"|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot"
-    r"|th|thead|title|tr|track|ul)(?:[\s/>]|$)"
-    r"|</?[A-Za-z][A-Za-z0-9-]*(?:\s+[^<>]*)?/?>[ \t]*$)", re.IGNORECASE)
+    r"|th|thead|title|tr|track|ul)(?:[\s/>]|$))", re.IGNORECASE)
+#: A complete open or closing tag alone on its line starts an HTML block of type 7, which cannot interrupt a paragraph (a
+#: fifth pre-run of the reading of the pin on main, Codex, P2). Outside a paragraph any tag name stops the case: the
+#: specification leaves a closing script, pre, style or textarea tag out of type 7, and markdown-it does not.
+_HTML_TYPE7 = re.compile(r" {0,3}</?[A-Za-z][A-Za-z0-9-]*(?:\s+[^<>]*)?/?>[ \t]*", re.IGNORECASE)
 #: A line of = or - after a line of text makes that text a setext heading, which the reader does not read.
 _SETEXT_UNDERLINE = re.compile(r" {0,3}(?:=+|-+)[ \t]*")
 #: A line that ends no paragraph at the top level, so no underline after it makes a heading: a blank line, an ATX
@@ -61,6 +64,26 @@ _NO_PARAGRAPH = re.compile(r"[ \t]*| {0,3}(?:#{1,6}(?:[ \t].*)?|(?:\*[ \t]*){3,}
                            r"|>.*|[-+*][ \t]+\S.*|1[.)][ \t]+\S.*)")
 #: A line indented by four columns or more, which outside a paragraph is indented code: it ends none and starts none.
 _INDENTED_CODE = re.compile(r" {0,3}\t| {4}")
+#: Outside a paragraph every list marker starts a list item, empty or of any number.
+_LIST_ITEM = re.compile(r" {0,3}(?:[-+*]|\d{1,9}[.)])(?:[ \t].*)?")
+#: A line that opens with a bracket may be a link reference definition, which is no paragraph, or the start of one.
+_LINK_LABEL = re.compile(r" {0,3}\[")
+
+
+def _after(state: str, line: str) -> str:
+    """Whether a paragraph runs after `line`, as far as the line and the state before it tell: "paragraph", "none", or
+    "open" where the reader cannot tell. A paragraph continues until a blank line or a block that may interrupt it;
+    outside one, a list marker, a heading, a break or a quote starts no paragraph, indented code changes nothing, and a
+    line that may be a link reference definition leaves it open until a blank line or such a block."""
+    if state == "paragraph":
+        return "none" if _NO_PARAGRAPH.fullmatch(line) else "paragraph"
+    if _NO_PARAGRAPH.fullmatch(line):
+        return "none"
+    if state == "open" or _INDENTED_CODE.match(line):
+        return state
+    if _LIST_ITEM.fullmatch(line):
+        return "none"
+    return "open" if _LINK_LABEL.match(line) else "paragraph"
 
 
 def _headings(text: str) -> list[str]:
@@ -73,8 +96,9 @@ def _headings(text: str) -> list[str]:
     block the reader does not model and that can hide a heading or make one stops the case: an HTML block or a setext
     heading (a pre-run of the reading of the pin on main, Codex, P2), and an indented heading or fence, which a list
     item before it may hold (a generator against markdown-it, a second pre-run); indented code, block quotes and list
-    items are not read."""
-    found, fence, previous, paragraph = [], None, "", False
+    items are not read. Whether a paragraph runs decides two of these: an underline makes a setext heading only after
+    one, and a lone tag starts an HTML block only outside one; where the reader cannot tell, both stop the case."""
+    found, fence, previous, state = [], None, "", "none"
     for line in _LINE_END.split(text):
         opened = _FENCE.match(line)
         if fence is not None:
@@ -87,19 +111,19 @@ def _headings(text: str) -> list[str]:
             assert line[:1] != " ", \
                 f"the changelog indents a fence, which may sit in a list item the pin case does not read: {line!r}"
             fence = opened.group(1)
-            paragraph = False
+            state = "none"
             continue
-        assert not _HTML_BLOCK.match(line), f"the changelog opens an HTML block, which the pin case does not read: {line!r}"
+        assert not (_HTML_BLOCK.match(line) or (_HTML_TYPE7.fullmatch(line) and state != "paragraph")), \
+            f"the changelog opens an HTML block, which the pin case does not read: {line!r}"
         heading = _HEADING.fullmatch(line)
         # An indented heading may belong to a list item before it, where CommonMark nests it; the reader models no list.
         assert not (heading and line[:1] == " "), \
             f"the changelog indents a heading, which may sit in a list item the pin case does not read: {line!r}"
-        assert not (_SETEXT_UNDERLINE.fullmatch(line) and paragraph), \
+        assert not (_SETEXT_UNDERLINE.fullmatch(line) and state != "none"), \
             f"the changelog makes a setext heading of {previous!r}, which the pin case does not read"
         if heading:
             found.append(_CLOSING.sub("", heading.group(1) or "").strip(" \t"))
-        if paragraph or not _INDENTED_CODE.match(line):
-            paragraph = not _NO_PARAGRAPH.fullmatch(line)
+        state = _after(state, line)
         previous = line
     return found
 
@@ -307,8 +331,13 @@ def test_control_a_closing_sequence_of_hashes_is_no_part_of_the_heading(tmp_path
     (_HEAD + "## [6.4.0] - 2026-10-27\n\n[7.0.0] - 2026-11-02\n===\n", "setext"),
     (_HEAD + "- item\n   ## [7.0.0] - 2026-11-02\n\n## [6.4.0] - 2026-10-27\n", "indent"),
     (_HEAD + "## [6.4.0] - 2026-10-27\n\n- x\n  ```\n## [7.0.0] - 2026-10-26\n", "fence"),
+    (_HEAD + "## [6.4.0] - 2026-10-27\n\n[x]: /u\n<a>\n## [7.0.0] - 2026-11-02\n", "HTML"),
+    (_HEAD + "## [6.4.0] - 2026-10-27\n\n</script>\n## [7.0.0] - 2026-11-02\n", "HTML"),
+    (_HEAD + "## [6.4.0] - 2026-10-27\n\n[7.0.0] - 2026-11-02\n2. x\n---\n", "setext"),
 ], ids=["a comment", "an HTML block of a block tag", "a lone tag after a blank line", "a setext heading with dashes",
-        "a setext heading with equals", "an indented heading in a list item", "an indented fence in a list item"])
+        "a setext heading with equals", "an indented heading in a list item", "an indented fence in a list item",
+        "a lone tag after a link reference definition", "a lone closing script tag",
+        "an underline after an ordered item that continues a paragraph"])
 def test_a_block_the_reader_does_not_read_stops_the_case(tmp_path, monkeypatch, text, words):
     """A pre-run of the reading of this pin on main (Codex, P2): a heading line inside an HTML comment was read as a
     release, and a setext heading that renders as a level-two heading was not read at all. CommonMark hides lines in an
