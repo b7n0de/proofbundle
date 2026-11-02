@@ -4,9 +4,10 @@
 # ///
 """MCP server of the proofbundle plugin for Claude Code and Codex.
 
-A stdio JSON-RPC 2.0 server with four tools. Each tool runs the proofbundle command line of the
-package installed next to this interpreter (`python -m proofbundle.cli`), so a verdict and its
-exit code are the package's own, not a re-implementation. The package comes from PyPI through the
+A stdio JSON-RPC 2.0 server with seven tools. The four receipt tools run the proofbundle command
+line of the package installed next to this interpreter (`python -m proofbundle.cli`), so a verdict
+and its exit code are the package's own, not a re-implementation; the three gate tools read the
+gate's log and run its self-test. The package comes from PyPI through the
 pin in the script header above; `uv run --script` installs it.
 
 The server writes only JSON-RPC messages to stdout, one per line. Diagnostics go to stderr.
@@ -110,8 +111,32 @@ LOG_DIR_VARIABLES = ("CLAUDE_PLUGIN_DATA", "PLUGIN_DATA")
 #: has the directory proofbundle-guard-<rest> (second reading of F2).
 VERIFY_DATA_PREFIX, GUARD_DATA_PREFIX = "proofbundle-", "proofbundle-guard-"
 GUARD_DATA_DIR = GUARD_DATA_PREFIX + "proofbundle-house"
+#: A plugin loaded with --plugin-dir has the identifier <name>@inline, so a Guard loaded so logs into this directory
+#: (measured with Claude Code 2.1.316 in the cloud run M1 -4, 2026-11-02).
+GUARD_INLINE_DIR = GUARD_DATA_PREFIX + "inline"
 SERVER_STARTED = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 SELFTEST_PREFIX = "proofbundle-selftest-"
+
+
+def _guard_log(parent: str, base: str, name: str) -> tuple[str, str]:
+    """The gate's log beside the verifier's data directory `base` in `parent`: of the Guard directories the server
+    knows (the house marketplace's, the inline one, the one of the verifier's own marketplace), the one whose log was
+    written last; where none holds a log, the house's."""
+    known = list(dict.fromkeys((GUARD_DATA_DIR, GUARD_INLINE_DIR, GUARD_DATA_PREFIX + base[len(VERIFY_DATA_PREFIX):])))
+    written = []
+    for guard in known:
+        path = os.path.join(parent, guard, LOG_NAME)
+        for candidate in (path, path + ".1"):
+            try:
+                written.append((os.stat(candidate).st_mtime_ns, guard, path))
+                break
+            except OSError:
+                continue
+    if not written:
+        return (os.path.join(parent, GUARD_DATA_DIR, LOG_NAME),
+                f"from {name}, the Guard's data directory beside it (D134); no log yet in {', '.join(known)}")
+    _, guard, path = max(written)
+    return path, f"from {name}, the Guard's data directory {guard} beside it, written last of {len(written)} (D134)"
 
 
 def _log_path() -> tuple[str | None, str]:
@@ -120,9 +145,8 @@ def _log_path() -> tuple[str | None, str]:
         if value and os.path.isabs(value):
             own = os.path.normpath(value)
             base = os.path.basename(own)
-            if base.startswith(VERIFY_DATA_PREFIX) and base != GUARD_DATA_DIR:
-                guard = os.path.join(os.path.dirname(own), GUARD_DATA_DIR)
-                return os.path.join(guard, LOG_NAME), f"from {name}, the Guard's data directory beside it (D134)"
+            if base.startswith(VERIFY_DATA_PREFIX) and base not in (GUARD_DATA_DIR, GUARD_INLINE_DIR):
+                return _guard_log(os.path.dirname(own), base, name)
             return os.path.join(value, LOG_NAME), f"from {name}"
     return None, ("the server was given no plugin data directory (CLAUDE_PLUGIN_DATA or PLUGIN_DATA), so it "
                   "cannot tell where the gate writes its log")
