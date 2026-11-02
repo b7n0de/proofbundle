@@ -334,11 +334,11 @@ def test_child(module_names, monkeypatch):
 '''
 
 
-def _planted_run(tmp_path: pathlib.Path, planted: dict,
-                 module: str = _PLANTED_MODULE) -> tuple[subprocess.CompletedProcess, dict, dict]:
-    """A pytest run whose caller sets `planted`, with this helper and fixture, a plugin module and a module of another
-    name; what each module's child process, module fixture and plugin_env() saw (names only, or what `module`
-    records)."""
+def _planted_run(tmp_path: pathlib.Path, planted: dict, module: str = _PLANTED_MODULE,
+                 umask: int = -1) -> tuple[subprocess.CompletedProcess, dict, dict]:
+    """A pytest run whose caller sets `planted` (and `umask` where given), with this helper and fixture, a plugin module
+    and a module of another name; what each module's child process, module fixture and plugin_env() saw (names only,
+    or what `module` records)."""
     tests = tmp_path / "tests"
     tests.mkdir()
     shutil.copy(TESTS / "_plugin_env.py", tests / "_plugin_env.py")
@@ -349,7 +349,7 @@ def _planted_run(tmp_path: pathlib.Path, planted: dict,
         (tests / name).write_text(module, encoding="utf-8")
     proc = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--rootdir", str(tests),
                            str(tests)], capture_output=True, text=True, timeout=300, check=False,
-                          cwd=tmp_path, env=plugin_env(**planted))
+                          cwd=tmp_path, env=plugin_env(**planted), umask=umask)
     assert proc.returncode == 0, proc.stdout[-2000:]
     plugin = json.loads((tests / "test_plugin_planted.json").read_text(encoding="utf-8"))
     other = json.loads((tests / "test_other_planted.json").read_text(encoding="utf-8"))
@@ -489,3 +489,47 @@ def test_this_plugin_test_runs_under_a_home_of_its_own():
     home = pathlib.Path(os.environ["HOME"])
     assert home.resolve() != pathlib.Path(pwd.getpwuid(os.getuid()).pw_dir).resolve(), home
     assert not (home / ".config" / "proofbundle").exists(), home
+
+
+_UMASK_MODULE = '''
+import json, os, pathlib, subprocess, sys
+import pytest
+
+OUT = pathlib.Path(__file__).with_suffix(".json")
+CHILD = "import os; print(os.umask(0))"
+
+
+def _umask():
+    mask = os.umask(0)
+    os.umask(mask)
+    return mask
+
+
+@pytest.fixture(scope="module")
+def module_umask():
+    return _umask()
+
+
+def test_child(module_umask):
+    child = int(subprocess.run([sys.executable, "-I", "-c", CHILD], capture_output=True, text=True,
+                               check=True).stdout)
+    OUT.write_text(json.dumps({"child": child, "module": module_umask, "test": _umask()}))
+'''
+
+
+def test_a_plugin_test_module_runs_under_umask_022(tmp_path):
+    """A neighbour of finding M-1, measured on 2 November 2026: under the caller's umask 002 the records folder of the
+    key journal tests is writable by the group, and the key signer refuses the export (export_folder_unsafe), so 12
+    cases of tests/test_plugin_z405_key_journal_reconcile.py went red that pass under 022. Here a run whose caller's
+    umask is 002: the plugin module's child process, its module fixture and its test see 022; a module of another
+    name keeps 002, which shows the planting reached the run."""
+    _proc, plugin, other = _planted_run(tmp_path, {}, _UMASK_MODULE, umask=0o002)
+    assert plugin == {"child": 0o022, "module": 0o022, "test": 0o022}, plugin
+    assert other == {"child": 0o002, "module": 0o002, "test": 0o002}, other
+
+
+def test_this_plugin_test_runs_under_umask_022():
+    """The run itself: this module's umask is 022, whatever the caller's is."""
+    mask = os.umask(0)
+    os.umask(mask)
+    assert mask == 0o022, oct(mask)
