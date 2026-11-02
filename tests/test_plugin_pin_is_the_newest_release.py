@@ -397,8 +397,10 @@ def test_control_a_lone_tag_after_paragraph_text_continues_the_paragraph(tmp_pat
     "## [Unreleased]\n## [6.4.0] - 2026-10-27\n> x\nx\n===\n",
     "## [Unreleased]\n## [6.4.0] - 2026-10-27\nx\n01. x\n===\n",
     "## [Unreleased]\n## [6.4.0] - 2026-10-27\nx\n000000001) x\n===\n",
+    "## [Unreleased]\n## [6.4.0] - 2026-10-27\n<p/\n",
 ], ids=["a tag without its attribute value", "an underline that lazily continues a quoted paragraph",
-        "an item numbered 01 interrupts a paragraph", "an item numbered 1 in nine digits interrupts a paragraph"])
+        "an item numbered 01 interrupts a paragraph", "an item numbered 1 in nine digits interrupts a paragraph",
+        "a block tag name followed by a slash without >"])
 def test_control_a_line_the_reader_can_place_does_not_stop_the_case(tmp_path, monkeypatch, text):
     """A sixth pre-run of the reading of the pin on main (Codex, P2): `<a b=>` is no tag in CommonMark, since an
     attribute's `=` needs a value, so the line is paragraph text; and `===` after a quoted paragraph and a line that
@@ -494,6 +496,33 @@ def test_a_pin_rewritten_through_the_module_namespace_is_found(tmp_path, monkeyp
     monkeypatch.setattr(sys.modules[__name__], "GATE", gate)
     with pytest.raises(AssertionError):
         test_the_four_pins_name_one_version()
+
+
+@pytest.mark.parametrize("name", ["install.yml", "Dockerfile", "notes.txt"])
+def test_a_stale_pin_in_any_text_file_of_the_plugin_is_found(tmp_path, monkeypatch, name):
+    """An eighth pre-run of the reading of the pin on main (Codex, P2): the search for stale pins read files by a list of
+    endings, so a `.yml` file, a file without an ending or one of any other kind went unread. It reads every file of the
+    plugin that holds no NUL byte."""
+    _changelog(tmp_path, monkeypatch, "## [Unreleased]\n\n## [6.4.0] - 2026-10-27\n")
+    plugin = tmp_path / "plugins" / "proofbundle"
+    plugin.mkdir(parents=True)
+    (plugin / name).write_text("run: uv run --with proofbundle==6.3.0 python\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    monkeypatch.setattr(sys.modules[__name__], "PLUGIN", plugin)
+    with pytest.raises(AssertionError, match="6.3.0"):
+        test_every_pin_the_plugin_writes_names_that_version()
+
+
+def test_control_a_binary_file_of_the_plugin_is_not_read_for_pins(tmp_path, monkeypatch):
+    """A file that holds a NUL byte is no text the plugin writes for a reader, such as a compiled module; the search for
+    stale pins leaves it out."""
+    _changelog(tmp_path, monkeypatch, "## [Unreleased]\n\n## [6.4.0] - 2026-10-27\n")
+    plugin = tmp_path / "plugins" / "proofbundle"
+    plugin.mkdir(parents=True)
+    (plugin / "module.pyc").write_bytes(b"\0\0proofbundle==6.3.0\0")
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    monkeypatch.setattr(sys.modules[__name__], "PLUGIN", plugin)
+    test_every_pin_the_plugin_writes_names_that_version()
 
 
 def test_the_four_pins_name_one_version():
