@@ -86,6 +86,29 @@ PINNED_USES = re.compile(r"^[\w.-]+/[\w./-]+@[0-9a-f]{40}$")
 INSTALL_PARTS = ('python -m pip install -e ".[dev,pq,anchors,eval]" coverage pytest pytest-xdist==3.8.0 '
                  'pytest-cov==7.1.0')
 INSTALL_CLOSING = "python -m pip install coverage"
+#: The Python every coverage job measures under, and the runner it runs on.
+PYTHON = "3.12"
+RUNS_ON = "ubuntu-latest"
+#: The steps of each job by kind, each once, in this order: without the setup a part measures under the runner's
+#: own Python, without the install it lacks its plugins, and a step after the one that needs it comes too late.
+PART_SEQUENCE = ("actions/checkout", "actions/setup-python", "install", "build", "suite", "keep", "upload")
+CLOSING_SEQUENCE = ("actions/checkout", "actions/setup-python", "install", "download", "close")
+
+
+def _sequence(steps: list, named: dict, install: str, expected: tuple) -> list[str]:
+    """The kinds of `steps` in order against `expected`; `named` maps a held step's kind to the step. Pure."""
+    kinds = []
+    for s in steps:
+        kind = next((k for k, h in named.items() if h is s), None)
+        if kind is None:
+            uses = str(s.get("uses", ""))
+            kind = uses.split("@", 1)[0] if uses else ("install" if str(s.get("run", "")).strip() == install
+                                                       else "other")
+        kinds.append(kind)
+    if tuple(kinds) != expected:
+        return [f"the steps run as {kinds}, not {list(expected)}: each required setup and installation step must "
+                "occur exactly once, before the steps that depend on it"]
+    return []
 #: The actions a coverage job may run besides the ones it is held to (upload, download).
 SETUP_ACTIONS = ("actions/checkout", "actions/setup-python")
 #: The inputs each action of the coverage jobs may get. The checkout gets none: a ref, another repository or a
@@ -138,6 +161,9 @@ def _action_inputs(s: dict) -> list[str]:
                      "workflow revision without narrowing the checkout")
     elif extra:
         found.append(f"the step {name!r} gives {kind} the input(s) {extra}, which the contract does not hold")
+    if kind == "actions/setup-python" and (s.get("with") or {}).get("python-version") != PYTHON:
+        found.append(f"the step {name!r} sets up Python {(s.get('with') or {}).get('python-version')!r}, not "
+                     f"{PYTHON!r}: a coverage job measures under the held Python")
     return found
 
 
@@ -305,8 +331,14 @@ def part_findings(job: dict) -> list[str]:
                         "and failing when there is none")
     if len(keep) == 1 and len(up) == 1 and not steps.index(suite[0]) < steps.index(keep[0]) < steps.index(up[0]):
         findings.append("the part does not run the suite, keep its data and upload it, in that order")
-    held = [suite[0]] + [s for s in steps if str(s.get("run", "")).strip() == BUILD][:1] + keep[:1] + up[:1]
+    build = [s for s in steps if str(s.get("run", "")).strip() == BUILD][:1]
+    held = [suite[0]] + build + keep[:1] + up[:1]
     findings += _unknown_steps(steps, held, INSTALL_PARTS)
+    named = {"suite": suite[0], **({"build": build[0]} if build else {}), **({"keep": keep[0]} if len(keep) == 1 else {}),
+             **({"upload": up[0]} if len(up) == 1 else {})}
+    findings += _sequence(steps, named, INSTALL_PARTS, PART_SEQUENCE)
+    if job.get("runs-on") != RUNS_ON:
+        findings.append(f"the parts run on {job.get('runs-on')!r}, not {RUNS_ON!r}")
     for s in steps:
         name = s.get("name") or s.get("uses") or s.get("run")
         for key in ("if", "continue-on-error"):
@@ -347,6 +379,10 @@ def closing_findings(job: dict, k: "int | None") -> list[str]:
     if len(down) == 1 and not steps.index(down[0]) < steps.index(close[0]):
         findings.append("the closing job does not download the data before the closing step")
     findings += _unknown_steps(steps, close[:1] + down[:1], INSTALL_CLOSING)
+    findings += _sequence(steps, {"close": close[0], **({"download": down[0]} if len(down) == 1 else {})},
+                          INSTALL_CLOSING, CLOSING_SEQUENCE)
+    if job.get("runs-on") != RUNS_ON:
+        findings.append(f"the closing job runs on {job.get('runs-on')!r}, not {RUNS_ON!r}")
     run = str(close[0].get("run", ""))
     lines = [x.strip() for x in run.strip().splitlines()]
     expected = (f"python scripts/ci_coverage_combine.py --data-dir {DATA_DIR} --parts {k} "
@@ -417,11 +453,12 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
     """Each finding of part_findings and closing_findings must fail on a built counter-example."""
 
     def _part(self) -> dict:
-        return {"name": "coverage part (${{ matrix.part }} of 2)",
+        return {"name": "coverage part (${{ matrix.part }} of 2)", "runs-on": RUNS_ON,
                 "env": {"PROOFBUNDLE_REQUIRE_PB_VERIFY_RS": "1", "PROOFBUNDLE_PB_VERIFY_RS": PINNED,
                         "COVERAGE_CORE": "sysmon"},
                 "strategy": {"fail-fast": False, "matrix": {"part": [1, 2]}},
                 "steps": [{"uses": "actions/checkout@" + PIN},
+                          {"uses": "actions/setup-python@" + PIN, "with": {"python-version": PYTHON}},
                           {"name": "Install", "run": INSTALL_PARTS},
                           {"name": "Build", "run": BUILD},
                           {"name": "Suite", "env": {"CI_PART": "${{ matrix.part }}/2"}, "run": SUITE},
@@ -431,8 +468,10 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
                                     "if-no-files-found": "error", "path": KEPT}}]}
 
     def _closing(self) -> dict:
-        return {"needs": ["coverage-part"], "if": "${{ !cancelled() }}",
+        return {"needs": ["coverage-part"], "if": "${{ !cancelled() }}", "runs-on": RUNS_ON,
                 "steps": [{"uses": "actions/checkout@" + PIN},
+                          {"uses": "actions/setup-python@" + PIN, "with": {"python-version": PYTHON}},
+                          {"name": "Install coverage", "run": INSTALL_CLOSING},
                           {"name": "Down", "uses": DOWNLOAD + PIN,
                            "with": {"pattern": "coverage-part-*", "merge-multiple": True, "path": DATA_DIR}},
                           {"name": "Close", "env": {"PARTS_RESULT": "${{ needs.coverage-part.result }}"},
@@ -463,7 +502,7 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
         no_rust = self._part()
         del no_rust["env"]["PROOFBUNDLE_REQUIRE_PB_VERIFY_RS"]
         late_build = self._part()
-        late_build["steps"][2], late_build["steps"][3] = late_build["steps"][3], late_build["steps"][2]
+        late_build["steps"][3], late_build["steps"][4] = late_build["steps"][4], late_build["steps"][3]
         cases = {
             "fail-fast": changed(strategy={"fail-fast": True, "matrix": {"part": [1, 2]}}),
             "1 to K": matrix(part=[1, 3]),
@@ -476,50 +515,53 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
             "Rust verifier": no_rust,
             "COVERAGE_CORE": no_core,
             "does not say `of 2`": changed(name="coverage part (${{ matrix.part }})"),
-            "not 'python": self._step(self._part(), 3, run="python -m pytest -q --cov=src/proofbundle"),
-            "CI_PART": self._step(self._part(), 3, env={"CI_PART": "${{ matrix.part }}/3"}),
+            "not 'python": self._step(self._part(), 4, run="python -m pytest -q --cov=src/proofbundle"),
+            "CI_PART": self._step(self._part(), 4, env={"CI_PART": "${{ matrix.part }}/3"}),
             "built before the suite": late_build,
-            "keeps the part's data": self._step(self._part(), 4, run="cp .coverage x/.coverage.part-${{ matrix.part }}"),
-            "does not upload": self._step(self._part(), 5, **{"with": {"name": "coverage-part-${{ matrix.part }}",
+            "keeps the part's data": self._step(self._part(), 5, run="cp .coverage x/.coverage.part-${{ matrix.part }}"),
+            "does not upload": self._step(self._part(), 6, **{"with": {"name": "coverage-part-${{ matrix.part }}",
                                                                      "if-no-files-found": "error",
                                                                      "path": "x/.coverage.part-${{ matrix.part }}"}}),
-            "every part needs every step": self._step(self._part(), 5, **{"if": "always()"}),
-            "line for line": self._step(self._part(), 4, run="if false; then\n" + "\n".join(KEEP) + "\nfi\n"),
-            "in that order": changed(steps=[self._part()["steps"][i] for i in (0, 1, 2, 3, 5, 4)]),
+            "every part needs every step": self._step(self._part(), 6, **{"if": "always()"}),
+            "line for line": self._step(self._part(), 5, run="if false; then\n" + "\n".join(KEEP) + "\nfi\n"),
+            "in that order": changed(steps=[self._part()["steps"][i] for i in (0, 1, 2, 3, 4, 6, 5)]),
             "run step must not narrow": changed(steps=self._part()["steps"][:3] + [{"name": "Narrow", "run": "echo 'PYTEST_ADDOPTS=--ignore=tests/x.py' >> \"$GITHUB_ENV\""}]
                                                + self._part()["steps"][3:]),
             "none of the known actions": changed(steps=self._part()["steps"][:3]
                                                  + [{"uses": "someone/sets-env@" + PIN}] + self._part()["steps"][3:]),
             "checkout@v7', not pinned": self._step(self._part(), 0, uses="actions/checkout@v7"),
-            "upload-artifact@v7', not pinned": self._step(self._part(), 5, uses="actions/upload-artifact@v7"),
-            "a second install step": changed(steps=self._part()["steps"][:2] + [self._part()["steps"][1]]
-                                             + self._part()["steps"][2:]),
-            "none of the known steps": self._step(self._part(), 1, run="echo PYTEST_ADDOPTS=-k x >> \"$GITHUB_ENV\""),
-            "not execute command substitutions": self._step(self._part(), 1, run=INSTALL_PARTS + " `python -c \"open("
+            "upload-artifact@v7', not pinned": self._step(self._part(), 6, uses="actions/upload-artifact@v7"),
+            "a second install step": changed(steps=self._part()["steps"][:3] + [self._part()["steps"][2]]
+                                             + self._part()["steps"][3:]),
+            "none of the known steps": self._step(self._part(), 2, run="echo PYTEST_ADDOPTS=-k x >> \"$GITHUB_ENV\""),
+            "not execute command substitutions": self._step(self._part(), 2, run=INSTALL_PARTS + " `python -c \"open("
                                                             "__import__('os').environ['GITHUB'+'_ENV'],'a').write("
                                                             "'PYTEST_ADDOPTS=-k smoke\\n')\"`"),
-            "installs nothing else": self._step(self._part(), 1, run=INSTALL_PARTS + " pytest-randomly"),
+            "installs nothing else": self._step(self._part(), 2, run=INSTALL_PARTS + " pytest-randomly"),
+            "occur exactly once, before": changed(steps=[s for i, s in enumerate(self._part()["steps"]) if i != 1]),
+            "not 'ubuntu-latest'": changed(**{"runs-on": "self-hosted"}),
+            "sets up Python '3.10'": self._step(self._part(), 1, **{"with": {"python-version": "3.10"}}),
             "must not receive write permissions": changed(permissions={"contents": "write"}),
             "a coverage job does not have": changed(container="ubuntu:latest"),
             "the strategy carries `max-parallel`": changed(strategy={"fail-fast": False, "matrix": {"part": [1, 2]},
                                                                      "max-parallel": 1}),
-            "parts job uses the expression 'secrets.X'": self._step(self._part(), 3, env={
+            "parts job uses the expression 'secrets.X'": self._step(self._part(), 4, env={
                 "CI_PART": "${{ matrix.part }}/2", "TOKEN": "${{ secrets.X }}"}),
             "parts job uses the expression 'github.token'": self._step(self._part(), 0, **{"with": {
                 "token": "${{ github.token }}"}}),
             "parts job uses the expression \"github['token']\"": changed(name="coverage part (${{ github['token'] }} of 2)"),
             "without narrowing the checkout": self._step(self._part(), 0, **{"with": {"ref": "c8b5b285"}}),
-            "the input(s) ['overwrite']": self._step(self._part(), 5, **{"with": {
-                **self._part()["steps"][5]["with"], "overwrite": True}}),
+            "the input(s) ['overwrite']": self._step(self._part(), 6, **{"with": {
+                **self._part()["steps"][6]["with"], "overwrite": True}}),
             "can narrow the collection": changed(env={**self._part()["env"], "PYTEST_ADDOPTS": "--ignore=tests/x.py"}),
             "carries `defaults`": changed(defaults={"run": {"shell": "bash {0}"}}),
             "additional axes repeat parts": matrix(replica=[1, 2]),
-            "overrides the required Rust verifier": self._step(self._part(), 3, env={
+            "overrides the required Rust verifier": self._step(self._part(), 4, env={
                 "CI_PART": "${{ matrix.part }}/2", "PROOFBUNDLE_REQUIRE_PB_VERIFY_RS": "0",
                 "PROOFBUNDLE_PB_VERIFY_RS": "/missing/pb_verify_rs", "COVERAGE_CORE": "ctrace"}),
-            "sets COVERAGE_CORE": self._step(self._part(), 2, env={"COVERAGE_CORE": "ctrace"}),
-            "changes what its lines do": self._step(self._part(), 4, shell="bash {0}"),
-            "upload the file it kept": self._step(self._part(), 5, **{"with": {
+            "sets COVERAGE_CORE": self._step(self._part(), 3, env={"COVERAGE_CORE": "ctrace"}),
+            "changes what its lines do": self._step(self._part(), 5, shell="bash {0}"),
+            "upload the file it kept": self._step(self._part(), 6, **{"with": {
                 "name": "coverage-part-${{ matrix.part }}", "include-hidden-files": True, "if-no-files-found": "error",
                 "path": "${{ runner.temp }}/other/.coverage.part-${{ matrix.part }}"}}),
             "one suite step": changed(steps=[]),
@@ -557,41 +599,43 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
             job = self._closing()
             job.update(top)
             return job
-        close = self._closing()["steps"][2]
+        close = self._closing()["steps"][4]
         cases = {
             "not the parts": changed(needs=["test"]),
             "without `!cancelled()`": changed(**{"if": "success()"}),
             "not as `coverage`": changed(name="coverage total"),
             "carries `strategy`": changed(strategy={"matrix": {"x": [1]}}),
-            "pattern coverage-part-*": self._step(self._closing(), 1, **{"with": {"pattern": "coverage-*"}}),
-            "merge all matching artifacts": self._step(self._closing(), 1, **{"with": {
+            "pattern coverage-part-*": self._step(self._closing(), 3, **{"with": {"pattern": "coverage-*"}}),
+            "merge all matching artifacts": self._step(self._closing(), 3, **{"with": {
                 "pattern": "coverage-part-*", "merge-multiple": False, "path": DATA_DIR}}),
-            "directly into coverage-data": self._step(self._closing(), 1, **{"with": {
+            "directly into coverage-data": self._step(self._closing(), 3, **{"with": {
                 "pattern": "coverage-part-*", "merge-multiple": True, "path": "data"}}),
-            "--parts 2": self._step(self._closing(), 2, run=close["run"].replace("--parts 2", "--parts 1")),
-            "does not follow": self._step(self._closing(), 2, run=close["run"].replace(FLOOR, "true")),
-            "as the one other line": self._step(self._closing(), 2,
+            "--parts 2": self._step(self._closing(), 4, run=close["run"].replace("--parts 2", "--parts 1")),
+            "does not follow": self._step(self._closing(), 4, run=close["run"].replace(FLOOR, "true")),
+            "as the one other line": self._step(self._closing(), 4,
                                                 run=close["run"].replace(FLOOR, "if false; then\n" + FLOOR + "\nfi")),
-            "--source src/proofbundle": self._step(self._closing(), 2,
+            "--source src/proofbundle": self._step(self._closing(), 4,
                                                    run=close["run"].replace(f" --source {SOURCE}", "")),
-            "changes what its lines do": self._step(self._closing(), 2, shell="bash {0}"),
-            "before the closing step": changed(steps=[self._closing()["steps"][i] for i in (0, 2, 1)]),
+            "changes what its lines do": self._step(self._closing(), 4, shell="bash {0}"),
+            "before the closing step": changed(steps=[self._closing()["steps"][i] for i in (0, 1, 2, 4, 3)]),
             "run step must not narrow": changed(steps=self._closing()["steps"][:2] + [{"name": "Move", "run": "echo COVERAGE_FILE=elsewhere >> \"$GITHUB_ENV\""}]
                                                + self._closing()["steps"][2:]),
-            "download-artifact@v8', not pinned": self._step(self._closing(), 1, uses="actions/download-artifact@v8"),
+            "download-artifact@v8', not pinned": self._step(self._closing(), 3, uses="actions/download-artifact@v8"),
             "must not receive write permissions": changed(permissions={"contents": "write"}),
             "without narrowing the checkout": self._step(self._closing(), 0, **{"with": {"repository": "x/y"}}),
-            "closing job uses the expression 'secrets.X'": self._step(self._closing(), 2, env={
+            "occur exactly once, before": changed(steps=[s for i, s in enumerate(self._closing()["steps"]) if i != 2]),
+            "not 'ubuntu-latest'": changed(**{"runs-on": "self-hosted"}),
+            "closing job uses the expression 'secrets.X'": self._step(self._closing(), 4, env={
                 "PARTS_RESULT": "${{ needs.coverage-part.result }}", "T": "${{ secrets.X }}"}),
             "closing job uses the expression \"secrets['X']\"": changed(**{"timeout-minutes": "${{ secrets['X'] }}"}),
-            "the input(s) ['run-id']": self._step(self._closing(), 1, **{"with": {
-                **self._closing()["steps"][1]["with"], "run-id": "1"}}),
+            "the input(s) ['run-id']": self._step(self._closing(), 3, **{"with": {
+                **self._closing()["steps"][3]["with"], "run-id": "1"}}),
             "carries `defaults`": changed(defaults={"run": {"shell": "bash {0}"}}),
             "closing job env sets COVERAGE_FILE": changed(env={"COVERAGE_FILE": "elsewhere"}),
-            "sets COVERAGE_FILE, which": self._step(self._closing(), 2, env={
+            "sets COVERAGE_FILE, which": self._step(self._closing(), 4, env={
                 "PARTS_RESULT": "${{ needs.coverage-part.result }}", "COVERAGE_FILE": "elsewhere"}),
-            "PARTS_RESULT": self._step(self._closing(), 2, env={"PARTS_RESULT": "success"}),
-            "`if` or `continue-on-error`": self._step(self._closing(), 2, **{"continue-on-error": True}),
+            "PARTS_RESULT": self._step(self._closing(), 4, env={"PARTS_RESULT": "success"}),
+            "`if` or `continue-on-error`": self._step(self._closing(), 4, **{"continue-on-error": True}),
             "one closing step": changed(steps=[]),
         }
         for words, job in cases.items():
