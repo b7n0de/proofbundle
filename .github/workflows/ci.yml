@@ -544,11 +544,24 @@ jobs:
         if: always()
         run: python scripts/core_layer_gate.py --json
 
-  coverage:
+  coverage-part:
     # Coverage ratchet (comparable to python-tuf's --fail-under in tox / sigstore-python's Makefile):
     # a floor that prevents a silent coverage regression. Conservative (below the current ~84%) to avoid
     # flakiness from extras-dependent line counts; raise it over time. Runs the FULL pytest suite (the
     # unittest-discover CI job runs only TestCase classes, so this counts the pytest-function tests too).
+    #
+    # IN PARTS (owner choice of 2026-11-02, order DELTA-COVERAGE-IN-TEILEN-01). Measured through the GitHub
+    # API, the job on one runner took 101.7 min at main c8b5b285 (run 41466807258, the suite step 100.4 min of
+    # it) and 92.1 min at pull request 454 (run 41444424659), while the parts of test (3.12) in the same run
+    # took 13.2 to 19.6 min; coverage set the end of every run and every landing waited for it. The suite now
+    # runs in seven parts side by side, split by the same plugin and the same measured weights as `test`
+    # (scripts/ci_test_part.py): every part collects the whole suite and keeps only its units, so the parts
+    # together are the suite, test for test. Each part measures its share and uploads its data file; the job
+    # `coverage` below checks that every part arrived with data, combines them and holds the floor. The parts
+    # run in separate jobs, so module and class fixtures and any state global to a process apply per part. A
+    # contract holds the parts as a partition of the suite and both jobs in their shape
+    # (tests/test_coverage_parts_cover_the_suite.py).
+    name: coverage part (${{ matrix.part }} of 7)
     runs-on: ubuntu-latest
     # 80, NOT 60 (the same decision). Measured through the GitHub API: 57:03 at main a1e9774e, 59.5 min
     # for the longest finished run over the 40 most recent runs (0d262332), and cut at 60:22 at
@@ -562,7 +575,10 @@ jobs:
     # versions) and the runner image (ubuntu-24.04 20260927.320.1) are the same; one stretch of identical
     # test files took 68 min against 28, the rest about 1.35 times as long. The spread is the speed of
     # the runner, and the mutation layer, which needs coverage, was skipped at 52c7e634 because of it.
-    timeout-minutes: 300
+    # 180 FOR A PART, PROVISIONALLY (2026-11-02): the longest whole run finished in 144 min (a1d5a815), and
+    # 180 holds that with the reserve of tests/test_der_ci_schnitt_haelt.py until three runs on main have
+    # measured how long a part takes, the way `test` came down to 45 after its first runs in parts.
+    timeout-minutes: 180
     # Owner note 2026-09-28 (Z281): the Rust second verifier is built in a step before the suite, pinned
     # here, and required. A test that would skip for a missing binary fails in this job, because a
     # skip here would be a green check over an empty set (tests/_pb_verify_rs.py).
@@ -578,6 +594,10 @@ jobs:
       # (coverage.readthedocs.io, changes up to 7.12.0, read 2026-10-12). Owner choice of 2026-10-12,
       # option A: this one lever only; the matrix stays full on every pull request.
       COVERAGE_CORE: sysmon
+    strategy:
+      fail-fast: false          # one red part must not cancel the others and hide their verdicts
+      matrix:
+        part: [1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
@@ -587,11 +607,59 @@ jobs:
         run: python -m pip install -e ".[dev,pq,anchors,eval]" coverage pytest pytest-xdist==3.8.0 pytest-cov==7.1.0
       - name: Build the Rust second verifier the suite requires (pinned above)
         run: cd tools/pb_verify_rs && cargo build --release
-      # PARALLEL (Z281): pytest-cov measures every worker and combines the data before the report;
-      # the floor is unchanged.
-      - name: Coverage with a --fail-under ratchet floor
+      # PARALLEL (Z281): pytest-cov measures every worker of the part and combines their data into one file.
+      # IN PARTS (2026-11-02): the same call plus the part plugin, as in `test`. CI_PART comes from the matrix
+      # as `<part>/<number of parts>`; the plugin refuses anything else, and a part that keeps no test fails.
+      - name: Coverage of this part
+        env:
+          CI_PART: ${{ matrix.part }}/7
+        run: python -m pytest -q --numprocesses=auto --dist=worksteal -p scripts.ci_test_part --ci-part=$CI_PART --cov=src/proofbundle --cov-report=
+      # The data file under the name of its part; a part that wrote none fails here, not in the closing job.
+      - name: Keep the data of this part under its own name
         run: |
-          python -m pytest -q --numprocesses=auto --dist=worksteal --cov=src/proofbundle --cov-report=
+          set -euo pipefail
+          test -s .coverage
+          mkdir -p "$RUNNER_TEMP/coverage-data"
+          cp .coverage "$RUNNER_TEMP/coverage-data/.coverage.part-${{ matrix.part }}"
+      # include-hidden-files: the name starts with a dot, and upload-artifact leaves such files out by default.
+      - name: Upload the data of this part
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: coverage-part-${{ matrix.part }}
+          path: ${{ runner.temp }}/coverage-data/.coverage.part-${{ matrix.part }}
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+  coverage:
+    # THE COVERAGE VERDICT OVER ALL PARTS, under the name the jobs `mutation` and `all-checks-passed` need.
+    # It fails when the matrix coverage-part did not succeed, when a part's data is missing, empty, measured no
+    # file or was written by another version of coverage, and when there is no part at all; only then does it
+    # combine the data and hold the floor (scripts/ci_coverage_combine.py). `!cancelled()`: a job with `needs`
+    # and no such guard is skipped when a part fails, and a skipped job is not red.
+    needs: [coverage-part]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.12"
+      # The same unpinned `coverage` the parts install; the closing script refuses data of another version.
+      - name: Install coverage
+        run: python -m pip install coverage
+      - name: Download the data of every part
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          pattern: coverage-part-*
+          merge-multiple: true
+          path: coverage-data
+      - name: Combine the parts and hold the --fail-under ratchet floor
+        env:
+          PARTS_RESULT: ${{ needs.coverage-part.result }}
+        run: |
+          python scripts/ci_coverage_combine.py --data-dir coverage-data --parts 7 --result "$PARTS_RESULT"
           python -m coverage report -m --fail-under=83
 
   crypto-floor:
