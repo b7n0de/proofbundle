@@ -546,6 +546,28 @@ def test_a_stale_pin_in_any_text_file_of_the_plugin_is_found(tmp_path, monkeypat
         test_every_pin_the_plugin_writes_names_that_version()
 
 
+@pytest.mark.parametrize("written, stale", [
+    ("proofbundle==v6.3.0", True), ("proofbundle==V6.3.0", True), ("proofbundle==v6.4.0", False),
+    ("proofbundle==6.4", False), ("proofbundle==6.3.*", True),
+], ids=["a v before a stale version", "a capital V before a stale version", "a v before the newest version",
+        "the newest version without its zero", "a stale wildcard"])
+def test_a_pin_is_compared_as_pep_440_reads_it(tmp_path, monkeypatch, written, stale):
+    """An eleventh pre-run of the reading of the pin on main (Codex, P2): `proofbundle==v6.3.0` is a requirement of 6.3.0,
+    since PEP 440 drops a leading v, and the search for stale pins did not see it. A pin is compared with the newest
+    release as PEP 440 normalizes both, so `==6.4` names 6.4.0 and `==6.3.*` does not."""
+    _changelog(tmp_path, monkeypatch, "## [Unreleased]\n\n## [6.4.0] - 2026-10-27\n")
+    plugin = tmp_path / "plugins" / "proofbundle"
+    plugin.mkdir(parents=True)
+    (plugin / "install.yml").write_text(f"run: uv run --with {written} python\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    monkeypatch.setattr(sys.modules[__name__], "PLUGIN", plugin)
+    if stale:
+        with pytest.raises(AssertionError):
+            test_every_pin_the_plugin_writes_names_that_version()
+    else:
+        test_every_pin_the_plugin_writes_names_that_version()
+
+
 def test_control_a_binary_file_of_the_plugin_is_not_read_for_pins(tmp_path, monkeypatch):
     """A file that holds a NUL byte is no text the plugin writes for a reader, such as a compiled module; the search for
     stale pins leaves it out."""
