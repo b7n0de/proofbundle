@@ -144,9 +144,13 @@ def test_D125_the_shipped_house_hook_grants_no_standing_go_for_the_own_work_bran
     tool_input = {"command": form.replace("{R}", str(repo))}
     answer, entry = _run_shipped(repo, tmp_path, "Bash", tool_input)
     house, house_entry = _run_base(repo, tmp_path, "Bash", tool_input, FLAG)
+    base, _ = _run_base(repo, tmp_path, "Bash", tool_input)
     assert gate.STANDING_GO_VARIABLE not in _env(tmp_path, "data-shipped")   # no consent of D129 stated
     assert "free_work_branch_go" not in entry["reason_ids"], (form, entry)
-    assert _decision(answer) in ("ask", "deny"), (form, answer, entry)
+    # the closed list asks without the flag, and the house's flag turns that ask into a deny (D85), measured for each
+    # form at 9bae0ad0; a hook that lost the flag would answer the ask
+    assert _decision(base) == "ask", (form, base)
+    assert _decision(answer) == "deny" and "autonomy" in entry, (form, answer, entry)
     assert (_decision(answer), entry["verdict"], entry["decision"], entry["reason_ids"]) == \
         (_decision(house), house_entry["verdict"], house_entry["decision"], house_entry["reason_ids"]), form
 
