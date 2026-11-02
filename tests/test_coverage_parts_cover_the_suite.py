@@ -14,10 +14,12 @@ contract therefore
 
   1. reads both jobs: the parts are 1 to K, nothing is included or excluded, no part may fail or be skipped
      silently, every part runs the declared call with `<part>/K`, requires the Rust verifier and sysmon, and
-     uploads its data under its own name; the closing job needs the parts, runs on their failure, checks K
-     parts and holds the floor;
-  2. collects the whole suite once and checks that the plugin puts every collected item in exactly one of the
-     K parts and leaves no part empty;
+     uploads its data under its own name; the closing job needs the parts, runs on their failure, downloads
+     their data merged into the one directory the closing script reads, checks K parts and holds the floor;
+  2. collects the whole suite once and checks that the plugin's assignment puts every collected item in exactly
+     one of the K parts and leaves no part empty. That the collection hook keeps exactly the assigned items is
+     held by tests/test_ci_test_parts_cover_the_suite.py (ThePluginKeepsExactlyItsFiles), which runs the plugin
+     for real; every part runs that same plugin through the call SUITE below;
   3. runs the closing script as a program on real coverage data: K sound parts combine, and every way to lose
      a part is refused before the floor, zero parts included.
 """
@@ -57,6 +59,8 @@ PINNED = "${{ github.workspace }}/tools/pb_verify_rs/target/release/pb_verify_rs
 UPLOAD = "actions/upload-artifact@"
 DOWNLOAD = "actions/download-artifact@"
 FLOOR = "python -m coverage report -m --fail-under=83"
+#: The directory the closing job downloads the parts into and the closing script reads.
+DATA_DIR = "coverage-data"
 
 
 def _ci_jobs() -> dict:
@@ -139,14 +143,17 @@ def closing_findings(job: dict, k: "int | None") -> list[str]:
             findings.append(f"the job carries `{key}`")
     steps = job.get("steps") or []
     down = [s for s in steps if str(s.get("uses", "")).startswith(DOWNLOAD)]
-    if len(down) != 1 or (down[0].get("with") or {}).get("pattern") != "coverage-part-*":
+    w = (down[0].get("with") or {}) if len(down) == 1 else {}
+    if len(down) != 1 or w.get("pattern") != "coverage-part-*":
         findings.append("the job does not download the data of the parts by the pattern coverage-part-*")
+    if w.get("merge-multiple") is not True or w.get("path") != DATA_DIR:
+        findings.append(f"the closing job must merge all matching artifacts directly into {DATA_DIR}")
     close = [s for s in steps if "ci_coverage_combine.py" in str(s.get("run", ""))]
     if len(close) != 1:
         return findings + [f"expected one closing step, found {len(close)}"]
     run = str(close[0].get("run", ""))
     lines = [x.strip() for x in run.strip().splitlines()]
-    expected = (f"python scripts/ci_coverage_combine.py --data-dir coverage-data --parts {k} "
+    expected = (f"python scripts/ci_coverage_combine.py --data-dir {DATA_DIR} --parts {k} "
                 '--result "$PARTS_RESULT"')
     if k is None or not lines or lines[0] != expected:
         findings.append(f"the closing step does not run {expected!r} first")
@@ -221,7 +228,8 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
     def _closing(self) -> dict:
         return {"needs": ["coverage-part"], "if": "${{ !cancelled() }}",
                 "steps": [{"uses": "actions/checkout@x"},
-                          {"name": "Down", "uses": DOWNLOAD + "x", "with": {"pattern": "coverage-part-*"}},
+                          {"name": "Down", "uses": DOWNLOAD + "x",
+                           "with": {"pattern": "coverage-part-*", "merge-multiple": True, "path": DATA_DIR}},
                           {"name": "Close", "env": {"PARTS_RESULT": "${{ needs.coverage-part.result }}"},
                            "run": "python scripts/ci_coverage_combine.py --data-dir coverage-data --parts 2 "
                                   '--result "$PARTS_RESULT"\n' + FLOOR + "\n"}]}
@@ -290,6 +298,10 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
             "not as `coverage`": changed(name="coverage total"),
             "carries `strategy`": changed(strategy={"matrix": {"x": [1]}}),
             "pattern coverage-part-*": self._step(self._closing(), 1, **{"with": {"pattern": "coverage-*"}}),
+            "merge all matching artifacts": self._step(self._closing(), 1, **{"with": {
+                "pattern": "coverage-part-*", "merge-multiple": False, "path": DATA_DIR}}),
+            "directly into coverage-data": self._step(self._closing(), 1, **{"with": {
+                "pattern": "coverage-part-*", "merge-multiple": True, "path": "data"}}),
             "--parts 2": self._step(self._closing(), 2, run=close["run"].replace("--parts 2", "--parts 1")),
             "does not follow": self._step(self._closing(), 2, run=close["run"].replace(FLOOR, "true")),
             "PARTS_RESULT": self._step(self._closing(), 2, env={"PARTS_RESULT": "success"}),
