@@ -22,6 +22,7 @@ import re
 import sys
 
 import pytest
+from packaging.specifiers import InvalidSpecifier, Specifier
 from packaging.version import InvalidVersion, Version
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -43,9 +44,10 @@ _DATED = re.compile(r" - (\d{4})-(\d{2})-(\d{2})(?:\s+\(.*\))?\s*")
 #: A pin of proofbundle as a requirement may write it: the name in any case, extras, blanks around == or ===, and a
 #: version with what PEP 440 may append (a third pre-run of the reading of the pin on main, Codex, P2); no character of
 #: a PEP 508 name stands right before it, so the pin of another package ending in proofbundle is none (a tenth pre-run).
-#: The version may open with a v, which PEP 440 drops (an eleventh pre-run).
-_ANY_PIN = re.compile(r"(?<![A-Za-z0-9._-])proofbundle(?:\s*\[[^\]]*\])?\s*===?\s*([vV]?\d+(?:\.\d+)*(?:[-_.+!]?[A-Za-z0-9]+)*)",
-                      re.IGNORECASE)
+#: The version may open with a v, which PEP 440 drops (an eleventh pre-run); the operator and a closing wildcard are read
+#: with it, since they decide which releases the pin admits (a twelfth pre-run).
+_ANY_PIN = re.compile(r"(?<![A-Za-z0-9._-])proofbundle(?:\s*\[[^\]]*\])?\s*(?P<operator>===?)\s*"
+                      r"(?P<version>[vV]?\d+(?:\.\d+)*(?:[-_.+!]?[A-Za-z0-9]+)*)(?P<wildcard>\.\*)?", re.IGNORECASE)
 #: The starts of the HTML blocks of CommonMark 0.31.2, types 1 to 6, which may interrupt a paragraph; a block tag name of
 #: type 6 ends at a blank, a > or the pair /> (an eighth pre-run of the reading of the pin on main, Codex, P2). Lines inside
 #: such a block are no headings, and the reader does not model where a block ends, so a changelog that opens one stops
@@ -494,15 +496,15 @@ def test_each_tool_is_read_from_its_own_metadata_block(tmp_path, monkeypatch):
 
 def test_a_pin_written_with_spaces_or_extras_is_found():
     """The same pre-run: `proofbundle ==6.3.0` is a valid requirement, and the search for stale pins did not see it."""
-    assert _ANY_PIN.findall("proofbundle ==6.3.0, proofbundle[eval] == 6.2.0") == ["6.3.0", "6.2.0"]
+    assert _pinned_versions("proofbundle ==6.3.0, proofbundle[eval] == 6.2.0") == ["6.3.0", "6.2.0"]
 
 
 def test_control_a_pin_of_a_package_whose_name_ends_in_proofbundle_is_none():
     """A tenth pre-run of the reading of the pin on main (Codex, P2): the search found `otherproofbundle==6.3.0`, the pin
     of another package, and failed the case for a right pin. A name of PEP 508 has no letter, digit, dot, underscore or
     hyphen right before proofbundle."""
-    assert _ANY_PIN.findall("otherproofbundle==6.3.0, my.proofbundle==6.2.0, x-proofbundle==6.1.0") == []
-    assert _ANY_PIN.findall("(proofbundle==6.4.0) `proofbundle==6.3.0`") == ["6.4.0", "6.3.0"]
+    assert _pinned_versions("otherproofbundle==6.3.0, my.proofbundle==6.2.0, x-proofbundle==6.1.0") == []
+    assert _pinned_versions("(proofbundle==6.4.0) `proofbundle==6.3.0`") == ["6.4.0", "6.3.0"]
 
 
 def test_control_an_atx_heading_before_a_thematic_break_is_read(tmp_path, monkeypatch):
@@ -606,12 +608,20 @@ def test_the_pin_is_the_newest_release_the_changelog_records():
     assert {version for found in pins.values() for version in found} == {newest}, (newest, pins)
 
 
-def _names(written: str, newest: str) -> bool:
-    """Whether a pinned version names the newest release as PEP 440 normalizes both: `v6.4.0` and `6.4` name 6.4.0, a
-    version PEP 440 cannot read names none (an eleventh pre-run of the reading of the pin on main, Codex, P2)."""
+def _pinned_versions(text: str) -> list[str]:
+    return [found["version"] for found in _ANY_PIN.finditer(text)]
+
+
+def _names(pin: re.Match, newest: str) -> bool:
+    """Whether a pin admits the newest release and no other, as packaging reads its specifier: `==v6.4.0` and `==6.4`
+    name 6.4.0 (an eleventh pre-run of the reading of the pin on main, Codex, P2), a wildcard admits more than one release,
+    and arbitrary equality compares strings, so `===6.4` names none (a twelfth pre-run, Codex, P2). A specifier packaging
+    cannot read names none."""
+    if pin["wildcard"]:
+        return False
     try:
-        return Version(written) == Version(newest)
-    except InvalidVersion:
+        return Specifier(pin["operator"] + pin["version"]).contains(newest, prereleases=True)
+    except InvalidSpecifier:
         return False
 
 
@@ -627,5 +637,5 @@ def test_every_pin_the_plugin_writes_names_that_version():
         if b"\0" in raw:
             continue
         text = raw.decode("utf-8", errors="replace")
-        stale += [f"{path.relative_to(ROOT)}: proofbundle=={v}" for v in _ANY_PIN.findall(text) if not _names(v, newest)]
+        stale += [f"{path.relative_to(ROOT)}: {pin.group(0)}" for pin in _ANY_PIN.finditer(text) if not _names(pin, newest)]
     assert not stale, (newest, stale)
