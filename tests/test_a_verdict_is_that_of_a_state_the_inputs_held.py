@@ -33,7 +33,10 @@ import dataclasses
 import gc
 import hashlib
 import json
+import os
+import subprocess
 import sys
+import tempfile
 import threading
 import unittest
 from pathlib import Path
@@ -944,3 +947,28 @@ class TheMeasuringFrameArmsTheCollectorItself(unittest.TestCase):
                 self.assertEqual(gc.isenabled(), vorher, "the frame changed the caller's state of the collector")
         finally:
             (gc.enable if war else gc.disable)()
+
+
+#: A module that, run before the ABA case in one process, kept it from finding its moments (CPython 3.14.8, a checkout
+#: without bytecode, 2 November 2026); it tests nothing of the anchor reading.
+_DAVOR = "tests/test_register_610_carries_what_the_sheets_promise.py"
+
+
+class TheABACaseIsMeasuredWhateverRanBeforeIt(unittest.TestCase):
+    """CI of pull request 473, test (3.14, 1), twice: the ABA case of section 4 reported "0 of 3 steps found their
+    moment" after the parts of the suite moved other files into its worker. Measured with CPython 3.14.8 at main
+    a466f4d6, in a checkout without bytecode: the case alone passes, and after `_DAVOR` in the same process it fails,
+    because whether a collection starts in the frame of `canonical._lies` depends on what ran before it. Here that order
+    runs in a pytest of its own that compiles every module afresh, as a fresh checkout in CI does, and the case must
+    pass. Under CPython 3.10.12 the order did not change the result (measured), so this case can fall only where the
+    collector works as in 3.14."""
+
+    def test_the_aba_case_after_a_module_that_moved_it(self) -> None:
+        knoten = f"{Path(__file__).relative_to(REPO)}::ABAIsMeasuredUpToThePublicVerdict"
+        with tempfile.TemporaryDirectory() as leer:
+            env = {k: v for k, v in os.environ.items() if not k.startswith("PYTEST_")}
+            env.update(PYTHONDONTWRITEBYTECODE="1", PYTHONPYCACHEPREFIX=leer, PYTHONPATH=str(REPO / "src"))
+            lauf = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-p", "no:randomly",
+                                   _DAVOR, knoten], cwd=REPO, env=env, capture_output=True, text=True, timeout=300,
+                                  check=False)
+        self.assertEqual(lauf.returncode, 0, (lauf.stdout + lauf.stderr)[-3000:])
