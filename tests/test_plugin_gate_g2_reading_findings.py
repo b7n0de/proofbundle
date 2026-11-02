@@ -299,6 +299,60 @@ def test_control_a_line_whose_program_names_no_root_is_no_root_door(gate, line):
     assert gate._release_door_words(line) != "root"
 
 
+# --- Fifth reading of G-2, P2: a locale or ANSI-C part inside quotes is the text it shows ------------------------------
+
+@pytest.mark.parametrize("line", ["'$\"hello\"' -n true", "\"$'\\x73udo'\" -n true", "printf x | '$\"hello\"'"])
+def test_a_locale_or_ansi_c_part_inside_quotes_is_literal_text(gate, line):
+    """bash reads `$"…"` inside single quotes and `$'…'` inside double quotes as the characters they are (measured on
+    30.10.2026 with bash 5.1.16: printf prints [$"hello"] and [$'\\x73udo']). The gate read them as parts to translate
+    or decode, counted them as not resolved and held the release back."""
+    assert gate._release_door_words(line) != "root"
+
+
+@pytest.mark.parametrize("line", ['$"sudo" -n true', "$'\\x73udo' -n true", "s$''udo -n true", "'s'$'\\x75'do -n true",
+                                  "'$\"sudo\"' -n true"])
+def test_control_the_same_parts_outside_quotes_are_still_read(gate, line):
+    """The last case stays the door root for another reason: the gate also reads the line as written, and there the
+    quoted word names sudo once its quotes are stripped. That reading is strict on purpose and older than this fix."""
+    assert gate._release_door_words(line) == "root"
+
+
+SUBSTITUTED_ROOT = ['x="$(s$\'u\'do -n true)"', 'x="`s$\'u\'do -n true`"', 'x="$((1)) $(s$\'u\'do -n true)"',
+                    'x="$(echo "$(s$\'u\'do -n true)")"', 'x="$(case a in a) s$\'u\'do -n true;; esac)"',
+                    'x="${y:-$(s$\'u\'do -n true)}"']
+
+
+@pytest.mark.parametrize("line", SUBSTITUTED_ROOT)
+def test_a_part_inside_a_command_substitution_in_double_quotes_is_read_in_its_own_context(gate, line):
+    """Reading of the follow-up to 441, line 3, P1: bash starts a new quoting context inside `$(...)`, a backquoted
+    command and a braced parameter, also within double quotes, so `s$'u'do` there runs sudo (measured with bash 5.1.16,
+    printf prints [sudo], with a case pattern inside too). The scanner kept the outer double quotes and read the
+    ANSI-C part as text; such a line is now read the strict way as well."""
+    assert gate._release_door_words(line) == "root"
+
+
+@pytest.mark.parametrize("line", ['x="$(echo \'$"hello"\')" -n true', 'x="$(echo ")" ; echo \'$"a"\')"',
+                                  'echo "$(date)" \'$"hello"\'', 'git log -1 "$(date)"', 'echo "${HOME}"'])
+def test_control_a_line_with_a_substitution_and_no_root_program_is_no_root_door(gate, line):
+    assert gate._release_door_words(line) != "root"
+
+
+@pytest.mark.parametrize("line", ["X=udo; eval 's$X' -n true", "bash -c 's$X -n true'", "eval \"$'\\x73udo' -n true\"",
+                                  "watch 's$X -n true'", "e\\val 's$X' -n true", "ev''al 's$X' -n true"])
+def test_a_text_a_runner_reads_a_second_time_is_read_the_strict_way(gate, line):
+    """Codex on pull request 447, P1: eval, a shell with -c and watch read their text a second time, so a dollar sign
+    the first reading keeps as a character expands there (measured with bash 5.1.16 and a function named sudo,
+    `X=udo; eval 's$X' -n true`, `bash -c 's$X -n true'` and `e\\val 's$X' -n true` call it). The gate at 647ed0a2
+    read these as root; the marker of the literal dollar sign hid them, and a runner the shell joins from parts was
+    not seen as one (fourth reading of the follow-up to 441, line 3, P1)."""
+    assert gate._release_door_words(line) == "root"
+
+
+@pytest.mark.parametrize("line", ["echo 's$X'", "printf '%s' '$\"hello\"'"])
+def test_control_a_quoted_dollar_sign_without_a_text_runner_stays_text(gate, line):
+    assert gate._release_door_words(line) != "root"
+
+
 # --- Third reading at 097cedad, line 3: the steps of bash's word formation for a program word ---------------------------
 
 ROOT_FORMS = ["s\\\nu\\\ndo -n true", "{s,x}udo -n true", "su{d,}o -n true", "eval \"$(printf 's%s' udo)\" -n true",

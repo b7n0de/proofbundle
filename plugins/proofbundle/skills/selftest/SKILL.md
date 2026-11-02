@@ -1,12 +1,12 @@
 ---
-description: Check whether the proofbundle pre-push gate actually runs in this session, with one push to a throwaway local repository. Use when the user asks whether the gate or the plugin's hooks are active.
+description: Diagnose the proofbundle gate's local log and a throwaway repository after one test push. Use when the user asks whether the gate is active. The stale-subject result is supported by the Claude Code harness; the current Codex path returns NOT MEASURABLE.
 disable-model-invocation: true
 allowed-tools: mcp__plugin_proofbundle_proofbundle__gate_selftest_prepare mcp__plugin_proofbundle_proofbundle__gate_selftest_check mcp__plugin_proofbundle_proofbundle__gate_status
 ---
 
 Run the gate self-test with the proofbundle MCP server.
 
-1. Call `gate_selftest_prepare`. It creates a throwaway repository and a bare remote in a temporary folder. The repository declares evidence with a stale subject, so the gate is expected to deny the push.
+1. Call `gate_selftest_prepare`. It creates a throwaway repository and a bare remote in a temporary folder. Claude Code is expected to deny the returned command for a stale subject. Codex instead rejects its command form before checking that subject, so the current checker returns `NOT MEASURABLE` there. Do not report that Codex denial as a passed evidence self-test.
 2. Run exactly the `command` it returned, once, with the shell tool. It names only that local bare repository, and in the server's environment it pushes there. The check reads only the refs of the throwaway remote: a setting only the host's shell carries (a push URL, a receive program or its hooks, a transport) can send the push elsewhere or undo its write, and the check does not see that. The gate is expected to deny it. Never change the command, never change the throwaway repository or its declaration, and never push to any other remote in this skill.
 3. Call `gate_selftest_check` with the `work` and `started_at` that `gate_selftest_prepare` returned.
 4. Report the `result` verbatim, with its `reason`, the `log_path`, `target_changed`, and the `limit`. The results are: `Expected denial logged; test target unchanged.`, `Expected denial logged; test target changed.`, `Test target changed; no matching gate event observed.`, or `NOT MEASURABLE`.

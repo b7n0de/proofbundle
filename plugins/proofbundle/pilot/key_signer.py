@@ -237,7 +237,9 @@ def _instant() -> str:
 
 
 def _replace(folder: str, name: str, data: bytes) -> None:
-    """Write `name` in `folder` whole: a new file beside it, synced, renamed over it, and the folder synced."""
+    """Write `name` in `folder` whole: a new file beside it, synced, renamed over it, and the folder synced. Mode 644 on
+    purpose: the reconciliation reads keysigner/ of the records under an account other than the key account (D65;
+    CodeQL alert 147, kept)."""
     temporary = os.path.join(folder, f".{name}.{os.getpid()}.new")
     fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o644)
     try:

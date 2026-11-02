@@ -7,7 +7,8 @@ them set ends as a run without them. Two pieces hold that:
 * `withhold_caller_environment`, a module-scoped autouse fixture tests/conftest.py imports, takes every name but
   those in FIXED out of os.environ before the first fixture of a plugin test module and puts them back after its last
   test. A process a test starts without env=, and the gate a test calls in-process, see the fixed list and what the
-  test set itself.
+  test set itself. It also puts the proofbundle this test process imports first on PYTHONPATH, so that a child running
+  code of this tree reads the same package.
 * `plugin_env(**values)` builds the environment a test hands a process or the gate explicitly: the names in FIXED as
   they stand, the GIT_ and PROOFBUNDLE_ values the case set (with the caller's withheld, only the case's are left),
   and `values`, where None takes a name out. `without` names prefixes the result leaves out.
@@ -16,8 +17,10 @@ tests/test_plugin_env_guard.py holds both: no plugin test passes os.environ, a c
 to a process or the gate, except the named places, and planted cases show the guard finds each form."""
 from __future__ import annotations
 
+import importlib.util
 import os
 import pathlib
+import sys
 
 import pytest
 
@@ -85,11 +88,34 @@ def withhold_caller_environment(request):
     with pytest.MonkeyPatch.context() as patch:
         for name in [n for n in os.environ if n not in FIXED and n != PYTEST_OWN]:
             patch.delenv(name)
+        # pytest's pythonpath option, which the witness passes (-o pythonpath=src), puts src/ on sys.path of this
+        # process only; a child started without PYTHONPATH imported the proofbundle its interpreter has installed
+        # (measured on the witness of 31 October 2026: 6.0.0, without proofbundle._plain_value)
+        spec = importlib.util.find_spec("proofbundle")
+        if spec is not None and spec.origin:
+            root = str(pathlib.Path(spec.origin).resolve().parent.parent)
+            patch.setenv("PYTHONPATH", os.pathsep.join(p for p in (root, os.environ.get("PYTHONPATH")) if p))
         _withheld += 1
         try:
             yield
         finally:
             _withheld -= 1
+
+
+def put_stand_in_uv_on_path(bin_dir: pathlib.Path, monkeypatch) -> str:
+    """Put bin_dir, which holds the test's stand-in `uv`, first on this process's PATH and return that PATH; write the
+    stand-in when bin_dir holds none. The gate a test calls in-process looks `uv` up on this process's PATH
+    (verify_items, shutil.which), not in the environment the test hands a process. A runner without a `uv` of its own,
+    as the CI runner and the witness are, found none there."""
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    uv = bin_dir / "uv"
+    if not uv.exists():
+        uv.write_text(f'#!/bin/sh\nwhile [ "$1" != "--script" ]; do shift; done\nshift\nexec "{sys.executable}" "$@"\n',
+                      encoding="utf-8")
+        uv.chmod(0o700)
+    path = os.pathsep.join([str(bin_dir), os.environ.get("PATH", "")])
+    monkeypatch.setenv("PATH", path)
+    return path
 
 
 def plugin_env(*, without: tuple[str, ...] = (), **values: str | None) -> dict[str, str]:
