@@ -642,6 +642,35 @@ def _pinned_versions(text: str) -> list[str]:
     return [found["version"] for found in _ANY_PIN.finditer(text)]
 
 
+def _shell_view(text: str) -> str:
+    """The text as a POSIX shell passes its words on after quote removal (a fourteenth pre-run of the reading of the pin
+    on main, Codex, P2: `'proofbundle'=='6.3.0'` pins 6.3.0). Single quotes keep what they hold; double quotes keep a
+    backslash unless it escapes $, `, ", \\ or a line end; outside quotes a backslash keeps the character after it, and
+    one before a line end joins two lines. A quote runs to the end of its line at most, so an apostrophe in prose changes
+    no other line. Expansions and the escapes of $'...' are not read."""
+    out, quote, i = [], None, 0
+    while i < len(text):
+        char = text[i]
+        if char == "\n":
+            quote = None
+            out.append(char)
+        elif quote == "'":
+            if char == "'":
+                quote = None
+            else:
+                out.append(char)
+        elif char == "\\" and i + 1 < len(text) and (quote is None or text[i + 1] in '$`"\\\n'):
+            i += 1
+            if text[i] != "\n":
+                out.append(text[i])
+        elif char in "'\"" and quote in (None, char):
+            quote = None if quote else char
+        else:
+            out.append(char)
+        i += 1
+    return "".join(out)
+
+
 def _names(pin: re.Match, newest: str) -> bool:
     """Whether a pin admits the newest release and no other, as packaging reads its specifier: `==v6.4.0` and `==6.4`
     name 6.4.0 (an eleventh pre-run of the reading of the pin on main, Codex, P2), a wildcard admits more than one release,
@@ -657,7 +686,8 @@ def _names(pin: re.Match, newest: str) -> bool:
 
 def test_every_pin_the_plugin_writes_names_that_version():
     """Every file of the plugin that holds no NUL byte is read, whatever its ending (an eighth pre-run of the reading of
-    the pin on main, Codex, P2: a list of endings left `.yml` unread)."""
+    the pin on main, Codex, P2: a list of endings left `.yml` unread), as written and as a shell passes it on (a
+    fourteenth pre-run)."""
     newest = _newest_release()
     stale = []
     for path in sorted(PLUGIN.rglob("*")):
@@ -667,5 +697,6 @@ def test_every_pin_the_plugin_writes_names_that_version():
         if b"\0" in raw:
             continue
         text = raw.decode("utf-8", errors="replace")
-        stale += [f"{path.relative_to(ROOT)}: {pin.group(0)}" for pin in _ANY_PIN.finditer(text) if not _names(pin, newest)]
+        found = [pin for view in (text, _shell_view(text)) for pin in _ANY_PIN.finditer(view)]
+        stale += dict.fromkeys(f"{path.relative_to(ROOT)}: {pin.group(0)}" for pin in found if not _names(pin, newest))
     assert not stale, (newest, stale)
