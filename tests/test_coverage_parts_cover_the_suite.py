@@ -244,9 +244,12 @@ def workflow_findings(workflow: dict) -> list[str]:
     found = []
     for key in sorted((workflow.get("defaults") or {}).get("run") or {}):
         found.append(f"the workflow sets defaults.run.{key}, which changes what every run step does")
+    # No workflow env at all: a list of harmful names stays open (BASH_ENV runs code before every held run block,
+    # PYTHONPATH and LD_PRELOAD load other code, PYTEST_ADDOPTS narrows the collection), and the real workflow
+    # needs none.
     for key in sorted(workflow.get("env") or {}):
-        if key in HELD_ENV or key.startswith(("PYTEST", "COVERAGE")):
-            found.append(f"the workflow env sets {key}, which changes what the parts collect or measure")
+        found.append(f"the workflow env sets {key}, which reaches every step of the coverage jobs: they run under "
+                     "no workflow env")
     found += _credentials(workflow.get("env") or {}, "the workflow env")
     perm = workflow.get("permissions")
     if perm is None:
@@ -423,16 +426,60 @@ class TheCoverageJobsAreShapedSoNoPartIsLost(unittest.TestCase):
         self.assertEqual(jobs[CLOSING_JOB]["needs"], [PARTS_JOB])
 
     def test_every_collected_item_is_measured_in_exactly_one_part(self):
+        """The plugin's own collection hook, run for every one of the K parts over the ids the real suite
+        collects: the items the parts keep are the suite, each exactly once, and no part keeps none. Codex
+        pre-runs at 9de12d79 to ad649d61 named the former check, which compared the pure assignment with the ids
+        it was built from and could not fall; this one observes what the hook keeps."""
         plugin = _plugin()
         ids = _collected_ids(REPO)
         self.assertGreater(len(ids), 2000, f"only {len(ids)} items collected, the collection is blind")
         k = len(_ci_jobs()[PARTS_JOB]["strategy"]["matrix"]["part"])
-        files, tests, offset = plugin.load_weights()
-        units = {i: plugin.unit_of(i, tests) for i in ids}
-        where = plugin.assign(units.values(), k, files, tests, offset)
-        part_of = {i: where[u] for i, u in units.items()}
-        self.assertEqual(sorted(part_of), ids)
-        self.assertEqual(sorted(set(part_of.values())), list(range(1, k + 1)), "a part keeps no item")
+        kept = _kept_by_the_hook(plugin, ids, k)
+        self.assertEqual(set().union(*kept.values()), set(ids), "an item of the suite is kept by no part")
+        self.assertEqual(sum(len(v) for v in kept.values()), len(ids), "an item is kept by two parts")
+        self.assertEqual(sorted(p for p, v in kept.items() if v), list(range(1, k + 1)), "a part keeps no item")
+
+    def test_control_the_hook_check_falls_when_the_hook_drops_one_item(self):
+        """Control for the case above, on built ids: a hook that drops one more item than its part, or keeps one
+        twice, fails the same three checks."""
+        plugin = _plugin()
+        ids = [f"tests/test_x{n % 40}.py::test_{n:04d}" for n in range(400)]
+        kept = _kept_by_the_hook(plugin, ids, 7)
+        self.assertEqual(set().union(*kept.values()), set(ids))
+        self.assertEqual(sum(len(v) for v in kept.values()), len(ids))
+        dropped = {p: [i for i in v if i != ids[0]] for p, v in kept.items()}
+        self.assertNotEqual(set().union(*dropped.values()), set(ids))
+        doubled = {**kept, 1: kept[1] + [kept[2][0]]}
+        self.assertNotEqual(sum(len(v) for v in doubled.values()), len(ids))
+
+
+class _Item:
+    """A collected item as the hook reads it: by its node id only."""
+
+    def __init__(self, nodeid: str) -> None:
+        self.nodeid = nodeid
+
+
+class _Config:
+    """The config the hook reads: the part option, the parsed part, the weights, the deselect hook."""
+
+    def __init__(self, plugin, part: int, parts: int) -> None:
+        self._text = f"{part}/{parts}"
+        self._ci_part = plugin.parse_part(self._text)
+        self._ci_weights = plugin.load_weights()
+        self.hook = type("Hooks", (), {"pytest_deselected": staticmethod(lambda items: None)})()
+
+    def getoption(self, name: str):
+        return self._text if name == "ci_part" else None
+
+
+def _kept_by_the_hook(plugin, ids: list, parts: int) -> "dict[int, list[str]]":
+    kept = {}
+    for part in range(1, parts + 1):
+        items = [_Item(i) for i in ids]
+        plugin.pytest_collection_modifyitems(None, _Config(plugin, part, parts), items)
+        kept[part] = [i.nodeid for i in items]
+    return kept
 
 
 def _collected_ids(root: pathlib.Path) -> list[str]:
@@ -576,9 +623,10 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
         held the step only. The workflow level is held here, the job and the step level in the two checks."""
         read = {"permissions": {"contents": "read"}}
         self.assertEqual(workflow_findings({**read, "jobs": {}}), [])
-        self.assertEqual(workflow_findings({**read, "env": {"FOO": "1"}}), [], "control: an unrelated key is no finding")
         for words, workflow in {"defaults.run.shell": {**read, "defaults": {"run": {"shell": "bash {0}"}}},
                                 "env sets PYTEST_ADDOPTS": {**read, "env": {"PYTEST_ADDOPTS": "-k x"}},
+                                "env sets BASH_ENV": {**read, "env": {"BASH_ENV": "$(printf HOOK_EXECUTED >&2)"}},
+                                "env sets FOO": {**read, "env": {"FOO": "1"}},
                                 "env sets COVERAGE_FILE": {**read, "env": {"COVERAGE_FILE": "x"}},
                                 "env sets COVERAGE_CORE": {**read, "env": {"COVERAGE_CORE": "ctrace"}},
                                 "grants {'contents': 'write'}": {"permissions": {"contents": "write"}},
