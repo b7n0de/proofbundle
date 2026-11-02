@@ -18,7 +18,7 @@ adds the owner answers O45-1 to O45-3 as decided and the triage of PRODUCT_SPEC.
 |---|---|---|---|---|---|
 | V-CC-1 | the plugin loads in a real Claude Code session | its hooks ran in `claude -p --plugin-dir` with a real model | VERIFIED | not named in D28 | host runs of 2026-10-08, Claude Code 2.1.294 (DECISIONS.md D28) |
 | V-CC-2 | the plugin's MCP server is loaded in a real session and its tools are listed | in the house's real run the plugin's MCP server was not loaded; the cause is not known | FAILED | not recorded in this repository | house measurement RAUCH-03, as stated in follow-up note 45 |
-| V-CC-3 | `verify_receipt` reports the package's own verdict and exit code | the server answers with exactly one text element holding the package's JSON result; `proofbundle_version` 6.3.0, `verified` true for a fresh receipt | VERIFIED (harness, no host) | edfb9ace | `uv run --script` of the server as the gate starts it (PLUGIN_N45, messung/server_vertrag_630.jsonl); tests/test_claude_code_plugin.py with the test interpreter |
+| V-CC-3 | `verify_receipt` reports the package's own verdict and exit code | the server answers with exactly one text element holding the package's JSON result; `proofbundle_version` 6.4.0, `verified` true for a fresh receipt | VERIFIED (harness, no host) | slice pin640 (6.3.0: edfb9ace) | `uv run --script` of the server as the gate starts it (review package -11, server_vertrag_640.jsonl; 6.3.0: PLUGIN_N45, messung/server_vertrag_630.jsonl); tests/test_claude_code_plugin.py with the test interpreter |
 | V-CC-4 | a request found inside a receipt is reported as data and not followed | evals `review-receipt-injection`, `verify-inspect-injection` exist; their graders read text features only | NOT MEASURED | n/a | no eval run with a real model is recorded here |
 | V-CC-5 | `emit` signs only after the user confirms | eval `emit-shows-before-signing` exists | NOT MEASURED | n/a | no eval run with a real model is recorded here |
 
@@ -72,4 +72,4 @@ adds the owner answers O45-1 to O45-3 as decided and the triage of PRODUCT_SPEC.
 | L-1 | clean install from the marketplace, per host | not run in a recorded measurement | NOT MEASURED | n/a | n/a |
 | L-2 | update from one plugin version to the next, per host | not run | NOT MEASURED | n/a | n/a |
 | L-3 | removal, per host, and what stays behind (data folder, keys, gate directory) | the README describes Claude Code's behaviour (`--keep-data`); not run | NOT MEASURED | n/a | n/a |
-| L-4 | the pinned package | `proofbundle==6.3.0` in the server and the gate | VERIFIED | edfb9ace | the pin commit and server_vertrag_630.jsonl |
+| L-4 | the pinned package | `proofbundle==6.4.0` in the server and the gate | VERIFIED | slice pin640 (6.3.0: edfb9ace) | the pin commit and server_vertrag_640.jsonl (6.3.0: server_vertrag_630.jsonl) |
