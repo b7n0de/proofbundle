@@ -394,11 +394,16 @@ def test_control_a_lone_tag_after_paragraph_text_continues_the_paragraph(tmp_pat
 @pytest.mark.parametrize("text", [
     "## [Unreleased]\n\n<a b=>\n\n## [6.4.0] - 2026-10-27\n",
     "## [Unreleased]\n## [6.4.0] - 2026-10-27\n> x\nx\n===\n",
-], ids=["a tag without its attribute value", "an underline that lazily continues a quoted paragraph"])
+    "## [Unreleased]\n## [6.4.0] - 2026-10-27\nx\n01. x\n===\n",
+    "## [Unreleased]\n## [6.4.0] - 2026-10-27\nx\n000000001) x\n===\n",
+], ids=["a tag without its attribute value", "an underline that lazily continues a quoted paragraph",
+        "an item numbered 01 interrupts a paragraph", "an item numbered 1 in nine digits interrupts a paragraph"])
 def test_control_a_line_the_reader_can_place_does_not_stop_the_case(tmp_path, monkeypatch, text):
     """A sixth pre-run of the reading of the pin on main (Codex, P2): `<a b=>` is no tag in CommonMark, since an
     attribute's `=` needs a value, so the line is paragraph text; and `===` after a quoted paragraph and a line that
-    continues it lazily continues that paragraph too (CommonMark 0.31.2, example 93). Neither may stop the case."""
+    continues it lazily continues that paragraph too (CommonMark 0.31.2, example 93). Neither may stop the case. A
+    seventh pre-run (Codex, P2): an ordered item numbered 1 with leading zeros interrupts a paragraph as `1.` does, and
+    an underline after it continues the item's paragraph."""
     _changelog(tmp_path, monkeypatch, text)
     assert _newest_release() == "6.4.0"
 
