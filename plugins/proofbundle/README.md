@@ -325,10 +325,13 @@ the pilot is inactive. Cross-account operation is BLOCKED/NOT MEASURED as listed
 
 ### The gate's log
 
-Every gate call appends one line to `gate-log.jsonl` in the plugin data directory: time, host, gate
-version, session, tool, gated actions, decision, reason ids, and per repository its path, HEAD and the
+Every gate call appends one line to `gate-log.jsonl` in the plugin data directory of proofbundle-guard: time, host,
+gate version, session, tool, gated actions, decision, reason ids, and per repository its path, HEAD and the
 sha256 of each evidence file read. It holds no evidence content, no environment and no key. `gate_status`
-reads it; under Codex the server is not told where the hook writes, so it answers NOT MEASURED (D21).
+and the self-test read it: of the Guard directories the server knows, that of the house marketplace, that of a Guard
+loaded with `--plugin-dir` and that of a Guard from this plugin's own marketplace, they read the log written last. A
+Guard installed from any other marketplace is not found, and they then say they read the house's directory (D134).
+Under Codex the server is not told where the hook writes, so it answers NOT MEASURED (D21).
 
 ### The same check in CI
 
@@ -594,6 +597,9 @@ The owner's machines add its house marketplace from a checkout of this repositor
 claude plugin marketplace add <checkout>/plugins/proofbundle-guard
 claude plugin install proofbundle-guard@proofbundle-house
 ```
+
+A Claude Code session with both plugins installed this way is NOT MEASURED; one with both loaded with `--plugin-dir`
+ran at an earlier state of the split (D134).
 
 ## Try it from a checkout
 

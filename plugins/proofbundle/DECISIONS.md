@@ -6653,7 +6653,8 @@ Found by a read-only cross-reading of the split commit of the guard chain and fi
   Guard's, and proofbundle from a marketplace named guard-<rest> has that directory, so it read its own (second reading
   of F2, sol-pro; owner answer A on card OA-186d82300b, red first). The Guard brings no MCP server and the server runs
   in the verifier alone, so every directory proofbundle-<anything> but proofbundle-guard-proofbundle-house itself reads
-  the log there. How Codex names PLUGIN_DATA is NOT MEASURED.
+  the log there (since the host run at the end of this decision, the log written last of the Guard directories it
+  knows). How Codex names PLUGIN_DATA is NOT MEASURED.
 - The pre-push wrapper follows a plugin update for a version folder under proofbundle-guard as under proofbundle
   (_PRE_PUSH_RESOLVER). Read in the code, not measured: a wrapper written before this rule differs from the one the
   gate writes now, so Level 1 hands no push over to it until install-pre-push writes it again; and Level 1 hands a
@@ -6696,8 +6697,9 @@ a Verify state in the sense of the lock (no hooks/ folder, no Guard word) it is 
 split it ships no gate program.
 How a change of the checkout reaches an installed Guard of an unchanged version is NOT MEASURED; the release plan
 names updates of the house install as following the checkout. A Codex install of both plugins, through the public
-and the house marketplace, is NOT MEASURED (no Codex on the measuring machine), and so is a real Claude Code or Codex
-session with both plugins.
+and the house marketplace, is NOT MEASURED (no Codex on the measuring machine), and so are a real Codex session with
+both plugins and a real Claude Code session with both installed from their marketplaces. A Claude Code session with
+both loaded with `--plugin-dir` ran once, at an earlier state of this cut (the host run below).
 
 Measured at this cut on main, after N2 B, from a copy of its tree, with Claude Code 2.1.314 and a fresh
 CLAUDE_CONFIG_DIR, no network and no model: `validate --strict` passed for the repository root and both plugin
@@ -6707,3 +6709,21 @@ installed proofbundle-guard@proofbundle-house with `Hooks (6)`, no skill and no 
 hooks/hooks.json, the gate and server/proofbundle_mcp.py as regular files, the gate byte-equal to
 plugins/proofbundle/hooks/proofbundle_gate.py. `details` still shows proofbundle's description of its own hooks,
 which the text commit of this slice corrects.
+
+Found by a run in a real host (the cloud run M1 -4 of 2026-11-02: Claude Code 2.1.316, the verifier alone and the
+verifier with the Guard, both loaded with `--plugin-dir`, at a state of this cut before the fixes below) and fixed with
+their red cases first:
+- A plugin loaded with `--plugin-dir` has the identifier `<name>@inline`, so the Guard logged into
+  proofbundle-guard-inline, and gate_status and the self-test, which read only the house's directory, reported NOT
+  MEASURABLE for a deny the gate had logged. The server now reads, of the Guard directories it knows (the house's,
+  proofbundle-guard-inline, and proofbundle-guard-<its own marketplace>), the log written last, a rotated log counted
+  with its own time. Only the house's directory is the Guard's own: a verifier from a marketplace named guard-inline
+  has the directory proofbundle-guard-inline too and reads the log as any other verifier does (found by a pre-run of
+  that fix, red first). A Guard installed from any other marketplace is not found, and gate_status and the self-test
+  then say they read the house's directory. Of two Guard logs the one written last wins, so a house log written after
+  the inline Guard's last call is read until that Guard logs again.
+- On the verifier alone the self-test skill and the README did not say that the gate comes only with proofbundle-guard,
+  and one answer advised releasing the push; both say it now, and the skill says never to suggest allowing, approving
+  or releasing a push. The same run found the server's tool count, the number of skills the evals cover and the
+  package the signed fixtures were made with, corrected in the texts.
+A Claude Code session at the state after these fixes is NOT MEASURED.
