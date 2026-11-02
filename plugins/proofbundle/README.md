@@ -422,8 +422,8 @@ change the digest.
 
 ## Done only with a receipt (the Stop hook)
 
-With proofbundle-guard installed (D134), a `Stop` hook runs its `hooks/proofbundle_gate.py stop` when the agent would
-end its turn, in Claude Code and, from the same folder, in Codex (`stop --host codex`). A push runs the same check at the pushed commit (D30, "The pre-push
+With proofbundle-guard installed (D134), and under Codex its hooks trusted (D13), a `Stop` hook runs its
+`hooks/proofbundle_gate.py stop` when the agent would end its turn, in Claude Code and, from the same folder, in Codex (`stop --host codex`). A push runs the same check at the pushed commit (D30, "The pre-push
 gate"). Claude Code also runs the same check as a `TaskCompleted` hook. In a
 repository whose declaration names a done check, the turn ends, and a task can be marked completed, only when every
 required check has a receipt that
