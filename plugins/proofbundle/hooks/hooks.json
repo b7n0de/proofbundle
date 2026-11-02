@@ -1,5 +1,5 @@
 {
-  "description": "Before git push, gh pr create or gh release create, and before an MCP tool that opens a pull request, a merge request or a release, pushes files, writes a file or merges a pull request, verify the evidence the repository declares at HEAD. A failed check denies the call. A repository that declares nothing, neither at HEAD nor in the working tree, gets no decision, marked NOT MEASURED; every other case where nothing was verified asks. A push that changes the evidence rules against what the remote is known to hold is asked. Before a file tool (Write, Edit, MultiEdit, NotebookEdit) writes a repository's git configuration or hooks, or a file the effective configuration includes, the call is NOT MEASURED and asked; every other write is left alone. Before Read or Grep reads a key file, a credential store or a folder of keys, the call is denied; the hook compares paths only and opens no such file. When the session would end, or a task would be marked completed, in a repository whose declaration names a done check, it waits for one receipt per required check that verifies under the declared policy, says every test passed with the check's selection, and names HEAD's commit and tree and the tree of the working state; the block names the open check and the command that closes it. After three blocks without progress the Stop hook writes .proofbundle/done-blocker.json and lets the session end without a done verdict. Without a done check nothing is blocked (NOT MEASURED).",
+  "description": "Guard Preview hooks for Claude Code. The public configuration starts the base decision path without the combined autonomous flag. Recognized git and gh shell forms can check declared evidence. Supported MCP write tools ask because their target and bytes are unbound; local evidence is diagnostic only. Recognized configuration and hook writes receive a base ask. An explicitly enabled house autonomous adapter can change base answers; it grants no standing authorization as a public default. Unrecognized code-carried operations and unresolved write targets can receive no decision. Level 1 is not a security boundary. The installed git pre-push hook is a separate, bypassable check. Host behaviour after a hook timeout is not measured. The Stop and TaskCompleted hooks run the done check of a declaring repository, and a SessionStart hook hands an open done blocker on (D127). A Read or Grep of a key file is denied (D102). The PostToolUse hooks count a session's open pull requests (D110) and, with the house's flag, the answered asks (D94).",
   "hooks": {
     "PreToolUse": [
       {
@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py\" --autonomous || { echo 'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py\" || { echo 'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }",
             "timeout": 120
           }
         ]
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py\" --autonomous || { echo 'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py\" || { echo 'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }",
             "timeout": 120
           }
         ]
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py\" --autonomous || { echo 'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py\" || { echo 'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }",
             "timeout": 120
           }
         ]
@@ -37,7 +37,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_secrets.py\" --autonomous || { echo 'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_secrets.py\" || { echo 'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }",
             "timeout": 120
           }
         ]
@@ -124,6 +124,17 @@
           {
             "type": "command",
             "command": "out=$(python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py\" task-completed) || { echo 'proofbundle done check: the check could not run, so the task stays open' >&2; exit 2; }; if [ -n \"$out\" ]; then printf '%s\\n' \"$out\" >&2; exit 2; fi",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py\" session-start || printf '%s\\n' '{\"systemMessage\": \"proofbundle done check: the hand-over could not run, so an open blocker was not handed on; the done check at Stop is unchanged (D127).\"}'",
             "timeout": 120
           }
         ]

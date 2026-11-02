@@ -55,6 +55,11 @@ PASSED|FAILED verdict would be a VSA, which we deliberately do not implement). S
 The two compose: emit the `eval-result` Statement for the detail, and an SVR for the one-line
 "a verifier confirmed this passed" summary. Both are derived from the same verified receipt.
 
+`verify_svr_dsse` and `proofbundle svr --verify` refuse an SVR statement whose predicate lacks one of the
+four members svr/v0.1 marks required (`verifier`, `verifier.id`, `timeCreated`, `properties`) or carries
+one of them in another JSON type; the command answers such a statement as malformed, exit 2. The v0.1
+extension field `verifier.policy` stays optional, and unknown members stay unread.
+
 ## The `eval-result/v0.2` predicate
 
 `predicateType`: `https://b7n0de.com/attestation/eval-result/v0.2` (vendor namespace; the revised #575
