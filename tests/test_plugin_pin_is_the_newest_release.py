@@ -51,7 +51,10 @@ _ANY_PIN = re.compile(r"(?<![A-Za-z0-9._-])proofbundle(?:\s*\[[^\]]*\])?\s*(?P<o
 #: The starts of the HTML blocks of CommonMark 0.31.2, types 1 to 6, which may interrupt a paragraph; a block tag name of
 #: type 6 ends at a blank, a > or the pair /> (an eighth pre-run of the reading of the pin on main, Codex, P2). Lines inside
 #: such a block are no headings, and the reader does not model where a block ends, so a changelog that opens one stops
-#: the case.
+#: the case. After a tag name `\s` takes more than the blank and tab the specification names, such as U+00A0, and so does
+#: markdown-it 4.2.0, which opens a block there and renders no heading after it: where the two disagree the case stops,
+#: since a reader that follows either one reads a heading the other does not render (a tenth and a thirteenth pre-run,
+#: Codex, P2, each noted).
 _HTML_BLOCK = re.compile(
     r" {0,3}(?:<(?:script|pre|style|textarea)(?:[\s>]|$)|<!--|<\?|<![A-Za-z]|<!\[CDATA\["
     r"|</?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir"
@@ -400,6 +403,18 @@ def test_a_block_the_reader_does_not_read_stops_the_case(tmp_path, monkeypatch, 
     one stops the case rather than choose a pin from a structure it does not read."""
     _changelog(tmp_path, monkeypatch, text)
     with pytest.raises(AssertionError, match=words):
+        _newest_release()
+
+
+@pytest.mark.parametrize("space", [" ", " "], ids=["a no-break space", "an em space"])
+def test_a_block_tag_name_before_a_space_only_markdown_it_takes_stops_the_case(tmp_path, monkeypatch, space):
+    """A tenth and a thirteenth pre-run of the reading of the pin on main (Codex, P2, each noted): after a block tag name
+    CommonMark 0.31.2 opens an HTML block only at a blank, a tab, a line end, > or />, while markdown-it 4.2.0 opens one
+    at U+00A0 or U+2003 as well and renders no heading after it. A reader that follows the specification reads the
+    release 7.0.0 here, which markdown-it hides, and one that follows markdown-it hides a release the specification
+    renders, so the case stops."""
+    _changelog(tmp_path, monkeypatch, _HEAD + f"<div{space}>\n## [7.0.0] - 2026-11-02\n\n## [6.4.0] - 2026-10-27\n")
+    with pytest.raises(AssertionError, match="HTML"):
         _newest_release()
 
 
