@@ -598,6 +598,21 @@ def test_a_pin_names_one_version_as_its_operator_reads_it(tmp_path, monkeypatch,
     test_a_pin_is_compared_as_pep_440_reads_it(tmp_path, monkeypatch, written, stale)
 
 
+@pytest.mark.parametrize("written, stale", [
+    ("'proofbundle'=='6.3.0'", True), ('"proofbundle"=="6.3.0"', True), ("proof''bundle==6.3.0", True),
+    ("proofbundle\\=\\=6.3.0", True), ("proofbundl\\e==6.3.0", True), ("proofbundle\\\n==6.3.0", True),
+    ("'proofbundle'=='6.4.0'", False), ('"proofbundle==6.4.0\\n"', False),
+], ids=["single quotes around each part", "double quotes around each part", "an empty pair of quotes in the name",
+        "escaped equals signs", "an escaped letter", "a line continuation before the operator",
+        "single quotes around the newest version", "a backslash that stays in a double-quoted word"])
+def test_a_pin_is_read_as_a_shell_passes_it_on(tmp_path, monkeypatch, written, stale):
+    """A fourteenth pre-run of the reading of the pin on main (Codex, P2): `uv run --with 'proofbundle'=='6.3.0'` pins
+    6.3.0, since the shell removes the quotes before uv reads the word, and the search for stale pins did not see it.
+    Quote removal is one class: quotes around any part, a backslash before any character, a line continuation. Inside
+    double quotes a backslash before a letter stays, so `"proofbundle==6.4.0\\n"` still names 6.4.0."""
+    test_a_pin_is_compared_as_pep_440_reads_it(tmp_path, monkeypatch, written, stale)
+
+
 def test_control_a_binary_file_of_the_plugin_is_not_read_for_pins(tmp_path, monkeypatch):
     """A file that holds a NUL byte is no text the plugin writes for a reader, such as a compiled module; the search for
     stale pins leaves it out."""
