@@ -319,6 +319,18 @@ def test_a_block_the_reader_does_not_read_stops_the_case(tmp_path, monkeypatch, 
         _newest_release()
 
 
+@pytest.mark.parametrize("text", [
+    "## [Unreleased]\n## [6.4.0] - 2026-10-27\nx\n<a>\n",
+    "## [Unreleased]\n\n## [6.4.0] - 2026-10-27\n\nsee\n</a>\n<br/>\n\n## [6.3.1] - 2026-10-21\n",
+], ids=["an opening tag", "a closing tag and an empty element"])
+def test_control_a_lone_tag_after_paragraph_text_continues_the_paragraph(tmp_path, monkeypatch, text):
+    """A fifth pre-run of the reading of the pin on main (Codex, P2): a complete tag alone on its line starts an HTML
+    block of type 7 only where no paragraph runs, since that type cannot interrupt a paragraph (CommonMark 0.31.2,
+    section 4.6). After a line of text it continues the paragraph, and the reader must not stop there."""
+    _changelog(tmp_path, monkeypatch, text)
+    assert _newest_release() == "6.4.0"
+
+
 def test_control_a_tag_inside_a_line_of_text_is_no_html_block(tmp_path, monkeypatch):
     """CHANGELOG.md carries such a line (an option `<card>` named at the start of a continued sentence): a tag followed by
     text on its line starts no HTML block, and a line of dashes after a blank line is a thematic break, no heading."""
