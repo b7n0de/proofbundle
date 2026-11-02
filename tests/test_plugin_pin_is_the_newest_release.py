@@ -51,39 +51,66 @@ _HTML_BLOCK = re.compile(
     r"|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li"
     r"|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot"
     r"|th|thead|title|tr|track|ul)(?:[\s/>]|$))", re.IGNORECASE)
-#: A complete open or closing tag alone on its line starts an HTML block of type 7, which cannot interrupt a paragraph (a
-#: fifth pre-run of the reading of the pin on main, Codex, P2). Outside a paragraph any tag name stops the case: the
-#: specification leaves a closing script, pre, style or textarea tag out of type 7, and markdown-it does not.
-_HTML_TYPE7 = re.compile(r" {0,3}</?[A-Za-z][A-Za-z0-9-]*(?:\s+[^<>]*)?/?>[ \t]*", re.IGNORECASE)
+#: A complete open or closing tag in the raw HTML of CommonMark 0.31.2 (section 6.6), in the expression markdown-it 4.2.0
+#: writes in markdown_it/common/html_re.py: an attribute's value may be unquoted or quoted, and a quoted one may hold `>`,
+#: while an `=` without a value makes no tag (a sixth pre-run of the reading of the pin on main, Codex, P2).
+_ATTRIBUTE = r"""(?:\s+[a-zA-Z_:][a-zA-Z0-9:._-]*(?:\s*=\s*(?:[^"'=<>`\x00-\x20]+|'[^']*'|"[^"]*"))?)"""
+#: Alone on its line such a tag starts an HTML block of type 7, which cannot interrupt a paragraph (a fifth pre-run, Codex,
+#: P2). Outside a paragraph any tag name stops the case: the specification leaves a closing script, pre, style or
+#: textarea tag out of type 7, and markdown-it does not.
+_HTML_TYPE7 = re.compile(r" {0,3}(?:<[A-Za-z][A-Za-z0-9-]*" + _ATTRIBUTE + r"*\s*/?>|</[A-Za-z][A-Za-z0-9-]*\s*>)\s*")
 #: A line of = or - after a line of text makes that text a setext heading, which the reader does not read.
 _SETEXT_UNDERLINE = re.compile(r" {0,3}(?:=+|-+)[ \t]*")
-#: A line that ends no paragraph at the top level, so no underline after it makes a heading: a blank line, an ATX
-#: heading of any level, a thematic break, a block quote, a bullet item with content, or an ordered item numbered 1
-#: with content, which interrupts a paragraph (an item of another number may continue one, so it counts as text).
+#: A line that interrupts a paragraph or ends it: a blank line, an ATX heading of any level, a thematic break, a block
+#: quote, a bullet item with content, or an ordered item numbered 1 with content (an item of another number, or an empty
+#: one, cannot interrupt a paragraph). Fences and HTML blocks of types 1 to 6 interrupt one too; the reader handles them
+#: before it asks.
 _NO_PARAGRAPH = re.compile(r"[ \t]*| {0,3}(?:#{1,6}(?:[ \t].*)?|(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,}"
                            r"|>.*|[-+*][ \t]+\S.*|1[.)][ \t]+\S.*)")
+#: A blank line, an ATX heading or a thematic break: none of them holds a paragraph.
+_BLANK_HEADING_OR_BREAK = re.compile(r"[ \t]*| {0,3}(?:#{1,6}(?:[ \t].*)?|(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}"
+                                     r"|(?:_[ \t]*){3,})")
 #: A line indented by four columns or more, which outside a paragraph is indented code: it ends none and starts none.
 _INDENTED_CODE = re.compile(r" {0,3}\t| {4}")
-#: Outside a paragraph every list marker starts a list item, empty or of any number.
-_LIST_ITEM = re.compile(r" {0,3}(?:[-+*]|\d{1,9}[.)])(?:[ \t].*)?")
+#: The marker of a block quote or of a list item, empty or of any number, with the one space or tab after it; the rest of
+#: the line is the first line of the quote or the item.
+_CONTAINER = re.compile(r" {0,3}(?:>[ \t]?|(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$))")
 #: A line that opens with a bracket may be a link reference definition, which is no paragraph, or the start of one.
 _LINK_LABEL = re.compile(r" {0,3}\[")
 
 
-def _after(state: str, line: str) -> str:
-    """Whether a paragraph runs after `line`, as far as the line and the state before it tell: "paragraph", "none", or
-    "open" where the reader cannot tell. A paragraph continues until a blank line or a block that may interrupt it;
-    outside one, a list marker, a heading, a break or a quote starts no paragraph, indented code changes nothing, and a
-    line that may be a link reference definition leaves it open until a blank line or such a block."""
-    if state == "paragraph":
-        return "none" if _NO_PARAGRAPH.fullmatch(line) else "paragraph"
-    if _NO_PARAGRAPH.fullmatch(line):
+def _fence_opened(line: str) -> re.Match | None:
+    """The fence a line opens: three or more backticks or tildes after at most three spaces, where the info string of a
+    backtick fence holds no backtick. Both the reader and `_starts` ask here, so the two cannot differ (a generator
+    against markdown-it found 188 differences where `_starts` took `` ``` x`y `` for a fence)."""
+    opened = _FENCE.match(line)
+    return opened if opened and not (opened.group(1)[0] == "`" and "`" in line[opened.end():]) else None
+
+
+def _starts(line: str) -> str:
+    """What `line` starts where no paragraph runs: "none" for a blank line, a heading, a break, indented code, a fence or
+    an HTML block; for a block quote or a list item "container" when its first line is paragraph text, a paragraph a
+    later line may continue lazily, else what that first line starts; "open" for a line that may be a link reference
+    definition; and "paragraph" for paragraph text."""
+    if _BLANK_HEADING_OR_BREAK.fullmatch(line) or _INDENTED_CODE.match(line):
         return "none"
-    if state == "open" or _INDENTED_CODE.match(line):
-        return state
-    if _LIST_ITEM.fullmatch(line):
+    if _fence_opened(line) or _HTML_BLOCK.match(line) or _HTML_TYPE7.fullmatch(line):
         return "none"
+    marker = _CONTAINER.match(line)
+    if marker:
+        inner = _starts(line[marker.end():])
+        return "container" if inner == "paragraph" else inner
     return "open" if _LINK_LABEL.match(line) else "paragraph"
+
+
+def _after(state: str, line: str) -> str:
+    """Whether a paragraph runs after `line`, as far as the line and the state before it tell: "paragraph" at the top
+    level, "container" inside a block quote or a list item, "none", or "open" where the reader cannot tell. A paragraph
+    continues, inside a container lazily, until a blank line or a block that interrupts it; "open" stays open until
+    then; after that, or where none runs, the line starts what `_starts` says."""
+    if state != "none" and not _NO_PARAGRAPH.fullmatch(line):
+        return state
+    return _starts(line)
 
 
 def _headings(text: str) -> list[str]:
@@ -96,8 +123,9 @@ def _headings(text: str) -> list[str]:
     block the reader does not model and that can hide a heading or make one stops the case: an HTML block or a setext
     heading (a pre-run of the reading of the pin on main, Codex, P2), and an indented heading or fence, which a list
     item before it may hold (a generator against markdown-it, a second pre-run); indented code, block quotes and list
-    items are not read. Whether a paragraph runs decides two of these: an underline makes a setext heading only after
-    one, and a lone tag starts an HTML block only outside one; where the reader cannot tell, both stop the case."""
+    items are not read. Whether a paragraph runs, at the top level or lazily inside a block quote or a list item,
+    decides two of these: an underline makes a setext heading only after one at the top level, and a lone tag starts an
+    HTML block only outside one; where the reader cannot tell, both stop the case."""
     found, fence, previous, state = [], None, "", "none"
     for line in _LINE_END.split(text):
         opened = _FENCE.match(line)
@@ -106,20 +134,20 @@ def _headings(text: str) -> list[str]:
                     and not line[opened.end():].strip(" \t"):
                 fence = None
             continue
-        if opened and not (opened.group(1)[0] == "`" and "`" in line[opened.end():]):
+        if _fence_opened(line):
             # An indented fence may belong to a list item before it, where it hides no heading after the item.
             assert line[:1] != " ", \
                 f"the changelog indents a fence, which may sit in a list item the pin case does not read: {line!r}"
             fence = opened.group(1)
             state = "none"
             continue
-        assert not (_HTML_BLOCK.match(line) or (_HTML_TYPE7.fullmatch(line) and state != "paragraph")), \
+        assert not (_HTML_BLOCK.match(line) or (_HTML_TYPE7.fullmatch(line) and state in ("none", "open"))), \
             f"the changelog opens an HTML block, which the pin case does not read: {line!r}"
         heading = _HEADING.fullmatch(line)
         # An indented heading may belong to a list item before it, where CommonMark nests it; the reader models no list.
         assert not (heading and line[:1] == " "), \
             f"the changelog indents a heading, which may sit in a list item the pin case does not read: {line!r}"
-        assert not (_SETEXT_UNDERLINE.fullmatch(line) and state != "none"), \
+        assert not (_SETEXT_UNDERLINE.fullmatch(line) and state in ("paragraph", "open")), \
             f"the changelog makes a setext heading of {previous!r}, which the pin case does not read"
         if heading:
             found.append(_CLOSING.sub("", heading.group(1) or "").strip(" \t"))
@@ -335,10 +363,12 @@ def test_control_a_closing_sequence_of_hashes_is_no_part_of_the_heading(tmp_path
     (_HEAD + "## [6.4.0] - 2026-10-27\n\n</script>\n## [7.0.0] - 2026-11-02\n", "HTML"),
     (_HEAD + "## [6.4.0] - 2026-10-27\n\n[7.0.0] - 2026-11-02\n2. x\n---\n", "setext"),
     (_HEAD + "<a x=\">\">\n## [9.0.0] - 2026-11-02\n\n## [6.4.0] - 2026-10-27\n", "HTML"),
+    (_HEAD + "## [6.4.0] - 2026-10-27\n\n``` x`y\n---\n", "setext"),
 ], ids=["a comment", "an HTML block of a block tag", "a lone tag after a blank line", "a setext heading with dashes",
         "a setext heading with equals", "an indented heading in a list item", "an indented fence in a list item",
         "a lone tag after a link reference definition", "a lone closing script tag",
-        "an underline after an ordered item that continues a paragraph", "a lone tag with a quoted > in a value"])
+        "an underline after an ordered item that continues a paragraph", "a lone tag with a quoted > in a value",
+        "an underline after a backtick line that opens no fence"])
 def test_a_block_the_reader_does_not_read_stops_the_case(tmp_path, monkeypatch, text, words):
     """A pre-run of the reading of this pin on main (Codex, P2): a heading line inside an HTML comment was read as a
     release, and a setext heading that renders as a level-two heading was not read at all. CommonMark hides lines in an
