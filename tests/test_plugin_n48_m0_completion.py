@@ -96,7 +96,10 @@ def test_N48_the_delivery_receipt_is_an_acceptance_case_of_m1_positive_and_negat
 def test_N48_the_owner_answers_o45_1_to_o45_3_stand_as_decided():
     spec, plan, gap = _text("PRODUCT_SPEC.md"), _text("TEST_PLAN.md"), _text("IMPLEMENTATION_GAP.md")
     assert "0.4.0" in spec and "no 1.0 before M3" in spec.replace("version 1.0", "1.0")
-    assert "O45-3" in spec and "off (INACTIVE) until M2" in spec
+    # D134 (owner choice F2 A, 2026-10-31): the delivery profile is built, the Guard off as O45-3 decided, no longer
+    # INACTIVE: proofbundle registers no hook and the Guard is the separate plugin proofbundle-guard
+    assert "O45-3" in spec and "off until M2, decided by the owner (O45-3, F2 A)" in spec and "(D134)" in spec
+    assert "off (INACTIVE) until M2" not in spec
     assert "REQUIRES APPROVAL)" not in spec.split("\n## Two profiles\n", 1)[1].split("\n## ", 1)[0]
     matrix = plan.split("\n## Host matrix for M1 (decided, O45-2)\n", 1)[1]
     assert "Codex | Guard | BLOCKED until TG-5" in matrix and "only after a run with a real model" in matrix

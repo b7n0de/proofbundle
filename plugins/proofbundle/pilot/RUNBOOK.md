@@ -55,8 +55,9 @@ another surface (M3), a write without an approval (M5), a refused write that arr
        in it (D65). The key signer writes each line and syncs it to the disk before a signature leaves it; a journal
        it cannot write gives no signature (journal_unwritable, at the gate `signer_refused_key_journal_unwritable`).
    - The service, under the deciding account, which holds no key:
-     - a copy of this plugin's folder (hooks/, pilot/, server/) owned by the deciding account and not writable by the
-       agent's user; its `hooks/proofbundle_gate.py` must be the same bytes as the agent's;
+     - a copy of the Guard's folder (hooks/, server/) and of this plugin's pilot/, owned by the deciding account and
+       not writable by the agent's user; its `hooks/proofbundle_gate.py` must be the same bytes as the agent's (the
+       gate programs live in plugins/proofbundle-guard since D134);
      - the service's configuration, in a folder only the deciding account reads:
 
        ```

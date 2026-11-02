@@ -8,7 +8,7 @@
     {
       "name": "proofbundle",
       "source": "./plugins/proofbundle",
-      "description": "Verify signatures and integrity of proofbundle decision and outcome receipts, check evidence bundles, and review recorded claims. Active hooks check declared repository evidence before supported actions. Receipt signing is experimental and requires an explicit user request."
+      "description": "Verify receipts and evidence bundles against a chosen issuer key. Guard is a separate preview area whose hook configuration must be installed and active. Claude Code checks only recognized paths; a plain Codex git push warns without blocking. No universal control of writes is claimed. Verification checks authorship and integrity of recorded bytes, not whether the recorded values are true. Receipt signing is experimental; the emit skill requests explicit invocation and confirmation, but host enforcement is not measured."
     }
   ]
 }

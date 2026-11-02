@@ -30,7 +30,7 @@ from proofbundle.outcome import verify_outcome_receipt
 pd, gate = p1.pd, p1.gate
 ROOT = p1.ROOT
 PILOT = ROOT / "plugins" / "proofbundle" / "pilot"
-GATE_FILE = ROOT / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py"
+GATE_FILE = ROOT / "plugins" / "proofbundle-guard" / "hooks" / "proofbundle_gate.py"
 sys.path.insert(0, str(PILOT))
 from _gate_answer import skip_where_the_gate_is_not_shipped  # noqa: E402
 skip_where_the_gate_is_not_shipped(pathlib.Path(__file__).resolve().parent.parent / "plugins" / "proofbundle" / "pilot" / "observer.py",

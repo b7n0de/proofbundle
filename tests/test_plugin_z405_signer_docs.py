@@ -17,6 +17,8 @@ import test_plugin_fetch_github_profile as f
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / "plugins" / "proofbundle"
+#: The house's hooks, the plugin proofbundle-guard beside the verifier (D134).
+GUARD = ROOT / "plugins" / "proofbundle-guard"
 DECISIONS = (PLUGIN / "DECISIONS.md").read_text(encoding="utf-8")
 RUNBOOK = (PLUGIN / "pilot" / "RUNBOOK.md").read_text(encoding="utf-8")
 SERVICE = (PLUGIN / "pilot" / "signer_service.py").read_text(encoding="utf-8")
@@ -122,13 +124,13 @@ def test_d65_says_the_journal_comes_before_the_signature():
 def test_the_gate_names_the_refusal_and_the_timeout_as_d58_says():
     assert gate.PILOT_SIGNER_REFUSES == 3 and _constant("REFUSED") == 3
     assert "exits 3 (the gate's PILOT_SIGNER_REFUSES)" in _flat(D58)
-    gate_text = (PLUGIN / "hooks" / "proofbundle_gate.py").read_text(encoding="utf-8")
+    gate_text = (GUARD / "hooks" / "proofbundle_gate.py").read_text(encoding="utf-8")
     assert 'GateError(f"signer_refused_{refused}")' in gate_text and 'GateError("signer_timeout")' in gate_text
     assert "`signer_refused_<name>`" in D58 and "`signer_timeout`" in D58
 
 
 def test_the_time_calculation_of_n405b_uses_the_constants_and_holds_for_every_pretooluse_hook():
-    hooks = json.loads((PLUGIN / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
+    hooks = json.loads((GUARD / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
     timeouts = {h["timeout"] for entry in hooks for h in entry["hooks"]}
     assert timeouts == {120}
     deadline, signer, margin = gate.DEADLINE_SECONDS, gate.PILOT_SIGNER_SECONDS, _constant("MARGIN_SECONDS")

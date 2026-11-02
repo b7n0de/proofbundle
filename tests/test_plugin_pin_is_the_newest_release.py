@@ -7,7 +7,8 @@ D11 calls that version the plugin's only pin. Read on 2026-10-31 at claude/landu
 6.3.0, while CHANGELOG.md records 6.4.0 as released on 2026-10-27, the tag v6.4.0 stands and PyPI serves the package.
 
 The property held here: the four pins name one version; it is the newest version CHANGELOG.md records as released, the
-first section after [Unreleased]; and every `proofbundle==X.Y.Z` the plugin's own files write names that version. A
+first section after [Unreleased]; and every `proofbundle==X.Y.Z` the plugin's own files write, in its folder and in
+the Guard's, where the gate lives since D134, names that version. A
 later release turns this test red until the pin follows it, so the pin cannot fall behind in silence. A changelog whose
 sections after [Unreleased] are not releases with calendar dates, newest first, or whose newest release is a
 pre-release or lower than a stable release below it, stops the case rather than choose a pin.
@@ -28,7 +29,7 @@ from packaging.version import InvalidVersion, Version
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "proofbundle"
 SERVER = PLUGIN / "server" / "proofbundle_mcp.py"
-GATE = PLUGIN / "hooks" / "proofbundle_gate.py"
+GATE = ROOT / "plugins" / "proofbundle-guard" / "hooks" / "proofbundle_gate.py"
 CHANGELOG = ROOT / "CHANGELOG.md"
 
 #: The inline script metadata block of PEP 723, by its reference expression; `uv run --script` installs what it names.
@@ -714,7 +715,9 @@ def _string_view(text: str) -> str:
     """The text as a string literal reads its escapes (the sweep of the class of the reading of the pull request at its
     head): in `"click==8\\nproofbundle==6.3.0"` a line end stands before the name, not the letter n. An escaped backslash
     is one backslash, and a code point beyond Unicode stays as written. Which parts of a file are string literals is not
-    read, nor a named escape such as `\\N{...}`."""
+    read, nor a named escape such as `\\N{...}`. A raw string keeps its escapes and is read as if it did not, and a pin
+    split over adjacent literals that Python joins across a blank or a line end is read by no view; written without a
+    blank, as `"proof""bundle==6.3.0"`, the shell view joins it (the reading of the pin at its last round)."""
     def decoded(escape: re.Match) -> str:
         if escape[1]:
             return escape[1]
@@ -741,10 +744,11 @@ def _names(pin: re.Match, newest: str) -> bool:
 def test_every_pin_the_plugin_writes_names_that_version():
     """Every file of the plugin that holds no NUL byte is read, whatever its ending (an eighth pre-run of the reading of
     the pin on main, Codex, P2: a list of endings left `.yml` unread), as written, as a shell passes it on (a
-    fourteenth pre-run) and as a string literal reads its escapes (the reading of the pull request at its head)."""
+    fourteenth pre-run) and with the escapes of a string literal read (the reading of the pull request at its head).
+    The limits of that third view stand at _string_view."""
     newest = _newest_release()
     stale = []
-    for path in sorted(PLUGIN.rglob("*")):
+    for path in sorted(p for folder in (PLUGIN, GATE.parents[1]) for p in folder.rglob("*")):
         if not path.is_file():
             continue
         raw = path.read_bytes()
