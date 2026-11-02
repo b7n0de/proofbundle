@@ -244,8 +244,9 @@ def test_control_a_closing_sequence_of_hashes_is_no_part_of_the_heading(tmp_path
     (_HEAD + "[7.0.0] - 2026-11-02\n---\n\n## [6.4.0] - 2026-10-27\n", "setext"),
     (_HEAD + "## [6.4.0] - 2026-10-27\n\n[7.0.0] - 2026-11-02\n===\n", "setext"),
     (_HEAD + "- item\n   ## [7.0.0] - 2026-11-02\n\n## [6.4.0] - 2026-10-27\n", "indent"),
+    (_HEAD + "## [6.4.0] - 2026-10-27\n\n- x\n  ```\n## [7.0.0] - 2026-10-26\n", "fence"),
 ], ids=["a comment", "an HTML block of a block tag", "a lone tag after a blank line", "a setext heading with dashes",
-        "a setext heading with equals", "an indented heading in a list item"])
+        "a setext heading with equals", "an indented heading in a list item", "an indented fence in a list item"])
 def test_a_block_the_reader_does_not_read_stops_the_case(tmp_path, monkeypatch, text, words):
     """A pre-run of the reading of this pin on main (Codex, P2): a heading line inside an HTML comment was read as a
     release, and a setext heading that renders as a level-two heading was not read at all. CommonMark hides lines in an
@@ -270,6 +271,24 @@ def test_a_second_assignment_of_a_pin_is_found(tmp_path, monkeypatch):
     tree, and a name assigned more than once, or not to a string, fails the agreement."""
     gate = tmp_path / "proofbundle_gate.py"
     gate.write_text(GATE.read_text(encoding="utf-8") + "\nPINNED_PROOFBUNDLE = '6.3.0'\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "GATE", gate)
+    with pytest.raises(AssertionError):
+        test_the_four_pins_name_one_version()
+
+
+@pytest.mark.parametrize("planted", [
+    'if (PINNED_PROOFBUNDLE := "6.3.0"):\n    pass\n',
+    'for PINNED_PROOFBUNDLE in ("6.3.0",):\n    pass\n',
+    "from os import sep as PINNED_PROOFBUNDLE\n",
+    "def _SIGN_TOOL():\n    pass\n",
+    "with open(__file__) as _KEY_TOOL:\n    pass\n",
+], ids=["an assignment expression", "a for target", "an import alias", "a function name", "a with target"])
+def test_any_other_binding_of_a_pin_name_is_found(tmp_path, monkeypatch, planted):
+    """A second pre-run of the reading of the pin on main (Codex, P2): an assignment expression rebinds
+    PINNED_PROOFBUNDLE at import and went unseen, since only assignment statements were read. Every form that binds one
+    of the three names (assignment expression, for and with targets, an import alias, a function name) counts."""
+    gate = tmp_path / "proofbundle_gate.py"
+    gate.write_text(GATE.read_text(encoding="utf-8") + "\n" + planted, encoding="utf-8")
     monkeypatch.setattr(sys.modules[__name__], "GATE", gate)
     with pytest.raises(AssertionError):
         test_the_four_pins_name_one_version()
