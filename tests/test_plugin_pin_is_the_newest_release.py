@@ -400,15 +400,20 @@ def test_control_a_lone_tag_after_paragraph_text_continues_the_paragraph(tmp_pat
     "## [Unreleased]\n## [6.4.0] - 2026-10-27\nx\n01. x\n===\n",
     "## [Unreleased]\n## [6.4.0] - 2026-10-27\nx\n000000001) x\n===\n",
     "## [Unreleased]\n## [6.4.0] - 2026-10-27\n<p/\n",
+    "## [Unreleased]\n## [6.4.0] - 2026-10-27\n[x]: /u\nx\n<a>\n",
+    "## [Unreleased]\n## [6.4.0] - 2026-10-27\n\n[7.0.0] - 2026-11-02\n<span>\n",
 ], ids=["a tag without its attribute value", "an underline that lazily continues a quoted paragraph",
         "an item numbered 01 interrupts a paragraph", "an item numbered 1 in nine digits interrupts a paragraph",
-        "a block tag name followed by a slash without >"])
+        "a block tag name followed by a slash without >", "a lone tag in a paragraph after a link reference definition",
+        "a lone tag after a bracketed line that is no link reference definition"])
 def test_control_a_line_the_reader_can_place_does_not_stop_the_case(tmp_path, monkeypatch, text):
     """A sixth pre-run of the reading of the pin on main (Codex, P2): `<a b=>` is no tag in CommonMark, since an
     attribute's `=` needs a value, so the line is paragraph text; and `===` after a quoted paragraph and a line that
     continues it lazily continues that paragraph too (CommonMark 0.31.2, example 93). Neither may stop the case. A
     seventh pre-run (Codex, P2): an ordered item numbered 1 with leading zeros interrupts a paragraph as `1.` does, and
-    an underline after it continues the item's paragraph."""
+    an underline after it continues the item's paragraph. A ninth pre-run (Codex, P2): after a complete link reference
+    definition a line of text starts a paragraph, and a lone tag after it continues that paragraph; a line that opens with
+    a closed label not followed by a colon is no definition at all."""
     _changelog(tmp_path, monkeypatch, text)
     assert _newest_release() == "6.4.0"
 
