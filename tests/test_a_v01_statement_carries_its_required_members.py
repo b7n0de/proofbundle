@@ -9,8 +9,9 @@ Measured on main 647ed0a2: a validly signed statement of type `eval-result/v0.1`
 none of those members verified ok=True, and `proofbundle intoto --verify` printed
 `[PASS] eval-result attestation` and exited 0.
 
-Every statement a released version wrote carries all eight (the 14 entries of
-tests/fixtures/eval_result_v0_1/corpus.json), so they keep verifying; the optional members stay optional.
+The 14 statements of tests/fixtures/eval_result_v0_1/corpus.json, five from the published 6.1.0 wheel and nine
+rebuilt from the source of nine tags between v2.0.0 and v6.0.0, carry all eight, so they keep verifying; the
+optional members stay optional. A predicate a caller built is not covered.
 """
 from __future__ import annotations
 

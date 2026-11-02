@@ -757,8 +757,9 @@ def _eval_result_v02_statement_claim_fields(statement: dict, predicate: dict) ->
 
 #: The members an eval-result v0.1 predicate carries (docs/IN_TOTO_PROFILE.md, the v0.1 table: every member
 #: but `preRegistration`, `receipt` and `harness`), and the two parts of `commitments` ("both required" in the
-#: migration table there). Every statement a released version wrote carries them
-#: (tests/fixtures/eval_result_v0_1/corpus.json, 14 of 14).
+#: migration table there). The 14 statements of tests/fixtures/eval_result_v0_1/corpus.json carry them, five from
+#: the published 6.1.0 wheel and nine rebuilt from the source of nine tags between v2.0.0 and v6.0.0; a predicate a
+#: caller built is not covered.
 _V01_REQUIRED_MEMBERS = ("verifier", "evaluatedAt", "suite", "claims", "sampleSize", "commitments",
                          "assuranceLevel", "subjectProfile")
 _V01_REQUIRED_COMMITMENTS = ("model", "dataset")
