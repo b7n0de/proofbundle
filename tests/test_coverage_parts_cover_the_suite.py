@@ -32,6 +32,7 @@ import importlib.util
 import json
 import os
 import pathlib
+import re
 import sqlite3
 import subprocess
 import sys
@@ -75,6 +76,47 @@ HELD_ENV = frozenset({"PROOFBUNDLE_REQUIRE_PB_VERIFY_RS", "PROOFBUNDLE_PB_VERIFY
 #: What a run step may carry besides `if` and `continue-on-error` (found on their own): a `shell` or a
 #: `working-directory` changes what its lines do.
 RUN_STEP_KEYS = frozenset({"name", "env", "run"})
+
+
+#: An action pinned to a commit, the form tests/test_pr_form_gate_in_ci.py holds for its own workflow.
+PINNED_USES = re.compile(r"^[\w.-]+/[\w./-]+@[0-9a-f]{40}$")
+#: The actions a coverage job may run besides the ones it is held to (upload, download).
+SETUP_ACTIONS = ("actions/checkout", "actions/setup-python")
+
+
+def _unknown_steps(steps: list, held: list) -> list[str]:
+    """Every step that is none of the held steps, an installed package list or a pinned checkout or setup-python.
+    A step before the suite can change its environment for the steps after it through GITHUB_ENV or GITHUB_PATH,
+    whatever the declared env says, so a step of an unknown kind is a finding, an action as well as a run step;
+    the one install step may not write there. Each known kind appears once. Pure."""
+    found, seen = [], set()
+    for s in steps:
+        if any(s is h for h in held):
+            continue
+        uses, run = str(s.get("uses", "")), str(s.get("run", "")).strip()
+        if uses:
+            kind = uses.split("@", 1)[0]
+            if kind not in SETUP_ACTIONS:
+                found.append(f"the step {s.get('name') or uses!r} runs {uses!r}, none of the known actions: a step "
+                             "must not narrow the following suite through GITHUB_ENV")
+                continue
+            if not PINNED_USES.match(uses):
+                found.append(f"the step {s.get('name') or uses!r} uses {uses!r}, not pinned to a commit")
+        elif (run.startswith("python -m pip install ") and "\n" not in run
+              and not any(w in run for w in ("GITHUB_ENV", "GITHUB_PATH", ">", ";", "&", "|", "$("))):
+            kind = "install"
+        else:
+            found.append(f"the step {s.get('name') or run!r} is none of the known steps: a run step must not "
+                         "narrow the following suite through GITHUB_ENV")
+            continue
+        if kind in seen:
+            found.append(f"a second {kind} step ({s.get('name') or uses or run!r}): each known step runs once")
+        seen.add(kind)
+    for h in held:
+        uses = str(h.get("uses", ""))
+        if uses and not PINNED_USES.match(uses):
+            found.append(f"the step {h.get('name') or uses!r} uses {uses!r}, not pinned to a commit")
+    return found
 
 
 def _lines(step: dict) -> list[str]:
@@ -187,6 +229,8 @@ def part_findings(job: dict) -> list[str]:
                         "and failing when there is none")
     if len(keep) == 1 and len(up) == 1 and not steps.index(suite[0]) < steps.index(keep[0]) < steps.index(up[0]):
         findings.append("the part does not run the suite, keep its data and upload it, in that order")
+    held = [suite[0]] + [s for s in steps if str(s.get("run", "")).strip() == BUILD][:1] + keep[:1] + up[:1]
+    findings += _unknown_steps(steps, held)
     for s in steps:
         name = s.get("name") or s.get("uses") or s.get("run")
         for key in ("if", "continue-on-error"):
@@ -224,6 +268,7 @@ def closing_findings(job: dict, k: "int | None") -> list[str]:
         return findings + [f"expected one closing step, found {len(close)}"]
     if len(down) == 1 and not steps.index(down[0]) < steps.index(close[0]):
         findings.append("the closing job does not download the data before the closing step")
+    findings += _unknown_steps(steps, close[:1] + down[:1])
     run = str(close[0].get("run", ""))
     lines = [x.strip() for x in run.strip().splitlines()]
     expected = (f"python scripts/ci_coverage_combine.py --data-dir {DATA_DIR} --parts {k} "
@@ -286,6 +331,10 @@ def _collected_ids(root: pathlib.Path) -> list[str]:
                    if "::" in line and not line[:1].isspace() and line.split("::", 1)[0].endswith(".py")})
 
 
+#: A commit id of the right form for the built jobs; none of them is run.
+PIN = "0123456789abcdef" * 2 + "01234567"
+
+
 class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
     """Each finding of part_findings and closing_findings must fail on a built counter-example."""
 
@@ -294,19 +343,19 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
                 "env": {"PROOFBUNDLE_REQUIRE_PB_VERIFY_RS": "1", "PROOFBUNDLE_PB_VERIFY_RS": PINNED,
                         "COVERAGE_CORE": "sysmon"},
                 "strategy": {"fail-fast": False, "matrix": {"part": [1, 2]}},
-                "steps": [{"uses": "actions/checkout@x"},
+                "steps": [{"uses": "actions/checkout@" + PIN},
                           {"name": "Install", "run": "python -m pip install -e .[dev]"},
                           {"name": "Build", "run": BUILD},
                           {"name": "Suite", "env": {"CI_PART": "${{ matrix.part }}/2"}, "run": SUITE},
                           {"name": "Keep", "run": "\n".join(KEEP) + "\n"},
-                          {"name": "Up", "uses": UPLOAD + "x",
+                          {"name": "Up", "uses": UPLOAD + PIN,
                            "with": {"name": "coverage-part-${{ matrix.part }}", "include-hidden-files": True,
                                     "if-no-files-found": "error", "path": KEPT}}]}
 
     def _closing(self) -> dict:
         return {"needs": ["coverage-part"], "if": "${{ !cancelled() }}",
-                "steps": [{"uses": "actions/checkout@x"},
-                          {"name": "Down", "uses": DOWNLOAD + "x",
+                "steps": [{"uses": "actions/checkout@" + PIN},
+                          {"name": "Down", "uses": DOWNLOAD + PIN,
                            "with": {"pattern": "coverage-part-*", "merge-multiple": True, "path": DATA_DIR}},
                           {"name": "Close", "env": {"PARTS_RESULT": "${{ needs.coverage-part.result }}"},
                            "run": "python scripts/ci_coverage_combine.py --data-dir coverage-data --parts 2 "
@@ -359,6 +408,15 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
             "every part needs every step": self._step(self._part(), 5, **{"if": "always()"}),
             "line for line": self._step(self._part(), 4, run="if false; then\n" + "\n".join(KEEP) + "\nfi\n"),
             "in that order": changed(steps=[self._part()["steps"][i] for i in (0, 1, 2, 3, 5, 4)]),
+            "run step must not narrow": changed(steps=self._part()["steps"][:3] + [{"name": "Narrow", "run": "echo 'PYTEST_ADDOPTS=--ignore=tests/x.py' >> \"$GITHUB_ENV\""}]
+                                               + self._part()["steps"][3:]),
+            "none of the known actions": changed(steps=self._part()["steps"][:3]
+                                                 + [{"uses": "someone/sets-env@" + PIN}] + self._part()["steps"][3:]),
+            "checkout@v7', not pinned": self._step(self._part(), 0, uses="actions/checkout@v7"),
+            "upload-artifact@v7', not pinned": self._step(self._part(), 5, uses="actions/upload-artifact@v7"),
+            "a second install step": changed(steps=self._part()["steps"][:2] + [self._part()["steps"][1]]
+                                             + self._part()["steps"][2:]),
+            "none of the known steps": self._step(self._part(), 1, run="python -m pip install x >> \"$GITHUB_ENV\""),
             "can narrow the collection": changed(env={**self._part()["env"], "PYTEST_ADDOPTS": "--ignore=tests/x.py"}),
             "carries `defaults`": changed(defaults={"run": {"shell": "bash {0}"}}),
             "additional axes repeat parts": matrix(replica=[1, 2]),
@@ -414,6 +472,9 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
                                                    run=close["run"].replace(f" --source {SOURCE}", "")),
             "changes what its lines do": self._step(self._closing(), 2, shell="bash {0}"),
             "before the closing step": changed(steps=[self._closing()["steps"][i] for i in (0, 2, 1)]),
+            "run step must not narrow": changed(steps=self._closing()["steps"][:2] + [{"name": "Move", "run": "echo COVERAGE_FILE=elsewhere >> \"$GITHUB_ENV\""}]
+                                               + self._closing()["steps"][2:]),
+            "download-artifact@v8', not pinned": self._step(self._closing(), 1, uses="actions/download-artifact@v8"),
             "carries `defaults`": changed(defaults={"run": {"shell": "bash {0}"}}),
             "closing job env sets COVERAGE_FILE": changed(env={"COVERAGE_FILE": "elsewhere"}),
             "sets COVERAGE_FILE, which": self._step(self._closing(), 2, env={
