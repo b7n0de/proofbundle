@@ -569,6 +569,18 @@ def test_a_pin_is_compared_as_pep_440_reads_it(tmp_path, monkeypatch, written, s
         test_every_pin_the_plugin_writes_names_that_version()
 
 
+@pytest.mark.parametrize("written, stale", [
+    ("proofbundle==6.4.*", True), ("proofbundle==6.4.0.*", True), ("proofbundle===6.4", True),
+    ("proofbundle===v6.4.0", True), ("proofbundle===6.4.0", False),
+], ids=["a wildcard over the newest version", "a wildcard after the newest version",
+        "arbitrary equality without the zero", "arbitrary equality with a v", "arbitrary equality with the newest version"])
+def test_a_pin_names_one_version_as_its_operator_reads_it(tmp_path, monkeypatch, written, stale):
+    """A twelfth pre-run of the reading of the pin on main (Codex, P2): `proofbundle==6.4.*` was read as 6.4 and so as
+    6.4.0, yet it admits 6.4.1 as well. A pin names the newest release only if it admits that release and no other: a
+    wildcard admits more than one, and arbitrary equality compares strings, so `===6.4` and `===v6.4.0` admit none."""
+    test_a_pin_is_compared_as_pep_440_reads_it(tmp_path, monkeypatch, written, stale)
+
+
 def test_control_a_binary_file_of_the_plugin_is_not_read_for_pins(tmp_path, monkeypatch):
     """A file that holds a NUL byte is no text the plugin writes for a reader, such as a compiled module; the search for
     stale pins leaves it out."""
