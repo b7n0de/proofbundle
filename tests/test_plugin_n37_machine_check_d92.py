@@ -93,6 +93,7 @@ def _hook(repo, tmp_path, command, host="claude", env_extra=None):
                                       "PROOFBUNDLE_GATE_DIR")}
     if STANDING_GO in os.environ:   # D129: set where a module takes tests/_standing_go.py
         env[STANDING_GO] = os.environ[STANDING_GO]
+    env["TMPDIR"] = str(tmp_path)   # the case's temp folder, wherever pytest puts it (M-1)
     env["CLAUDE_PLUGIN_DATA"] = env["PLUGIN_DATA"] = str(tmp_path / "data")
     env.update(env_extra or {})
     proc, entry = ga.run_hook([sys.executable, "-I", gate.__file__, "--host", host, *AUTONOMOUS], json.dumps(event), env,

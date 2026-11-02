@@ -8,8 +8,9 @@ them set ends as a run without them. Two pieces hold that:
   those in FIXED out of os.environ before the first fixture of a plugin test module and puts them back after its last
   test. A process a test starts without env=, and the gate a test calls in-process, see the fixed list and what the
   test set itself. It also puts the proofbundle this test process imports first on PYTHONPATH, so that a child running
-  code of this tree reads the same package, and sets HOME to an empty folder of the module's own, so that no file
-  under the caller's HOME (the gate's folder, git's global configuration) decides a case.
+  code of this tree reads the same package, sets HOME to an empty folder of the module's own, so that no file
+  under the caller's HOME (the gate's folder, git's global configuration) decides a case, and sets the umask to 022,
+  so that the caller's umask does not decide whether a folder a case makes is writable by the group.
 * `plugin_env(**values)` builds the environment a test hands a process or the gate explicitly: the names in FIXED as
   they stand, the GIT_ and PROOFBUNDLE_ values the case set (with the caller's withheld, only the case's are left),
   and `values`, where None takes a name out. `without` names prefixes the result leaves out.
@@ -82,8 +83,8 @@ def is_plugin_test(path: os.PathLike | str) -> bool:
 
 @pytest.fixture(scope="module", autouse=True)
 def withhold_caller_environment(request, tmp_path_factory):
-    """For a plugin test module: every name but FIXED (and pytest's own) out of os.environ while the module runs, and
-    HOME on an empty folder of the module's own."""
+    """For a plugin test module: every name but FIXED (and pytest's own) out of os.environ while the module runs, HOME
+    on an empty folder of the module's own, and the umask 022."""
     global _withheld
     if not is_plugin_test(request.path):
         yield
@@ -108,11 +109,17 @@ def withhold_caller_environment(request, tmp_path_factory):
         if spec is not None and spec.origin:
             root = str(pathlib.Path(spec.origin).resolve().parent.parent)
             patch.setenv("PYTHONPATH", os.pathsep.join(p for p in (root, os.environ.get("PYTHONPATH")) if p))
+        # A neighbour of M-1, measured the same day: under the caller's umask 002 the records folder a case made was
+        # writable by the group, and the key signer refused the export, so 12 cases of
+        # test_plugin_z405_key_journal_reconcile.py went red. A plugin module runs under umask 022, under which they
+        # pass; the caller's umask comes back after its last test.
+        mask = os.umask(0o022)
         _withheld += 1
         try:
             yield
         finally:
             _withheld -= 1
+            os.umask(mask)
 
 
 def put_stand_in_uv_on_path(bin_dir: pathlib.Path, monkeypatch) -> str:
