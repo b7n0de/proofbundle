@@ -14,6 +14,7 @@ pre-release or lower than a stable release below it, stops the case rather than 
 """
 from __future__ import annotations
 
+import ast
 import datetime
 import pathlib
 import re
@@ -36,6 +37,17 @@ _FENCE = re.compile(r" {0,3}(`{3,}|~{3,})")
 _SECTION = re.compile(r"\[([^\]]+)\](.*)")
 _DATED = re.compile(r" - (\d{4})-(\d{2})-(\d{2})(?:\s+\(.*\))?\s*")
 _ANY_PIN = re.compile(r"proofbundle==(\d+\.\d+\.\d+)")
+#: The starts of the HTML blocks of CommonMark 0.31.2, types 1 to 7 (a lone complete tag is type 7). Lines inside such a
+#: block are no headings, and the reader does not model where a block ends, so a changelog that opens one stops the case.
+_HTML_BLOCK = re.compile(
+    r" {0,3}(?:<(?:script|pre|style|textarea)(?:[\s>]|$)|<!--|<\?|<![A-Za-z]|<!\[CDATA\["
+    r"|</?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir"
+    r"|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li"
+    r"|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot"
+    r"|th|thead|title|tr|track|ul)(?:[\s/>]|$)"
+    r"|</?[A-Za-z][A-Za-z0-9-]*(?:\s+[^<>]*)?/?>[ \t]*$)", re.IGNORECASE)
+#: A line of = or - after a line of text makes that text a setext heading, which the reader does not read.
+_SETEXT_UNDERLINE = re.compile(r" {0,3}(?:=+|-+)[ \t]*")
 
 
 def _headings(text: str) -> list[str]:
@@ -44,22 +56,33 @@ def _headings(text: str) -> list[str]:
     none. It closes with a line of the same character, at least as long, followed by spaces and tabs only; an unclosed
     fence runs to the end of the file. A line ends at a line feed, a carriage return or both; a heading's ## is
     followed by a space or a tab, and a closing sequence of # after a space or a tab is no part of it. This is no
-    Markdown reader beyond that: CHANGELOG.md writes its sections as ATX headings `## [...]`, and setext headings,
-    HTML blocks, indented code, block quotes and list items are not read."""
-    found, fence = [], None
+    Markdown reader beyond that: CHANGELOG.md writes its sections as ATX headings `## [...]` at the start of a line. A
+    block the reader does not model and that can hide a heading or make one stops the case: an HTML block or a setext
+    heading (a pre-run of the reading of the pin on main, Codex, P2), and an indented heading, which a list item before
+    it may hold (a generator against markdown-it); indented code, block quotes and list items are not read."""
+    found, fence, previous = [], None, ""
     for line in _LINE_END.split(text):
         opened = _FENCE.match(line)
         if fence is not None:
             if opened and opened.group(1)[0] == fence[0] and len(opened.group(1)) >= len(fence) \
                     and not line[opened.end():].strip(" \t"):
                 fence = None
+            previous = ""
             continue
         if opened and not (opened.group(1)[0] == "`" and "`" in line[opened.end():]):
             fence = opened.group(1)
+            previous = ""
             continue
+        assert not _HTML_BLOCK.match(line), f"the changelog opens an HTML block, which the pin case does not read: {line!r}"
         heading = _HEADING.fullmatch(line)
+        # An indented heading may belong to a list item before it, where CommonMark nests it; the reader models no list.
+        assert not (heading and line[:1] == " "), \
+            f"the changelog indents a heading, which may sit in a list item the pin case does not read: {line!r}"
+        assert not (_SETEXT_UNDERLINE.fullmatch(line) and previous.strip(" \t") and not _HEADING.fullmatch(previous)), \
+            f"the changelog makes a setext heading of {previous!r}, which the pin case does not read"
         if heading:
             found.append(_CLOSING.sub("", heading.group(1) or "").strip(" \t"))
+        previous = line
     return found
 
 
@@ -97,12 +120,35 @@ def _newest_release() -> str:
     return newest
 
 
+def _assigned_strings(source: str, names: tuple[str, ...]) -> dict[str, list[str | None]]:
+    """Every assignment to one of `names` anywhere in the module, read from its syntax tree, with its value where the
+    value is a string literal and None otherwise; a pin is read from what the module assigns, not from one spelling."""
+    found: dict[str, list[str | None]] = {name: [] for name in names}
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Assign):
+            targets, value = node.targets, node.value
+        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+            targets, value = [node.target], None if isinstance(node, ast.AugAssign) else node.value
+        else:
+            continue
+        literal = value.value if isinstance(value, ast.Constant) and isinstance(value.value, str) else None
+        for target in targets:
+            for leaf in ast.walk(target):
+                if isinstance(leaf, ast.Name) and leaf.id in found:
+                    found[leaf.id].append(literal if target is leaf else None)
+    return found
+
+
 def _pins() -> dict[str, list[str]]:
-    gate = GATE.read_text(encoding="utf-8")
-    constant = re.findall(r'^PINNED_PROOFBUNDLE = "(\d+\.\d+\.\d+)"$', gate, re.M)
+    """The four pins. The gate assigns each of PINNED_PROOFBUNDLE, _SIGN_TOOL and _KEY_TOOL exactly once, to a string
+    literal (a pre-run of the reading of the pin on main, Codex, P2: a later assignment in other quotes went unseen)."""
+    gate = _assigned_strings(GATE.read_text(encoding="utf-8"), ("PINNED_PROOFBUNDLE", "_SIGN_TOOL", "_KEY_TOOL"))
+    for name, values in gate.items():
+        assert len(values) == 1 and values[0] is not None, \
+            f"the gate assigns {name} {len(values)} time(s), and the pin is one string literal assigned once: {values}"
     return {"server header": _HEADER_PIN.findall(SERVER.read_text(encoding="utf-8")),
-            "gate PINNED_PROOFBUNDLE": constant,
-            "gate tool headers": _HEADER_PIN.findall(gate)}
+            "gate PINNED_PROOFBUNDLE": gate["PINNED_PROOFBUNDLE"],
+            "gate tool headers": _HEADER_PIN.findall(gate["_SIGN_TOOL"][0]) + _HEADER_PIN.findall(gate["_KEY_TOOL"][0])}
 
 
 _HEAD = "# Changelog\n\n## [Unreleased]\n\n"
