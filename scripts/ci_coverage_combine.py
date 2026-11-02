@@ -63,8 +63,12 @@ def _writer_version(path: pathlib.Path) -> str:
 
 
 def _executed(data) -> dict[str, set[int]]:
-    """The executed lines of read coverage data, per source file (absolute, symbolic links resolved)."""
-    return {os.path.realpath(f): set(data.lines(f) or ()) for f in data.measured_files()}
+    """The executed lines of read coverage data, per source file (absolute, symbolic links resolved). Two names
+    of one file (`a.py` and `./a.py`) give one entry with the lines of both, never the lines of one of them."""
+    result: dict[str, set[int]] = {}
+    for name in data.measured_files():
+        result.setdefault(os.path.realpath(name), set()).update(data.lines(name) or ())
+    return result
 
 
 def _read(path: pathlib.Path) -> dict[str, set[int]]:

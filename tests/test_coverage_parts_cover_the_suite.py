@@ -91,8 +91,31 @@ def _run_step_keys(steps: list) -> list[str]:
     return found
 
 
+def _ci_workflow() -> dict:
+    return yaml.safe_load(CI.read_text(encoding="utf-8"))
+
+
 def _ci_jobs() -> dict:
-    return yaml.safe_load(CI.read_text(encoding="utf-8"))["jobs"]
+    return _ci_workflow()["jobs"]
+
+
+def _combine():
+    spec = importlib.util.spec_from_file_location("ci_coverage_combine_under_contract", COMBINE)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def workflow_findings(workflow: dict) -> list[str]:
+    """Where the whole workflow changes how the coverage steps run: run defaults change the shell or directory of
+    every run step, and an env key of pytest or coverage changes what a part collects or measures. Pure."""
+    found = []
+    for key in sorted((workflow.get("defaults") or {}).get("run") or {}):
+        found.append(f"the workflow sets defaults.run.{key}, which changes what every run step does")
+    for key in sorted(workflow.get("env") or {}):
+        if key in HELD_ENV or key.startswith(("PYTEST", "COVERAGE")):
+            found.append(f"the workflow env sets {key}, which changes what the parts collect or measure")
+    return found
 
 
 def _plugin():
@@ -129,6 +152,11 @@ def part_findings(job: dict) -> list[str]:
         findings.append("a part does not require and pin the Rust verifier")
     if env.get("COVERAGE_CORE") != "sysmon":
         findings.append(f"a part measures with COVERAGE_CORE={env.get('COVERAGE_CORE')!r}, not sysmon")
+    for key in sorted(set(env) - HELD_ENV):
+        findings.append(f"the job env sets {key}: a part runs under exactly the held settings, and another key "
+                        "can narrow the collection (PYTEST_ADDOPTS) or move the data")
+    if "defaults" in job:
+        findings.append("the job carries `defaults`, which changes the shell or directory of every run step")
     if k is not None and f"of {k})" not in str(job.get("name") or ""):
         findings.append(f"the name {job.get('name')!r} does not say `of {k}`")
     steps = job.get("steps") or []
@@ -140,9 +168,10 @@ def part_findings(job: dict) -> list[str]:
     if k is not None and (suite[0].get("env") or {}).get("CI_PART") != f"${{{{ matrix.part }}}}/{k}":
         findings.append(f"the suite step does not take CI_PART as `<part>/{k}` from the matrix")
     for s in steps:
-        for key in sorted(set(s.get("env") or {}) & HELD_ENV):
+        for key in sorted(set(s.get("env") or {}) - ({"CI_PART"} if s is suite[0] else set())):
             findings.append(f"the step {s.get('name') or s.get('run') or s.get('uses')!r} sets {key}: a step "
-                            "overrides the required Rust verifier or coverage core settings of the job")
+                            "overrides the required Rust verifier or coverage core settings of the job, or adds "
+                            "to them")
     runs = [str(s.get("run", "")).strip() for s in steps]
     if BUILD not in runs or runs.index(BUILD) > steps.index(suite[0]):
         findings.append("the Rust verifier is not built before the suite")
@@ -179,6 +208,10 @@ def closing_findings(job: dict, k: "int | None") -> list[str]:
     for key in ("strategy", "continue-on-error"):
         if key in job:
             findings.append(f"the job carries `{key}`")
+    if "defaults" in job:
+        findings.append("the job carries `defaults`, which changes the shell or directory of every run step")
+    for key in sorted(job.get("env") or {}):
+        findings.append(f"the closing job env sets {key}, which the check and the floor do not need")
     steps = job.get("steps") or []
     down = [s for s in steps if str(s.get("uses", "")).startswith(DOWNLOAD)]
     w = (down[0].get("with") or {}) if len(down) == 1 else {}
@@ -202,6 +235,10 @@ def closing_findings(job: dict, k: "int | None") -> list[str]:
     if (close[0].get("env") or {}).get("PARTS_RESULT") != "${{ needs.coverage-part.result }}":
         findings.append("PARTS_RESULT is not the result of the matrix coverage-part")
     for s in steps:
+        for key in sorted(set(s.get("env") or {}) - ({"PARTS_RESULT"} if s is close[0] else set())):
+            findings.append(f"the step {s.get('name') or s.get('uses') or s.get('run')!r} sets {key}, which the "
+                            "check and the floor do not need")
+    for s in steps:
         if "continue-on-error" in s or "if" in s:
             findings.append(f"the step {s.get('name') or s.get('uses')!r} carries `if` or `continue-on-error`")
     return findings + _run_step_keys(steps)
@@ -215,6 +252,7 @@ class TheCoverageJobsAreShapedSoNoPartIsLost(unittest.TestCase):
         self.assertEqual(part_findings(jobs[PARTS_JOB]), [])
         k = len(jobs[PARTS_JOB]["strategy"]["matrix"]["part"])
         self.assertEqual(closing_findings(jobs[CLOSING_JOB], k), [])
+        self.assertEqual(workflow_findings(_ci_workflow()), [])
 
     def test_the_jobs_that_wait_for_coverage_wait_for_the_closing_job(self):
         """`mutation` and `all-checks-passed` keep `needs: [test, coverage]`; `coverage` is the closing job, so
@@ -321,6 +359,8 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
             "every part needs every step": self._step(self._part(), 5, **{"if": "always()"}),
             "line for line": self._step(self._part(), 4, run="if false; then\n" + "\n".join(KEEP) + "\nfi\n"),
             "in that order": changed(steps=[self._part()["steps"][i] for i in (0, 1, 2, 3, 5, 4)]),
+            "can narrow the collection": changed(env={**self._part()["env"], "PYTEST_ADDOPTS": "--ignore=tests/x.py"}),
+            "carries `defaults`": changed(defaults={"run": {"shell": "bash {0}"}}),
             "additional axes repeat parts": matrix(replica=[1, 2]),
             "overrides the required Rust verifier": self._step(self._part(), 3, env={
                 "CI_PART": "${{ matrix.part }}/2", "PROOFBUNDLE_REQUIRE_PB_VERIFY_RS": "0",
@@ -335,6 +375,19 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
         for words, job in cases.items():
             with self.subTest(words):
                 found = part_findings(job)
+                self.assertTrue(any(words in f for f in found), found)
+
+    def test_a_workflow_that_changes_how_every_step_runs_is_found(self):
+        """Codex pre-run at 6f2b21b1: the shell and the env of a step come from three levels, and the contract
+        held the step only. The workflow level is held here, the job and the step level in the two checks."""
+        self.assertEqual(workflow_findings({"jobs": {}}), [])
+        self.assertEqual(workflow_findings({"env": {"FOO": "1"}}), [], "control: an unrelated key is no finding")
+        for words, workflow in {"defaults.run.shell": {"defaults": {"run": {"shell": "bash {0}"}}},
+                                "env sets PYTEST_ADDOPTS": {"env": {"PYTEST_ADDOPTS": "-k x"}},
+                                "env sets COVERAGE_FILE": {"env": {"COVERAGE_FILE": "x"}},
+                                "env sets COVERAGE_CORE": {"env": {"COVERAGE_CORE": "ctrace"}}}.items():
+            with self.subTest(words):
+                found = workflow_findings(workflow)
                 self.assertTrue(any(words in f for f in found), found)
 
     def test_a_closing_job_that_could_judge_fewer_parts_is_found(self):
@@ -361,6 +414,10 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
                                                    run=close["run"].replace(f" --source {SOURCE}", "")),
             "changes what its lines do": self._step(self._closing(), 2, shell="bash {0}"),
             "before the closing step": changed(steps=[self._closing()["steps"][i] for i in (0, 2, 1)]),
+            "carries `defaults`": changed(defaults={"run": {"shell": "bash {0}"}}),
+            "closing job env sets COVERAGE_FILE": changed(env={"COVERAGE_FILE": "elsewhere"}),
+            "sets COVERAGE_FILE, which": self._step(self._closing(), 2, env={
+                "PARTS_RESULT": "${{ needs.coverage-part.result }}", "COVERAGE_FILE": "elsewhere"}),
             "PARTS_RESULT": self._step(self._closing(), 2, env={"PARTS_RESULT": "success"}),
             "`if` or `continue-on-error`": self._step(self._closing(), 2, **{"continue-on-error": True}),
             "one closing step": changed(steps=[]),
@@ -528,6 +585,42 @@ class TheClosingScriptRefusesEveryLostPart(unittest.TestCase):
         self.assertEqual(r.returncode, 1, r.stdout)
         self.assertIn("the combined data does not preserve every accepted input measurement", r.stdout)
         self.assertIn("lines [6]", r.stdout)
+
+    def test_two_names_of_one_file_give_the_lines_of_both(self):
+        """Codex pre-run at 6f2b21b1: the lines were keyed by the resolved path, and of two names of one file the
+        lines of one were kept. Pure, without coverage data."""
+        class Data:
+            def measured_files(self):
+                return {"pkg/a.py", "pkg/./a.py"}
+
+            def lines(self, name):
+                return [1] if "/./" not in name else [2]
+        self.assertEqual(_combine()._executed(Data()), {os.path.realpath("pkg/a.py"): {1, 2}})
+
+    def test_lines_of_either_name_of_one_file_that_the_combine_drops_are_refused(self):
+        """The end-to-end control of the case above: one part names pkg/a.py twice, the combine drops the lines of
+        one name (it keeps both names apart), and the script refuses, each name in turn. This case is no catch of
+        the old code: which name the old keyed dict kept depended on the iteration order of a set of strings, so
+        on the hash seed of the child process. The pure case above falls on the old code every time."""
+        plain = str(self.root / "pkg" / "a.py")
+        dotted = str(self.root / "pkg") + "/./a.py"
+        for n, damaged in enumerate((plain, dotted)):
+            with self.subTest(damaged=damaged):
+                d = self.root / f"data-{n}"
+                d.mkdir()
+                data = coverage.CoverageData(basename=str(d / ".coverage.part-1"))
+                data.add_lines({plain: {2}, dotted: {6}})
+                data.write()
+                con = sqlite3.connect(d / ".coverage.part-1")
+                con.execute("UPDATE line_bits SET context_id = 999999 WHERE file_id = (SELECT id FROM file "
+                            "WHERE path = ?)", (damaged,))
+                con.commit()
+                con.close()
+                r = subprocess.run([sys.executable, str(COMBINE), "--data-dir", str(d), "--parts", "1", "--result",
+                                    "success", "--source", "pkg"], cwd=self.root, capture_output=True, text=True,
+                                   timeout=120)
+                self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+                self.assertIn("does not preserve every accepted input measurement", r.stdout)
 
     def test_a_source_that_is_no_directory_is_a_usage_error(self):
         self._part(1, "a")
