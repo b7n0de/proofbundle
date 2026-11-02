@@ -99,7 +99,8 @@ python plugins/proofbundle-guard/hooks/proofbundle_gate.py ci-check --repo . --r
 ## The done check in CI
 
 The workflow's job `done` (input `done-check: true`) is the hard boundary of the user path "Claude says done"
-(DECISIONS.md, D26). It runs the tests of the commit under review with a receipt, signed with a CI key, and runs
+(DECISIONS.md, D26), once the repository sets the required status check, code owner review and dismissal of stale
+approvals above; the template is not yet measured on GitHub Actions. It runs the tests of the commit under review with a receipt, signed with a CI key, and runs
 `proofbundle_gate.py done-check --at-commit` for the commit it checked out: exit 0 only when the receipt verifies
 under the done policy at that commit, says that every test passed and names that commit and its tree, from a clean
 run (`git_clean` true). The commit comes from the event (the head of a pull request, else the pushed commit), not

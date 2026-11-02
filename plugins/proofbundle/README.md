@@ -9,7 +9,8 @@ explicit user request. Verification proves authorship and integrity of what was 
 recorded value is true. The plugin calls the `proofbundle` package from PyPI, so every verdict is the
 package's own verdict and exit code.
 One folder serves both hosts: `.claude-plugin/plugin.json` for Claude Code, `.codex-plugin/plugin.json`
-for Codex, over the same skills, MCP server and gate.
+for Codex, over the same skills and MCP server. It registers no hook; the gate and its hooks are the plugin
+proofbundle-guard (D134), which the sections on the gate below describe.
 
 A passing verification proves that the holder of the given key signed exactly these bytes and that
 they have not changed since. It does not prove that any recorded value is true.
@@ -60,10 +61,12 @@ signature and structure hold.
 
 ## The pre-push gate
 
-A `PreToolUse` hook runs `hooks/proofbundle_gate.py` before every Bash call and before an MCP tool whose
+With proofbundle-guard installed (D134), a `PreToolUse` hook runs its `hooks/proofbundle_gate.py` before every Bash
+call and before an MCP tool whose
 name ends in `create_pull_request`, `create_merge_request`, `create_release`, `push_files`,
 `create_or_update_file` or `merge_pull_request` (`mcp__<server>__<tool>`). It acts before `git push`,
-`gh pr create`, `gh release create` and those MCP tools. A gated MCP write is NOT MEASURED — asked under
+`gh pr create`, `gh release create` and those MCP tools (under Codex only after you trust it; its run with a real
+model in Codex is NOT MEASURED, D16). A gated MCP write is NOT MEASURED — asked under
 Claude Code, denied under Codex — because the hook binds neither its actual target nor the bytes it
 writes: the gate cannot see the branch a tool publishes or the pull request it merges, and the bytes
 `push_files` and `create_or_update_file` write come from the tool's own arguments. The local repository
@@ -414,8 +417,8 @@ change the digest.
 
 ## Done only with a receipt (the Stop hook)
 
-A `Stop` hook runs `hooks/proofbundle_gate.py stop` when the agent would end its turn, in Claude Code and, from the
-same folder, in Codex (`stop --host codex`). A push runs the same check at the pushed commit (D30, "The pre-push
+With proofbundle-guard installed (D134), a `Stop` hook runs its `hooks/proofbundle_gate.py stop` when the agent would
+end its turn, in Claude Code and, from the same folder, in Codex (`stop --host codex`). A push runs the same check at the pushed commit (D30, "The pre-push
 gate"). Claude Code also runs the same check as a `TaskCompleted` hook. In a
 repository whose declaration names a done check, the turn ends, and a task can be marked completed, only when every
 required check has a receipt that
@@ -543,7 +546,9 @@ trusts. It states what the done check verified, not that the tests test anything
 - **The hook is an early warning, not a boundary.** Claude Code overrides a Stop hook after eight continuations in a
   row without a tool call (documented; nine blocks measured with Claude Code 2.1.294;
   `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` raises it), which is why the hook stops on its own after `max_blocks`. The hard
-  boundary is the required CI check (`done-check`, D26 and `ci/`).
+  boundary is the required CI check (`done-check`, D26 and `ci/`); the template is not yet measured on GitHub
+  Actions, and it protects only with the required status check, code owner review and dismissal of stale approvals
+  set in the repository.
 - The agent that runs the tests can read the test key, so a receipt proves what that key signed on this machine,
   not that a person checked the run. Code of the repository runs under pytest and can write the receipt itself.
 - The agent can also commit a changed order, or write the hook's count file; the first changes what the local hook
@@ -633,8 +638,8 @@ The gate behaves differently under Codex in two ways:
   `verify_receipt` carries a `gate_note` that says so; the server cannot see whether the hooks are
   trusted.
 
-Whether the gate runs inside a Codex turn with a real model is NOT MEASURED. It is measured after the tag v6.2.0 at
-the owner's machine, with the steps in [RUNBOOK_CODEX.md](RUNBOOK_CODEX.md) (D16). Measured on 2026-10-08 with Codex
+Whether the gate runs inside a Codex turn with a real model is NOT MEASURED. It is to be measured at the owner's
+machine with the steps in [RUNBOOK_CODEX.md](RUNBOOK_CODEX.md) (D16); no such run is recorded yet. Measured on 2026-10-08 with Codex
 0.161.0 and a scripted local model (the host and its hook engine real, the model's answers fixed): Codex loads the
 `Stop` hook from `.codex-plugin/plugin.json`, runs it only after it is trusted, inserts a block as a `hook_prompt` in
 the same turn, and ends the turn after the hook's own blocker or a pass (D28).
