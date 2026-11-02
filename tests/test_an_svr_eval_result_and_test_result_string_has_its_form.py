@@ -217,8 +217,10 @@ class Controls(unittest.TestCase):
         self.assertIs(I.verify_eval_result_dsse(_sign(_released_eval_result()), _pub())["ok"], True)
         self.assertIs(I.verify_intoto_dsse(_sign(_test_result(), I.TEST_RESULT_PAYLOAD_TYPE), _pub())["ok"], True)
 
-    def test_an_offset_and_fractional_seconds_are_rfc3339_times(self):
-        for wert in ("2026-10-31T10:00:00+01:00", "2026-10-31T09:00:00.123456Z", "2026-10-31t09:00:00z"):
+    def test_fractional_seconds_and_a_lower_case_designator_are_timestamps(self):
+        # A numeric offset is no Timestamp of svr v0.1 since the owner's choice of 2026-11-02 (finding M07):
+        # tests/test_an_svr_v01_type_uri_and_timestamp_follow_in_toto.py holds that side.
+        for wert in ("2026-10-31T09:00:00.123456Z", "2026-10-31t09:00:00z"):
             with self.subTest(wert=wert):
                 statement = _svr()
                 statement["predicate"]["timeCreated"] = wert

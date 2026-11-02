@@ -1438,6 +1438,26 @@ def _is_rfc3339(value: Any) -> bool:
     return True
 
 
+def _is_utc_timestamp(value: Any) -> bool:
+    """An in-toto Timestamp: an RFC 3339 date-time in UTC written with the designator Z (spec/v1/field_types.md).
+
+    A numeric offset, `+00:00` included, is refused: svr v0.1 types `timeCreated` as Timestamp, and in-toto writes
+    that type in UTC with Z. Owner choice of 2026-11-02 on finding M07 of the second verifier built from the text:
+    before it, a signed SVR with `+01:00` verified."""
+    return _is_rfc3339(value) and value[-1] in "Zz"
+
+
+def _is_type_uri(value: Any) -> bool:
+    """An in-toto TypeURI: a URI (`_URI_RE`) whose scheme is written in lower case (spec/v1/field_types.md).
+
+    Owner choice of 2026-11-02 on finding M06 of the second verifier built from the text: before it, a signed SVR
+    whose `verifier.id` began with `HTTPS:` verified. The scheme is ASCII by `_URI_RE`, so lower() is exact."""
+    if not (isinstance(value, str) and _URI_RE.match(value)):
+        return False
+    scheme = value.split(":", 1)[0]
+    return scheme == scheme.lower()
+
+
 def _descriptor_problem(value: Any, where: str) -> str:
     """'' for a ResourceDescriptor that MUST carry `digest` (model, dataset, evidence entries)."""
     if not isinstance(value, dict):
@@ -1967,8 +1987,8 @@ def export_svr_dsse(bundle: dict, signer, *, time_created: Optional[str] = None,
     time_created = _eigener_text(time_created, wo, "time_created")
     # The form its own verifier asks of `timeCreated` (`classify_svr_predicate_shape`): a signed SVR that verify
     # refuses is not written. An empty value keeps meaning "now", as before.
-    if time_created and not _is_rfc3339(time_created):
-        raise BundleFormatError(f"{wo}: time_created must be an RFC 3339 date-time with an offset, "
+    if time_created and not _is_utc_timestamp(time_created):
+        raise BundleFormatError(f"{wo}: time_created must be an RFC 3339 date-time in UTC with Z, "
                                 f"got {render_safe(time_created)}")
     policy = _eigen(policy, wo, "policy")
     prereg_verified = _eigene_flagge(prereg_verified, "prereg_verified")
@@ -2059,14 +2079,14 @@ def classify_svr_predicate_shape(statement: Any) -> tuple[bool, str]:
         return False, "SVR predicate.verifier.id is required by svr v0.1 and absent"
     if not isinstance(predicate["verifier"]["id"], str):
         return False, "SVR predicate.verifier.id must be a string"
-    if not _URI_RE.match(predicate["verifier"]["id"]):
-        return False, "SVR predicate.verifier.id must be a URI (TypeURI)"
+    if not _is_type_uri(predicate["verifier"]["id"]):
+        return False, "SVR predicate.verifier.id must be a URI with a lower-case scheme (TypeURI)"
     if "timeCreated" not in predicate:
         return False, "SVR predicate.timeCreated is required by svr v0.1 and absent"
     if not isinstance(predicate["timeCreated"], str):
         return False, "SVR predicate.timeCreated must be a string"
-    if not _is_rfc3339(predicate["timeCreated"]):
-        return False, "SVR predicate.timeCreated must be an RFC 3339 date-time with an offset (Timestamp)"
+    if not _is_utc_timestamp(predicate["timeCreated"]):
+        return False, "SVR predicate.timeCreated must be an RFC 3339 date-time in UTC with Z (Timestamp)"
     return True, ""
 
 
