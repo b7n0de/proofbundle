@@ -820,6 +820,46 @@ _CASE_LISTS = ("passedTests", "warnedTests", "failedTests")
 #: section 7b for `configuration`); `url` and the three case lists are the optional ones. Every statement
 #: `to_test_result_statement` writes carries both.
 _TEST_RESULT_REQUIRED_MEMBERS = ("result", "configuration")
+#: The values of the enum `result` (spec/predicates/test-result.md).
+_TEST_RESULT_VALUES = ("PASSED", "WARNED", "FAILED")
+#: One of these a ResourceDescriptor MUST specify (spec/v1/resource_descriptor.md).
+_DESCRIPTOR_LOCATORS = ("uri", "digest", "content")
+
+
+def _test_result_member_types(predicate: dict) -> list:
+    """(label, reason) for each member of a test-result predicate that is present in another type than the one the
+    predicate gives it, for every statement of the type, generic or ours: `result` one of PASSED, WARNED, FAILED;
+    `url` a string; each case list an array of strings; each `configuration` entry that is an object specifying
+    one of `uri`, `digest` or `content` (SPEC.md section 7b: a bare `name`-only descriptor is invalid). An entry
+    that is no object and a `configuration` that is no array stay the reasons of `_descriptor_list_claim_fields`.
+
+    Measured on main b55d736d: a signed generic statement verified ok=True with `result` 1, "BOGUS" or "passed",
+    with a configuration entry {} or {"name": "only-a-name"}, with `url` 5 and with a case list that was no array
+    of strings, because these types were judged only beside a descriptor of ours that annotates a verdict."""
+    teile: list = []
+    if "result" in predicate:
+        wert = predicate["result"]
+        if not (isinstance(wert, str) and wert in _TEST_RESULT_VALUES):
+            teile.append(("result", f"must be one of PASSED, WARNED, FAILED, got {render_safe(wert)}"))
+    if "url" in predicate and not isinstance(predicate["url"], str):
+        teile.append(("url", f"must be a string, got {type(predicate['url']).__name__}"))
+    for name in _CASE_LISTS:
+        if name in predicate:
+            liste = predicate[name]
+            if not (isinstance(liste, list) and all(isinstance(x, str) for x in liste)):
+                teile.append((name, f"must be an array of strings, got {render_safe(liste)}"))
+    konfig = predicate.get("configuration")
+    if isinstance(konfig, list):
+        for i, eintrag in enumerate(konfig):
+            if isinstance(eintrag, dict) and not any(k in eintrag for k in _DESCRIPTOR_LOCATORS):
+                teile.append((f"configuration[{i}]", "must specify one of uri, digest or content, the rule of a "
+                                                     "ResourceDescriptor"))
+            # A locator that is present has its type: `uri` a ResourceURI and `content` base64 bytes, both strings in
+            # JSON. The digest stays the reason of `_descriptor_list_claim_fields` (first reading of 452, P2).
+            for name in ("uri", "content"):
+                if isinstance(eintrag, dict) and name in eintrag and not isinstance(eintrag[name], str):
+                    teile.append((f"configuration[{i}].{name}", f"must be a string, got {type(eintrag[name]).__name__}"))
+    return teile
 
 
 def _verdict_agreement(predicate: dict, urteile: list) -> list:
@@ -890,12 +930,13 @@ def _test_result_claim_fields(statement: dict, predicate: dict) -> list:
     makes no claim. A PRESENT container of the wrong shape is a reason of its own, the rule
     `_eval_result_claim_fields` states. Measured at 835df85b: with `configuration` an object, the
     single entry in place of the list, or a digest written as a list of pairs, the walk found no
-    entry, judged nothing and reported predicate_claim_ok=True over a placeholder commitment.
+    entry, judged nothing and reported predicate_claim_ok=True over a placeholder commitment. A member
+    present in another type than the predicate gives it is a reason too (`_test_result_member_types`).
     """
     fehlend = [(m, "is required by test-result v0.1 and absent")
                for m in _TEST_RESULT_REQUIRED_MEMBERS if m not in predicate]
     subjekt_teile, urteile = _subject_claim_fields(statement)
-    teile: list = list(fehlend)
+    teile: list = list(fehlend) + _test_result_member_types(predicate)
     if "configuration" in predicate:
         konfig_teile, konfig_urteile = _descriptor_list_claim_fields("configuration",
                                                                      predicate["configuration"])
@@ -1956,8 +1997,13 @@ def classify_svr_predicate_shape(statement: Any) -> tuple[bool, str]:
     crash on the dereference. The signature proves who signed the bytes; it says nothing about whether
     the bytes have the shape the consumer is about to walk. So the shape is checked HERE, as part of the
     library verdict, and a consumer never has to guess. Returns ``(ok, detail)``; ``detail`` is empty
-    when ok. Deliberately narrow: only what svr/v0.1 declares (predicate object, ``properties`` a list of
-    strings, ``verifier`` an object when present, ``timeCreated`` a string when present).
+    when ok. Deliberately narrow: only what svr/v0.1 declares, and all of it (spec/predicates/svr.md at
+    in-toto/attestation 1fa33327): a predicate object whose four required members are present and of their
+    type, ``verifier`` an object, ``verifier.id`` a string, ``timeCreated`` a string and ``properties`` a list
+    of strings. Measured on main b55d736d: a signed SVR without ``verifier``, without ``verifier.id`` or
+    without ``timeCreated``, or with a number for ``verifier.id``, verified ok=True and ``proofbundle svr
+    --verify`` printed PASS, because ``verifier`` and ``timeCreated`` were judged only when present and
+    ``verifier.id`` not at all. The extension field ``verifier.policy`` and every unknown member stay unread.
 
     NAMED ``classify_`` ON PURPOSE (2026-09-05, after the never-raise family property reported it): this
     function takes UNTRUSTED input (a statement out of a signed envelope) and must JUDGE rather than crash,
@@ -1981,9 +2027,17 @@ def classify_svr_predicate_shape(statement: Any) -> tuple[bool, str]:
         return False, f"SVR predicate.properties must be a list of strings, got {type(props).__name__}"
     if not all(isinstance(p, str) for p in props):
         return False, "SVR predicate.properties must contain strings only"
-    if "verifier" in predicate and not isinstance(predicate["verifier"], dict):
+    if "verifier" not in predicate:
+        return False, "SVR predicate.verifier is required by svr v0.1 and absent"
+    if not isinstance(predicate["verifier"], dict):
         return False, "SVR predicate.verifier must be an object"
-    if "timeCreated" in predicate and not isinstance(predicate["timeCreated"], str):
+    if "id" not in predicate["verifier"]:
+        return False, "SVR predicate.verifier.id is required by svr v0.1 and absent"
+    if not isinstance(predicate["verifier"]["id"], str):
+        return False, "SVR predicate.verifier.id must be a string"
+    if "timeCreated" not in predicate:
+        return False, "SVR predicate.timeCreated is required by svr v0.1 and absent"
+    if not isinstance(predicate["timeCreated"], str):
         return False, "SVR predicate.timeCreated must be a string"
     return True, ""
 

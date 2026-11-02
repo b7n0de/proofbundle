@@ -596,11 +596,11 @@ def tool_gate_selftest_prepare(args: dict) -> tuple[dict, bool]:
         _run_git("-C", work, "add", "-A")
         _run_git(*identity, "-C", work, "commit", "-q", "-m", message)
 
-    # The reviewed base: a declaration whose rules are well formed. Its subject is a fixed non-matching
-    # digest, so the push of the next commit is denied for a stale subject, a deny the gate reaches without
-    # the verifier, under both hosts: the gate checks the evidence at the commit the push sends, whose destination
-    # it does not resolve (DECISIONS.md, D3; review round 9, R9-1). The base is pushed to a named branch the work
-    # repository then tracks, so the check can compare that branch with the recorded base (review N6).
+    # The base declares well-formed rules and a fixed non-matching subject. Claude Code's gate reaches
+    # stale_subject for the returned command without starting the verifier. Codex instead rejects its
+    # global -C option as codex_push_not_plain. The check below requires stale_subject and therefore
+    # reports NOT MEASURABLE for that Codex path. The base is pushed to the local named branch that
+    # the work repository tracks, so the check can compare its refs with the recorded base.
     os.makedirs(os.path.join(work, ".proofbundle"))
     with open(os.path.join(work, "README.md"), "w", encoding="utf-8") as handle:
         handle.write("A throwaway repository for the proofbundle gate self-test.\n")
@@ -650,9 +650,10 @@ def tool_gate_selftest_prepare(args: dict) -> tuple[dict, bool]:
                      "repository in a temporary folder, and in the server's environment it pushes there. The "
                      "check reads only the refs of the throwaway remote: a setting only the host's shell carries "
                      "(a push URL, a receive program or its hooks, a transport) can send the push elsewhere or undo "
-                     "its write, and the check does not see that. The gate is expected to deny it (a stale subject). Never change the "
-                     "throwaway repository or its declaration. Then call gate_selftest_check with work and "
-                     "started_at.")}, False
+                     "its write, and the check does not see that. Claude Code is expected to deny it for a stale "
+                     "subject. Codex rejects this command form before that evidence check, so the current self-test "
+                     "reports NOT MEASURABLE there. Never change the throwaway repository or its declaration. Then "
+                     "call gate_selftest_check with work and started_at.")}, False
 
 
 def tool_gate_selftest_check(args: dict) -> tuple[dict, bool]:
