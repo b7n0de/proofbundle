@@ -156,6 +156,8 @@ def part_findings(job: dict) -> list[str]:
             or w.get("if-no-files-found") != "error" or w.get("path") != KEPT):
         findings.append("the part does not upload the file it kept as coverage-part-<part>, hidden file included, "
                         "and failing when there is none")
+    if len(keep) == 1 and len(up) == 1 and not steps.index(suite[0]) < steps.index(keep[0]) < steps.index(up[0]):
+        findings.append("the part does not run the suite, keep its data and upload it, in that order")
     for s in steps:
         name = s.get("name") or s.get("uses") or s.get("run")
         for key in ("if", "continue-on-error"):
@@ -187,6 +189,8 @@ def closing_findings(job: dict, k: "int | None") -> list[str]:
     close = [s for s in steps if "ci_coverage_combine.py" in str(s.get("run", ""))]
     if len(close) != 1:
         return findings + [f"expected one closing step, found {len(close)}"]
+    if len(down) == 1 and not steps.index(down[0]) < steps.index(close[0]):
+        findings.append("the closing job does not download the data before the closing step")
     run = str(close[0].get("run", ""))
     lines = [x.strip() for x in run.strip().splitlines()]
     expected = (f"python scripts/ci_coverage_combine.py --data-dir {DATA_DIR} --parts {k} "
@@ -316,6 +320,7 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
                                                                      "path": "x/.coverage.part-${{ matrix.part }}"}}),
             "every part needs every step": self._step(self._part(), 5, **{"if": "always()"}),
             "line for line": self._step(self._part(), 4, run="if false; then\n" + "\n".join(KEEP) + "\nfi\n"),
+            "in that order": changed(steps=[self._part()["steps"][i] for i in (0, 1, 2, 3, 5, 4)]),
             "additional axes repeat parts": matrix(replica=[1, 2]),
             "overrides the required Rust verifier": self._step(self._part(), 3, env={
                 "CI_PART": "${{ matrix.part }}/2", "PROOFBUNDLE_REQUIRE_PB_VERIFY_RS": "0",
@@ -355,6 +360,7 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
             "--source src/proofbundle": self._step(self._closing(), 2,
                                                    run=close["run"].replace(f" --source {SOURCE}", "")),
             "changes what its lines do": self._step(self._closing(), 2, shell="bash {0}"),
+            "before the closing step": changed(steps=[self._closing()["steps"][i] for i in (0, 2, 1)]),
             "PARTS_RESULT": self._step(self._closing(), 2, env={"PARTS_RESULT": "success"}),
             "`if` or `continue-on-error`": self._step(self._closing(), 2, **{"continue-on-error": True}),
             "one closing step": changed(steps=[]),
@@ -417,7 +423,10 @@ class TheClosingScriptRefusesEveryLostPart(unittest.TestCase):
         data = coverage.CoverageData(basename=str(self.root / ".coverage"))
         data.read()
         lines = data.lines(str(self.root / "pkg" / "a.py"))
-        self.assertTrue({2, 5} <= set(lines), lines)
+        # Exactly the union: part 1 runs lines 1, 2 and 5 (the import and a()), part 2 lines 1, 5 and 6 (b()), so
+        # line 6 is there only if the data of part 2 was combined.
+        self.assertEqual(set(lines), {1, 2, 5, 6})
+        self.assertIn("every executed line of every part kept", r.stdout)
         self.assertTrue((self.data / ".coverage.part-1").exists(), "--keep leaves the parts for a second look")
 
     def test_a_missing_part_is_refused(self):
@@ -504,6 +513,21 @@ class TheClosingScriptRefusesEveryLostPart(unittest.TestCase):
         self.assertEqual(r.returncode, 1, r.stdout)
         self.assertIn(".coverage.part-2 names 1 file(s) but holds no executed line", r.stdout)
         self.assertFalse((self.root / ".coverage").exists(), "nothing is combined over a part that measured nothing")
+
+    def test_lines_that_the_combine_drops_are_refused_after_it(self):
+        """Codex pre-run at 69423447: a part file whose lines point at no context passes every check before the
+        combine, and `coverage combine` then drops those lines, so the floor judged fewer lines than the parts
+        measured. After the combine the data the report reads must hold every executed line of every part."""
+        self._part(1, "a")
+        p = self._part(2, "b")
+        con = sqlite3.connect(p)
+        con.execute("UPDATE line_bits SET context_id = 999999")
+        con.commit()
+        con.close()
+        r = self._run()
+        self.assertEqual(r.returncode, 1, r.stdout)
+        self.assertIn("the combined data does not preserve every accepted input measurement", r.stdout)
+        self.assertIn("lines [6]", r.stdout)
 
     def test_a_source_that_is_no_directory_is_a_usage_error(self):
         self._part(1, "a")

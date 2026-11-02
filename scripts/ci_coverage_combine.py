@@ -24,8 +24,10 @@ smaller suite that looks like the whole one, so every way to lose a part fails h
   - two files were written by different versions of coverage, or by another version than this one;
   - no part at all: `--parts` below 1 is a usage error, never a green combine over nothing.
 
-Only then are the files combined (`coverage combine --keep`) into the data file the report reads. The floor
-itself stays the command it always was, on its own line in the workflow, so a reader sees it there.
+Only then are the files combined (`coverage combine --keep`) into the data file the report reads, and that file
+must hold every executed line of every part: data that combine drops (a damaged file whose lines point at no
+context, say) fails here as well, after the combine and before the floor. The floor itself stays the command it
+always was, on its own line in the workflow, so a reader sees it there.
 
 WHAT THESE CHECKS DO NOT SHOW. They validate the artifact names, the coverage writer versions, and that every
 measured file lies in the source. They do not establish which tests produced the data: that every part ran its
@@ -60,14 +62,27 @@ def _writer_version(path: pathlib.Path) -> str:
     return str(row[0])
 
 
-def _measured(path: pathlib.Path) -> tuple[list[str], int]:
-    """The source files the data file names, as coverage recorded them (absolute, symbolic links resolved), and
-    how many executed lines it holds over them."""
+def _executed(data) -> dict[str, set[int]]:
+    """The executed lines of read coverage data, per source file (absolute, symbolic links resolved)."""
+    return {os.path.realpath(f): set(data.lines(f) or ()) for f in data.measured_files()}
+
+
+def _read(path: pathlib.Path) -> dict[str, set[int]]:
     import coverage  # noqa: PLC0415 - the closing job installs coverage, the module is read only here
     data = coverage.CoverageData(basename=str(path))
     data.read()
-    files = sorted(data.measured_files())
-    return files, sum(len(data.lines(f) or ()) for f in files)
+    return _executed(data)
+
+
+def _measured(path: pathlib.Path) -> tuple[list[str], int]:
+    """The source files the data file names and how many executed lines it holds over them."""
+    lines = _read(path)
+    return sorted(lines), sum(len(v) for v in lines.values())
+
+
+def lost_lines(parts: dict[str, set[int]], combined: dict[str, set[int]]) -> dict[str, list[int]]:
+    """The executed lines of the parts that the combined data does not hold, per file. Pure."""
+    return {f: sorted(v - combined.get(f, set())) for f, v in sorted(parts.items()) if v - combined.get(f, set())}
 
 
 def _inside(name: str, root: str) -> bool:
@@ -145,7 +160,21 @@ def main(argv: list[str] | None = None) -> int:
     if r.returncode != 0:
         print(f"::error title=coverage::coverage combine ended with {r.returncode}")
         return 1
-    print(f"coverage: combined the data of {a.parts} of {a.parts} parts")
+    # The data file the report reads, through the same configuration the report uses.
+    report_data = coverage.Coverage()
+    report_data.load()
+    want: dict[str, set[int]] = {}
+    for f in files:
+        for name, lines in _read(pathlib.Path(f)).items():
+            want.setdefault(name, set()).update(lines)
+    lost = lost_lines(want, _executed(report_data.get_data()))
+    if lost:
+        first = next(iter(lost))
+        print(f"::error title=coverage::the combined data does not preserve every accepted input measurement: "
+              f"{sum(len(v) for v in lost.values())} executed line(s) in {len(lost)} file(s) are missing, the first "
+              f"{first!r} lines {lost[first][:10]}")
+        return 1
+    print(f"coverage: combined the data of {a.parts} of {a.parts} parts, every executed line of every part kept")
     return 0
 
 
