@@ -577,9 +577,11 @@ def test_every_description_carries_the_owners_text_word_for_word():
         assert not found[key].endswith(".")
     assert found["7"].startswith(OWNER_TEXTS["7"] + " "), "the README's second paragraph is the owner's text"
     opening = " ".join((PLUGIN / "README.md").read_text(encoding="utf-8").split("\n\n")[1].split())
-    # owner answer A on card OA-d9328036d3 (2026-11-02): after D134 the sentence names the Guard and the Stop hook's limit
-    assert opening.startswith("With proofbundle-guard installed beside this plugin (D134), in a repository whose "
-                              "declaration names a done check, the Stop hook keeps your agent's turn open")
+    # owner answer A on card OA-d9328036d3 (2026-11-02): after D134 the sentence names the Guard and the Stop hook's limit;
+    # owner answer A on card OA-9f20d2ec84 (2026-11-02): and that under Codex the hooks run only once trusted (D13)
+    assert opening.startswith("With proofbundle-guard installed beside this plugin (D134), and under Codex its hooks "
+                              "trusted (D13), in a repository whose declaration names a done check, the Stop hook "
+                              "keeps your agent's turn open")
     assert opening.count(". ") == 0 and "it is an early warning, not a boundary" in opening
     assert opening.endswith(".")
     for key in ("1", "2", "4", "5", "6", "7"):
