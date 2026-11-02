@@ -39,7 +39,7 @@ against the root role's threshold.
 | `expires` | yes | RFC-3339 UTC validity bound (`not_expired` fails closed past it) |
 | `prevVersionDigest` | yes | content-root digest of the previous version, or `null` for the first |
 | `roles` | yes | object including a `root` role; each role = `{keyIds: [...], threshold: int}` |
-| `keys` | yes | non-empty `keyId -> {publicKey[, alg, publicKeyPq]}` map resolving every referenced key id |
+| `keys` | yes | non-empty `keyId -> {publicKey[, alg, publicKeyPq, executorIds]}` map resolving every referenced key id |
 | `nonClaims` | yes | the explicit "this proves only threshold-signing, not honesty" record |
 | `revoked` | optional | offline revocation list of key ids (must be known key ids) |
 
@@ -57,6 +57,13 @@ only the Ed25519 `sig` leg does not satisfy a policy-declared hybrid key — no 
 entry gains a second field for the PQ leg: `{"keyid":, "sig": <classical or single-alg b64>[, "sigPq": <ML-DSA-65
 b64, hybrid only>]}`. The `alg` label lives INSIDE the signed predicate, so it cannot be relabeled without
 invalidating every signature over the pack (no separate alg-confusion surface, unlike a bare JWT `alg` header).
+
+**Executor identifiers (6.6.0).** A `keys[kid]` entry may carry `executorIds`, a non-empty list of distinct
+non-empty strings: the `executor.id` values that key attests in an Action Outcome. `verify_outcome_receipt`
+compares the outcome's `executor.id` with that list for the key named by `executor.keyId` (`executor_id_bound`,
+see `action-outcome.md` §5). One key may attest several identifiers, because an outcome signer may be an observer
+of more than one executor (draft-gruszka-audit-decision-receipts-03, section 3.1). A key entry without
+`executorIds` binds no identifier, and `executor.id` then stays the signer's own statement.
 
 ## 4. Verify path (`verify_trust_pack`)
 

@@ -79,6 +79,18 @@ def test_a_key_without_executor_ids_binds_no_executor_id_and_says_so():
     assert r.get("executor_id_bound") is None, r
 
 
+@pytest.mark.parametrize("executor_ids", [_EXPECTED + "-and-more", [7, _EXPECTED + "x"], {_EXPECTED: True}],
+                         ids=["a-string-holding-the-id", "a-list-with-a-number", "an-object"])
+def test_a_pack_handed_in_with_malformed_executor_ids_trusts_no_executor_id(executor_ids):
+    # verify_outcome_receipt does not validate a pack it is handed; a string here would answer `in` as a
+    # substring test and an object by its keys.
+    pack, _, sk, pub = _pack_and_signer(None)
+    pack["keys"]["kid-exec"]["executorIds"] = executor_ids
+    r = _verify(pack, sk, pub, _EXPECTED)
+    assert r["executor_role_trusted"] is False and r["ok"] is False, r
+    assert r.get("executor_id_bound") is False, r
+
+
 @pytest.mark.parametrize("executor_ids", [[], [""], [7], [_EXPECTED, _EXPECTED], _EXPECTED, None],
                          ids=["empty", "empty-id", "not-a-string", "twice", "a-string", "null"])
 def test_the_pack_validator_refuses_malformed_executor_ids(executor_ids):

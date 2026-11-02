@@ -328,6 +328,24 @@ def _widerrufen(trust_pack: dict, key_id: str) -> bool:
     return key_id in revoked
 
 
+def _attestierte_kennungen(trust_pack: dict, key_id: Any) -> "tuple[str, ...] | None":
+    """The executor identifiers ``trust_pack.keys[key_id].executorIds`` names, as a tuple of plain strings.
+
+    None when the key entry carries no ``executorIds``: the pack binds no identifier to that key, and
+    ``executor.id`` stays the signer's own statement. An ``executorIds`` that is not a list of plain non-empty
+    strings binds nothing (the empty tuple, fail-closed): a pack handed in directly reaches this without
+    ``trust_pack.validate_trust_pack_predicate``, and a string there would answer ``in`` as a substring test.
+    ``trust_pack`` is the plain copy."""
+    keys = trust_pack.get("keys")
+    kv = keys.get(key_id) if isinstance(keys, dict) and type(key_id) is str else None
+    if not isinstance(kv, dict) or "executorIds" not in kv:
+        return None
+    ids = kv["executorIds"]
+    if type(ids) is not list or not all(type(x) is str and x for x in ids):
+        return ()
+    return tuple(ids)
+
+
 @_ein_stand
 def executor_trusted_by_role(executor: Any, trust_pack: dict, *, public_key: Any = None) -> bool:
     """True iff ``executor.keyId`` is a member of ``trust_pack``'s ``outcomeExecutors`` role, is NOT
@@ -603,6 +621,10 @@ def _empty_result() -> dict:
         # unless a trust_pack is supplied (outcomeExecutors role membership); automation/evidence_levels are
         # computed at the end of verify — none of these three change the fields above.
         "executor_role_trusted": None, "executor_key_bound": None, "automation": None, "evidence_levels": None,
+        # 6.6.0 (additive): whether the trust pack's executorIds for executor.keyId name executor.id. None when
+        # no trust_pack is supplied, when the key is not a bound role member, or when the pack names no
+        # executorIds for that key (then executor.id is bound to nothing, and a warning says so).
+        "executor_id_bound": None,
         # Finding 16 (additive): receiver_bound mirrors decision.py's evidence_bound (digest-shape only,
         # None when receiverRefs is absent/empty); receiver_role_trusted is None unless BOTH trust_pack and
         # a non-empty receiverRefs are supplied. Neither is wired into the aggregate `ok` (receiverRefs is
@@ -843,6 +865,11 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
       closed when a pack is supplied without a matching content-bound anchor (``executor_role_trusted`` False,
       ``TRUST_PACK_NOT_ANCHORED``); stays None (not evaluated) when ``trust_pack`` is omitted — the no-trust_pack
       path is fully backward compatible.
+    - ``executor_id_bound`` (6.6.0, additive) — when the executor key is a bound member of ``outcomeExecutors``
+      and the pack's entry for ``executor.keyId`` names ``executorIds``, ``executor.id`` MUST be one of them;
+      otherwise ``executor_id_bound`` is False, ``executor_role_trusted`` is False (``EXECUTOR_ID_NOT_ATTESTED``).
+      A key entry without ``executorIds`` binds no identifier: ``executor_id_bound`` stays None and a warning
+      (``EXECUTOR_ID_NOT_BOUND``) says that ``executor.id`` is the signer's own statement.
 
     Read ``ok`` (or ``crypto_ok``) — never an individual ``*_ok`` alone. On a forged envelope every trust-
     derived field stays None and an error is recorded, so a consumer cannot read a claim about unsigned bytes.
@@ -1159,7 +1186,26 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
             # N43: membership + key-binding is a FACT about the pack; it becomes TRUST only when the relying
             # party has pinned the pack to an anchor (_tp_pinned). Unpinned → not positive (fail-closed).
             _anchored = _tp_pinned is True
-            r["executor_role_trusted"] = bool(_member and _bound and _anchored)
+            # 6.6.0: the key attests only the executor ids the pack names for it (draft-gruszka-audit-decision-
+            # receipts-03 section 3.4 step 5). Before, an anchored executor key could sign under any executor.id
+            # it wrote and each such outcome was trusted. A pack that names no executorIds binds no id: None.
+            if _member and _bound:
+                _ids = _attestierte_kennungen(trust_pack, _ex.get("keyId") if isinstance(_ex, dict) else None)
+                _exid_text = _ex.get("id") if isinstance(_ex, dict) else None
+                if _ids is None:
+                    r["warnings"].append(
+                        "EXECUTOR_ID_NOT_BOUND: the trust pack names no executorIds for executor.keyId, so "
+                        "executor.id is the signer's own statement and is bound to nothing "
+                        "(docs/predicates/action-outcome.md §7)")
+                else:
+                    r["executor_id_bound"] = type(_exid_text) is str and _exid_text in _ids
+                    if not r["executor_id_bound"]:
+                        r["errors"].append(
+                            "EXECUTOR_ID_NOT_ATTESTED: executor.id is not among the executorIds the trust pack "
+                            "names for executor.keyId — the signing key attests only those identifiers "
+                            "(fail-closed)")
+            r["executor_role_trusted"] = bool(_member and _bound and _anchored
+                                              and r["executor_id_bound"] is not False)
             if not _member:
                 r["errors"].append(
                     "executor.keyId is not a non-revoked member of the trust pack's outcomeExecutors role "
@@ -1603,6 +1649,13 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         _blk_kid = r["automation"].setdefault("automationBlockers", [])
         if "KEY_ID_NOT_BOUND_TO_SIGNER" not in _blk_kid:
             _blk_kid.append("KEY_ID_NOT_BOUND_TO_SIGNER")
+        r["automation"]["safeForAutomation"] = False
+    # 6.6.0: the key is the pack's key for executor.keyId, but the pack does not name executor.id among the
+    # executorIds that key attests — the policy dimension already blocks; name WHY.
+    if isinstance(r.get("automation"), dict) and r.get("executor_id_bound") is False:
+        _blk_id = r["automation"].setdefault("automationBlockers", [])
+        if "EXECUTOR_ID_NOT_ATTESTED" not in _blk_id:
+            _blk_id.append("EXECUTOR_ID_NOT_ATTESTED")
         r["automation"]["safeForAutomation"] = False
     # N43: the executor was a bound role member, but the pack was never anchored by the relying party — the
     # policy dimension already blocks (executor_role_trusted is False); name WHY it is not trust, not just POLICY.
