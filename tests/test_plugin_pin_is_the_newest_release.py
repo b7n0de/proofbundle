@@ -197,8 +197,9 @@ def test_control_a_closing_sequence_of_hashes_is_no_part_of_the_heading(tmp_path
     (_HEAD + "\n<span>\n## [7.0.0] - 2026-11-02\n\n## [6.4.0] - 2026-10-27\n", "HTML"),
     (_HEAD + "[7.0.0] - 2026-11-02\n---\n\n## [6.4.0] - 2026-10-27\n", "setext"),
     (_HEAD + "## [6.4.0] - 2026-10-27\n\n[7.0.0] - 2026-11-02\n===\n", "setext"),
+    (_HEAD + "- item\n   ## [7.0.0] - 2026-11-02\n\n## [6.4.0] - 2026-10-27\n", "indent"),
 ], ids=["a comment", "an HTML block of a block tag", "a lone tag after a blank line", "a setext heading with dashes",
-        "a setext heading with equals"])
+        "a setext heading with equals", "an indented heading in a list item"])
 def test_a_block_the_reader_does_not_read_stops_the_case(tmp_path, monkeypatch, text, words):
     """A pre-run of the reading of this pin on main (Codex, P2): a heading line inside an HTML comment was read as a
     release, and a setext heading that renders as a level-two heading was not read at all. CommonMark hides lines in an
