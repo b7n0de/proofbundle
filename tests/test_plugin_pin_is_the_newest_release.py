@@ -308,6 +308,34 @@ def test_any_other_binding_of_a_pin_name_is_found(tmp_path, monkeypatch, planted
         test_the_four_pins_name_one_version()
 
 
+def test_each_tool_is_read_from_its_own_metadata_block(tmp_path, monkeypatch):
+    """A third pre-run of the reading of the pin on main (Codex, P2): the tool headers were counted together, so a second
+    dependency line after the code of _SIGN_TOOL hid a pin `proofbundle ==6.3.0` in the metadata block of _KEY_TOOL. Each
+    tool's pin is the one requirement of its own inline script metadata block."""
+    source = GATE.read_text(encoding="utf-8")
+    header = '# dependencies = ["proofbundle==6.4.0"]'
+    assert source.count(header) == 2 and source.count('keyid=keyid)))\n"""') == 1
+    first = source.index(header) + len(header)
+    planted = (source[:first] + source[first:].replace(header, '# dependencies = ["proofbundle ==6.3.0"]', 1))
+    planted = planted.replace('keyid=keyid)))\n"""', f'keyid=keyid)))\n{header}\n"""')
+    gate = tmp_path / "proofbundle_gate.py"
+    gate.write_text(planted, encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "GATE", gate)
+    with pytest.raises(AssertionError):
+        test_the_four_pins_name_one_version()
+
+
+def test_a_pin_written_with_spaces_or_extras_is_found():
+    """The same pre-run: `proofbundle ==6.3.0` is a valid requirement, and the search for stale pins did not see it."""
+    assert _ANY_PIN.findall("proofbundle ==6.3.0, proofbundle[eval] == 6.2.0") == ["6.3.0", "6.2.0"]
+
+
+def test_control_an_atx_heading_before_a_thematic_break_is_read(tmp_path, monkeypatch):
+    """The same pre-run: a line of dashes after a heading of any level is a thematic break, no setext underline."""
+    _changelog(tmp_path, monkeypatch, "## [Unreleased]\n## [6.4.0] - 2026-10-27\n### Notes\n---\n")
+    assert _newest_release() == "6.4.0"
+
+
 def test_the_four_pins_name_one_version():
     pins = _pins()
     assert [len(pins["server header"]), len(pins["gate PINNED_PROOFBUNDLE"]), len(pins["gate tool headers"])] == [
