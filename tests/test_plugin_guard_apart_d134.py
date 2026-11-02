@@ -189,7 +189,9 @@ def test_the_verifier_reads_the_gates_log_in_the_guards_data_directory(tmp_path,
     guard_id = _data_id(f"{GUARD}@{_json(HOUSE)['name']}")
     data = tmp_path / "plugins" / "data"
     monkeypatch.delenv("PLUGIN_DATA", raising=False)
-    for market in (_json(MARKETPLACE)["name"], "a-fork", "guard-internal"):
+    # guard-inline: proofbundle from it has the directory proofbundle-guard-inline, the name of a Guard loaded with
+    # --plugin-dir; the server still takes it for its own and reads the Guard beside it (pre-run at 8898c53e, P2)
+    for market in (_json(MARKETPLACE)["name"], "a-fork", "guard-internal", "guard-inline"):
         monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(data / _data_id(f"{VERIFY}@{market}")))
         path, source = server._log_path()
         assert path == str(data / guard_id / server.LOG_NAME) and "D134" in source, (market, path, source)
@@ -226,3 +228,9 @@ def test_the_verifier_reads_the_log_of_a_guard_loaded_with_plugin_dir(tmp_path, 
         os.utime(first / server.LOG_NAME, ns=(1_000_000_000, 1_000_000_000))
         os.utime(last / server.LOG_NAME, ns=(2_000_000_000, 2_000_000_000))
         assert server._log_path()[0] == str(last / server.LOG_NAME), (first, last)
+    # a rotated log counts with its time where the current one is older (pre-run at 8898c53e, P2)
+    (inline / (server.LOG_NAME + ".1")).write_text("{}\n", encoding="utf-8")
+    os.utime(inline / server.LOG_NAME, ns=(1_000_000_000, 1_000_000_000))
+    os.utime(house / server.LOG_NAME, ns=(2_000_000_000, 2_000_000_000))
+    os.utime(inline / (server.LOG_NAME + ".1"), ns=(3_000_000_000, 3_000_000_000))
+    assert server._log_path()[0] == str(inline / server.LOG_NAME)
