@@ -5,7 +5,8 @@ Closes the "merged but never released / version drift" class (the M2 security fi
 typo both sat unreleased on main because nothing enforced this). Six checks:
 
   1. VERSION SINGLE-SOURCING: pyproject.toml, src/proofbundle/__init__.py and CITATION.cff MUST agree.
-  2. CHANGELOG DOCUMENTS THE VERSION: the current version has a `## [<version>]` section in CHANGELOG.md.
+  2. CHANGELOG DOCUMENTS THE VERSION: the current version has a `## [<version>]` section in CHANGELOG.md,
+     and that section opens with text before its first subsection (see `check_changelog_opening`).
   3. POST-TAG DRIFT (the M2 catcher): if there are non-trivial commits since the last release tag AND the
      version was NOT bumped past that tag, CHANGELOG.md MUST carry an `## [Unreleased]` section — otherwise
      work is sitting on main undelivered with no changelog trace. Git-gated: skipped (with a note) when git
@@ -474,6 +475,116 @@ def _changelog_headings(repo: Path) -> list[str]:
     return re.findall(r"(?m)^##\s*\[([^\]]+)\]", _read(repo / "CHANGELOG.md"))
 
 
+def check_changelog_opening(repo: Path, version: str) -> list[str]:
+    """The `## [<version>]` section opens with text before its first subsection.
+
+    RELEASE.md asks in its release gate that the CHANGELOG entry says explicitly whether semantics
+    change. Check 2 held only that the heading exists. The dry run of 6.5.0 (finding K6) renamed
+    `## [Unreleased]` to the release heading the way a release preparation does, the heading stood
+    directly over `### Added`, and the gate stayed green.
+
+    WHAT IS HELD, AND WHAT IS NOT. Whether the opening says the right thing about semantics is a
+    reading, not a pattern. What the gate can hold is that the section of the version opens with
+    text at all, as the 6.4.0 entry does. Only the section of the version being released is read:
+    an older section is history, and an `[Unreleased]` block may open with a subsection because it
+    is not an entry yet.
+    """
+    zeilen = _read(repo / "CHANGELOG.md").splitlines()
+    kopf = re.compile(r"^##\s*\[" + re.escape(version) + r"\]")
+    verdeckt = _lines_in_code_or_comments(zeilen)
+    starts = [i for i, zeile in enumerate(zeilen) if i not in verdeckt and kopf.match(zeile)]
+    if not starts:
+        return []                         # check 2 reports the missing section itself
+    if len(starts) > 1:
+        # Which of the sections is the entry cannot be read off; judging the first one passed over the other.
+        return [f"CHANGELOG.md: the `## [{version}]` heading stands twice (lines "
+                f"{', '.join(str(i + 1) for i in starts)}); keep one section for the version."]
+    if _opens_with_a_paragraph(zeilen[starts[0] + 1:]):
+        return []
+    return [f"CHANGELOG.md: the `## [{version}]` section opens with no text before its first "
+            f"subsection or the next heading. RELEASE.md asks the entry to say explicitly whether "
+            f"semantics change; write that opening paragraph above the first `###`."]
+
+
+# CommonMark (0.31.2) and GitHub's table extension, read line by line for the start of a section. A PARAGRAPH IS
+# RECOGNISED FOR WHAT IT IS, not as whatever no other pattern matched: the first form of this check passed a list, a
+# block quote and an HTML block as an opening because none of its five patterns named them (readings of 2026-11-01).
+_THEMATIC_BREAK = re.compile(r"^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$")
+_LINK_REFERENCE = re.compile(
+    r"^ {0,3}\[(?=[^\]]*\S)(?:[^\[\]\\]|\\.){1,999}\]:[ \t]*(?:<[^<>\n]*>|[^\s<]\S*)"
+    r"(?:[ \t]+(?:\"[^\"]*\"|'[^']*'|\([^()]*\)))?[ \t]*$")
+_FENCE_OPEN = re.compile(r"^ {0,3}(?:(`{3,})[^`]*|(~{3,}).*)$")
+_SETEXT_UNDERLINE = re.compile(r"^ {0,3}(?:=+|-+)[ \t]*$")
+_ATX_HEADING = re.compile(r"^ {0,3}#{1,6}(?:\s|$)")
+_BLOCK_QUOTE = re.compile(r"^ {0,3}>")
+_LIST_ITEM = re.compile(r"^ {0,3}(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)")
+_HTML_BLOCK = re.compile(
+    r"^ {0,3}(?:<(?:script|pre|style|textarea)(?:[\s>]|$)|<\?|<![A-Za-z]|<!\[CDATA\["
+    r"|</?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir"
+    r"|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li"
+    r"|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot"
+    r"|th|thead|title|tr|track|ul)(?:[\s/>]|$)"
+    r"|</?[A-Za-z][A-Za-z0-9-]*(?:\s+[^<>]*)?/?>[ \t]*$)", re.IGNORECASE)
+_TABLE_DELIMITER = re.compile(r"^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$")
+
+
+def _fence_closes(zeile: str, zeichen: str, laenge: int) -> bool:
+    """A closing fence: the opening's character, at least as many, and nothing but blanks after them."""
+    return re.match(r"^ {0,3}" + re.escape(zeichen) + "{" + str(laenge) + r",}[ \t]*$", zeile) is not None
+
+
+def _lines_in_code_or_comments(zeilen: list[str]) -> set[int]:
+    """The indices of the lines inside a fenced code block or an HTML comment, fence and comment lines included."""
+    drin: set[int] = set()
+    i, n = 0, len(zeilen)
+    while i < n:
+        zaun = _FENCE_OPEN.match(zeilen[i])
+        if zaun:
+            zeichen = (zaun.group(1) or zaun.group(2))[0]
+            laenge = len(zaun.group(1) or zaun.group(2))
+            j = i + 1
+            while j < n and not _fence_closes(zeilen[j], zeichen, laenge):
+                j += 1
+            drin.update(range(i, min(j, n - 1) + 1))
+            i = j + 1
+            continue
+        if zeilen[i].lstrip().startswith("<!--"):
+            j = i
+            while j < n and "-->" not in zeilen[j]:
+                j += 1
+            drin.update(range(i, min(j, n - 1) + 1))
+            i = j + 1
+            continue
+        i += 1
+    return drin
+
+
+def _opens_with_a_paragraph(zeilen: list[str]) -> bool:
+    """Whether the first block of a section, up to its next heading, is a paragraph.
+
+    Passed over: blank lines, thematic breaks, HTML comments, valid link reference definitions, fenced code with its
+    content (closed by a fence of the same character, at least as long, followed only by blanks) and indented code.
+    The next line that is none of these must START A PARAGRAPH: it may not open a heading, a list item, a block
+    quote, an HTML block or a table, and no setext underline may follow it. A line the definitions above do not take,
+    such as an invalid link reference definition, is paragraph text, as GitHub renders it."""
+    verdeckt = _lines_in_code_or_comments(zeilen)
+    for i, zeile in enumerate(zeilen):
+        if i in verdeckt or not zeile.strip() or _THEMATIC_BREAK.match(zeile) or _LINK_REFERENCE.match(zeile):
+            continue
+        if zeile.startswith(("    ", "\t")):
+            continue                      # indented code: at the start of a section no paragraph runs on into it
+        if (_ATX_HEADING.match(zeile) or _BLOCK_QUOTE.match(zeile) or _LIST_ITEM.match(zeile)
+                or _HTML_BLOCK.match(zeile)):
+            return False
+        folgt = zeilen[i + 1] if i + 1 < len(zeilen) else ""
+        if _SETEXT_UNDERLINE.match(folgt):
+            return False                  # a setext heading ends the opening like an ATX heading
+        if "|" in zeile and "|" in folgt and _TABLE_DELIMITER.match(folgt):
+            return False                  # a table header with its delimiter row
+        return True
+    return False
+
+
 def _git(repo: Path, *args: str) -> tuple[int, str]:
     try:
         r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True, timeout=15)
@@ -575,6 +686,8 @@ def check(repo: Path, nicht_gemessen: list[tuple[int, str]] | None = None) -> li
     if version and version not in headings:
         problems.append(f"CHANGELOG.md has no `## [{version}]` section for the current version "
                         f"(headings seen: {headings[:5]})")
+    elif version:
+        problems.extend(check_changelog_opening(repo, version))
 
     # 3. Post-tag drift (M2 catcher), git-gated
     last_tag_raw, tag_note = _last_release_tag(repo)
