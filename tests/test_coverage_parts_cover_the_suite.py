@@ -82,6 +82,40 @@ RUN_STEP_KEYS = frozenset({"name", "env", "run"})
 PINNED_USES = re.compile(r"^[\w.-]+/[\w./-]+@[0-9a-f]{40}$")
 #: The actions a coverage job may run besides the ones it is held to (upload, download).
 SETUP_ACTIONS = ("actions/checkout", "actions/setup-python")
+#: The inputs each action of the coverage jobs may get. The checkout gets none: a ref, another repository or a
+#: sparse checkout would measure another state than the one the run is for.
+ACTION_INPUTS = {"actions/checkout": frozenset(), "actions/setup-python": frozenset({"python-version"}),
+                 "actions/upload-artifact": frozenset({"name", "path", "include-hidden-files", "if-no-files-found",
+                                                       "retention-days"}),
+                 "actions/download-artifact": frozenset({"pattern", "merge-multiple", "path"})}
+#: The whole of each coverage job: a key outside these (permissions, container, services, outputs) is a finding.
+PART_JOB_KEYS = frozenset({"name", "runs-on", "timeout-minutes", "strategy", "env", "steps"})
+CLOSING_JOB_KEYS = frozenset({"name", "needs", "if", "runs-on", "timeout-minutes", "steps"})
+
+
+def _job_keys(job: dict, allowed: frozenset, reported: frozenset) -> list[str]:
+    found = []
+    for key in sorted(set(job) - allowed - reported):
+        if key == "permissions":
+            found.append("the job sets its own permissions: coverage jobs must not receive write permissions")
+        else:
+            found.append(f"the job carries `{key}`, which a coverage job does not have: it runs exactly as held")
+    return found
+
+
+def _action_inputs(s: dict) -> list[str]:
+    """The keys of a `uses` step and the inputs of its action must be the held ones. Pure."""
+    uses = str(s.get("uses", ""))
+    kind = uses.split("@", 1)[0]
+    name = s.get("name") or uses
+    found = [f"the step {name!r} carries `{k}`" for k in sorted(set(s) - {"name", "uses", "with"})]
+    extra = sorted(set(s.get("with") or {}) - ACTION_INPUTS.get(kind, frozenset()))
+    if kind == "actions/checkout" and extra:
+        found.append(f"the checkout gets {extra}: coverage jobs must check out the current repository at the "
+                     "workflow revision without narrowing the checkout")
+    elif extra:
+        found.append(f"the step {name!r} gives {kind} the input(s) {extra}, which the contract does not hold")
+    return found
 
 
 def _unknown_steps(steps: list, held: list) -> list[str]:
@@ -116,6 +150,9 @@ def _unknown_steps(steps: list, held: list) -> list[str]:
         uses = str(h.get("uses", ""))
         if uses and not PINNED_USES.match(uses):
             found.append(f"the step {h.get('name') or uses!r} uses {uses!r}, not pinned to a commit")
+    for s in steps:
+        if s.get("uses"):
+            found += _action_inputs(s)
     return found
 
 
@@ -157,6 +194,12 @@ def workflow_findings(workflow: dict) -> list[str]:
     for key in sorted(workflow.get("env") or {}):
         if key in HELD_ENV or key.startswith(("PYTEST", "COVERAGE")):
             found.append(f"the workflow env sets {key}, which changes what the parts collect or measure")
+    perm = workflow.get("permissions")
+    if perm is None:
+        found.append("the workflow sets no permissions, so the token has the default of the repository; coverage "
+                     "jobs must not receive write permissions")
+    elif not (perm == "read-all" or (isinstance(perm, dict) and all(v in ("read", "none") for v in perm.values()))):
+        found.append(f"the workflow grants {perm!r}: coverage jobs must not receive write permissions")
     return found
 
 
@@ -199,6 +242,7 @@ def part_findings(job: dict) -> list[str]:
                         "can narrow the collection (PYTEST_ADDOPTS) or move the data")
     if "defaults" in job:
         findings.append("the job carries `defaults`, which changes the shell or directory of every run step")
+    findings += _job_keys(job, PART_JOB_KEYS, frozenset({"if", "continue-on-error", "needs", "defaults"}))
     if k is not None and f"of {k})" not in str(job.get("name") or ""):
         findings.append(f"the name {job.get('name')!r} does not say `of {k}`")
     steps = job.get("steps") or []
@@ -256,6 +300,7 @@ def closing_findings(job: dict, k: "int | None") -> list[str]:
         findings.append("the job carries `defaults`, which changes the shell or directory of every run step")
     for key in sorted(job.get("env") or {}):
         findings.append(f"the closing job env sets {key}, which the check and the floor do not need")
+    findings += _job_keys(job, CLOSING_JOB_KEYS, frozenset({"strategy", "continue-on-error", "defaults", "env"}))
     steps = job.get("steps") or []
     down = [s for s in steps if str(s.get("uses", "")).startswith(DOWNLOAD)]
     w = (down[0].get("with") or {}) if len(down) == 1 else {}
@@ -417,6 +462,11 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
             "a second install step": changed(steps=self._part()["steps"][:2] + [self._part()["steps"][1]]
                                              + self._part()["steps"][2:]),
             "none of the known steps": self._step(self._part(), 1, run="python -m pip install x >> \"$GITHUB_ENV\""),
+            "must not receive write permissions": changed(permissions={"contents": "write"}),
+            "a coverage job does not have": changed(container="ubuntu:latest"),
+            "without narrowing the checkout": self._step(self._part(), 0, **{"with": {"ref": "c8b5b285"}}),
+            "the input(s) ['overwrite']": self._step(self._part(), 5, **{"with": {
+                **self._part()["steps"][5]["with"], "overwrite": True}}),
             "can narrow the collection": changed(env={**self._part()["env"], "PYTEST_ADDOPTS": "--ignore=tests/x.py"}),
             "carries `defaults`": changed(defaults={"run": {"shell": "bash {0}"}}),
             "additional axes repeat parts": matrix(replica=[1, 2]),
@@ -438,12 +488,16 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
     def test_a_workflow_that_changes_how_every_step_runs_is_found(self):
         """Codex pre-run at 6f2b21b1: the shell and the env of a step come from three levels, and the contract
         held the step only. The workflow level is held here, the job and the step level in the two checks."""
-        self.assertEqual(workflow_findings({"jobs": {}}), [])
-        self.assertEqual(workflow_findings({"env": {"FOO": "1"}}), [], "control: an unrelated key is no finding")
-        for words, workflow in {"defaults.run.shell": {"defaults": {"run": {"shell": "bash {0}"}}},
-                                "env sets PYTEST_ADDOPTS": {"env": {"PYTEST_ADDOPTS": "-k x"}},
-                                "env sets COVERAGE_FILE": {"env": {"COVERAGE_FILE": "x"}},
-                                "env sets COVERAGE_CORE": {"env": {"COVERAGE_CORE": "ctrace"}}}.items():
+        read = {"permissions": {"contents": "read"}}
+        self.assertEqual(workflow_findings({**read, "jobs": {}}), [])
+        self.assertEqual(workflow_findings({**read, "env": {"FOO": "1"}}), [], "control: an unrelated key is no finding")
+        for words, workflow in {"defaults.run.shell": {**read, "defaults": {"run": {"shell": "bash {0}"}}},
+                                "env sets PYTEST_ADDOPTS": {**read, "env": {"PYTEST_ADDOPTS": "-k x"}},
+                                "env sets COVERAGE_FILE": {**read, "env": {"COVERAGE_FILE": "x"}},
+                                "env sets COVERAGE_CORE": {**read, "env": {"COVERAGE_CORE": "ctrace"}},
+                                "grants {'contents': 'write'}": {"permissions": {"contents": "write"}},
+                                "grants 'write-all'": {"permissions": "write-all"},
+                                "sets no permissions": {"jobs": {}}}.items():
             with self.subTest(words):
                 found = workflow_findings(workflow)
                 self.assertTrue(any(words in f for f in found), found)
@@ -475,6 +529,10 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
             "run step must not narrow": changed(steps=self._closing()["steps"][:2] + [{"name": "Move", "run": "echo COVERAGE_FILE=elsewhere >> \"$GITHUB_ENV\""}]
                                                + self._closing()["steps"][2:]),
             "download-artifact@v8', not pinned": self._step(self._closing(), 1, uses="actions/download-artifact@v8"),
+            "must not receive write permissions": changed(permissions={"contents": "write"}),
+            "without narrowing the checkout": self._step(self._closing(), 0, **{"with": {"repository": "x/y"}}),
+            "the input(s) ['run-id']": self._step(self._closing(), 1, **{"with": {
+                **self._closing()["steps"][1]["with"], "run-id": "1"}}),
             "carries `defaults`": changed(defaults={"run": {"shell": "bash {0}"}}),
             "closing job env sets COVERAGE_FILE": changed(env={"COVERAGE_FILE": "elsewhere"}),
             "sets COVERAGE_FILE, which": self._step(self._closing(), 2, env={
