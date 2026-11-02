@@ -99,14 +99,21 @@ PART_JOB_KEYS = frozenset({"name", "runs-on", "timeout-minutes", "strategy", "en
 CLOSING_JOB_KEYS = frozenset({"name", "needs", "if", "runs-on", "timeout-minutes", "steps"})
 
 
-#: A reference to a credential in a workflow expression; a coverage job receives none.
-CREDENTIALS = ("secrets.", "github.token")
+#: The workflow expressions the coverage jobs use, and the only ones they may use. A list of forbidden contexts
+#: stays open (`secrets.X`, `secrets['X']`, `toJSON(secrets)`, `github['token']` all name the same), so every
+#: expression anywhere in a job or in the inherited workflow env must be one of these, whitespace aside.
+EXPRESSIONS = frozenset({"matrix.part", "github.workspace", "runner.temp", "needs.coverage-part.result",
+                         "!cancelled()"})
+_EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.S)
 
 
 def _credentials(obj, where: str) -> list[str]:
-    """Every credential reference anywhere in `obj` (a job, a step, an env), whatever key carries it. Pure."""
+    """Every expression anywhere in `obj` (a job, a step, an env) that is none of EXPRESSIONS, whatever key
+    carries it. Pure."""
     text = json.dumps(obj, sort_keys=True, default=str)
-    return [f"{where} refers to {c!r}: coverage jobs receive no secrets" for c in CREDENTIALS if c in text]
+    used = sorted({" ".join(e.split()) for e in _EXPRESSION.findall(text)} - EXPRESSIONS)
+    return [f"{where} uses the expression {e!r}, none of the held ones: coverage jobs receive no secrets and read "
+            "no other context" for e in used]
 
 
 def _job_keys(job: dict, allowed: frozenset, reported: frozenset) -> list[str]:
@@ -496,9 +503,11 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
             "a coverage job does not have": changed(container="ubuntu:latest"),
             "the strategy carries `max-parallel`": changed(strategy={"fail-fast": False, "matrix": {"part": [1, 2]},
                                                                      "max-parallel": 1}),
-            "parts job refers to 'secrets.'": self._step(self._part(), 3, env={
+            "parts job uses the expression 'secrets.X'": self._step(self._part(), 3, env={
                 "CI_PART": "${{ matrix.part }}/2", "TOKEN": "${{ secrets.X }}"}),
-            "parts job refers to 'github.token'": self._step(self._part(), 0, **{"with": {"token": "${{ github.token }}"}}),
+            "parts job uses the expression 'github.token'": self._step(self._part(), 0, **{"with": {
+                "token": "${{ github.token }}"}}),
+            "parts job uses the expression \"github['token']\"": changed(name="coverage part (${{ github['token'] }} of 2)"),
             "without narrowing the checkout": self._step(self._part(), 0, **{"with": {"ref": "c8b5b285"}}),
             "the input(s) ['overwrite']": self._step(self._part(), 5, **{"with": {
                 **self._part()["steps"][5]["with"], "overwrite": True}}),
@@ -533,8 +542,12 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
                                 "grants {'contents': 'write'}": {"permissions": {"contents": "write"}},
                                 "grants 'write-all'": {"permissions": "write-all"},
                                 "sets no permissions": {"jobs": {}},
-                                "workflow env refers to 'secrets.'": {**read, "env": {
-                                    "FOO": "${{ secrets.COVERAGE_TOKEN }}"}}}.items():
+                                "workflow env uses the expression 'secrets.COVERAGE_TOKEN'": {**read, "env": {
+                                    "FOO": "${{ secrets.COVERAGE_TOKEN }}"}},
+                                "workflow env uses the expression \"secrets['X']\"": {**read, "env": {
+                                    "FOO": "${{ secrets['X'] }}"}},
+                                "workflow env uses the expression 'toJSON(secrets)'": {**read, "env": {
+                                    "FOO": "${{ toJSON(secrets) }}"}}}.items():
             with self.subTest(words):
                 found = workflow_findings(workflow)
                 self.assertTrue(any(words in f for f in found), found)
@@ -568,8 +581,9 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
             "download-artifact@v8', not pinned": self._step(self._closing(), 1, uses="actions/download-artifact@v8"),
             "must not receive write permissions": changed(permissions={"contents": "write"}),
             "without narrowing the checkout": self._step(self._closing(), 0, **{"with": {"repository": "x/y"}}),
-            "closing job refers to 'secrets.'": self._step(self._closing(), 2, env={
+            "closing job uses the expression 'secrets.X'": self._step(self._closing(), 2, env={
                 "PARTS_RESULT": "${{ needs.coverage-part.result }}", "T": "${{ secrets.X }}"}),
+            "closing job uses the expression \"secrets['X']\"": changed(**{"timeout-minutes": "${{ secrets['X'] }}"}),
             "the input(s) ['run-id']": self._step(self._closing(), 1, **{"with": {
                 **self._closing()["steps"][1]["with"], "run-id": "1"}}),
             "carries `defaults`": changed(defaults={"run": {"shell": "bash {0}"}}),
