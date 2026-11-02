@@ -363,6 +363,27 @@ def test_control_an_atx_heading_before_a_thematic_break_is_read(tmp_path, monkey
     assert _newest_release() == "6.4.0"
 
 
+def test_control_a_thematic_break_after_indented_code_is_read(tmp_path, monkeypatch):
+    """A fourth pre-run of the reading of the pin on main (Codex, P2): a line of dashes after a line of indented code is a
+    thematic break, since indented code ends no paragraph and starts none (CommonMark 0.31.2, example 115)."""
+    _changelog(tmp_path, monkeypatch, "## [Unreleased]\n## [6.4.0] - 2026-10-27\n\n    x\n---\n\n\tcode\n===\n")
+    assert _newest_release() == "6.4.0"
+
+
+@pytest.mark.parametrize("planted", [
+    'globals()["PINNED_PROOFBUNDLE"] = "0.0.0"\n',
+    'exec("_KEY_TOOL = _KEY_TOOL + \'# changed\'")\n',
+], ids=["through globals()", "through exec"])
+def test_a_pin_rewritten_through_the_module_namespace_is_found(tmp_path, monkeypatch, planted):
+    """The same pre-run (Codex, P2): `globals()["PINNED_PROOFBUNDLE"] = "0.0.0"` binds no name in the syntax tree and
+    changes the pin the gate holds once it is imported. Each of the three names holds its one literal after import."""
+    gate = tmp_path / "proofbundle_gate.py"
+    gate.write_text(GATE.read_text(encoding="utf-8") + "\n" + planted, encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "GATE", gate)
+    with pytest.raises(AssertionError):
+        test_the_four_pins_name_one_version()
+
+
 def test_the_four_pins_name_one_version():
     pins = _pins()
     assert [len(pins["server header"]), len(pins["gate PINNED_PROOFBUNDLE"]), len(pins["gate tool headers"])] == [
