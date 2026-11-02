@@ -613,6 +613,36 @@ def test_a_pin_is_read_as_a_shell_passes_it_on(tmp_path, monkeypatch, written, s
     test_a_pin_is_compared_as_pep_440_reads_it(tmp_path, monkeypatch, written, stale)
 
 
+@pytest.mark.parametrize("name, text, stale", [
+    ("notes.txt", "other\\proofbundle==6.3.0\n", False),
+    ("tool.py", 'NAME = "other\\proofbundle==6.3.0"\n', False),
+    ("tool.py", 'REQUIREMENTS = "click==8\\nproofbundle==6.3.0"\n', True),
+    ("tool.json", '{"requirements": "click==8\\tproofbundle==6.3.0"}\n', True),
+    ("tool.json", '{"requirements": "click==8\\u000aproofbundle==6.3.0"}\n', True),
+    ("tool.py", 'REQUIREMENTS = "click==8\\nproofbundle==6.4.0"\n', False),
+    ("tool.py", 'REQUIREMENTS = "click==8\\\\nproofbundle==6.3.0"\n', False),
+], ids=["a backslash that joins the name to the word before it", "the same inside a string literal",
+        "a newline escape before the name in a Python string", "a tab escape before the name in JSON",
+        "a unicode escape of a newline before the name in JSON", "a newline escape before the newest version",
+        "an escaped backslash before the letter n"])
+def test_the_character_before_the_name_is_read_after_its_escape(tmp_path, monkeypatch, name, text, stale):
+    """The reading of this pull request at its head (P2) and the sweep of its class: which character stands right before
+    proofbundle is decided by the escapes of the file's reader, not by the written text. `other\\proofbundle==6.3.0` is
+    `otherproofbundle` for a shell and keeps its backslash in a string literal, so it pins no proofbundle; in
+    `"click==8\\nproofbundle==6.3.0"` a string literal puts a line end before the name, so it pins 6.3.0."""
+    _changelog(tmp_path, monkeypatch, "## [Unreleased]\n\n## [6.4.0] - 2026-10-27\n")
+    plugin = tmp_path / "plugins" / "proofbundle"
+    plugin.mkdir(parents=True)
+    (plugin / name).write_text(text, encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    monkeypatch.setattr(sys.modules[__name__], "PLUGIN", plugin)
+    if stale:
+        with pytest.raises(AssertionError, match="6.3.0"):
+            test_every_pin_the_plugin_writes_names_that_version()
+    else:
+        test_every_pin_the_plugin_writes_names_that_version()
+
+
 def test_control_a_binary_file_of_the_plugin_is_not_read_for_pins(tmp_path, monkeypatch):
     """A file that holds a NUL byte is no text the plugin writes for a reader, such as a compiled module; the search for
     stale pins leaves it out."""
