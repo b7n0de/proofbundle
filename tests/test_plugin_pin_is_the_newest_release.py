@@ -43,14 +43,16 @@ _DATED = re.compile(r" - (\d{4})-(\d{2})-(\d{2})(?:\s+\(.*\))?\s*")
 #: A pin of proofbundle as a requirement may write it: the name in any case, extras, blanks around == or ===, and a
 #: version with what PEP 440 may append (a third pre-run of the reading of the pin on main, Codex, P2).
 _ANY_PIN = re.compile(r"proofbundle(?:\s*\[[^\]]*\])?\s*===?\s*(\d+(?:\.\d+)*(?:[-_.+!]?[A-Za-z0-9]+)*)", re.IGNORECASE)
-#: The starts of the HTML blocks of CommonMark 0.31.2, types 1 to 6, which may interrupt a paragraph. Lines inside such a
-#: block are no headings, and the reader does not model where a block ends, so a changelog that opens one stops the case.
+#: The starts of the HTML blocks of CommonMark 0.31.2, types 1 to 6, which may interrupt a paragraph; a block tag name of
+#: type 6 ends at a blank, a > or the pair /> (an eighth pre-run of the reading of the pin on main, Codex, P2). Lines inside
+#: such a block are no headings, and the reader does not model where a block ends, so a changelog that opens one stops
+#: the case.
 _HTML_BLOCK = re.compile(
     r" {0,3}(?:<(?:script|pre|style|textarea)(?:[\s>]|$)|<!--|<\?|<![A-Za-z]|<!\[CDATA\["
     r"|</?(?:address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir"
     r"|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li"
     r"|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot"
-    r"|th|thead|title|tr|track|ul)(?:[\s/>]|$))", re.IGNORECASE)
+    r"|th|thead|title|tr|track|ul)(?:\s|/?>|$))", re.IGNORECASE)
 #: A complete open or closing tag in the raw HTML of CommonMark 0.31.2 (section 6.6), in the expression markdown-it 4.2.0
 #: writes in markdown_it/common/html_re.py: an attribute's value may be unquoted or quoted, and a quoted one may hold `>`,
 #: while an `=` without a value makes no tag (a sixth pre-run of the reading of the pin on main, Codex, P2).
@@ -539,11 +541,16 @@ def test_the_pin_is_the_newest_release_the_changelog_records():
 
 
 def test_every_pin_the_plugin_writes_names_that_version():
+    """Every file of the plugin that holds no NUL byte is read, whatever its ending (an eighth pre-run of the reading of
+    the pin on main, Codex, P2: a list of endings left `.yml` unread)."""
     newest = _newest_release()
     stale = []
     for path in sorted(PLUGIN.rglob("*")):
-        if not path.is_file() or path.suffix not in (".py", ".md", ".json", ".sh", ".yaml", ".toml"):
+        if not path.is_file():
             continue
-        text = path.read_text(encoding="utf-8", errors="replace")
+        raw = path.read_bytes()
+        if b"\0" in raw:
+            continue
+        text = raw.decode("utf-8", errors="replace")
         stale += [f"{path.relative_to(ROOT)}: proofbundle=={v}" for v in _ANY_PIN.findall(text) if v != newest]
     assert not stale, (newest, stale)
