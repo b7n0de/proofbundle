@@ -716,7 +716,8 @@ def _string_view(text: str) -> str:
     head): in `"click==8\\nproofbundle==6.3.0"` a line end stands before the name, not the letter n. An escaped backslash
     is one backslash, and a code point beyond Unicode stays as written. Which parts of a file are string literals is not
     read, nor a named escape such as `\\N{...}`. A raw string keeps its escapes and is read as if it did not, and a pin
-    split over adjacent literals that Python joins is read by no view (the reading of the pin at its last round)."""
+    split over adjacent literals that Python joins across a blank or a line end is read by no view; written without a
+    blank, as `"proof""bundle==6.3.0"`, the shell view joins it (the reading of the pin at its last round)."""
     def decoded(escape: re.Match) -> str:
         if escape[1]:
             return escape[1]
