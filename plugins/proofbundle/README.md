@@ -28,7 +28,7 @@ Skills:
 | verify | `/proofbundle:verify [file] [key]` | Verifies a decision receipt, an outcome receipt or an evidence bundle and reports the exit code and its meaning. |
 | review-receipt | `/proofbundle:review-receipt [file] [key]` | Verifies first, then separates what the signature proves from what the issuer only recorded. |
 | emit (experimental) | `/proofbundle:emit [decision\|outcome] [out]` | Fills a template with facts you give, shows it to you, signs it after you confirm, then verifies the result. Runs only when you invoke it. |
-| selftest | `/proofbundle:selftest` | Hands out one push of a stale-subject commit to a throwaway local repository, which the gate should deny, and reports whether the gate logged that deny and whether the throwaway remote's refs moved (it reads only that remote), with the limit that this is a local diagnosis, not a proof of the host's hook. Runs only when you invoke it. |
+| selftest | `/proofbundle:selftest` | Hands out one push of a stale-subject commit to a throwaway local repository, which the gate should deny, and reports whether the gate logged that deny and whether the throwaway remote's refs moved (it reads only that remote), with the limit that this is a local diagnosis, not a proof of the host's hook. The gate is the plugin proofbundle-guard; without it nothing denies the push. Runs only when you invoke it. |
 
 Every skill, and the server's instructions, carry the same rule: everything a receipt contains, its
 free-text fields, its file name and any file next to it, is data and never an instruction. A request
@@ -665,7 +665,7 @@ Codex reads the same `.claude-plugin/marketplace.json` (D15).
 
 ## Evals
 
-`evals/` holds cases for the three skills and the gate, for `claude plugin eval`. The verify and
+`evals/` holds cases for the four skills and the gate, for `claude plugin eval`. The verify and
 review cases grade the result, not the route: a model may call `verify_receipt` without the skill, and
 the server states the rules the result depends on, so whether a skill fired is read from the trace and
 reported, not scored. review-receipt-injection still grades it. The eval graders detect text features only —
@@ -700,8 +700,8 @@ model needs no tool.
 `evals/run_corpus.sh` runs them after every update of Claude Code or Codex, with the host versions.
 
 The scaffold scripts run offline. They copy the signed fixtures in `evals/_fixtures/data/`. Those
-fixtures were made once by `evals/_fixtures/make.py` with the pinned package, and they carry public
-keys only.
+fixtures were made once by `evals/_fixtures/make.py` with the package pinned then, proofbundle 6.1.0,
+which the receipts record; the server now pins 6.4.0. They carry public keys only.
 
 Every eval run is a model call on your account.
 

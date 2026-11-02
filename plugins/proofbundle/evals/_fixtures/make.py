@@ -39,8 +39,8 @@ The tree digest is measured here, from a git repository holding the same covered
 commits (README.md), not typed: the scaffold's repo modes commit README.md and .proofbundle/ only, and
 the digest leaves .proofbundle/ out. The commit and the tree of the done receipts are measured the same
 way, with the gate's own reading of the working state, from a repository holding the files the done modes
-commit, made with the dates the scaffold sets. The pinned package writes no git state into a pytest
-receipt (the release after 6.2.0 does), so the done receipts are built with its claim builder and carry
+commit, made with the dates the scaffold sets. The package these fixtures were made with, 6.1.0,
+writes no git state into a pytest receipt (the release after 6.2.0 does), so the done receipts are built with its claim builder and carry
 the provenance keys that release's pytest receipt writes.
 """
 import base64
