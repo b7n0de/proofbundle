@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import ast
 import datetime
+import importlib.util
 import pathlib
 import re
 import sys
@@ -58,6 +59,8 @@ _SETEXT_UNDERLINE = re.compile(r" {0,3}(?:=+|-+)[ \t]*")
 #: with content, which interrupts a paragraph (an item of another number may continue one, so it counts as text).
 _NO_PARAGRAPH = re.compile(r"[ \t]*| {0,3}(?:#{1,6}(?:[ \t].*)?|(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,}"
                            r"|>.*|[-+*][ \t]+\S.*|1[.)][ \t]+\S.*)")
+#: A line indented by four columns or more, which outside a paragraph is indented code: it ends none and starts none.
+_INDENTED_CODE = re.compile(r" {0,3}\t| {4}")
 
 
 def _headings(text: str) -> list[str]:
@@ -71,31 +74,32 @@ def _headings(text: str) -> list[str]:
     heading (a pre-run of the reading of the pin on main, Codex, P2), and an indented heading or fence, which a list
     item before it may hold (a generator against markdown-it, a second pre-run); indented code, block quotes and list
     items are not read."""
-    found, fence, previous = [], None, ""
+    found, fence, previous, paragraph = [], None, "", False
     for line in _LINE_END.split(text):
         opened = _FENCE.match(line)
         if fence is not None:
             if opened and opened.group(1)[0] == fence[0] and len(opened.group(1)) >= len(fence) \
                     and not line[opened.end():].strip(" \t"):
                 fence = None
-            previous = ""
             continue
         if opened and not (opened.group(1)[0] == "`" and "`" in line[opened.end():]):
             # An indented fence may belong to a list item before it, where it hides no heading after the item.
             assert line[:1] != " ", \
                 f"the changelog indents a fence, which may sit in a list item the pin case does not read: {line!r}"
             fence = opened.group(1)
-            previous = ""
+            paragraph = False
             continue
         assert not _HTML_BLOCK.match(line), f"the changelog opens an HTML block, which the pin case does not read: {line!r}"
         heading = _HEADING.fullmatch(line)
         # An indented heading may belong to a list item before it, where CommonMark nests it; the reader models no list.
         assert not (heading and line[:1] == " "), \
             f"the changelog indents a heading, which may sit in a list item the pin case does not read: {line!r}"
-        assert not (_SETEXT_UNDERLINE.fullmatch(line) and not _NO_PARAGRAPH.fullmatch(previous)), \
+        assert not (_SETEXT_UNDERLINE.fullmatch(line) and paragraph), \
             f"the changelog makes a setext heading of {previous!r}, which the pin case does not read"
         if heading:
             found.append(_CLOSING.sub("", heading.group(1) or "").strip(" \t"))
+        if paragraph or not _INDENTED_CODE.match(line):
+            paragraph = not _NO_PARAGRAPH.fullmatch(line)
         previous = line
     return found
 
@@ -179,14 +183,31 @@ def _script_pin(text: str, where: str) -> str:
     return pins[0].group(1)
 
 
+def _imported_gate():
+    """The gate as its host imports it, under a name of its own; the tests of the gate load it the same way."""
+    spec = importlib.util.spec_from_file_location("_pin_case_gate", GATE)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        del sys.modules[spec.name]
+    return module
+
+
 def _pins() -> dict[str, list[str]]:
     """The four pins. The gate assigns each of PINNED_PROOFBUNDLE, _SIGN_TOOL and _KEY_TOOL exactly once, to a string
     literal (a pre-run of the reading of the pin on main, Codex, P2: a later assignment in other quotes went unseen),
-    and each script's pin is read from its own metadata block."""
+    and each name holds that literal once the gate is imported (a fourth pre-run: a write through globals() binds no
+    name in the syntax tree). Each script's pin is read from its own metadata block."""
     gate = _assigned_strings(GATE.read_text(encoding="utf-8"), ("PINNED_PROOFBUNDLE", "_SIGN_TOOL", "_KEY_TOOL"))
     for name, values in gate.items():
         assert len(values) == 1 and values[0] is not None, \
             f"the gate assigns {name} {len(values)} time(s), and the pin is one string literal assigned once: {values}"
+    imported = _imported_gate()
+    for name, values in gate.items():
+        assert getattr(imported, name, None) == values[0], \
+            f"the gate holds another {name} once imported than the literal it assigns: {getattr(imported, name, None)!r}"
     return {"server header": [_script_pin(SERVER.read_text(encoding="utf-8"), "server/proofbundle_mcp.py")],
             "gate PINNED_PROOFBUNDLE": gate["PINNED_PROOFBUNDLE"],
             "gate tool headers": [_script_pin(gate[name][0], name) for name in ("_SIGN_TOOL", "_KEY_TOOL")]}
@@ -340,11 +361,12 @@ def test_each_tool_is_read_from_its_own_metadata_block(tmp_path, monkeypatch):
     dependency line after the code of _SIGN_TOOL hid a pin `proofbundle ==6.3.0` in the metadata block of _KEY_TOOL. Each
     tool's pin is the one requirement of its own inline script metadata block."""
     source = GATE.read_text(encoding="utf-8")
-    header = '# dependencies = ["proofbundle==6.4.0"]'
-    assert source.count(header) == 2 and source.count('keyid=keyid)))\n"""') == 1
-    first = source.index(header) + len(header)
-    planted = (source[:first] + source[first:].replace(header, '# dependencies = ["proofbundle ==6.3.0"]', 1))
-    planted = planted.replace('keyid=keyid)))\n"""', f'keyid=keyid)))\n{header}\n"""')
+    tools = _assigned_strings(source, ("_SIGN_TOOL", "_KEY_TOOL"))
+    sign, key = tools["_SIGN_TOOL"][0], tools["_KEY_TOOL"][0]
+    header = re.search(r'^# dependencies = \["proofbundle==[^"]*"\]$', sign, re.M).group(0)
+    assert source.count(sign) == source.count(key) == 1 and header in key
+    planted = source.replace(key, key.replace(header, '# dependencies = ["proofbundle ==0.0.0"]', 1))
+    planted = planted.replace(sign, sign + header + "\n")
     gate = tmp_path / "proofbundle_gate.py"
     gate.write_text(planted, encoding="utf-8")
     monkeypatch.setattr(sys.modules[__name__], "GATE", gate)
