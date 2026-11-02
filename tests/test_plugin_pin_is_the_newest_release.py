@@ -45,8 +45,10 @@ _DATED = re.compile(r" - (\d{4})-(\d{2})-(\d{2})(?:\s+\(.*\))?\s*")
 #: version with what PEP 440 may append (a third pre-run of the reading of the pin on main, Codex, P2); no character of
 #: a PEP 508 name stands right before it, so the pin of another package ending in proofbundle is none (a tenth pre-run).
 #: The version may open with a v, which PEP 440 drops (an eleventh pre-run); the operator and a closing wildcard are read
-#: with it, since they decide which releases the pin admits (a twelfth pre-run).
-_ANY_PIN = re.compile(r"(?<![A-Za-z0-9._-])proofbundle(?:\s*\[[^\]]*\])?\s*(?P<operator>===?)\s*"
+#: with it, since they decide which releases the pin admits (a twelfth pre-run). A backslash right before the name is no
+#: border either: a shell joins the name to the word before it, and a string literal keeps the backslash (the reading
+#: of the pull request at its head, P2).
+_ANY_PIN = re.compile(r"(?<![A-Za-z0-9._\\-])proofbundle(?:\s*\[[^\]]*\])?\s*(?P<operator>===?)\s*"
                       r"(?P<version>[vV]?\d+(?:\.\d+)*(?:[-_.+!]?[A-Za-z0-9]+)*)(?P<wildcard>\.\*)?", re.IGNORECASE)
 #: The starts of the HTML blocks of CommonMark 0.31.2, types 1 to 6, which may interrupt a paragraph; a block tag name of
 #: type 6 ends at a blank, a > or the pair /> (an eighth pre-run of the reading of the pin on main, Codex, P2). Lines inside
@@ -701,6 +703,28 @@ def _shell_view(text: str) -> str:
     return "".join(out)
 
 
+#: An escape of a string literal as Python, JSON, TOML and YAML in double quotes write it: a quote or a backslash, a
+#: letter for a control character, an octal code of Python, or a code point in hex.
+_STRING_ESCAPE = re.compile(r"""\\(?:(["'\\])|([abfnrtv])|([0-7]{1,3})|x([0-9A-Fa-f]{2})|u([0-9A-Fa-f]{4})"""
+                            r"|U([0-9A-Fa-f]{8}))")
+_CONTROL = {"a": "\a", "b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t", "v": "\v"}
+
+
+def _string_view(text: str) -> str:
+    """The text as a string literal reads its escapes (the sweep of the class of the reading of the pull request at its
+    head): in `"click==8\\nproofbundle==6.3.0"` a line end stands before the name, not the letter n. An escaped backslash
+    is one backslash, and a code point beyond Unicode stays as written. Which parts of a file are string literals is not
+    read, nor a named escape such as `\\N{...}`."""
+    def decoded(escape: re.Match) -> str:
+        if escape[1]:
+            return escape[1]
+        if escape[2]:
+            return _CONTROL[escape[2]]
+        point = int(escape[3], 8) if escape[3] else int(escape[4] or escape[5] or escape[6], 16)
+        return chr(point) if point <= 0x10FFFF else escape[0]
+    return _STRING_ESCAPE.sub(decoded, text)
+
+
 def _names(pin: re.Match, newest: str) -> bool:
     """Whether a pin admits the newest release and no other, as packaging reads its specifier: `==v6.4.0` and `==6.4`
     name 6.4.0 (an eleventh pre-run of the reading of the pin on main, Codex, P2), a wildcard admits more than one release,
@@ -716,8 +740,8 @@ def _names(pin: re.Match, newest: str) -> bool:
 
 def test_every_pin_the_plugin_writes_names_that_version():
     """Every file of the plugin that holds no NUL byte is read, whatever its ending (an eighth pre-run of the reading of
-    the pin on main, Codex, P2: a list of endings left `.yml` unread), as written and as a shell passes it on (a
-    fourteenth pre-run)."""
+    the pin on main, Codex, P2: a list of endings left `.yml` unread), as written, as a shell passes it on (a
+    fourteenth pre-run) and as a string literal reads its escapes (the reading of the pull request at its head)."""
     newest = _newest_release()
     stale = []
     for path in sorted(PLUGIN.rglob("*")):
@@ -727,6 +751,6 @@ def test_every_pin_the_plugin_writes_names_that_version():
         if b"\0" in raw:
             continue
         text = raw.decode("utf-8", errors="replace")
-        found = [pin for view in (text, _shell_view(text)) for pin in _ANY_PIN.finditer(view)]
+        found = [pin for view in (text, _shell_view(text), _string_view(text)) for pin in _ANY_PIN.finditer(view)]
         stale += dict.fromkeys(f"{path.relative_to(ROOT)}: {pin.group(0)}" for pin in found if not _names(pin, newest))
     assert not stale, (newest, stale)
