@@ -62,11 +62,12 @@ _HTML_TYPE7 = re.compile(r" {0,3}(?:<[A-Za-z][A-Za-z0-9-]*" + _ATTRIBUTE + r"*\s
 #: A line of = or - after a line of text makes that text a setext heading, which the reader does not read.
 _SETEXT_UNDERLINE = re.compile(r" {0,3}(?:=+|-+)[ \t]*")
 #: A line that interrupts a paragraph or ends it: a blank line, an ATX heading of any level, a thematic break, a block
-#: quote, a bullet item with content, or an ordered item numbered 1 with content (an item of another number, or an empty
-#: one, cannot interrupt a paragraph). Fences and HTML blocks of types 1 to 6 interrupt one too; the reader handles them
-#: before it asks.
+#: quote, a bullet item with content, or an ordered item numbered 1 with content, in up to nine digits with leading zeros
+#: (an item of another number, or an empty one, cannot interrupt a paragraph; a seventh pre-run of the reading of the
+#: pin on main, Codex, P2). Fences and HTML blocks of types 1 to 6 interrupt one too; the reader handles them before it
+#: asks.
 _NO_PARAGRAPH = re.compile(r"[ \t]*| {0,3}(?:#{1,6}(?:[ \t].*)?|(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,}"
-                           r"|>.*|[-+*][ \t]+\S.*|1[.)][ \t]+\S.*)")
+                           r"|>.*|[-+*][ \t]+\S.*|0{0,8}1[.)][ \t]+\S.*)")
 #: A blank line, an ATX heading or a thematic break: none of them holds a paragraph.
 _BLANK_HEADING_OR_BREAK = re.compile(r"[ \t]*| {0,3}(?:#{1,6}(?:[ \t].*)?|(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}"
                                      r"|(?:_[ \t]*){3,})")
