@@ -765,14 +765,19 @@ _V01_REQUIRED_SUITE = ("name", "version")
 
 def _eval_result_v01_member_forms(predicate: dict) -> list:
     """(label, reason) for each member of a v0.1 predicate whose form the claim rule does not judge: `verifier` an
-    object carrying `verifier.id` as a string, `suite` carrying both `name` and `version`, and `subjectProfile`
-    one of `SUBJECT_PROFILES` (docs/IN_TOTO_PROFILE.md, the v0.1 table). An absent member is the reason of
-    `_eval_result_v01_statement_claim_fields`, and a `suite` that is no object stays the claim rule's reason.
+    object carrying `verifier.id` as a string, `suite` carrying both `name` and `version`, `subjectProfile`
+    one of `SUBJECT_PROFILES` (docs/IN_TOTO_PROFILE.md, the v0.1 table), and `claims` carrying at least one claim.
+    An absent member is the reason of `_eval_result_v01_statement_claim_fields`, and a `suite` or `claims` that is
+    no object or array stays the claim rule's reason.
 
     Measured on main b55d736d: a signed v0.1 statement verified ok=True and `proofbundle intoto --verify` printed
     PASS with `verifier` {} or a string, with `verifier.id` 5, with `suite` lacking `name` or `version`, and with
-    `subjectProfile` 7 or "bogus_profile"."""
+    `subjectProfile` 7 or "bogus_profile". The same held for `claims` [], by the owner's choice of 2026-10-31 an
+    eval-result v0.1 statement claims something, as v0.2 requires one or more claims."""
     gruende: list = []
+    claims = predicate.get("claims")
+    if isinstance(claims, list) and not claims:
+        gruende.append(("predicate claims", "must carry at least one claim, got an empty array"))
     if "verifier" in predicate:
         verifier = predicate["verifier"]
         if not isinstance(verifier, dict):
