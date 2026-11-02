@@ -80,6 +80,12 @@ RUN_STEP_KEYS = frozenset({"name", "env", "run"})
 
 #: An action pinned to a commit, the form tests/test_pr_form_gate_in_ci.py holds for its own workflow.
 PINNED_USES = re.compile(r"^[\w.-]+/[\w./-]+@[0-9a-f]{40}$")
+#: The one install line of each job, word for word. It decides which pytest plugins a part collects with, so an
+#: added package or a command substitution in it changes what a part measures; a change of the dependencies of
+#: either job therefore changes this contract on purpose.
+INSTALL_PARTS = ('python -m pip install -e ".[dev,pq,anchors,eval]" coverage pytest pytest-xdist==3.8.0 '
+                 'pytest-cov==7.1.0')
+INSTALL_CLOSING = "python -m pip install coverage"
 #: The actions a coverage job may run besides the ones it is held to (upload, download).
 SETUP_ACTIONS = ("actions/checkout", "actions/setup-python")
 #: The inputs each action of the coverage jobs may get. The checkout gets none: a ref, another repository or a
@@ -118,11 +124,12 @@ def _action_inputs(s: dict) -> list[str]:
     return found
 
 
-def _unknown_steps(steps: list, held: list) -> list[str]:
-    """Every step that is none of the held steps, an installed package list or a pinned checkout or setup-python.
-    A step before the suite can change its environment for the steps after it through GITHUB_ENV or GITHUB_PATH,
-    whatever the declared env says, so a step of an unknown kind is a finding, an action as well as a run step;
-    the one install step may not write there. Each known kind appears once. Pure."""
+def _unknown_steps(steps: list, held: list, install: str) -> list[str]:
+    """Every step that is none of the held steps, the install line `install` word for word or a pinned checkout
+    or setup-python. A step before the suite can change its environment for the steps after it through GITHUB_ENV
+    or GITHUB_PATH, whatever the declared env says, so a step of an unknown kind is a finding, an action as well as
+    a run step. The install line is compared whole, not searched for forbidden words: a command substitution or a
+    name put together at run time passes any such list. Each known kind appears once. Pure."""
     found, seen = [], set()
     for s in steps:
         if any(s is h for h in held):
@@ -136,9 +143,12 @@ def _unknown_steps(steps: list, held: list) -> list[str]:
                 continue
             if not PINNED_USES.match(uses):
                 found.append(f"the step {s.get('name') or uses!r} uses {uses!r}, not pinned to a commit")
-        elif (run.startswith("python -m pip install ") and "\n" not in run
-              and not any(w in run for w in ("GITHUB_ENV", "GITHUB_PATH", ">", ";", "&", "|", "$("))):
+        elif run == install:
             kind = "install"
+        elif run.startswith("python -m pip install"):
+            found.append(f"the install step runs {run!r}, not {install!r}: an install step must not execute command "
+                         "substitutions that change the environment of later steps, and installs nothing else")
+            continue
         else:
             found.append(f"the step {s.get('name') or run!r} is none of the known steps: a run step must not "
                          "narrow the following suite through GITHUB_ENV")
@@ -274,7 +284,7 @@ def part_findings(job: dict) -> list[str]:
     if len(keep) == 1 and len(up) == 1 and not steps.index(suite[0]) < steps.index(keep[0]) < steps.index(up[0]):
         findings.append("the part does not run the suite, keep its data and upload it, in that order")
     held = [suite[0]] + [s for s in steps if str(s.get("run", "")).strip() == BUILD][:1] + keep[:1] + up[:1]
-    findings += _unknown_steps(steps, held)
+    findings += _unknown_steps(steps, held, INSTALL_PARTS)
     for s in steps:
         name = s.get("name") or s.get("uses") or s.get("run")
         for key in ("if", "continue-on-error"):
@@ -313,7 +323,7 @@ def closing_findings(job: dict, k: "int | None") -> list[str]:
         return findings + [f"expected one closing step, found {len(close)}"]
     if len(down) == 1 and not steps.index(down[0]) < steps.index(close[0]):
         findings.append("the closing job does not download the data before the closing step")
-    findings += _unknown_steps(steps, close[:1] + down[:1])
+    findings += _unknown_steps(steps, close[:1] + down[:1], INSTALL_CLOSING)
     run = str(close[0].get("run", ""))
     lines = [x.strip() for x in run.strip().splitlines()]
     expected = (f"python scripts/ci_coverage_combine.py --data-dir {DATA_DIR} --parts {k} "
@@ -389,7 +399,7 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
                         "COVERAGE_CORE": "sysmon"},
                 "strategy": {"fail-fast": False, "matrix": {"part": [1, 2]}},
                 "steps": [{"uses": "actions/checkout@" + PIN},
-                          {"name": "Install", "run": "python -m pip install -e .[dev]"},
+                          {"name": "Install", "run": INSTALL_PARTS},
                           {"name": "Build", "run": BUILD},
                           {"name": "Suite", "env": {"CI_PART": "${{ matrix.part }}/2"}, "run": SUITE},
                           {"name": "Keep", "run": "\n".join(KEEP) + "\n"},
@@ -461,7 +471,11 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
             "upload-artifact@v7', not pinned": self._step(self._part(), 5, uses="actions/upload-artifact@v7"),
             "a second install step": changed(steps=self._part()["steps"][:2] + [self._part()["steps"][1]]
                                              + self._part()["steps"][2:]),
-            "none of the known steps": self._step(self._part(), 1, run="python -m pip install x >> \"$GITHUB_ENV\""),
+            "none of the known steps": self._step(self._part(), 1, run="echo PYTEST_ADDOPTS=-k x >> \"$GITHUB_ENV\""),
+            "not execute command substitutions": self._step(self._part(), 1, run=INSTALL_PARTS + " `python -c \"open("
+                                                            "__import__('os').environ['GITHUB'+'_ENV'],'a').write("
+                                                            "'PYTEST_ADDOPTS=-k smoke\\n')\"`"),
+            "installs nothing else": self._step(self._part(), 1, run=INSTALL_PARTS + " pytest-randomly"),
             "must not receive write permissions": changed(permissions={"contents": "write"}),
             "a coverage job does not have": changed(container="ubuntu:latest"),
             "without narrowing the checkout": self._step(self._part(), 0, **{"with": {"ref": "c8b5b285"}}),
