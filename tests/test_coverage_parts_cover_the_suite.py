@@ -15,13 +15,15 @@ contract therefore
   1. reads both jobs: the parts are 1 to K, nothing is included or excluded, no part may fail or be skipped
      silently, every part runs the declared call with `<part>/K`, requires the Rust verifier and sysmon, and
      uploads its data under its own name; the closing job needs the parts, runs on their failure, downloads
-     their data merged into the one directory the closing script reads, checks K parts and holds the floor;
+     their data merged into the one directory the closing script reads, checks K parts and holds the floor.
+     Every run block the contract holds is compared line for line, and no run step carries a `shell` or a
+     `working-directory`, so a held line cannot sit in a branch that never runs;
   2. collects the whole suite once and checks that the plugin's assignment puts every collected item in exactly
      one of the K parts and leaves no part empty. That the collection hook keeps exactly the assigned items is
      held by tests/test_ci_test_parts_cover_the_suite.py (ThePluginKeepsExactlyItsFiles), which runs the plugin
      for real; every part runs that same plugin through the call SUITE below;
   3. runs the closing script as a program on real coverage data: K sound parts combine, and every way to lose
-     a part is refused before the floor, zero parts included.
+     a part is refused before the floor, zero parts and data of files outside the measured source included.
 """
 from __future__ import annotations
 
@@ -61,6 +63,29 @@ DOWNLOAD = "actions/download-artifact@"
 FLOOR = "python -m coverage report -m --fail-under=83"
 #: The directory the closing job downloads the parts into and the closing script reads.
 DATA_DIR = "coverage-data"
+#: The directory the suite measures (`--cov` of SUITE); every measured file of every part must lie in it.
+SOURCE = "src/proofbundle"
+#: The step that keeps a part's data, line for line, and where it puts the file the part uploads.
+KEEP = ("set -euo pipefail", "test -s .coverage", 'mkdir -p "$RUNNER_TEMP/coverage-data"',
+        'cp .coverage "$RUNNER_TEMP/coverage-data/.coverage.part-${{ matrix.part }}"')
+KEPT = "${{ runner.temp }}/coverage-data/.coverage.part-${{ matrix.part }}"
+#: What a run step may carry besides `if` and `continue-on-error` (found on their own): a `shell` or a
+#: `working-directory` changes what its lines do.
+RUN_STEP_KEYS = frozenset({"name", "env", "run"})
+
+
+def _lines(step: dict) -> list[str]:
+    return [x.strip() for x in str(step.get("run", "")).strip().splitlines()]
+
+
+def _run_step_keys(steps: list) -> list[str]:
+    found = []
+    for s in steps:
+        if "run" in s:
+            for key in sorted(set(s) - RUN_STEP_KEYS - {"if", "continue-on-error"}):
+                found.append(f"the step {s.get('name') or s.get('run')!r} carries `{key}`, which changes what "
+                             "its lines do")
+    return found
 
 
 def _ci_jobs() -> dict:
@@ -112,20 +137,21 @@ def part_findings(job: dict) -> list[str]:
     if BUILD not in runs or runs.index(BUILD) > steps.index(suite[0]):
         findings.append("the Rust verifier is not built before the suite")
     keep = [s for s in steps if ".coverage.part-${{ matrix.part }}" in str(s.get("run", ""))]
-    if len(keep) != 1 or "test -s .coverage" not in str(keep[0].get("run", "")):
-        findings.append("no step keeps the part's data under `.coverage.part-<part>` after checking it is not empty")
+    if len(keep) != 1 or _lines(keep[0]) != list(KEEP):
+        findings.append("no step keeps the part's data under `.coverage.part-<part>` after checking it is not empty, "
+                        "line for line")
     up = [s for s in steps if str(s.get("uses", "")).startswith(UPLOAD)]
     w = (up[0].get("with") or {}) if len(up) == 1 else {}
     if (len(up) != 1 or w.get("name") != "coverage-part-${{ matrix.part }}" or w.get("include-hidden-files") is not True
-            or w.get("if-no-files-found") != "error" or ".coverage.part-${{ matrix.part }}" not in str(w.get("path"))):
-        findings.append("the part does not upload its data as coverage-part-<part>, hidden file included, "
+            or w.get("if-no-files-found") != "error" or w.get("path") != KEPT):
+        findings.append("the part does not upload the file it kept as coverage-part-<part>, hidden file included, "
                         "and failing when there is none")
     for s in steps:
         name = s.get("name") or s.get("uses") or s.get("run")
         for key in ("if", "continue-on-error"):
             if key in s:
                 findings.append(f"the step {name!r} carries `{key}`, and every part needs every step")
-    return findings
+    return findings + _run_step_keys(steps)
 
 
 def closing_findings(job: dict, k: "int | None") -> list[str]:
@@ -154,17 +180,17 @@ def closing_findings(job: dict, k: "int | None") -> list[str]:
     run = str(close[0].get("run", ""))
     lines = [x.strip() for x in run.strip().splitlines()]
     expected = (f"python scripts/ci_coverage_combine.py --data-dir {DATA_DIR} --parts {k} "
-                '--result "$PARTS_RESULT"')
+                f'--result "$PARTS_RESULT" --source {SOURCE}')
     if k is None or not lines or lines[0] != expected:
         findings.append(f"the closing step does not run {expected!r} first")
-    if FLOOR not in lines or lines.index(FLOOR) == 0:
-        findings.append(f"the floor {FLOOR!r} does not follow the check")
+    if lines[1:] != [FLOOR]:
+        findings.append(f"the floor {FLOOR!r} does not follow the check as the one other line")
     if (close[0].get("env") or {}).get("PARTS_RESULT") != "${{ needs.coverage-part.result }}":
         findings.append("PARTS_RESULT is not the result of the matrix coverage-part")
     for s in steps:
         if "continue-on-error" in s or "if" in s:
             findings.append(f"the step {s.get('name') or s.get('uses')!r} carries `if` or `continue-on-error`")
-    return findings
+    return findings + _run_step_keys(steps)
 
 
 @unittest.skipIf(yaml is None, "PyYAML is missing, so the workflow cannot be read")
@@ -220,10 +246,10 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
                           {"name": "Install", "run": "python -m pip install -e .[dev]"},
                           {"name": "Build", "run": BUILD},
                           {"name": "Suite", "env": {"CI_PART": "${{ matrix.part }}/2"}, "run": SUITE},
-                          {"name": "Keep", "run": "test -s .coverage\ncp .coverage x/.coverage.part-${{ matrix.part }}"},
+                          {"name": "Keep", "run": "\n".join(KEEP) + "\n"},
                           {"name": "Up", "uses": UPLOAD + "x",
                            "with": {"name": "coverage-part-${{ matrix.part }}", "include-hidden-files": True,
-                                    "if-no-files-found": "error", "path": "x/.coverage.part-${{ matrix.part }}"}}]}
+                                    "if-no-files-found": "error", "path": KEPT}}]}
 
     def _closing(self) -> dict:
         return {"needs": ["coverage-part"], "if": "${{ !cancelled() }}",
@@ -232,7 +258,7 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
                            "with": {"pattern": "coverage-part-*", "merge-multiple": True, "path": DATA_DIR}},
                           {"name": "Close", "env": {"PARTS_RESULT": "${{ needs.coverage-part.result }}"},
                            "run": "python scripts/ci_coverage_combine.py --data-dir coverage-data --parts 2 "
-                                  '--result "$PARTS_RESULT"\n' + FLOOR + "\n"}]}
+                                  f'--result "$PARTS_RESULT" --source {SOURCE}\n' + FLOOR + "\n"}]}
 
     def _step(self, job: dict, index: int, **changes) -> dict:
         job = json.loads(json.dumps(job))
@@ -279,6 +305,11 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
                                                                      "if-no-files-found": "error",
                                                                      "path": "x/.coverage.part-${{ matrix.part }}"}}),
             "every part needs every step": self._step(self._part(), 5, **{"if": "always()"}),
+            "line for line": self._step(self._part(), 4, run="if false; then\n" + "\n".join(KEEP) + "\nfi\n"),
+            "changes what its lines do": self._step(self._part(), 4, shell="bash {0}"),
+            "upload the file it kept": self._step(self._part(), 5, **{"with": {
+                "name": "coverage-part-${{ matrix.part }}", "include-hidden-files": True, "if-no-files-found": "error",
+                "path": "${{ runner.temp }}/other/.coverage.part-${{ matrix.part }}"}}),
             "one suite step": changed(steps=[]),
         }
         for words, job in cases.items():
@@ -304,6 +335,11 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
                 "pattern": "coverage-part-*", "merge-multiple": True, "path": "data"}}),
             "--parts 2": self._step(self._closing(), 2, run=close["run"].replace("--parts 2", "--parts 1")),
             "does not follow": self._step(self._closing(), 2, run=close["run"].replace(FLOOR, "true")),
+            "as the one other line": self._step(self._closing(), 2,
+                                                run=close["run"].replace(FLOOR, "if false; then\n" + FLOOR + "\nfi")),
+            "--source src/proofbundle": self._step(self._closing(), 2,
+                                                   run=close["run"].replace(f" --source {SOURCE}", "")),
+            "changes what its lines do": self._step(self._closing(), 2, shell="bash {0}"),
             "PARTS_RESULT": self._step(self._closing(), 2, env={"PARTS_RESULT": "success"}),
             "`if` or `continue-on-error`": self._step(self._closing(), 2, **{"continue-on-error": True}),
             "one closing step": changed(steps=[]),
@@ -339,9 +375,23 @@ class TheClosingScriptRefusesEveryLostPart(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         return out
 
-    def _run(self, parts: int = 2, result: str = "success") -> subprocess.CompletedProcess:
+    def _run(self, parts: int = 2, result: str = "success", source: str = "pkg") -> subprocess.CompletedProcess:
         return subprocess.run([sys.executable, str(COMBINE), "--data-dir", str(self.data), "--parts", str(parts),
-                               "--result", result], cwd=self.root, capture_output=True, text=True, timeout=120)
+                               "--result", result, "--source", source], cwd=self.root, capture_output=True, text=True,
+                              timeout=120)
+
+    def _foreign(self, n: int, include: str) -> pathlib.Path:
+        """The data of one part that measured `other/b.py`, a file outside the source pkg (and pkg/a.py when
+        `include` names it too): real coverage data, the right name, the running version."""
+        (self.root / "other").mkdir(exist_ok=True)
+        (self.root / "other" / "b.py").write_text("def b():\n    return 2\n", encoding="utf-8")
+        (self.root / "drive_other.py").write_text(
+            "import sys\nsys.path[:0] = ['pkg', 'other']\nimport a, b\na.a()\nb.b()\n", encoding="utf-8")
+        out = self.data / f".coverage.part-{n}"
+        r = subprocess.run([sys.executable, "-m", "coverage", "run", f"--data-file={out}", f"--include={include}",
+                            "drive_other.py"], cwd=self.root, capture_output=True, text=True, timeout=120)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        return out
 
     def test_sound_parts_combine_into_the_union_of_their_lines(self):
         self._part(1, "a")
@@ -409,6 +459,29 @@ class TheClosingScriptRefusesEveryLostPart(unittest.TestCase):
         r = self._run()
         self.assertEqual(r.returncode, 1, r.stdout)
         self.assertIn(".coverage.part-3 is no part's data file", r.stdout)
+
+    def test_data_of_files_outside_the_source_is_refused(self):
+        """Codex pre-run at 06c2cb6b: seven sound data files that measured only a foreign file combined, and the
+        floor judged 100 % over it. The old check passed this; a part that measured a file outside the source is
+        refused now, alone and next to files of the source, and nothing is combined."""
+        for include in ("other/*", "pkg/*,other/*"):
+            with self.subTest(include=include):
+                self._part(1, "a")
+                self._foreign(2, include)
+                r = self._run()
+                self.assertEqual(r.returncode, 1, r.stdout)
+                self.assertIn(".coverage.part-2 measured 1 file(s) outside pkg", r.stdout)
+                self.assertIn("b.py", r.stdout)
+                self.assertFalse((self.root / ".coverage").exists(), "nothing is combined over foreign data")
+        self._part(2, "b")
+        self.assertEqual(self._run().returncode, 0, "control: the same parts inside the source combine")
+
+    def test_a_source_that_is_no_directory_is_a_usage_error(self):
+        self._part(1, "a")
+        self._part(2, "b")
+        r = self._run(source="no_such_dir")
+        self.assertEqual(r.returncode, 2, r.stdout)
+        self.assertIn("--source no_such_dir is no directory", r.stdout)
 
     def test_data_of_another_coverage_version_is_refused(self):
         self._part(1, "a")

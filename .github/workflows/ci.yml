@@ -634,9 +634,10 @@ jobs:
   coverage:
     # THE COVERAGE VERDICT OVER ALL PARTS, under the name the jobs `mutation` and `all-checks-passed` need.
     # It fails when the matrix coverage-part did not succeed, when a part's data is missing, empty, measured no
-    # file or was written by another version of coverage, and when there is no part at all; only then does it
-    # combine the data and hold the floor (scripts/ci_coverage_combine.py). `!cancelled()`: a job with `needs`
-    # and no such guard is skipped when a part fails, and a skipped job is not red.
+    # file, measured a file outside src/proofbundle or was written by another version of coverage, and when there
+    # is no part at all; only then does it combine the data and hold the floor (scripts/ci_coverage_combine.py).
+    # `!cancelled()`: a job with `needs` and no such guard is skipped when a part fails, and a skipped job is not
+    # red.
     needs: [coverage-part]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
@@ -659,7 +660,7 @@ jobs:
         env:
           PARTS_RESULT: ${{ needs.coverage-part.result }}
         run: |
-          python scripts/ci_coverage_combine.py --data-dir coverage-data --parts 7 --result "$PARTS_RESULT"
+          python scripts/ci_coverage_combine.py --data-dir coverage-data --parts 7 --result "$PARTS_RESULT" --source src/proofbundle
           python -m coverage report -m --fail-under=83
 
   crypto-floor:

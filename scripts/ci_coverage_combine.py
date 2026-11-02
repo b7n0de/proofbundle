@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """The closing step of the CI job `coverage`: check the data of every part, then combine it.
 
-    python scripts/ci_coverage_combine.py --data-dir coverage-data --parts 7 --result "$PARTS_RESULT"
+    python scripts/ci_coverage_combine.py --data-dir coverage-data --parts 7 --result "$PARTS_RESULT" \
+        --source src/proofbundle
     python -m coverage report -m --fail-under=83
 
 WHY. Owner choice of 2026-11-02 (order DELTA-COVERAGE-IN-TEILEN-01): `coverage` ran the whole suite on one
@@ -17,11 +18,18 @@ smaller suite that looks like the whole one, so every way to lose a part fails h
   - the matrix did not succeed (`--result` is anything but `success`: failure, cancelled, skipped, empty);
   - a part's file is missing, or a file is there that no part writes;
   - a file is empty, is no coverage data, or measured no file at all;
+  - a file measured a file outside `--source`, the directory the suite measures (`--cov=src/proofbundle`): data
+    of another checkout or of another source is not the measure of this suite, and the floor would judge it;
   - two files were written by different versions of coverage, or by another version than this one;
   - no part at all: `--parts` below 1 is a usage error, never a green combine over nothing.
 
 Only then are the files combined (`coverage combine --keep`) into the data file the report reads. The floor
 itself stays the command it always was, on its own line in the workflow, so a reader sees it there.
+
+WHAT THESE CHECKS DO NOT SHOW. They validate the artifact names, the coverage writer versions, and that every
+measured file lies in the source. They do not establish which tests produced the data: that every part ran its
+share of the suite is held where the share is made, by the part plugin and its contract
+(tests/test_ci_test_parts_cover_the_suite.py).
 
 The contract over this script and over the two jobs is tests/test_coverage_parts_cover_the_suite.py.
 Exit 0 combined, 1 refused, 2 usage error.
@@ -29,6 +37,7 @@ Exit 0 combined, 1 refused, 2 usage error.
 from __future__ import annotations
 
 import argparse
+import os
 import pathlib
 import sqlite3
 import subprocess
@@ -50,15 +59,20 @@ def _writer_version(path: pathlib.Path) -> str:
     return str(row[0])
 
 
-def _measured(path: pathlib.Path) -> int:
-    """How many source files the data file measured."""
+def _measured(path: pathlib.Path) -> list[str]:
+    """The source files the data file measured, as coverage recorded them (absolute, symbolic links resolved)."""
     import coverage  # noqa: PLC0415 - the closing job installs coverage, the module is read only here
     data = coverage.CoverageData(basename=str(path))
     data.read()
-    return len(data.measured_files())
+    return sorted(data.measured_files())
 
 
-def check(data_dir: pathlib.Path, parts: int, result: str, running_version: str) -> list[str]:
+def _inside(name: str, root: str) -> bool:
+    """Whether a measured file lies in the source directory `root` (both absolute, links resolved)."""
+    return os.path.realpath(name).startswith(root + os.sep)
+
+
+def check(data_dir: pathlib.Path, parts: int, result: str, running_version: str, source: pathlib.Path) -> list[str]:
     """Every reason not to combine; empty means the data of all `parts` parts is there and sound."""
     if parts < 1:
         return [f"--parts {parts}: zero parts are never a combined coverage"]
@@ -72,6 +86,7 @@ def check(data_dir: pathlib.Path, parts: int, result: str, running_version: str)
     for name in sorted(present - expected):
         problems.append(f"{name} is no part's data file (expected {NAME.format(part='1')} to "
                         f"{NAME.format(part=parts)})")
+    root = os.path.realpath(source)
     versions = {}
     for name in sorted(expected & present, key=lambda n: int(n.rsplit("-", 1)[1])):
         path = data_dir / name
@@ -80,14 +95,17 @@ def check(data_dir: pathlib.Path, parts: int, result: str, running_version: str)
             continue
         try:
             versions[name] = _writer_version(path)
-            n = _measured(path)
+            files = _measured(path)
         except Exception as exc:  # noqa: BLE001 - any unreadable file is a refused part, never a crash
             problems.append(f"{name} is not readable coverage data: {type(exc).__name__}: {exc}")
             continue
-        if n == 0:
+        outside = [f for f in files if not _inside(f, root)]
+        if not files:
             problems.append(f"{name} measured no file")
+        elif outside:
+            problems.append(f"{name} measured {len(outside)} file(s) outside {source}, the first {outside[0]!r}")
         else:
-            print(f"{name}: {n} files measured, written by coverage {versions[name]}")
+            print(f"{name}: {len(files)} files measured in {source}, written by coverage {versions[name]}")
     for name, version in sorted(versions.items()):
         if version != running_version:
             problems.append(f"{name} was written by coverage {version}, this job runs {running_version}")
@@ -99,12 +117,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--data-dir", required=True, type=pathlib.Path)
     ap.add_argument("--parts", required=True, type=int)
     ap.add_argument("--result", required=True, help="needs.coverage-part.result of the closing job")
+    ap.add_argument("--source", required=True, type=pathlib.Path,
+                    help="the directory the suite measures (--cov), relative to the checkout; every measured file "
+                         "of every part must lie in it")
     a = ap.parse_args(argv)
     if a.parts < 1:
         print(f"::error title=coverage::--parts {a.parts}: zero parts are never a combined coverage")
         return 2
+    if not a.source.is_dir():
+        print(f"::error title=coverage::--source {a.source} is no directory of this checkout")
+        return 2
     import coverage  # noqa: PLC0415
-    problems = check(a.data_dir, a.parts, a.result.strip(), coverage.__version__)
+    problems = check(a.data_dir, a.parts, a.result.strip(), coverage.__version__, a.source)
     if problems:
         for p in problems:
             print(f"::error title=coverage::{p}")
