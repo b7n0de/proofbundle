@@ -277,9 +277,15 @@ def _members(pairs: list[tuple[str, object]]) -> dict:
     return dict(pairs)
 
 
+def _no_constant(name: str) -> object:
+    """parse_constant of every JSON reader here: json.loads takes NaN, Infinity and -Infinity, which are no JSON (line
+    3 of the reading of 11cf1963), so a file with one of them is refused as not JSON."""
+    raise ValueError(f"{name} is no JSON value")
+
+
 def json_text(text: str, path: str) -> object:
     try:
-        return json.loads(text, object_pairs_hook=_members)
+        return json.loads(text, object_pairs_hook=_members, parse_constant=_no_constant)
     except DuplicateMember as exc:
         raise CheckFailed(f"{path}: {exc}") from exc
     except ValueError as exc:
@@ -786,7 +792,7 @@ def sha256(data: bytes) -> str:
 
 
 def statement_bytes(obj: dict) -> bytes:
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("ascii")
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False).encode("ascii")
 
 
 def sums_bytes(a2_name: str, a2_sha: str, a1_name: str, a1_sha: str) -> bytes:
@@ -981,7 +987,8 @@ def cmd_verify(args: argparse.Namespace) -> int:
                     "no sound Ed25519 trust anchor")
     say("check S1 verifies over the exact A2 bytes")
     try:
-        obj = json.loads(a2)
+        # the generator's strict reader (no NaN or Infinity, no member twice), as json.dumps would write NaN back
+        obj = json.loads(a2, object_pairs_hook=_members, parse_constant=_no_constant)
     except ValueError:
         return fail("A2 is not JSON")
     if statement_bytes(obj) != a2:

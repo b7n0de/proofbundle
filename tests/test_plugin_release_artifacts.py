@@ -279,6 +279,24 @@ class SplitChecks(Base):
         self.assertEqual(twice.count('"version"'), 2)
         self.split_refused(lambda f: f.__setitem__(G + "/.claude-plugin/plugin.json", twice), "duplicate member")
 
+    def test_s1c2_a_json_file_with_nan_or_infinity_is_refused(self):
+        """Line 3 of the reading of 11cf1963: json.loads takes NaN and Infinity, which are no JSON, so an invalid
+        marketplace or manifest was checked and archived. Every JSON reader of the generator refuses them."""
+        for name, value in (("nan", "NaN"), ("infinity", "Infinity"), ("minus infinity", "-Infinity")):
+            with self.subTest(name=name):
+                files = split_files()
+                files[".claude-plugin/marketplace.json"] = files[".claude-plugin/marketplace.json"].replace(
+                    '"description": "fixture"', f'"description": {value}', 1)
+                sub = self.tmp / name.replace(" ", "_")
+                sub.mkdir()
+                repo, commit = make_repo(sub, files)
+                out = sub / "out"
+                proc = build(repo, commit, out)
+                self.assertEqual(proc.returncode, 1, text(proc))
+                self.assertFalse(out.exists() and any(out.iterdir()), "a refused build wrote artifacts")
+                failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
+                self.assertTrue(failed and "not JSON" in failed[0], failed)
+
     def test_s1c_a_marketplace_member_named_twice_is_refused(self):
         """The same reader for every JSON file the generator checks: a house marketplace whose name is written twice."""
         twice = marketplace("proofbundle-house", [("proofbundle-guard", "./")]).replace(
@@ -893,6 +911,20 @@ class SignatureChain(Base):
             data[-2] = ord("1") if data[-2] != ord("1") else ord("2")
             self.a2.write_bytes(bytes(data))
         self._expect_fail()
+
+    def test_v2b_a2_with_nan_signed_by_the_key_fails_as_not_json(self):
+        """The neighbour of line 3 of the reading of 11cf1963 in the verify step: json.loads took NaN and json.dumps
+        wrote it back, so an A2 with NaN read as canonical. The verify step reads A2 with the generator's strict reader;
+        A2 is re-signed here so that only the reading decides."""
+        if self.build_proc.returncode == 0:
+            obj = json.loads(self.a2.read_bytes())
+            obj["schema"] = float("nan")
+            data = json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("ascii")
+            self.assertIn(b"NaN", data)
+            self.a2.write_bytes(data)
+            self.s1.write_bytes(sign(self.key, data))
+        self._expect_fail()
+        self.assertIn("A2 is not JSON", text(self.verify()))
 
     def test_v3_other_a1_fails(self):
         if self.build_proc.returncode == 0:
