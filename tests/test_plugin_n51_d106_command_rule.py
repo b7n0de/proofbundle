@@ -17,6 +17,7 @@ from __future__ import annotations
 import time
 
 import pytest
+from _owner_state import owner_state_protected  # noqa: F401 - D124: a person's hook record is read
 
 import test_plugin_n29_work_profile_d71 as d71
 from _plugin_env import plugin_env

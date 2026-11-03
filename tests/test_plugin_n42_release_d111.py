@@ -31,6 +31,7 @@ import sys
 import time
 
 import pytest
+from _owner_state import owner_state_protected  # noqa: F401 - D124: a person's release is read
 
 import _gate_answer as ga
 import test_plugin_n29_work_profile_d71 as d71
@@ -246,7 +247,7 @@ def _hook(repo, env, command, flag=True):
     event = {"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": str(repo), "session_id": SESSION,
              "tool_use_id": "toolu_d111", "tool_input": {"command": command}}
     keep = ("PATH", "HOME", "LC_ALL", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "PROOFBUNDLE_GATE_DIR",
-            "CLAUDE_PLUGIN_DATA", "CLAUDE_CODE_SESSION_ID")
+            "CLAUDE_PLUGIN_DATA", "CLAUDE_CODE_SESSION_ID", "PROOFBUNDLE_OWNER_STATE")
     proc, entry = ga.run_hook([sys.executable, "-I", gate.__file__, "--host", "claude",
                                *([gate.AUTONOMOUS_FLAG] if flag else [])], json.dumps(event),
                               {k: os.environ[k] for k in keep}, cwd=str(repo))

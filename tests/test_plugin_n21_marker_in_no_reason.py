@@ -346,6 +346,7 @@ def test_N21_no_reason_of_a_local_done_order_names_the_repository_git_directory_
     question O21-4 of the delivery)."""
     (tmp_path / "done").mkdir()
     env, keys = d.env.__wrapped__(tmp_path / "done"), d.Keys(tmp_path)
+    env["PROOFBUNDLE_OWNER_STATE"] = "protected"   # D128: a hook reads a person's local done order only with it
     clone = tmp_path / f"{MARK}-repo"
     clone.mkdir()
     d._git(clone, "init", "-q", "-b", "main")

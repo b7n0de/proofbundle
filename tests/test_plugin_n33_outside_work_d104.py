@@ -31,6 +31,7 @@ import os
 import time
 
 import pytest
+from _owner_state import owner_state_protected  # noqa: F401 - D124: a person's work folders are read
 
 import test_plugin_n30_short_line_d72 as d72
 

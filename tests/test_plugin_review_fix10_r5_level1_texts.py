@@ -18,7 +18,7 @@ import re
 PLUGIN = pathlib.Path(__file__).resolve().parents[1] / "plugins" / "proofbundle"
 DECISIONS = (PLUGIN / "DECISIONS.md").read_text(encoding="utf-8")
 README = (PLUGIN / "README.md").read_text(encoding="utf-8")
-GATE_SOURCE = (PLUGIN / "hooks" / "proofbundle_gate.py").read_text(encoding="utf-8")
+GATE_SOURCE = (PLUGIN.parent / "proofbundle-guard" / "hooks" / "proofbundle_gate.py").read_text(encoding="utf-8")
 
 
 def _flat(text: str) -> str:

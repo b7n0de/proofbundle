@@ -12,6 +12,7 @@ import pathlib
 import pytest
 
 import test_plugin_gate_push_destination_18 as g18
+from _owner_state import owner_state_protected  # noqa: F401 - D124: a person's transport approval is read
 
 pytestmark = g18.pytestmark
 _clean_git_environment = g18._clean_git_environment

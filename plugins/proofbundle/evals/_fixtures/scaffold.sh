@@ -36,7 +36,8 @@
 set -euo pipefail
 mode="$1"
 data="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/data"
-gate="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/hooks/proofbundle_gate.py"
+# The gate of the Guard, in its own folder beside this plugin since D134 moved the programs out of the verifier.
+gate="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/proofbundle-guard/hooks/proofbundle_gate.py"
 # Level 2 and, where the operator gave an absolute PROOFBUNDLE_GATE_DIR, the approvals of D35. A scaffold never writes
 # a gate directory it was not given: the user's own one stays untouched.
 level2_and_approval() {

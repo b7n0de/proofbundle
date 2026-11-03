@@ -16,6 +16,7 @@ Run with git 2.43.0 and GNU bash 5.2.
 from __future__ import annotations
 
 import pathlib
+import shlex
 import shutil
 import subprocess
 import time
@@ -234,15 +235,19 @@ def test_CONTROL_a_program_the_gate_does_not_know_with_git_text_stays_asked(env,
     assert decision in ("ask", "deny"), (decision, reasons)
 
 
-def test_D39_the_heredoc_python_form_of_q18_1_is_judged_as_the_file_form(env, tmp_path):
+def test_D39_D126_the_heredoc_python_form_of_q18_1_gets_the_answer_of_its_c_form(env, tmp_path):
     """The form the prototype of version 1 freed (Q18-1): asked from d828c2be to d6e248a8 (answer 9, an interpreter
-    whose here-document names git or gh asks at least). Since D39 (owner choice of follow-up note 14, part 1) the body of a
-    here-document to python with a quoted marker is the interpreter's input, and the command gets the answer of
-    `python3 file.py`, which the gate does not gate. The `-c` forms of Q18-1 still ask (test_RED_code_that_names_git_
-    asks_at_least)."""
+    whose here-document names git or gh asks at least). D39 (owner choice of follow-up note 14, part 1) read the body of a
+    here-document to python with a quoted marker as the interpreter's input, and the command got the answer of
+    `python3 file.py`, which the gate does not gate. Since D126 (finding 2 of review package -1) a body that names git or
+    gh is judged as the same text given as the `-c` argument, which asks like the `-c` forms of Q18-1
+    (test_RED_code_that_names_git_asks_at_least); a body that names neither keeps the answer of D39."""
     work = _repo(tmp_path)
-    command = "python3 - <<'PY'\nfrom pathlib import os\nos.system('git push origin main')\nPY"
-    assert _decide(work, command, env) == _decide(work, "python3 file.py", env) == (None, [])
+    body = "from pathlib import os\nos.system('git push origin main')\n"
+    decision, reasons = _decide(work, "python3 - <<'PY'\n" + body + "PY", env)
+    assert (decision, reasons) == _decide(work, "python3 -c " + shlex.quote(body), env)
+    assert decision == "ask" and "code_names_git" in reasons, (decision, reasons)
+    assert _decide(work, "python3 - <<'PY'\nprint(1)\nPY", env) == _decide(work, "python3 file.py", env) == (None, [])
 
 
 WRITES = {

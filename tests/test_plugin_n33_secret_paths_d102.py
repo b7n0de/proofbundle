@@ -29,7 +29,9 @@ gate = d72.gate
 pytestmark = d72.pytestmark
 _clean = d72._clean
 HOSTS = ("claude", "codex")
-HOOKS = os.path.join(os.path.dirname(gate.__file__), "hooks.json")
+#: The house's hooks, the plugin proofbundle-guard beside the verifier (D134).
+HOOKS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(gate.__file__)))),
+                     "proofbundle-guard", "hooks", "hooks.json")
 SECRETS = os.path.join(os.path.dirname(gate.__file__), "proofbundle_secrets.py")
 
 

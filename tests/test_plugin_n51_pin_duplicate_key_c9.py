@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 
 import pytest
+from _owner_state import owner_state_protected  # noqa: F401 - D124: a person's pin is read
 
 import test_plugin_n29_work_profile_d71 as d71
 import test_plugin_n46_pinned_state_d114_d115 as d114

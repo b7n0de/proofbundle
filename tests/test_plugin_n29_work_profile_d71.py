@@ -11,6 +11,10 @@ RED at c8e1e8d7 (the head of Teil A of follow-up note 28): the free forms (FREE,
 note of D71 in an ask and the unit rows of _work_form). The counter cases (KEEP), the repositories D71 does not apply to
 and the answers under Codex are controls, green at both. The gh the gate checks is a script that answers `--version` as
 gh 2.89.0 does and records any other start; no case reaches a network.
+
+Since D130 (owner answer 10 of Nachtrag 7) D71 applies only in the gate started with --autonomous, the house's opt-in:
+the cases here judge with the flag (decide with autonomous, the hook of Claude Code with --autonomous). Without it the
+forms keep the answer of the gate without D71, tests/test_plugin_work_profile_house_d130.py.
 """
 from __future__ import annotations
 
@@ -150,7 +154,8 @@ def _command(form: str, repo: pathlib.Path, tmp_path: pathlib.Path) -> str:
 
 
 def _decide(repo: pathlib.Path, command: str, host: str = "claude"):
-    out = gate.decide(command, str(repo), time.monotonic() + 60, host)
+    """decide() of the gate started with --autonomous, the house's opt-in, the only one D71 applies in (D130)."""
+    out = gate.decide(command, str(repo), time.monotonic() + 60, host, autonomous=True)
     return (None, []) if out is None else (out.decision, [v.reason_id for v in out.verdicts])
 
 
@@ -238,7 +243,7 @@ def _hook(repo: pathlib.Path, name: str, where: pathlib.Path | None = None) -> N
 def test_D71_a_hook_the_form_runs_keeps_the_ask_and_the_text_names_d71(tmp_path):
     repo = _repo(tmp_path)
     _hook(repo, "pre-commit")
-    out = gate.decide("git commit --amend --no-edit", str(repo), time.monotonic() + 60, "claude")
+    out = gate.decide("git commit --amend --no-edit", str(repo), time.monotonic() + 60, "claude", autonomous=True)
     assert out.decision == "ask" and "free_work_profile" not in [v.reason_id for v in out.verdicts]
     assert "The work profile frees git commit in this repository only where its check finds nothing" in out.text
     assert "pre-commit" in out.text and "(DECISIONS.md D71)" in out.text
@@ -350,13 +355,15 @@ def test_D71_control_a_gh_whose_version_the_gate_has_not_measured(tmp_path):
 @pytest.mark.parametrize("host, expected", [("claude", None), ("codex", "deny")])
 def test_D71_the_hook_as_the_host_runs_it(tmp_path, host, expected):
     """The whole hook path, `python -I gate --host <host>` with the event on stdin: `gh pr merge --auto` of the owner's
-    word gets no answer under Claude Code (a pass is silent, D53) and is denied under Codex."""
+    word gets no answer under Claude Code with --autonomous, the house's opt-in D71 applies in (D130; a pass is silent,
+    D53), and is denied under Codex, whose manifest carries no flag."""
     repo = _repo(tmp_path)
     event = json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": str(repo),
                         "tool_input": {"command": "gh pr merge 12 -R b7n0de/proofbundle --auto --merge"}})
     env = {k: os.environ[k] for k in ("PATH", "HOME", "LC_ALL", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM",
                                       "PROOFBUNDLE_GATE_DIR")}
-    proc, entry = ga.run_hook([sys.executable, "-I", gate.__file__, "--host", host], event, env, cwd=str(repo))
+    flag = ["--autonomous"] if host == "claude" else []
+    proc, entry = ga.run_hook([sys.executable, "-I", gate.__file__, "--host", host, *flag], event, env, cwd=str(repo))
     answer = ga.parsed(proc, entry)
     assert proc.returncode == 0, proc.stderr
     if expected is None:

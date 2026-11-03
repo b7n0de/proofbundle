@@ -20,6 +20,7 @@ import itertools
 import json
 
 import pytest
+from _owner_state import owner_state_protected  # noqa: F401 - D124: a person's release is read
 
 import test_plugin_z405_key_signer as ks
 import test_plugin_z405_observer as o
@@ -147,7 +148,7 @@ def test_a_release_answered_at_a_leap_second_is_not_read(tmp_path):
         (folder / f"r{n}.json").write_text(json.dumps({"schema": gate.RELEASE_SCHEMA, "karte": f"OA-{n:010d}",
                                                        "sitzung": "s1", "sha256": "a" * 64, "antwort": answered}),
                                            encoding="utf-8")
-    found = gate._releases({"PROOFBUNDLE_GATE_DIR": str(tmp_path)})
+    found = gate._releases({"PROOFBUNDLE_GATE_DIR": str(tmp_path), gate.OWNER_STATE_VARIABLE: gate.OWNER_STATE_PROTECTED})
     assert [r["antwort"] for r in found] == ["2026-10-24T12:00:59Z"], found
 
 

@@ -37,7 +37,7 @@ from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "proofbundle"
-GATE = PLUGIN / "hooks" / "proofbundle_gate.py"
+GATE = ROOT / "plugins" / "proofbundle-guard" / "hooks" / "proofbundle_gate.py"
 CI = PLUGIN / "ci"
 WORKFLOW = CI / "proofbundle-evidence.yml"
 CODEOWNERS = CI / "CODEOWNERS.template"
@@ -45,7 +45,7 @@ CODEOWNERS = CI / "CODEOWNERS.template"
 _bytecode, sys.dont_write_bytecode = sys.dont_write_bytecode, True
 sys.path.insert(0, str(GATE.parent))
 from _gate_answer import skip_where_the_gate_is_not_shipped  # noqa: E402
-skip_where_the_gate_is_not_shipped(pathlib.Path(__file__).resolve().parent.parent / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py",
+skip_where_the_gate_is_not_shipped(pathlib.Path(__file__).resolve().parent.parent / "plugins" / "proofbundle-guard" / "hooks" / "proofbundle_gate.py",
                                    pathlib.Path(__file__).resolve().parent.parent)
 import proofbundle_gate as gate  # noqa: E402
 
@@ -323,7 +323,7 @@ def test_the_workflow_template_takes_the_requirement_from_its_caller():
     assert "git tag --list 'v*' --contains" in tag_step["run"] and "exit 1" in tag_step["run"]
     last = runs[-1]
     assert last["env"] == {"REQUIRE_DECLARATION": "${{ inputs.require-declaration }}"}
-    assert "gate/plugins/proofbundle/hooks/proofbundle_gate.py ci-check" in last["run"]
+    assert "gate/plugins/proofbundle-guard/hooks/proofbundle_gate.py ci-check" in last["run"]
     assert '--repo checked --require-declaration "$REQUIRE_DECLARATION"' in last["run"]
     assert "python -I " in last["run"], "review N4: the gate runs isolated in CI too"
     assert "${{" not in "".join(s["run"] for s in runs), "inputs reach the shell through env only"
@@ -424,6 +424,6 @@ def test_the_done_job_checks_a_receipt_made_in_ci_for_the_tree_under_review():
     assert 'PROOFBUNDLE_RECEIPT_DIR="$RUNNER_TEMP/done"' in tests["run"]   # one receipt per check (review F3)
     assert 'rm -f "$RUNNER_TEMP/done/key"' in tests["run"] and "umask 077" in tests["run"]
     last = runs[-1]
-    assert "gate/plugins/proofbundle/hooks/proofbundle_gate.py done-check --repo checked" in last["run"]
+    assert "gate/plugins/proofbundle-guard/hooks/proofbundle_gate.py done-check --repo checked" in last["run"]
     assert "python -I " in last["run"]
 

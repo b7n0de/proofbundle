@@ -25,7 +25,9 @@ import test_plugin_fetch_github_profile as f
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / "plugins" / "proofbundle"
-FILES = sorted(p for p in PLUGIN.rglob("*.py") if "__pycache__" not in p.parts)
+#: D134: the gate programs live in the Guard's folder; its files are the plugin's code as well.
+GUARD = ROOT / "plugins" / "proofbundle-guard"
+FILES = sorted(p for folder in (PLUGIN, GUARD) for p in folder.rglob("*.py") if "__pycache__" not in p.parts)
 gate = f.gate
 SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
 
@@ -87,18 +89,19 @@ def module_bindings(tree: ast.Module) -> dict[str, list[int]]:
 
 
 def test_the_plugin_has_python_files_to_read():
-    names = {p.relative_to(PLUGIN).as_posix() for p in FILES}
-    assert {"hooks/proofbundle_gate.py", "server/proofbundle_mcp.py", "pilot/signer_service.py"} <= names, names
+    names = {p.relative_to(ROOT / "plugins").as_posix() for p in FILES}
+    assert {"proofbundle-guard/hooks/proofbundle_gate.py", "proofbundle/server/proofbundle_mcp.py",
+            "proofbundle/pilot/signer_service.py"} <= names, names
 
 
-@pytest.mark.parametrize("path", FILES, ids=lambda p: p.relative_to(PLUGIN).as_posix())
+@pytest.mark.parametrize("path", FILES, ids=lambda p: p.relative_to(ROOT / "plugins").as_posix())
 def test_no_name_is_bound_twice_at_module_level(path):
     twice = {name: lines for name, lines in module_bindings(ast.parse(path.read_text(encoding="utf-8"))).items()
              if len(lines) > 1}
     assert twice == {}, twice
 
 
-@pytest.mark.parametrize("path", FILES, ids=lambda p: p.relative_to(PLUGIN).as_posix())
+@pytest.mark.parametrize("path", FILES, ids=lambda p: p.relative_to(ROOT / "plugins").as_posix())
 def test_no_function_rebinds_a_module_level_name(path):
     found = [(node.lineno, node.names) for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
              if isinstance(node, ast.Global)]
