@@ -339,6 +339,20 @@ def test_the_observer_names_no_stored_bytes_for_a_merge():
         ("github.merge", f"https://github.com/{REPO}/pull/279", None)
 
 
+def test_a_merge_that_equals_by_its_surface_an_allowed_and_a_refused_merge_decision_is_ambiguous():
+    """The reading of 4f210e72: a merge equals by its surface two merge decisions of the target, one ALLOW and one
+    DENY. It is `ambiguous` as section 5 says, takes the earliest decided of them and counts under M6, since one of them
+    was refused."""
+    allowed = _view("a-" + "2" * 32 + "#1", "github.merge", hashlib.sha256(b"{}").hexdigest(), "2026-11-03T17:20:00Z")
+    refused = _view("a-" + "2" * 32 + "#2", "github.merge", hashlib.sha256(b"{}").hexdigest(), "2026-11-03T17:21:00Z",
+                    verdict="DENY")
+    result = o.pr.match([_effect("github.merge", None, "2026-11-03T17:22:00Z")], [allowed, refused], AGENTS, WINDOW)
+    (row,) = result["rows"]
+    assert row["decision"] == allowed["decisionId"]
+    assert row["ambiguous_with"] == sorted([allowed["decisionId"], refused["decisionId"]])
+    assert (row["refused"], result["M6"], result["M5"]) == (True, 1, 0)
+
+
 def test_the_observer_reads_no_merge_from_the_event_shape_of_2026_11_03_a_named_limit():
     """The limit D135 names, pinned so that a fix of the observer changes it knowingly (the reading of 87d27057): the
     events API listed a PullRequestEvent with a pull_request of base, head, id, number and url only, without `merged`.

@@ -6783,7 +6783,10 @@ The rule:
   read "reconciled" by the empty bytes. The pre-run of the paid reading then found that a retried merge, two merge
   decisions of one verdict, still fell back to the earliest decided action of the target, and that the first form of
   the rule also changed the match of a comment whose stored bytes are not read; both are closed by the surface
-  github.merge and the earliest of the equal actions.
+  github.merge and the earliest of the equal actions. The third line of the reading found that the contract named an
+  effect `ambiguous` only by equal surface and bytes, while the match also names a merge so that equals by its surface
+  actions of different verdicts; section 5 now says so too, and such a merge counts under M6 where one of them was
+  refused.
 - The repository in the bytes of a merge is written in lower case, as GitHub reads owner and name whatever their case.
 - The key signer signs traceContext only in the gate's form: an object of traceId and parentId or one of them, each an
   id of the form above. Any other value is statement_type, as every other field outside the gate's form is. An operator

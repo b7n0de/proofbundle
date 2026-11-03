@@ -440,7 +440,8 @@ def match(effects: list[dict], decisions: list[dict], agent_of: dict, window: di
     alone. An effect takes one action of the window with its target and its agent identity that no earlier effect took:
     the one whose surface and bytes it equals when exactly one does, otherwise the earliest decided, ties by decisionId.
     An effect of a surface whose stored bytes the API does not show (BYTELESS, D135) equals an action in its surface
-    alone, and where several do with one verdict it takes the earliest decided of them.
+    alone, and where several do with one verdict it takes the earliest decided of them; where they hold different
+    verdicts it is `ambiguous`, as below.
     An effect that equals actions of different verdicts is `ambiguous`; it counts under M6 when one of them was refused
     and takes the earliest decided. An effect with no action left, or whose action holds no approval decided not later
     than the effect, counts under M5; one that takes a refused action counts under both."""
