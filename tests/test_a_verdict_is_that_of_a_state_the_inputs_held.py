@@ -1173,7 +1173,10 @@ class TheStopHelperLeavesTheInterpreterAsItFoundIt(unittest.TestCase):
     ``free_tool_id``, under 3.14 the local events; measured), and `_an_befehlen` overwrote both and set them to nothing,
     also when the run raised. Here such a state is planted where the helper stops: under CPython 3.12 and later at the
     free tool id it takes, before 3.12 at `sys.settrace`, where it can only show that the helper keeps what it found. The
-    helper runs once, and once with a run that raises; after each the state must be the planted one."""
+    helper runs once, and once with a run that raises; after each the state must be the planted one. Pre-run on
+    f7c0ef13 (P2): a callback can be registered at a free id without ``use_tool_id``, and under 3.14 ``free_tool_id``
+    dropped the one the helper had put back; so the callback is planted that way, and from 3.12 the helper also runs
+    once with a set of code objects its own setup refuses."""
 
     def test_the_planted_state_is_there_after_the_helper_ran_and_after_it_raised(self) -> None:
         def ziel() -> int:
@@ -1210,9 +1213,9 @@ class TheStopHelperLeavesTheInterpreterAsItFoundIt(unittest.TestCase):
             mon.register_callback(w, ereignis, rueckruf)
             return rueckruf, mon.get_local_events(w, ziel.__code__)
         mon.use_tool_id(w, "planted")
-        mon.register_callback(w, ereignis, gepflanzt)
         mon.set_local_events(w, ziel.__code__, ereignis)
         mon.free_tool_id(w)
+        mon.register_callback(w, ereignis, gepflanzt)   # at the free id, as a tool can leave it
         try:
             vorher = zustand()
             _an_befehlen(stellen, lambda rahmen: None, lambda: None)
@@ -1220,11 +1223,15 @@ class TheStopHelperLeavesTheInterpreterAsItFoundIt(unittest.TestCase):
             with self.assertRaises(LookupError):
                 _an_befehlen(stellen, lambda rahmen: None, wirft)
             nach_fehler = zustand()
+            with self.assertRaises(TypeError):
+                _an_befehlen({None: {0}}, lambda rahmen: None, lambda: None)
+            nach_aufbau = zustand()
         finally:
             mon.use_tool_id(w, "cleanup")
             mon.set_local_events(w, ziel.__code__, 0)
             mon.register_callback(w, ereignis, None)
             mon.free_tool_id(w)
-        self.assertEqual(vorher[1], ereignis, "the planted local events did not stay at the free tool id")
+        self.assertEqual(vorher, (gepflanzt, ereignis), "the planted state is not at the free tool id")
         self.assertEqual(nach_lauf, vorher, "the helper left another callback or other local events than it found")
         self.assertEqual(nach_fehler, vorher, "after a run that raised the helper left another state than it found")
+        self.assertEqual(nach_aufbau, vorher, "after its own setup failed the helper left another state than it found")
