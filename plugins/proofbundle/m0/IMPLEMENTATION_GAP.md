@@ -18,7 +18,7 @@ adds the owner answers O45-1 to O45-3 as decided and the triage of PRODUCT_SPEC.
 |---|---|---|---|---|---|
 | V-CC-1 | the plugin loads in a real Claude Code session | its hooks ran in `claude -p --plugin-dir` with a real model | VERIFIED | not named in D28 | host runs of 2026-10-08, Claude Code 2.1.294 (DECISIONS.md D28) |
 | V-CC-2 | the plugin's MCP server is loaded in a real session and its tools are listed | in the house's real run the plugin's MCP server was not loaded; the cause is not known | FAILED | not recorded in this repository | house measurement RAUCH-03, as stated in follow-up note 45 |
-| V-CC-3 | `verify_receipt` reports the package's own verdict and exit code | the server answers with exactly one text element holding the package's JSON result; `proofbundle_version` 6.3.0, `verified` true for a fresh receipt | VERIFIED (harness, no host) | edfb9ace | `uv run --script` of the server as the gate starts it (PLUGIN_N45, messung/server_vertrag_630.jsonl); tests/test_claude_code_plugin.py with the test interpreter |
+| V-CC-3 | `verify_receipt` reports the package's own verdict and exit code | the server answers with exactly one text element holding the package's JSON result; `proofbundle_version` 6.4.0, `verified` true for a fresh receipt | VERIFIED (harness, no host) | slice pin640 (6.3.0: edfb9ace) | `uv run --script` of the server as the gate starts it (review package -11, server_vertrag_640.jsonl; 6.3.0: PLUGIN_N45, messung/server_vertrag_630.jsonl); tests/test_claude_code_plugin.py with the test interpreter |
 | V-CC-4 | a request found inside a receipt is reported as data and not followed | evals `review-receipt-injection`, `verify-inspect-injection` exist; their graders read text features only | NOT MEASURED | n/a | no eval run with a real model is recorded here |
 | V-CC-5 | `emit` signs only after the user confirms | eval `emit-shows-before-signing` exists | NOT MEASURED | n/a | no eval run with a real model is recorded here |
 
@@ -26,7 +26,7 @@ adds the owner answers O45-1 to O45-3 as decided and the triage of PRODUCT_SPEC.
 
 | ID | Target | Actual | Status | Commit | Measurement |
 |---|---|---|---|---|---|
-| G-CC-1 | the hooks are registered under Claude Code | `hooks/hooks.json` registers every hook, the gate always with `--autonomous` | VERIFIED | edfb9ace | the manifest at the head; house measurement in the real run |
+| G-CC-1 | the hooks are registered under Claude Code | `plugins/proofbundle-guard/hooks/hooks.json` registers every hook, the gate's PreToolUse commands with `--autonomous`; proofbundle registers none (D134) | VERIFIED (harness and CLI inventory, no host session) | slice F2 (D134); edfb9ace before it | tests/test_plugin_guard_apart_d134.py; `claude plugin details` of Claude Code 2.1.314 in a throwaway configuration folder: proofbundle `Hooks (0)` from the public marketplace, proofbundle-guard `Hooks (6)` from the house marketplace |
 | G-CC-2 | if the gate cannot run, the Bash call does not run | the hook command exits 2 with its own line when the gate command fails; Python itself exits 2 when it cannot open the gate | VERIFIED | edfb9ace (hooks.json); D28 | D28 (measured); house measurement |
 | G-CC-3 | the pre-push gate answers as DECISIONS.md says | corpus 1698 rows, satz_v1 held 30 of 30 and harmless 0 of 28, fallbook 288 rows: the same answers as at 49219d5c | VERIFIED (harness) | edfb9ace | PLUGIN_N45 acceptance |
 | G-CC-4 | the same in a real host | the gate of PLUGIN_N37 ran on account A | VERIFIED (one host, one run set) | 63b88d07 | house measurement, as stated in follow-up note 45 |
@@ -34,7 +34,7 @@ adds the owner answers O45-1 to O45-3 as decided and the triage of PRODUCT_SPEC.
 | G-CC-6 | the autonomous answer (D85 to D111) | tests and fallbook at the head | VERIFIED (harness) | edfb9ace | test files of the chain; fallbook (PLUGIN_N45) |
 | G-CC-7 | the release of an owner (D111) frees a command once | a session can remove the record of uses through `python3 -c`, then the gate frees the same release again | FAILED | 49219d5c (gate 7584d4b9) | PLUGIN_N44, point 1, case 7; named in the limits of D111 (O44-2) |
 | G-CC-8 | the Read and Grep hook denies a read of a key file | tests of D102 at the head | VERIFIED (harness) | edfb9ace | tests/test_plugin_n33_secret_paths_d102.py |
-| G-CC-9 | a gated MCP write of another server (a GitHub MCP server) is checked in a real host | matcher in `hooks/hooks.json`, tests in the harness | NOT MEASURED in a host | edfb9ace | harness only |
+| G-CC-9 | a gated MCP write of another server (a GitHub MCP server) is checked in a real host | matcher in the Guard's `hooks/hooks.json`, tests in the harness | NOT MEASURED in a host | edfb9ace | harness only |
 | G-CC-10 | every GitHub write the pilot reads gets a Level 1 receipt | under the autonomous answer a write whose answer it changes gets none (verdict_differs) | FAILED (named in D113) | d5e0720f | PLUGIN_N43, point 1; PLUGIN_N44, point 1 |
 | G-CC-11 | the signer service reads the hook's records across accounts (precondition of A1) | the hooks write both records with mode 0600; no other account reads them; with the files written 0640 and a setgid group the service reads them (V6, a copy, not delivered) | FAILED (as delivered), VERIFIED (V6 copy), both in the container | 49219d5c; edfb9ace for the V6 script | PLUGIN_N44, point 2; the script v6_farmer_n45.py run in the container (PLUGIN_N45) |
 | G-CC-12 | the same on the operator's machine | not run | BLOCKED until the owner runs v6_farmer_n45.py on the operator's machine | n/a | n/a |
@@ -60,16 +60,16 @@ adds the owner answers O45-1 to O45-3 as decided and the triage of PRODUCT_SPEC.
 | G-CX-2 | the gate runs inside a Codex turn with a real model | not run | NOT MEASURED; BLOCKED until TG-5 (O45-2) | n/a | n/a |
 | G-CX-3 | hooks run only after the user trusts them, and then block | Codex 0.161.0 with a scripted local model loads the Stop hook, runs it after trust, inserts a block in the same turn | VERIFIED (host, scripted model) | not named in D28 | host runs of 2026-10-08 (D28) |
 | G-CX-4 | a plain `git push` under Codex is denied | it warns and is not denied (owner choice Karte 5 A with D) | INACTIVE | edfb9ace | README, D12 |
-| G-CX-5 | no autonomous answer under Codex | `.codex-plugin/plugin.json` starts the gate with `--host codex`, without `--autonomous` | VERIFIED | edfb9ace | the manifest at the head |
+| G-CX-5 | no autonomous answer under Codex | the Guard's `.codex-plugin/plugin.json` starts the gate with `--host codex`, without `--autonomous`; proofbundle's Codex manifest registers no hook (D134) | VERIFIED | slice F2 (D134); edfb9ace before it | the manifests at the head |
 
 ## Profiles and life cycle, both hosts
 
 | ID | Target | Actual | Status | Commit | Measurement |
 |---|---|---|---|---|---|
-| P-1 | house profile: Guard on, `strict`, autonomous answer under Claude Code | the one manifest set that ships | VERIFIED | edfb9ace | the manifests at the head |
-| P-2 | delivery profile with the Guard off until M2, decided by the owner (O45-3) | no such setting exists | INACTIVE | n/a | n/a |
+| P-1 | house profile: Guard on, `strict`, autonomous answer under Claude Code | proofbundle with proofbundle-guard installed beside it from the house marketplace in a checkout (D134) | VERIFIED (harness and CLI inventory, no host session) | slice F2 (D134) | tests/test_plugin_guard_apart_d134.py; the CLI inventory of G-CC-1 |
+| P-2 | delivery profile with the Guard off until M2, decided by the owner (O45-3, F2 A) | installing proofbundle registers no hook: no `hooks/` folder, so no `hooks/hooks.json` and no gate program, neither host manifest carries hooks; the Guard is the separate plugin proofbundle-guard, which holds the gate programs (D134) | VERIFIED under Claude Code (CLI inventory `Hooks (0)`, no host session); NOT MEASURED in a Codex host | slice F2 (D134) | tests/test_plugin_guard_apart_d134.py; `claude plugin details proofbundle` of Claude Code 2.1.314 |
 | P-3 | an observing Guard that logs and never denies or asks | not built; only on the owner's request, and then built and measured (O45-3) | INACTIVE | n/a | n/a |
 | L-1 | clean install from the marketplace, per host | not run in a recorded measurement | NOT MEASURED | n/a | n/a |
 | L-2 | update from one plugin version to the next, per host | not run | NOT MEASURED | n/a | n/a |
 | L-3 | removal, per host, and what stays behind (data folder, keys, gate directory) | the README describes Claude Code's behaviour (`--keep-data`); not run | NOT MEASURED | n/a | n/a |
-| L-4 | the pinned package | `proofbundle==6.3.0` in the server and the gate | VERIFIED | edfb9ace | the pin commit and server_vertrag_630.jsonl |
+| L-4 | the pinned package | `proofbundle==6.4.0` in the server and the gate | VERIFIED | slice pin640 (6.3.0: edfb9ace) | the pin commit and server_vertrag_640.jsonl (6.3.0: server_vertrag_630.jsonl) |

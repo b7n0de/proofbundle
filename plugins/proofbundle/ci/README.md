@@ -54,6 +54,9 @@ owner review, and dismiss stale approvals on new commits, so a later change (for
 - `require-declaration` has no default. The caller decides, in a file CODEOWNERS covers.
 - `proofbundle-ref` must be a full 40-character commit SHA, and it must be contained in a `v*` release tag
   of b7n0de/proofbundle; a branch, a tag, or an unreleased commit fails before the gate runs.
+- The template runs the gate from the Guard's folder, `plugins/proofbundle-guard/hooks/proofbundle_gate.py`,
+  where DECISIONS.md D134 moved it out of the verifier. A `proofbundle-ref` from before that move has no file
+  there, and the step fails before the gate reads anything; such a ref goes with the template of its own commit.
 - On a pull request the check reads the head of the pull request, not the merge commit, because the
   declaration names the tree of the commit that is pushed.
 
@@ -90,13 +93,14 @@ owner review, and dismiss stale approvals on new commits, so a later change (for
 ## Running it locally
 
 ```sh
-python plugins/proofbundle/hooks/proofbundle_gate.py ci-check --repo . --require-declaration true
+python plugins/proofbundle-guard/hooks/proofbundle_gate.py ci-check --repo . --require-declaration true
 ```
 
 ## The done check in CI
 
 The workflow's job `done` (input `done-check: true`) is the hard boundary of the user path "Claude says done"
-(DECISIONS.md, D26). It runs the tests of the commit under review with a receipt, signed with a CI key, and runs
+(DECISIONS.md, D26), once the repository sets the required status check, code owner review and dismissal of stale
+approvals above; the template is not yet measured on GitHub Actions. It runs the tests of the commit under review with a receipt, signed with a CI key, and runs
 `proofbundle_gate.py done-check --at-commit` for the commit it checked out: exit 0 only when the receipt verifies
 under the done policy at that commit, says that every test passed and names that commit and its tree, from a clean
 run (`git_clean` true). The commit comes from the event (the head of a pull request, else the pushed commit), not

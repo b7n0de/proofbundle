@@ -18,6 +18,7 @@ import subprocess
 import sys
 
 import test_plugin_done_check as dc
+from _owner_state import owner_state_protected  # noqa: F401 - D128: a person's record of the key file is read
 
 gate = dc.gate
 env = dc.env

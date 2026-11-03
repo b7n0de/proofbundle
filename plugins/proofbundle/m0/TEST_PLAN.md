@@ -41,7 +41,7 @@ Verify, the Guard or both.
 | TG-4 | Claude Code | Real host | the cases of TG-2 and the done cases in a real session, house profile | the same answers as in the harness; the log lines match |
 | TG-5 | Codex | Real host | the cases of TG-2 under Codex with a real model, after trusting the hooks (D16) | deny where Claude Code would ask; a plain `git push` warns |
 | TG-6 | Claude Code | Negative | a release of D111 used, then the record of uses removed through an interpreter | today the gate frees again (FAILED, D111 limits); kept as a known case until a gate order changes it |
-| TG-7 | both | Positive | the self-test skill in a throwaway repository | the gate logged the deny; the throwaway remote's refs did not move |
+| TG-7 | both | Host-specific diagnostic | the self-test skill in a throwaway repository | Claude Code harness: stale_subject denial logged and refs unchanged; Codex harness: codex_push_not_plain denial, refs unchanged, and self-test result NOT MEASURABLE; real-host results remain NOT MEASURED until run |
 | TG-8 | Claude Code | Real host | a GitHub MCP server's write tool (one of the six) in a real session | the gate runs for it and its answer stands in the log |
 | TG-9 | both | Negative | delivery profile, Guard off: a push without evidence | the push runs; the plugin says the Guard is off (INACTIVE) and claims no protection |
 | TG-10 | both | Negative | delivery profile, Guard observing: the same push | the push runs; the log names what the gate would have answered; nothing denied or asked |
@@ -51,8 +51,8 @@ Verify, the Guard or both.
 
 | ID | Host | Kind | Case | Expected |
 |---|---|---|---|---|
-| TL-1 | Claude Code | Clean install | `claude plugin marketplace add`, `claude plugin install`, first session | hooks registered, server starts through `uv`, the first `verify_receipt` answers |
-| TL-2 | Codex | Clean install | `codex plugin marketplace add`, `codex plugin add`, trust the hooks | the same; until trust, `gate_note` says the hooks may not run |
+| TL-1 | Claude Code | Clean install | `claude plugin marketplace add`, `claude plugin install` of proofbundle and, for the house profile, proofbundle-guard from the house marketplace in a checkout (D134), first session | proofbundle alone registers no hook, with proofbundle-guard the hooks are registered, server starts through `uv`, the first `verify_receipt` answers |
+| TL-2 | Codex | Clean install | `codex plugin marketplace add`, `codex plugin add` of both plugins (D134), trust the hooks | the same; until trust, `gate_note` says the hooks may not run |
 | TL-3 | both | Update | from the last released plugin version to the new one | the gate directory, mode and rules unchanged; the data folder kept; the new pin in use |
 | TL-4 | both | Removal | uninstall with and without `--keep-data` (Claude Code), the same under Codex | what stays is listed; a stale hook entry does not keep blocking calls |
 | TL-5 | both | Negative | first start without network to PyPI and without a cached package | the verifier does not start and the gate denies (D6, D11); the plugin says why |

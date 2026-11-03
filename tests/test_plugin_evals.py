@@ -714,6 +714,9 @@ def _handover_env(tmp_path) -> dict:
     (bin_dir / "python3").unlink(missing_ok=True)
     (bin_dir / "python3").symlink_to(os.path.realpath(sys.executable))
     env["CLAUDE_PLUGIN_DATA"] = env["PLUGIN_DATA"] = str(tmp_path / "logs")
+    # D124: the hand-over of D35 rests on the mode and the transport approval of the gate directory, which the gate
+    # reads only with the protected channel the house states; these cases test the hand-over, so they state it.
+    env["PROOFBUNDLE_OWNER_STATE"] = "protected"
     return env
 
 
@@ -874,6 +877,10 @@ def test_the_corpus_runner_ends_with_the_status_of_what_it_ran(tmp_path, tests, 
     assert line in proc.stdout, proc.stdout
 
 
+#: The Codex manifest of the Guard, the plugin that registers the hooks since D134.
+GUARD_CODEX = ROOT / "plugins" / "proofbundle-guard" / ".codex-plugin" / "plugin.json"
+
+
 def _corpus_codex_hooks():
     spec = importlib.util.spec_from_file_location("corpus_codex_hooks", EVALS / "corpus_codex_hooks.py")
     module = importlib.util.module_from_spec(spec)
@@ -887,20 +894,23 @@ def test_the_codex_hook_check_expects_every_hook_the_codex_manifest_registers():
     The expectation now comes from the manifest. Red at 68d3f020, which had no such reader."""
     check = _corpus_codex_hooks()
     expected = check.expected_hooks()
-    manifest = json.loads((ROOT / "plugins" / "proofbundle" / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    manifest = json.loads(GUARD_CODEX.read_text(encoding="utf-8"))
     assert len(expected) == sum(len(entries) for entries in manifest["hooks"]["hooks"].values())
     assert ("stop", None) in expected and expected.count(("preToolUse", "Bash")) == 1
     loaded = [{"event": event, "matcher": matcher, "host_codex": True} for event, matcher in expected]
     assert check.judge(loaded, expected) is True
     assert check.judge(loaded[:-1], expected) is False
     assert check.judge([dict(h, host_codex=False) if h["event"] == "stop" else h for h in loaded], expected) is False
+    # Any order of the answer counts (owner choice B on finding 8); a hook twice in place of another does not.
+    assert check.judge(list(reversed(loaded)), expected) is True
+    assert check.judge(loaded[:-1] + loaded[:1], expected) is False
 
 
 def _stand_in_codex(tmp_path, commands: list[str]) -> pathlib.Path:
     """A codex that installs nothing and answers hooks/list with the hooks of the Codex manifest, in its order, each
     with the given command. No Codex, no network."""
     expected = _corpus_codex_hooks().expected_hooks()
-    hooks = [{"eventName": event, "matcher": matcher, "command": command, "pluginId": "proofbundle@proofbundle",
+    hooks = [{"eventName": event, "matcher": matcher, "command": command, "pluginId": "proofbundle-guard@proofbundle-house",
               "sourcePath": "plugin.json", "trustStatus": "trusted"}
              for (event, matcher), command in zip(expected, commands, strict=True)]
     (tmp_path / "hooks.json").write_text(json.dumps(hooks), encoding="utf-8")
@@ -916,6 +926,34 @@ def _stand_in_codex(tmp_path, commands: list[str]) -> pathlib.Path:
     return codex
 
 
+@pytest.mark.parametrize("command, ok", [
+    ('python3 -I "${PLUGIN_ROOT}/hooks/proofbundle_gate.py" --host codex || exit 2', True),
+    ('python3 "${PLUGIN_ROOT}/hooks/proofbundle_gate.py" stop --host codex', True),
+    ('/usr/bin/python3 -I -B "/p/hooks/proofbundle_gate.py" --host codex', True),
+    ("echo proofbundle_gate.py --host codex", False),
+    ("cat proofbundle_gate.py --host codex", False),
+    ("python3 -c x proofbundle_gate.py --host codex", False),
+    ("python3 -m proofbundle_gate.py --host codex", False),
+    ("python3 other.py proofbundle_gate.py --host codex", False),
+    ("env python3 proofbundle_gate.py --host codex", False),
+    # the nachlesung of G-4 (sol-pro, P1, rest of Z4): a line no shell runs, a quoted operator, a pipe or && after it
+    ("python3 proofbundle_gate.py --host codex ||", False),
+    ("python3 proofbundle_gate.py --host codex '||'", False),
+    ("python3 proofbundle_gate.py --host codex || {", False),
+    ("python3 proofbundle_gate.py --host codex | cat", False),
+    ("python3 proofbundle_gate.py --host codex && true", False),
+    ("python3 proofbundle_gate.py --host codex || { echo 'the gate could not run' >&2; exit 2; }", True)])
+def test_the_codex_hook_check_counts_only_a_command_that_starts_the_gate(command, ok):
+    """sol-pro on the first reading of G-4 (Z4, P1): the check took any first command naming proofbundle_gate.py, so
+    `echo proofbundle_gate.py --host codex`, which starts no gate, passed it. It now counts only python3 or python,
+    options that take no argument, and the gate's script as the first word after them. Red at e04660f2 for the six
+    commands that start no gate. The nachlesung (sol-pro, P1): the check cut the line at its first operator and read
+    nothing after it, so a line ending in `||`, an open `{`, a quoted `'||'` (which the gate gets as an argument), a pipe
+    or `&&` passed; now the line must be one sh reads (sh -n), and after the gate's command only `||` and a command may
+    follow. Red at 5a359574 for those five."""
+    assert _corpus_codex_hooks().passes_host_codex(command) is ok, command
+
+
 @pytest.mark.parametrize("host, ok", [
     ("--host codex", True),
     ("--host codex-x", False),
@@ -927,7 +965,7 @@ def test_the_codex_hook_check_reads_the_host_as_the_gate_reads_it(tmp_path, caps
     as host claude, passed it (found by review). The words after the gate are now read as the gate reads them. Red at
     f2c984a2 for the second and the third case; --host=codex failed there too, and the first case shows the manifest's
     own commands pass."""
-    manifest = json.loads((ROOT / "plugins" / "proofbundle" / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    manifest = json.loads(GUARD_CODEX.read_text(encoding="utf-8"))
     commands = [hook["command"] for entries in manifest["hooks"]["hooks"].values() for entry in entries
                 for hook in entry["hooks"]]
     commands[0] = commands[0].replace("--host codex", host, 1)
@@ -940,7 +978,7 @@ def test_the_codex_hook_check_reads_the_host_as_the_gate_reads_it(tmp_path, caps
 
 # --- the done cases (DECISIONS.md, D26; NUTZERWEG Teil 5) -----------------------------------------------------
 
-GATE = ROOT / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py"
+GATE = ROOT / "plugins" / "proofbundle-guard" / "hooks" / "proofbundle_gate.py"
 #: Each done case, its scaffold mode and the verdict the Stop hook gives on that workspace.
 DONE_CASES = {"done-red-tests-block": ("done-red", "not_done"),
               "done-receipt-other-tree-blocks": ("done-stale", "stale_receipt"),

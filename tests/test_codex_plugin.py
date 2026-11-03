@@ -36,6 +36,11 @@ Properties checked:
 - while the gate has hooks, the folder carries no plugin.json or mcp.json in the Agent Plugins format,
   and no root plugin.json that is a link or not a regular file: Codex 0.159.2 reads such a root manifest
   and then loads no plugin hooks, or finds no manifest at all (DECISIONS.md, D14).
+
+Changed by D134 (owner choice F2 A): the gate's hooks stand in the plugin proofbundle-guard, which the house installs
+beside proofbundle; proofbundle's Codex manifest registers none. The hook properties above are read from the Guard's
+manifests, and the Guard's folder holds its programs and server as byte-equal copies of proofbundle's, never as links,
+because Codex drops a link on install.
 """
 from __future__ import annotations
 
@@ -60,15 +65,18 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "proofbundle"
 CLAUDE = json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
 CODEX = json.loads((PLUGIN / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
-CLAUDE_HOOKS = json.loads((PLUGIN / "hooks" / "hooks.json").read_text(encoding="utf-8"))
-GATE = PLUGIN / "hooks" / "proofbundle_gate.py"
+#: The house's hooks, the plugin proofbundle-guard beside the verifier (D134), with its Codex manifest.
+GUARD = ROOT / "plugins" / "proofbundle-guard"
+GUARD_CODEX = json.loads((GUARD / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
+CLAUDE_HOOKS = json.loads((GUARD / "hooks" / "hooks.json").read_text(encoding="utf-8"))
+GATE = GUARD / "hooks" / "proofbundle_gate.py"
 SERVER = PLUGIN / "server" / "proofbundle_mcp.py"
 RUNBOOK = PLUGIN / "RUNBOOK_CODEX.md"
 
 _bytecode, sys.dont_write_bytecode = sys.dont_write_bytecode, True
 sys.path.insert(0, str(GATE.parent))
 from _gate_answer import skip_where_the_gate_is_not_shipped  # noqa: E402
-skip_where_the_gate_is_not_shipped(pathlib.Path(__file__).resolve().parent.parent / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py",
+skip_where_the_gate_is_not_shipped(pathlib.Path(__file__).resolve().parent.parent / "plugins" / "proofbundle-guard" / "hooks" / "proofbundle_gate.py",
                                    pathlib.Path(__file__).resolve().parent.parent)
 import proofbundle_gate as gate  # noqa: E402
 
@@ -103,13 +111,13 @@ CODEX_SPECIFIC_KEYS = {"hookEventName", "permissionDecision", "permissionDecisio
 
 def _codex_hook_matcher() -> str:
     """The MCP matcher exactly as the Codex manifest writes it, read from the file and not from the gate."""
-    return CODEX["hooks"]["hooks"]["PreToolUse"][1]["matcher"]
+    return GUARD_CODEX["hooks"]["hooks"]["PreToolUse"][1]["matcher"]
 
 
 def _codex_hook() -> dict:
-    groups = CODEX["hooks"]["hooks"]["PreToolUse"]
+    groups = GUARD_CODEX["hooks"]["hooks"]["PreToolUse"]
     # D28: the Stop hook of the done check runs from the same folder; tests/test_plugin_done_check.py holds its form
-    assert set(CODEX["hooks"]["hooks"]) == {"PreToolUse", "Stop"}
+    assert set(GUARD_CODEX["hooks"]["hooks"]) == {"PreToolUse", "Stop"}
     # follow-up note 19b, Punkt 7/8: the Bash and MCP matchers are Claude's; the file matcher adds Codex's apply_patch,
     # whose hook name is apply_patch with the matcher aliases Write and Edit (Codex at 14a477ea, hook_names.rs)
     assert [g["matcher"] for g in groups][:2] == [g["matcher"] for g in CLAUDE_HOOKS["hooks"]["PreToolUse"]][:2]
@@ -142,10 +150,12 @@ def test_the_codex_manifest_uses_the_shared_skills_server_and_gate():
     assert "env" not in claude_server
     entry = _codex_hook()
     (claude_entry,) = CLAUDE_HOOKS["hooks"]["PreToolUse"][0]["hooks"]
-    # changed in follow-up note 35 (D85): the Claude Code hook starts the gate with --autonomous, the Codex hook never does
+    # changed in D125 (owner order N4-3) and D134: the Codex hook never starts the gate with --autonomous; the Guard's
+    # Claude Code hook, the house's, does
     assert entry["command"] == claude_entry["command"].replace(
         '"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py" --autonomous',
         '"${PLUGIN_ROOT}/hooks/proofbundle_gate.py" --host codex')
+    assert "hooks" not in CODEX and not (PLUGIN / "hooks" / "hooks.json").exists(), "D134: the verifier has none"
     assert entry["timeout"] == claude_entry["timeout"]
 
 
@@ -154,7 +164,7 @@ def test_the_host_start_commands_isolate_the_interpreter_and_the_server():
     before it, and starts the MCP server with uv --no-config, so no uv.toml in the checked repository
     changes it. Both manifests, read from the files. Red against 3026924e, whose starts had neither."""
     claude_gate = CLAUDE_HOOKS["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
-    for group in CODEX["hooks"]["hooks"]["PreToolUse"]:
+    for group in GUARD_CODEX["hooks"]["hooks"]["PreToolUse"]:
         assert group["hooks"][0]["command"].startswith("python3 -I "), "the Codex gate start isolates"
     assert claude_gate.startswith("python3 -I "), "the Claude gate start isolates"
     claude_mcp = json.loads((PLUGIN / ".mcp.json").read_text(encoding="utf-8"))["mcpServers"]
@@ -193,8 +203,15 @@ def test_no_logic_file_exists_twice_and_no_symlink_exists():
     for path in logic:
         by_digest[hashlib.sha256(path.read_bytes()).hexdigest()].append(path.relative_to(PLUGIN))
     assert [paths for paths in by_digest.values() if len(paths) > 1] == []
-    for name in ("proofbundle_mcp.py", "proofbundle_gate.py"):
-        assert len(list(ROOT.joinpath("plugins").rglob(name))) == 1, name
+    # D134: the Guard carries each as a byte-equal copy, never a link, because Codex drops a link on install
+    assert not [p for p in GUARD.rglob("*") if p.is_symlink()], "Codex drops symlinks on install"
+    found = sorted(ROOT.joinpath("plugins").rglob("proofbundle_mcp.py"))
+    assert [p.relative_to(ROOT / "plugins").parts[0] for p in found] == ["proofbundle", "proofbundle-guard"]
+    assert found[0].read_bytes() == found[1].read_bytes()
+    # since the bundle after D134 the gate programs live in the Guard's folder alone
+    for name in ("proofbundle_gate.py", "proofbundle_secrets.py", "proofbundle_answered.py", "pin_state_schleuse.py"):
+        found = sorted(ROOT.joinpath("plugins").rglob(name))
+        assert [p.relative_to(ROOT / "plugins").parts[0] for p in found] == ["proofbundle-guard"], name
 
 
 def test_every_skill_has_what_codex_requires():
@@ -221,6 +238,12 @@ def test_the_marketplace_entry_matches_both_manifests():
     (entry,) = market["plugins"]
     assert entry["source"] == "./plugins/proofbundle"
     assert entry["name"] == CODEX["name"] == CLAUDE["name"]
+    # D134, owner choice N2 B: the Guard's folder is a house marketplace of its own, which Codex reads from
+    # .claude-plugin/marketplace.json as it reads the public one (D15); its one entry is the Guard
+    (guard,) = json.loads((GUARD / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))["plugins"]
+    assert guard["source"] == "./"
+    assert guard["name"] == GUARD_CODEX["name"] == json.loads(
+        (GUARD / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["name"] == "proofbundle-guard"
     present = [path for path in CODEX_MARKETPLACE_CANDIDATES if (ROOT / path).is_file()]
     assert present == [".claude-plugin/marketplace.json"], "one marketplace file for both hosts (D15)"
 
@@ -465,7 +488,7 @@ def test_the_codex_hook_entry_blocks_when_the_gate_cannot_run(tmp_path):
     entry = _codex_hook()
     event = json.dumps({"cwd": str(tmp_path), "tool_input": {"command": "ls"}})
     ok = subprocess.run(["sh", "-c", entry["command"]], input=event, capture_output=True, text=True,
-                        env=plugin_env(PLUGIN_ROOT=str(PLUGIN)), check=False)
+                        env=plugin_env(PLUGIN_ROOT=str(GUARD)), check=False)
     assert (ok.returncode, ok.stdout) == (0, "")
     gone = subprocess.run(["sh", "-c", entry["command"]], input=event, capture_output=True, text=True,
                           env=plugin_env(PLUGIN_ROOT=str(tmp_path / "gone")), check=False)
@@ -613,17 +636,19 @@ def _guard_failure(plugin: pathlib.Path) -> str | None:
 
 
 def test_while_the_gate_has_hooks_no_agent_plugins_manifest_can_switch_them_off():
-    assert _gate_hook_sources(PLUGIN) == ["hooks/hooks.json", ".codex-plugin/plugin.json"], \
+    # D134: the Guard's folder carries the hooks, the verifier's none
+    assert _gate_hook_sources(GUARD) == ["hooks/hooks.json", ".codex-plugin/plugin.json"], \
         "the guard is armed by these"
-    failure = _guard_failure(PLUGIN)
+    assert _gate_hook_sources(PLUGIN) == []
+    failure = _guard_failure(GUARD)
     assert failure is None, failure
 
 
 @pytest.mark.parametrize("plant", ["root-plugin", "root-plugin-other-version", "root-mcp", "nested-mcp",
                                    "root-plugin-link", "root-plugin-folder", "root-plugin-not-json"])
 def test_the_guard_finds_each_form_that_would_switch_the_hooks_off(tmp_path, plant):
-    plugin = tmp_path / "proofbundle"
-    shutil.copytree(PLUGIN, plugin, ignore=shutil.ignore_patterns("__pycache__", "evals"))
+    plugin = tmp_path / "proofbundle-guard"   # D134: the folder that carries the hooks
+    shutil.copytree(GUARD, plugin, ignore=shutil.ignore_patterns("__pycache__", "evals"))
     assert _agent_plugins_files(plugin) == []
     manifest = {"$schema": AGENT_PLUGINS_SCHEMA_PREFIX + "1.0.0/plugin.schema.json", "name": "proofbundle"}
     mcp = {"$schema": AGENT_PLUGINS_SCHEMA_PREFIX + "1.0.0/mcp.schema.json", "mcpServers": {}}

@@ -123,7 +123,7 @@ class Job:
     def environment(self) -> dict:
         package_root = str(pathlib.Path(proofbundle.__file__).resolve().parent.parent)
         env = plugin_env(PATH=os.pathsep.join([str(self.bin), os.environ.get("PATH", "")]),
-                   RUNNER_TEMP=str(self.runner_temp), GATE_HOOKS=str(ROOT / "plugins" / "proofbundle" / "hooks"),
+                   RUNNER_TEMP=str(self.runner_temp), GATE_HOOKS=str(ROOT / "plugins" / "proofbundle-guard" / "hooks"),
                    EMIT=str(self.emitter), PROOFBUNDLE_GATE_DIR=str(self.tmp / "gate-dir"),
                    PYTHONDONTWRITEBYTECODE="1")
         env["PYTHONPATH"] = os.pathsep.join(p for p in (package_root, os.environ.get("PYTHONPATH")) if p)

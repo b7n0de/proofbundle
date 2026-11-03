@@ -2,19 +2,21 @@
 
     python3 plugins/proofbundle/evals/corpus_codex_hooks.py [--codex PATH]   (from the repository root)
 
-Installs the plugin from this repository's marketplace into a throwaway CODEX_HOME (`codex plugin
-marketplace add`, `codex plugin add`), asks the local app-server (`hooks/list`) which hooks it loaded, and
-prints one JSON object: the Codex version, the hooks with their matcher, command and source file, and
-"ok" true only for exactly the hooks the Codex manifest registers, each starting the gate with --host codex as the
-gate reads it. Nothing leaves the machine; the throwaway CODEX_HOME is removed afterwards. DECISIONS.md, D14 says
-why this can fail.
+Installs the two plugins as the house does, proofbundle from this repository's public marketplace and proofbundle-guard
+from the house marketplace in its folder (D134, owner choice N2 B), into a throwaway CODEX_HOME (`codex plugin marketplace
+add`, `codex plugin add`), asks the local app-server
+(`hooks/list`) which hooks it loaded, and prints one JSON object: the Codex version, the hooks with their matcher,
+command and source file, and "ok" true only for exactly the hooks the Guard's Codex manifest registers, each starting
+the gate with --host codex as the gate reads it, and no hook of proofbundle, which registers none (D134). Nothing
+leaves the machine; the throwaway CODEX_HOME is removed afterwards. DECISIONS.md, D14 says why this can fail.
 """
 from __future__ import annotations
 
-import itertools
+import collections
 import json
 import os
 import pathlib
+import re
 import select
 import shlex
 import shutil
@@ -24,7 +26,16 @@ import tempfile
 import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
-MANIFEST = ROOT / "plugins" / "proofbundle" / ".codex-plugin" / "plugin.json"
+#: The Codex manifest of the Guard, the plugin that registers the hooks since D134.
+MANIFEST = ROOT / "plugins" / "proofbundle-guard" / ".codex-plugin" / "plugin.json"
+#: The plugins the house installs: the verifier from the public marketplace, which registers no hook, and the Guard
+#: from the house marketplace in the Guard's folder (owner choice N2 B).
+VERIFY, GUARD = "proofbundle@proofbundle", "proofbundle-guard@proofbundle-house"
+HOUSE = ROOT / "plugins" / "proofbundle-guard"
+#: The programs that start the gate's script, and the options before the script that take no argument. Another program,
+#: or an option such as -c or -m whose argument is the program, starts no gate (reading of G-4, Z4).
+INTERPRETERS = ("python3", "python")
+_NO_ARGUMENT_OPTION = re.compile(r"-[bBdEIOqsSu]+")
 
 
 def expected_hooks(manifest: pathlib.Path = MANIFEST) -> list[tuple[str, str | None]]:
@@ -36,30 +47,64 @@ def expected_hooks(manifest: pathlib.Path = MANIFEST) -> list[tuple[str, str | N
             for entry in entries]
 
 
+#: The characters of a shell operator as shlex reads them; a token made of them alone, unquoted, is an operator.
+_OPERATOR_CHARS = "();<>|&"
+
+
+def _shell_reads(command: str) -> bool:
+    """True where `sh -n` reads the command as a whole line. A line no shell runs (an operator at its end, an open
+    brace) starts no gate (follow-up reading of G-4, rest of Z4)."""
+    try:
+        return subprocess.run(["sh", "-n", "-c", command], capture_output=True, timeout=10, check=False).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def passes_host_codex(command: object) -> bool:
     """True only when the hook's first command starts proofbundle_gate.py with the words the gate reads as host codex
     (its _host: exactly --host codex, after `stop` for the Stop hook, --autonomous aside). A substring such as
-    --host codex-x, or the words in a later command after ||, does not count."""
-    if not isinstance(command, str):
+    --host codex-x, or the words in a later command after ||, does not count. The command starts the gate only where its
+    first word is python3 or python and the first word after options that take no argument is the gate's script. The
+    whole line must be one sh reads, a quoted operator is a word the gate gets, and after the gate's command only `||`
+    and a command may follow: a pipe would take the gate's answer, and `&&` or `;` are no form of the manifest."""
+    if not isinstance(command, str) or not _shell_reads(command):
         return False
-    lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+    lexer = shlex.shlex(command, posix=False, punctuation_chars=True)   # keeps quotes, so '||' stays a word
     lexer.whitespace_split = True
     try:
-        words = list(lexer)
+        tokens = list(lexer)
+        operator = [bool(token) and all(c in _OPERATOR_CHARS for c in token) for token in tokens]
+        cut = operator.index(True) if True in operator else len(tokens)
+        first = ["".join(shlex.split(token)) for token in tokens[:cut]]
     except ValueError:   # an unclosed quote: a line no shell runs
         return False
-    first = list(itertools.takewhile(lambda word: word.strip("();<>|&"), words))   # up to the first operator
-    gate = next((i for i, word in enumerate(first)
-                 if word.replace("\\", "/").rsplit("/", 1)[-1] == "proofbundle_gate.py"), None)
-    if gate is None:
+    rest = tokens[cut:]
+    if rest and (rest[0] != "||" or len(rest) < 2 or operator[-1]):
+        return False
+    names = [word.replace("\\", "/").rsplit("/", 1)[-1] for word in first]
+    if not names or names[0] not in INTERPRETERS:
+        return False
+    gate = 1
+    while gate < len(first) and _NO_ARGUMENT_OPTION.fullmatch(first[gate]):
+        gate += 1
+    if gate >= len(first) or names[gate] != "proofbundle_gate.py":
         return False
     return [word for word in first[gate + 1:] if word != "--autonomous"] in (["--host", "codex"],
                                                                               ["stop", "--host", "codex"])
 
 
+def carries_autonomous(command: object) -> bool:
+    """True where a word of the command is --autonomous: the house's flag of Claude Code, which no Codex hook may
+    carry (D125, D134). passes_host_codex sets it aside, as the gate reads the host without it."""
+    return isinstance(command, str) and "--autonomous" in command.split()
+
+
 def judge(hooks: list[dict], expected: list[tuple[str, str | None]]) -> bool:
-    """True only for exactly the expected hooks, in their order, each started with --host codex."""
-    return [(h["event"], h["matcher"] or None) for h in hooks] == expected and all(h["host_codex"] for h in hooks)
+    """True only for exactly the expected hooks, each as often as expected and in any order of the answer, each
+    started with --host codex and none with --autonomous. The order of hooks/list is NOT MEASURED, so a correct load
+    in another order counts."""
+    loaded = collections.Counter((h["event"], h["matcher"] or None) for h in hooks)
+    return loaded == collections.Counter(expected) and all(h["host_codex"] and not h.get("autonomous") for h in hooks)
 
 
 def _ask(proc: subprocess.Popen, message: dict, timeout: float = 60) -> dict:
@@ -92,7 +137,8 @@ def main(argv: list[str]) -> int:
     env = dict(os.environ, CODEX_HOME=home)
     try:
         version = subprocess.run([codex, "--version"], capture_output=True, text=True, env=env).stdout.strip()
-        for args in (["plugin", "marketplace", "add", str(ROOT)], ["plugin", "add", "proofbundle@proofbundle"]):
+        for args in (["plugin", "marketplace", "add", str(ROOT)], ["plugin", "add", VERIFY],
+                     ["plugin", "marketplace", "add", str(HOUSE)], ["plugin", "add", GUARD]):
             done = subprocess.run([codex, *args], capture_output=True, text=True, env=env, timeout=120)
             if done.returncode != 0:
                 print(json.dumps({"ok": False, "codex": version, "failed": args, "stderr": done.stderr[-500:]}))
@@ -113,12 +159,15 @@ def main(argv: list[str]) -> int:
         data = (reply.get("result") or {}).get("data") or [{}]
         hooks = [{"event": h.get("eventName"), "matcher": h.get("matcher"),
                   "host_codex": passes_host_codex(h.get("command")),
+                  "autonomous": carries_autonomous(h.get("command")),
                   "source": pathlib.Path(h.get("sourcePath") or "").relative_to(home).as_posix()
                   if (h.get("sourcePath") or "").startswith(home) else h.get("sourcePath"),
                   "trust": h.get("trustStatus")}
-                 for h in data[0].get("hooks", []) if h.get("pluginId") == "proofbundle@proofbundle"]
-        ok = judge(hooks, expected_hooks())
-        print(json.dumps({"ok": ok, "codex": version, "hooks": hooks, "errors": data[0].get("errors")}, indent=1))
+                 for h in data[0].get("hooks", []) if h.get("pluginId") == GUARD]
+        verify = [h.get("eventName") for h in data[0].get("hooks", []) if h.get("pluginId") == VERIFY]
+        ok = judge(hooks, expected_hooks()) and not verify
+        print(json.dumps({"ok": ok, "codex": version, "hooks": hooks, "verify_hooks": verify,
+                          "errors": data[0].get("errors")}, indent=1))
         return 0 if ok else 1
     finally:
         shutil.rmtree(home, ignore_errors=True)

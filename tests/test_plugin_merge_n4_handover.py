@@ -15,6 +15,7 @@ from __future__ import annotations
 import pytest
 
 import test_plugin_gate_push_destination_18 as g18
+from _owner_state import owner_state_protected  # noqa: F401 - D124: a person's mode and transport approval are read
 from _gate_answer import long_text
 
 pytestmark = g18.pytestmark

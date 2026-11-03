@@ -17,6 +17,9 @@ pull requests of the session (D110) and with a text the house's form checker fin
 
 RED at 63b88d07: the cases the rules of follow-up note 33 changed (w01 to w03, l01 to l03, c01, c02, r01, S4, S6, S8, S9),
 and C2 and C3 as the fallbook means them.
+
+Changed by D129: the hook's environment of the probe states the house's consent to the standing GO
+(PROOFBUNDLE_STANDING_GO=protected), as account A's house configuration with --autonomous would; GO1 reads it.
 """
 from __future__ import annotations
 
@@ -37,7 +40,9 @@ from _plugin_env import plugin_env
 
 gate = d71.gate
 pytestmark = d71.pytestmark
-PLUGIN = pathlib.Path(gate.__file__).resolve().parent.parent
+PLUGIN = pathlib.Path(__file__).resolve().parents[1] / "plugins" / "proofbundle"
+#: The house's hooks, the plugin proofbundle-guard beside the verifier (D134).
+GUARD = PLUGIN.parent / "proofbundle-guard"
 SESSION = "fallbook-session"
 
 CASES = [{'id': 'f01',
@@ -387,7 +392,8 @@ def world(tmp_path_factory):
     (tmp / f"claude-{os.getuid()}" / "-fallbook" / SESSION).mkdir(parents=True)
     env = plugin_env(without=("GIT_", "GH_"), GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull, LC_ALL="C",
                      HOME=str(home), PROOFBUNDLE_GATE_DIR=str(w / "gatedir"), TMPDIR=str(tmp),
-                     CLAUDE_CODE_SESSION_ID=SESSION, PATH=f"{w / 'bin'}:/usr/local/bin:/usr/bin:/bin")
+                     CLAUDE_CODE_SESSION_ID=SESSION, PATH=f"{w / 'bin'}:/usr/local/bin:/usr/bin:/bin",
+                     PROOFBUNDLE_STANDING_GO="protected")   # D129: the house's consent to the standing GO
     with _environment(env):
         (w / "b").mkdir()
         r = d71._repo(w / "b")
@@ -408,8 +414,8 @@ def world(tmp_path_factory):
 
 def run(world, host: str, tool: str, tool_input: dict, repo: pathlib.Path, data: pathlib.Path | None = None) -> dict:
     """The answer of the hook as the host starts it, as the probe of follow-up note 33 reads it."""
-    hooks = json.loads((PLUGIN / "hooks" / "hooks.json").read_text())
-    codex = json.loads((PLUGIN / ".codex-plugin" / "plugin.json").read_text())
+    hooks = json.loads((GUARD / "hooks" / "hooks.json").read_text())
+    codex = json.loads((GUARD / ".codex-plugin" / "plugin.json").read_text())
     if not _matched(hooks if host == "claude" else codex.get("hooks", {}), tool):
         return {"art": "nicht_gesehen", "reasons": []}
     if data is None:
