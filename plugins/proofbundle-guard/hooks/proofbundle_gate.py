@@ -18019,8 +18019,8 @@ def _autonomy_card(answer: "Outcome", command: str | None, cwd: str, deadline: f
         door = _release_door(command, answer)
         binding = (f" The card carries the line verbatim, sha256 {command_sha256(command)}, and what it does outside: "
                    f"{said}. The owner's answer A frees exactly this line once, in this session, within "
-                   f"{RELEASE_SECONDS // 60} minutes of the answer; a changed line needs a new card (DECISIONS.md "
-                   "D111, D119).") if door is None else \
+                   f"{RELEASE_SECONDS // 60} minutes of the earliest answer the gate has read for this card, line and "
+                   "session; a changed line needs a new card (DECISIONS.md D111, D119).") if door is None else \
             (f" The line touches {_RELEASE_DOORS[door][0]}, an own door of the owner: no card frees it. Say so on the "
              "card; the owner runs the line themselves (DECISIONS.md D119).")
     verdict = Verdict("deny", f"proofbundle gate, autonomous operation (D93): {said} is asked of the owner on a card in "
@@ -18057,6 +18057,12 @@ RELEASES_USED = "freigaben-genutzt.json"
 RELEASES_USED_SCHEMA = "proofbundle-plugin/freigaben-genutzt/v0.1"
 MAX_RELEASES_USED = 1024
 MAX_RELEASES_USED_BYTES = 512 * 1024
+#: The earliest answer the gate has read for each identity of a release (card, sha256, session), in the plugin data
+#: directory beside RELEASES_USED: {"schema": RELEASES_FIRST_SCHEMA, "erste": {<_release_identity>: <UTC time>}}. The
+#: window of an identity runs from it, so a copy with a later answer does not extend it; the gate never moves an answer
+#: later (order DELTA-FREIGABE-FENSTER-ERSTE-ANTWORT-01, section 4 point 2 of draft-gruszka-audit-decision-receipts-00).
+RELEASES_FIRST = "freigaben-erste.json"
+RELEASES_FIRST_SCHEMA = "proofbundle-plugin/freigaben-erste/v0.1"
 _CARD_ID = re.compile(r"OA-[0-9a-f]{10}")
 _SESSION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 _UTC_STAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
@@ -18408,6 +18414,83 @@ def _write_releases_used(directory: str, used: dict, consumed: set | frozenset =
     os.replace(tmp, os.path.join(directory, RELEASES_USED))
 
 
+def _releases_first(directory: str) -> dict:
+    """The earliest answer the gate has read for each identity, {_release_identity: seconds}; a ValueError where the
+    record does not read whole (another schema or key, an identity that is no digest, a time of another shape), so no
+    window is opened through a record the gate cannot read."""
+    try:
+        raw = _read_regular(os.path.join(directory, RELEASES_FIRST), MAX_RELEASES_USED_BYTES + 1)
+    except FileNotFoundError:
+        return {}
+    data = strict_json(raw) if len(raw) <= MAX_RELEASES_USED_BYTES else None
+    if not isinstance(data, dict) or set(data) != {"schema", "erste"} or data["schema"] != RELEASES_FIRST_SCHEMA or \
+            not isinstance(data["erste"], dict):
+        raise ValueError("the record of the first answers does not read whole")
+    first = {}
+    for identity, stamp in data["erste"].items():
+        seconds = _ts_seconds(stamp) if isinstance(stamp, str) and _UTC_STAMP.fullmatch(stamp) else None
+        if not _CONSUMED.fullmatch(identity) or seconds is None:
+            raise ValueError("the record of the first answers does not read whole")
+        first[identity] = seconds
+    return first
+
+
+def _releases_first_text(first: dict) -> str:
+    """The record of first answers as _releases_first reads it, in its compact form: no form the reader takes is shorter
+    (an identity and a time each have one width, and the reader takes no key twice), so rewriting a record it took with
+    an earlier answer of a known identity never passes MAX_RELEASES_USED_BYTES (the second pre-run of the reading)."""
+    return json.dumps({"schema": RELEASES_FIRST_SCHEMA, "erste": {
+        identity: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(seconds)) for identity, seconds in first.items()}},
+        separators=(",", ":"))
+
+
+def _release_first_note(directory: str, environ) -> tuple[list[dict], dict] | None:
+    """Read the releases of the folder (_releases) and write the earliest answer of each of their identities into
+    RELEASES_FIRST, both under the lock of the answer hook (D94), and return the releases and the record as it then
+    stands, {_release_identity: seconds}; an answer already there is never moved later. The folder is read under the
+    lock, so no second hook decides between the read of an earlier copy and the note of its answer (the reading of
+    586d245c). None where the record does not read, where it has to change and cannot be written, or where it cannot
+    take an identity it does not hold yet without passing MAX_RELEASES_USED_BYTES: then the gate releases nothing. A
+    record that already holds every answer the call read is not written again, so it loses nothing (the reading of
+    c660a495). An earlier answer of an
+    identity the record holds is written in that case too, since its time has one width and takes no byte more, so the
+    bound never makes the gate forget an answer it has read (the pre-run of the reading of the main-in of 468)."""
+    try:
+        hook = _answer_hook()
+        with hook.asks_lock(directory, RELEASES_FIRST):
+            releases = _releases(environ)
+            first = _releases_first(directory)
+            known, fresh = dict(first), {}
+            for release in releases:
+                identity = _release_identity(_release_key(release))
+                into = known if identity in known else fresh
+                if identity not in into or release["zeit"] < into[identity]:
+                    into[identity] = release["zeit"]
+            full = bool(fresh) and \
+                len(_releases_first_text({**known, **fresh}).encode("utf-8")) > MAX_RELEASES_USED_BYTES
+            merged = known if full else {**known, **fresh}
+            if merged != first:
+                text = _releases_first_text(merged)
+                if len(text.encode("utf-8")) > MAX_RELEASES_USED_BYTES:
+                    return None
+                fd, tmp = tempfile.mkstemp(prefix=".freigaben-erste-", dir=directory)
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    handle.write(text)
+                os.replace(tmp, os.path.join(directory, RELEASES_FIRST))
+            if full:
+                return None
+    except (OSError, ValueError, UnicodeDecodeError, ImportError, AttributeError, SyntaxError):
+        return None
+    return releases, merged
+
+
+def _release_from_first(release: dict, first: dict) -> dict:
+    """The release with the time its window runs from: the earliest of its own answer and the one `first` holds for its
+    identity. The answer it names (antwort) stays its own."""
+    earliest = first.get(_release_identity(_release_key(release)))
+    return release if earliest is None or earliest >= release["zeit"] else {**release, "zeit": earliest}
+
+
 def _release_use_past(stamp: object, now: float) -> bool:
     """Whether a use the record keeps lies more than RELEASE_SECONDS + RELEASE_SKEW_SECONDS before now: a release is used
     no earlier than RELEASE_SKEW_SECONDS before its answer and binds at most RELEASE_SECONDS after it, so no release binds
@@ -18430,8 +18513,13 @@ def _release_take(release: dict, environ, now: float | None = None) -> bool:
     now = time.time() if now is None else now
     try:
         hook = _answer_hook()
-        with hook.asks_lock(data, RELEASES_USED):
+        # the lock of the record of first answers first, then that of the uses, so no hook notes an earlier answer it
+        # has read while the use is decided (the fourth pre-run of the reading); no other path takes the two locks
+        with hook.asks_lock(data, RELEASES_FIRST), hook.asks_lock(data, RELEASES_USED):
             used, consumed = _releases_record(data)
+            # the window again from the earliest answer of the identity, as it stands now (a record that does not read
+            # whole is a ValueError: then nothing is used)
+            release = _release_from_first(release, _releases_first(data))
             if not _release_free(release, used, consumed, now):
                 return False
             if len(used) >= MAX_RELEASES_USED:
@@ -18474,8 +18562,15 @@ def _autonomy_release(answer: "Outcome", command: str | None, environ, now: floa
         return None
     sha = command_sha256(command)
     now = time.time() if now is None else now
-    fitting = [r for r in _releases(environ) if r["sha256"] == sha and r["sitzung"] == session
-               and r["zeit"] - RELEASE_SKEW_SECONDS <= now <= r["zeit"] + RELEASE_SECONDS]
+    # The window of an identity runs from the earliest answer the gate has read for it, every copy in the folder now
+    # and the record of first answers included, so a copy with a later answer does not extend it (RELEASES_FIRST). The
+    # gate notes every release it reads, of any line, so a copy it read once keeps its answer after it is gone.
+    noted = _release_first_note(data, environ)
+    if noted is None:
+        return None
+    present, first = noted
+    fitting = [r for r in (_release_from_first(r, first) for r in present) if r["sha256"] == sha
+               and r["sitzung"] == session and r["zeit"] - RELEASE_SKEW_SECONDS <= now <= r["zeit"] + RELEASE_SECONDS]
     if not fitting:
         return None
     door = _release_door(command, answer)
@@ -18489,11 +18584,14 @@ def _autonomy_release(answer: "Outcome", command: str | None, environ, now: floa
     release = next((r for r in fitting if _release_free(r, used, consumed, now)), None)
     if release is None or (take and not _release_take(release, environ, now)):
         return None
+    # The pass names the rule of the window and no time it starts at: _release_take decides the window again under its
+    # locks, from the earliest answer as it stands then, so a time read here could be later than the one that binds.
     verdict = Verdict("pass", f"proofbundle gate: the owner released this command on the card {release['karte']}, "
                               f"answered at {release['antwort']}. The release frees exactly the command whose words "
                               f"as written have the sha256 {sha}, once, in this session, within "
-                              f"{RELEASE_SECONDS // 60} minutes of the answer; its use stands in the plugin data "
-                              "before the call runs (DECISIONS.md D111, D119).", "released_by_owner")
+                              f"{RELEASE_SECONDS // 60} minutes of the earliest answer the gate has read for this "
+                              "card, line and session; its use stands in the plugin data before the call runs "
+                              "(DECISIONS.md D111, D119).", "released_by_owner")
     new = Outcome("pass", verdict.text(), list(answer.verdicts) + [verdict], None, step=answer.step)
     new.release = {"freigabe": release, "ohne": answer, "genutzt": take}
     record = getattr(answer, "autonomy", None) or {}

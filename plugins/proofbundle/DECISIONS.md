@@ -5828,6 +5828,49 @@ record written past its byte bound, a release refused by the record that hid ano
 with another answer pass. Not changed: code an interpreter runs can still remove the record (D111, O44-2); the digests
 fill the record over time, and a record at its byte bound refuses every new release until a person clears it.
 
+Addendum (order DELTA-FREIGABE-FENSTER-ERSTE-ANTWORT-01 of 2026-11-01, after paragraph 7 of section 5 of the draft
+draft-gruszka-audit-decision-receipts-00, read at main 8bb289c8): the window of a release ran from the answer of the
+copy the gate was reading (_autonomy_release, _release_free), in the hook and so in the signer service, which decides
+with the same code (signer_service.decide calls tool_outcome). No layer kept a first validity per identity, so for an
+identity not used yet a copy with a later answer opened a later window, which section 4 point 2 of the draft rules out:
+copies do not extend the original validity; once held. Since then the window of an identity runs from the earliest
+answer the gate has read for it: every copy that lies in the folder freigaben when it decides, and the record
+RELEASES_FIRST (freigaben-erste.json in the plugin data directory, {_release_identity: time}), which the gate writes
+for every release it reads, of any line, under the lock of the answer hook, and in which it never moves an answer
+later. _release_take reads the record again under its lock. A record that does not read whole releases nothing, and so does
+one that has to change and cannot be written, a write past MAX_RELEASES_USED_BYTES included; a record that already holds
+every answer the call read is not written again and loses nothing (line 3 of the reading of c660a495 found that the
+first wording promised more). Where the record cannot take an identity it does not
+hold yet, the gate still writes an earlier answer of an identity it holds, since the time has one width and takes no
+byte more; the first form wrote nothing then, so a later copy of a known identity opened its window again once the
+earlier copy was gone (the pre-run of the reading of the main-in, 2026-11-03). The record is written in its compact
+form, which no form the reader takes undercuts, so rewriting a record the reader took never passes the bound either
+(the second pre-run: the default spaces of json.dumps made a compact record of 522062 bytes 540064 bytes long). The
+record of the uses keeps the default form; there a write past the bound only refuses the release. The folder is read
+under the lock under which the answers are noted, so no second hook decides between the read of an earlier copy and
+the note of its answer (the third line of the reading of 586d245c: a hook paused after its read let a second hook
+release a later copy); a hook that cannot take the lock within LOCK_SECONDS releases nothing. _release_take holds
+the same lock before the lock of the uses, so a held release is not used while another hook notes an earlier answer
+it has read (the fourth pre-run); no path takes the two locks the other way round. The pass says that its window
+runs from the earliest answer the gate has read for the identity and names no time it starts at, since _release_take
+decides the window again under its locks (line 3 of the reading of 93fa78d9; the Codex pre-run of the reading of
+7b370ad4 found that a time named before that could be later than the one that binds). The card says the same of the
+window, not "its first answer", which a copy the gate never read could precede (line 3 of the reading of 7b01bc3b). Limit, named,
+the one of D119 above: where the pilot reads the call as a GitHub write, the signer service signs ALLOW for the held
+release before _release_take writes the use; where _release_take then refuses, because another hook noted an earlier
+answer in between or the use cannot be written, the call does not run and the release is spent on the service's side
+without its call. Coupling that signature to the check of the record follows the plugin 0.4.0, under the owner's scope
+freeze of 2026-11-03. A write that fails loses what that call read, as a copy the gate never read is lost. Where a later copy can arise: the writer at the farmer
+(scripts/b7_klickfreigabe_schreiber.py of 2bedone, pull request 2454, not landed) writes one file per card and line,
+once, and refuses a second click under the same name; a later copy needs the first file gone (a cleared folder; the
+gate reads at most MAX_RELEASE_FILES) and a new click, or a file that something other than the writer leaves under
+another name. Limit, named: the gate sees only the copies that lie in the folder when it decides; a copy it never read,
+written and taken away before any call reached the gate, is unknown to it, and only the writer, which reads every click
+of the decision board, knows each first answer for sure. Measured: tests/test_plugin_release_window_first_answer_d119.py,
+of its first 12 cases 9 red at 8bb289c8 and the three controls green there, each later case red at the head before its
+fix, end to end through the hook and the signer service
+with a data directory of its own (A2) included.
+
 ## D120. The own doors the gate held nowhere are house rule H5, a deny no card opens (O49-1, 2026-10-24)
 
 Owner choice A of 2026-10-24, 11:5x Berlin (O49-1, after follow-up note 49): the doors D119 names in its last limit go to the
