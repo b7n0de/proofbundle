@@ -511,6 +511,29 @@ class SplitChecks(Base):
         repo, commit = make_repo(self.tmp, files)
         self.assertRefused(build(repo, commit, self.out), "besides the proofbundle pin")
 
+    def test_s1m_a_pin_in_another_spelling_is_refused(self):
+        """The Codex pre-run of the reading of f842b7b4: the requirement pattern cut off an extras section and the pin
+        check passed it over, so proofbundle[!!!]==6.4.0 read as the pin. The one entry has to be proofbundle==X.Y.Z
+        exactly, as at main c9ab65b1."""
+        for name, line, reason in (
+                ("extras", '# dependencies = ["proofbundle[!!!]==6.4.0"]', "proofbundle==X.Y.Z"),
+                # a marker was refused before by the check of an exact pin, for its own reason
+                ("marker", '# dependencies = ["proofbundle==6.4.0; python_version < \'3\'"]', "not an exact == pin"),
+                ("blanks", '# dependencies = ["proofbundle == 6.4.0"]', "proofbundle==X.Y.Z")):
+            with self.subTest(name=name):
+                files = split_files()
+                for root in (V, G):
+                    files[root + "/server/proofbundle_mcp.py"] = server(pin_line=line)
+                sub = self.tmp / name
+                sub.mkdir()
+                repo, commit = make_repo(sub, files)
+                out = sub / "out"
+                proc = build(repo, commit, out)
+                self.assertEqual(proc.returncode, 1, text(proc))
+                self.assertFalse(out.exists() and any(out.iterdir()), "a refused build wrote artifacts")
+                failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
+                self.assertTrue(failed and reason in failed[0], failed)
+
     def test_s2_missing_guard_gate_pin_is_refused(self):
         self.split_refused(lambda f: f.__setitem__(G + "/hooks/proofbundle_gate.py", gate(constant=False)),
                            "PINNED_PROOFBUNDLE")

@@ -440,6 +440,11 @@ def block_pin(content: str, where: str) -> str:
     # on proofbundle-guard among them, was passed over (line 3 of the reading of e05c0c9f)
     if len(deps) != 1:
         raise CheckFailed(f"{where}: {len(deps) - 1} dependencies besides the proofbundle pin, expected none")
+    # the entry exactly as main c9ab65b1 writes it: the requirement pattern takes extras, markers and blanks that
+    # the pin check passed over, so proofbundle[!!!]==6.4.0 read as the pin (the Codex pre-run of the reading of
+    # f842b7b4)
+    if not re.fullmatch(r"proofbundle==\d+\.\d+\.\d+", deps[0]):
+        raise CheckFailed(f"{where}: dependency {deps[0]!r} is not in the form proofbundle==X.Y.Z")
     return pins[0]
 
 
