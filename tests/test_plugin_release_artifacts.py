@@ -308,6 +308,38 @@ class SplitChecks(Base):
                 failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
                 self.assertTrue(failed and reason in failed[0] and "otherwise than read" in failed[0], failed)
 
+    def test_s1f_a_read_name_bound_in_any_other_form_is_refused(self):
+        """The Codex pre-run of the reading of 826521cb: a capture pattern binds a name without an ast.Name, so
+        case SERVER_VERSION: passed, and TOOLS = ALIAS = {...} made a second name of the table that ALIAS.clear()
+        empties. Since then every mention of a read name as a Python token has to be an ast.Name at that place, one
+        of them the only target of the top-level assignment, the rest reads."""
+        changes = {
+            "capture pattern": ("SERVER_VERSION", None,
+                                'match "9.9.9":\n    case SERVER_VERSION:\n        pass\n'),
+            "star pattern": ("SERVER_VERSION", None, 'match ["9"]:\n    case [*SERVER_VERSION]:\n        pass\n'),
+            "mapping rest": ("SERVER_VERSION", None, 'match {}:\n    case {**SERVER_VERSION}:\n        pass\n'),
+            "chained alias": ("TOOLS", ("TOOLS = {\n", "TOOLS = ALIAS = {\n"), "ALIAS.clear()\n"),
+            "keyword": ("SERVER_VERSION", None, "dict(SERVER_VERSION=1)\n"),
+        }
+        for name, (reason, replace, line) in changes.items():
+            with self.subTest(name=name):
+                files = split_files()
+                for root in (V, G):
+                    rel = root + "/server/proofbundle_mcp.py"
+                    if replace:
+                        self.assertIn(replace[0], files[rel])
+                        files[rel] = files[rel].replace(replace[0], replace[1])
+                    files[rel] += line
+                sub = self.tmp / name.replace(" ", "_")
+                sub.mkdir()
+                repo, commit = make_repo(sub, files)
+                out = sub / "out"
+                proc = build(repo, commit, out)
+                self.assertEqual(proc.returncode, 1, text(proc))
+                self.assertFalse(out.exists() and any(out.iterdir()), "a refused build wrote artifacts")
+                failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
+                self.assertTrue(failed and reason in failed[0], failed)
+
     def test_s1e_control_the_reads_the_server_writes_build(self):
         """The uses of the TOOLS table in the server at main c9ab65b1: a lookup, a membership test and items()."""
         reads = ("def call(name):\n    if name not in TOOLS:\n        return None\n    return TOOLS[name]\n\n\n"

@@ -87,6 +87,7 @@ import re
 import subprocess
 import sys
 import tarfile
+import tokenize
 from pathlib import Path
 
 try:
@@ -288,12 +289,13 @@ def ls_tree(repo: Path, commit: str, paths: list[str]) -> list[tuple[str, str, s
 
 # --- reading places -----------------------------------------------------------------------------------------------
 
-#: How a module may use a name the generator reads with ast (py_constant, server_tools): bound once, by its top-level
-#: assignment, and otherwise only read, as every such name is at main c9ab65b1. A string cannot change after that. The
-#: TOOLS table is a dict, so besides that it may only be looked up (TOOLS[key], key in TOOLS) or read by one of
-#: TABLE_READS; any other use, an item written or deleted, another method, the table handed on or bound to another
-#: name, stops the build. Code that changes a module's globals by name at run time (globals(), setattr on the module)
-#: is not read; the generator reads what the source writes.
+#: How a module may use a name the generator reads with ast (py_constant, server_tools), as every such name is used at
+#: main c9ab65b1: every mention of the name as a Python token is an ast.Name at that place, exactly one of them is
+#: written, as the only target of the top-level assignment the generator reads, and all others are read. A binding in
+#: any other form (a pattern, global, an import, a parameter, a def, a keyword, a second target) is a token without such
+#: a name or a second write, and stops the build. The TOOLS table is a dict, so besides it may only be looked up
+#: (TOOLS[key], key in TOOLS) or read by one of TABLE_READS. Code that changes a module's globals by name at run time
+#: (globals(), setattr on the module) is not read; the generator reads what the source writes.
 TABLE_READS = ("items", "keys", "values", "get")
 
 
@@ -304,37 +306,40 @@ def _parse(source: str, path: str) -> ast.Module:
         raise CheckFailed(f"{path}: not parseable as Python ({exc.msg}, line {exc.lineno})") from exc
 
 
-def _only_read(tree: ast.Module, name: str, path: str, table: bool = False) -> None:
+def _name_tokens(source: str, name: str, path: str) -> set[tuple[int, int]]:
+    try:
+        return {t.start for t in tokenize.generate_tokens(io.StringIO(source).readline)
+                if t.type == tokenize.NAME and t.string == name}
+    except (tokenize.TokenError, SyntaxError) as exc:
+        raise CheckFailed(f"{path}: not readable as Python tokens ({exc})") from exc
+
+
+def _only_read(source: str, name: str, path: str, table: bool = False) -> None:
+    tree = _parse(source, path)
     parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
-    bound = []
-    for node in ast.walk(tree):
-        other = None
-        if isinstance(node, ast.Name) and node.id == name:
-            parent = parents.get(node)
-            if not isinstance(node.ctx, ast.Load):
-                bound.append(node)
-                top = isinstance(parent, (ast.Assign, ast.AnnAssign)) and parents.get(parent) is tree and \
-                    (node in getattr(parent, "targets", []) or getattr(parent, "target", None) is node)
-                other = None if top else node.lineno
-            elif table and not (
-                    (isinstance(parent, ast.Subscript) and parent.value is node and isinstance(parent.ctx, ast.Load))
-                    or (isinstance(parent, ast.Compare) and node in parent.comparators
-                        and all(isinstance(op, (ast.In, ast.NotIn)) for op in parent.ops))
-                    or (isinstance(parent, ast.Attribute) and parent.attr in TABLE_READS
-                        and isinstance(parents.get(parent), ast.Call) and parents[parent].func is parent)):
-                other = node.lineno
-        elif isinstance(node, (ast.Global, ast.Nonlocal)) and name in node.names:
-            other = node.lineno
-        elif isinstance(node, ast.alias) and (node.asname or node.name.split(".")[0]) == name:
-            other = getattr(node, "lineno", 0)
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == name:
-            other = node.lineno
-        elif isinstance(node, ast.ExceptHandler) and node.name == name:
-            other = node.lineno
-        if other is not None:
-            raise CheckFailed(f"{path}: {name} is used otherwise than read after its assignment (line {other})")
-    if len(bound) != 1:
-        raise CheckFailed(f"{path}: {name} is bound {len(bound)} times, used otherwise than read after its assignment")
+    names = [n for n in ast.walk(tree) if isinstance(n, ast.Name) and n.id == name]
+    stray = sorted(_name_tokens(source, name, path) - {(n.lineno, n.col_offset) for n in names})
+    if stray:
+        raise CheckFailed(f"{path}: {name} is used otherwise than read after its assignment (line {stray[0][0]})")
+    written = [n for n in names if not isinstance(n.ctx, ast.Load)]
+    top = len(written) == 1 and isinstance(parents.get(written[0]), (ast.Assign, ast.AnnAssign)) and \
+        parents.get(parents[written[0]]) is tree and \
+        (getattr(parents[written[0]], "targets", None) == [written[0]] or
+         getattr(parents[written[0]], "target", None) is written[0])
+    if not top:
+        lines = sorted(n.lineno for n in written) or [0]
+        raise CheckFailed(f"{path}: {name} is written {len(written)} times, used otherwise than read after its "
+                          f"assignment (line {lines[-1]})")
+    for node in names:
+        if node is written[0] or not table:
+            continue
+        parent = parents.get(node)
+        if not ((isinstance(parent, ast.Subscript) and parent.value is node and isinstance(parent.ctx, ast.Load))
+                or (isinstance(parent, ast.Compare) and node in parent.comparators
+                    and all(isinstance(op, (ast.In, ast.NotIn)) for op in parent.ops))
+                or (isinstance(parent, ast.Attribute) and parent.attr in TABLE_READS
+                    and isinstance(parents.get(parent), ast.Call) and parents[parent].func is parent)):
+            raise CheckFailed(f"{path}: {name} is used otherwise than read after its assignment (line {node.lineno})")
 
 
 def _assignments(source: str, path: str) -> dict[str, list[ast.expr]]:
@@ -355,7 +360,7 @@ def py_constant(source: str, path: str, name: str) -> str:
     value = values[0]
     if not (isinstance(value, ast.Constant) and isinstance(value.value, str)):
         raise CheckFailed(f"{path}: {name} is not a plain string")
-    _only_read(_parse(source, path), name, path)
+    _only_read(source, name, path)
     return value.value
 
 
@@ -515,7 +520,7 @@ def server_tools(repo: Path, commit: str, path: str) -> list[str]:
     tables = _assignments(source, path).get("TOOLS", [])
     if len(tables) != 1 or not isinstance(tables[0], ast.Dict):
         raise CheckFailed(f"{path}: {len(tables)} top-level TOOLS tables, expected one dict literal")
-    _only_read(_parse(source, path), "TOOLS", path, table=True)
+    _only_read(source, "TOOLS", path, table=True)
     keys = []
     for key in tables[0].keys:
         if not (isinstance(key, ast.Constant) and isinstance(key.value, str)):

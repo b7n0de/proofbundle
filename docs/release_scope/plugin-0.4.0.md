@@ -114,8 +114,9 @@ The marketplaces and profiles it checks in the same run:
 A JSON file the generator reads that names a member twice stops the build, so a version member counts once only
 where it is written once. A hook command in any other form, or one that names a plugin root a second time, stops the build too. The Guard registers its Claude Code hooks in `hooks/hooks.json` alone, so a hooks field in its Claude Code
 manifest or in its house marketplace entry stops the build, and the hooks of its Codex manifest have to be an object.
-A constant or the tool table read with ast has to be bound once, by its top-level assignment, and otherwise only read;
-the tool table may be looked up or read by `items`, `keys`, `values` or `get`.
+For a constant or the tool table read with ast, every mention of its name as a Python token has to be that name at that
+place, written once, as the only target of its top-level assignment, and otherwise read; the tool table may besides be
+looked up or read by `items`, `keys`, `values` or `get`.
 
 The plugin catalog plugins/README.md copies the manifests' version in its text. It is not in the archive and is checked
 by reading.
