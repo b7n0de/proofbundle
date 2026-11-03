@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import re
 import time
 
 import pytest
@@ -284,10 +285,10 @@ def test_a_held_release_is_not_used_while_another_hook_notes_an_earlier_answer(e
     assert not (data / gate.RELEASES_USED).exists()
 
 
-def test_the_pass_names_the_earliest_answer_its_window_runs_from(env):
-    """The reading of 93fa78d9 (line 3, text): the pass named the answer of the copy it read and said the window ran
-    from "the answer", while the window of its identity runs from the earliest answer the gate has read for it. The pass
-    now names that answer. RED at 93fa78d9: the text named only the later answer."""
+def test_the_pass_says_its_window_runs_from_the_earliest_answer(env):
+    """The reading of 93fa78d9 (line 3, text): the pass said the window ran from "the answer" and named only the answer
+    of the copy it read, while the window of its identity runs from the earliest answer the gate has read for it. RED at
+    93fa78d9: the text said "of the answer"."""
     first = float(int(time.time())) - 5 * 60
     early = _copy(env, "a.json", first)
     assert not _passes(OTHER, first + 60)
@@ -296,4 +297,29 @@ def test_the_pass_names_the_earliest_answer_its_window_runs_from(env):
     out = gate._autonomy_release(gate.Outcome("deny", "", []), COMMAND, d119._settle_env(), first + 4 * 60)
     assert out is not None and out.decision == "pass"
     text = out.verdicts[-1].text()
-    assert f"within {gate.RELEASE_SECONDS // 60} minutes of the earliest answer" in text and _stamp(first) in text, text
+    assert f"within {gate.RELEASE_SECONDS // 60} minutes of the earliest answer" in text, text
+
+
+def test_the_pass_names_no_start_of_its_window_that_the_use_decides_again(env, monkeypatch):
+    """The Codex pre-run of the reading of 7b370ad4: the pass named the time its window ran from as the gate knew it
+    before _release_take, which reads the record of first answers again under its locks. Where another hook noted an
+    earlier answer in between that still left the window open, the use was written and the pass named the later time
+    as the start. The pass now names the rule and no time but the answer of the copy it read. RED at 7b370ad4: the text
+    named the later time as the start of the window."""
+    now = float(int(time.time()))
+    earlier, later = now - 10 * 60, now - 5 * 60
+    _copy(env, "b.json", later)
+    data = pathlib.Path(os.environ["CLAUDE_PLUGIN_DATA"])
+    ident = gate._release_identity(f"{d111.CARD}:{gate.command_sha256(COMMAND)}:{SESSION}")
+    real = gate._release_take
+
+    def take(release, environ, at=None):
+        (data / gate.RELEASES_FIRST).write_text(gate._releases_first_text({ident: earlier}), encoding="utf-8")
+        return real(release, environ, at)
+
+    monkeypatch.setattr(gate, "_release_take", take)
+    out = gate._autonomy_release(gate.Outcome("deny", "", []), COMMAND, d119._settle_env(), now)
+    assert out is not None and out.decision == "pass", "the window from the earlier answer is still open"
+    text = out.verdicts[-1].text()
+    assert re.findall(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", text) == [_stamp(later)], text
+    assert f"answered at {_stamp(later)}" in text, text

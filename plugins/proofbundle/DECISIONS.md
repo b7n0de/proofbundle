@@ -5849,8 +5849,10 @@ under the lock under which the answers are noted, so no second hook decides betw
 the note of its answer (the third line of the reading of 586d245c: a hook paused after its read let a second hook
 release a later copy); a hook that cannot take the lock within LOCK_SECONDS releases nothing. _release_take holds
 the same lock before the lock of the uses, so a held release is not used while another hook notes an earlier answer
-it has read (the fourth pre-run); no path takes the two locks the other way round. The pass names the earliest
-answer its window runs from, beside the answer of the copy it read (line 3 of the reading of 93fa78d9). Limit, named,
+it has read (the fourth pre-run); no path takes the two locks the other way round. The pass says that its window
+runs from the earliest answer the gate has read for the identity and names no time it starts at, since _release_take
+decides the window again under its locks (line 3 of the reading of 93fa78d9; the Codex pre-run of the reading of
+7b370ad4 found that a time named before that could be later than the one that binds). Limit, named,
 the one of D119 above: where the pilot reads the call as a GitHub write, the signer service signs ALLOW for the held
 release before _release_take writes the use; where _release_take then refuses, because another hook noted an earlier
 answer in between or the use cannot be written, the call does not run and the release is spent on the service's side

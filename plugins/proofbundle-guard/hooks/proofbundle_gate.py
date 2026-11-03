@@ -18582,13 +18582,14 @@ def _autonomy_release(answer: "Outcome", command: str | None, environ, now: floa
     release = next((r for r in fitting if _release_free(r, used, consumed, now)), None)
     if release is None or (take and not _release_take(release, environ, now)):
         return None
-    since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(release["zeit"]))
+    # The pass names the rule of the window and no time it starts at: _release_take decides the window again under its
+    # locks, from the earliest answer as it stands then, so a time read here could be later than the one that binds.
     verdict = Verdict("pass", f"proofbundle gate: the owner released this command on the card {release['karte']}, "
                               f"answered at {release['antwort']}. The release frees exactly the command whose words "
                               f"as written have the sha256 {sha}, once, in this session, within "
                               f"{RELEASE_SECONDS // 60} minutes of the earliest answer the gate has read for this "
-                              f"card, line and session, {since}; its use stands in the plugin data before the call "
-                              "runs (DECISIONS.md D111, D119).", "released_by_owner")
+                              "card, line and session; its use stands in the plugin data before the call runs "
+                              "(DECISIONS.md D111, D119).", "released_by_owner")
     new = Outcome("pass", verdict.text(), list(answer.verdicts) + [verdict], None, step=answer.step)
     new.release = {"freigabe": release, "ohne": answer, "genutzt": take}
     record = getattr(answer, "autonomy", None) or {}
