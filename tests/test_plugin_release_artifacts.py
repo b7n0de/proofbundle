@@ -430,6 +430,11 @@ class SplitChecks(Base):
             "codex without blank": head + claude + codex + "|Codex | fixture | proofbundle | 0.3.0 | Experimental |\n",
             "codex with more blanks": head + claude + codex + "|   Codex   | fixture | proofbundle | 0.3.0 | x |\n",
             "codex in lower case": head + claude + codex + "| codex | fixture | proofbundle | 0.3.0 | x |\n",
+            # the Codex pre-run of the reading of 950d341d: the pattern read a later number of a row with one cell more
+            # than the head, while the version cell under the head says 0.3.0
+            "codex with a cell more": head + claude
+            + "| Codex | fixture | [proofbundle](proofbundle/README.md) | 0.3.0 | 0.4.0 | Experimental |\n",
+            "codex with a cell less": head + claude + "| Codex | fixture | 0.4.0 | Experimental |\n",
         }
         for name, catalog in cases.items():
             with self.subTest(name=name):

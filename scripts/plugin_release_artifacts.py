@@ -108,7 +108,7 @@ HEX64 = re.compile(r"[0-9a-f]{64}")
 PEP723 = re.compile(r"(?m)^# /// (?P<type>[a-zA-Z0-9-]+)$\s(?P<content>(^#(| .*)$\s)+)^# ///$")
 REQUIREMENT = re.compile(r"^\s*(?P<name>[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)\s*(?P<extras>\[[^\]]*\])?\s*"
                          r"(?P<rest>.*)$")
-CATALOG_ROW = re.compile(r"^\| (Claude Code|Codex) \|.*\| (\d+\.\d+\.\d+) \|[^|]*\|$", re.M)
+VERSION_CELL = re.compile(r"\d+\.\d+\.\d+")
 CATALOG_HOST_NAMES = ("Claude Code", "Codex")
 CATALOG_HOST_KEYS = {host.casefold() for host in CATALOG_HOST_NAMES}
 REVIEW_NAME = re.compile(r"(?i)(\.pem|\.key|\.p12|\.pfx|\.pub|id_rsa|id_ed25519|secret|credential|token|password|"
@@ -420,6 +420,33 @@ def block_pin(content: str, where: str) -> str:
 PEP263 = re.compile(r"^[ \t\f]*#.*?coding[:=][ \t]*([-\w.]+)")
 
 
+def _cells(line: str) -> list[str]:
+    return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+
+def catalog_versions(text: str, path: str, count: int) -> list[str]:
+    """The version cells of the catalog rows of both hosts, read as the table is written at main c9ab65b1: the head
+    row whose first cell is Host names the Version column, and every table row whose first cell names a host, read
+    without its blanks and in any case, has as many cells as the head, the host written as in CATALOG_HOST_NAMES, and
+    a version of the form X.Y.Z in that column; each host has exactly one row. The readings of 149788f8, c2ff7601 and
+    950d341d found a pattern over the row text counting matches, missing a row written with other blanks and reading
+    a later number of a row with one cell more."""
+    rows = [line for line in text.split("\n") if line.lstrip().startswith("|")]
+    heads = [_cells(line) for line in rows if _cells(line)[0].casefold() == "host"]
+    if len(heads) != 1 or heads[0].count("Version") != 1:
+        raise CheckFailed(f"{path}: no single catalog head with one Version column")
+    width, column = len(heads[0]), heads[0].index("Version")
+    found = [_cells(line) for line in rows if _cells(line)[0].casefold() in CATALOG_HOST_KEYS]
+    for cells in found:
+        if len(cells) != width or cells[0] not in CATALOG_HOST_NAMES or not VERSION_CELL.fullmatch(cells[column]):
+            raise CheckFailed(f"{path}: a catalog row of a host not in the form of the head ({cells[0]!r}, "
+                              f"{len(cells)} cells, expected {width})")
+    names = sorted(cells[0] for cells in found)
+    if len(found) != count or names != sorted(CATALOG_HOST_NAMES):
+        raise CheckFailed(f"{path}: catalog rows of {names}, expected one each of {sorted(CATALOG_HOST_NAMES)}")
+    return [cells[column] for cells in found]
+
+
 def python_text(text: str, path: str) -> str:
     """A Python file the generator reads with ast, tokenize or the PEP 723 pattern, which it reads with LF line ends
     only, as every such file at main c9ab65b1 has: ast takes a lone CR for a line end while the token reader and the
@@ -457,20 +484,7 @@ def read_place(repo: Path, commit: str, kind: str, path: str, name: str | None, 
             raise CheckFailed(f"{path}: {len(blocks)} script metadata blocks in {name}, expected 1")
         return [block_pin(blocks[0], f"{path} {name}")]
     if kind == "catalog_rows":
-        # Every row whose first cell names a host has the catalog form, and each host has exactly one: counting
-        # matches let two rows of one host stand for both and passed over a row the pattern does not read (the Codex
-        # pre-run of the reading of 149788f8).
-        # the first cell as Markdown reads it, without its blanks and in any case (the Codex pre-run of the reading of
-        # c2ff7601: |Codex | is a row of that host too)
-        hosts = [line for line in text.split("\n") if line.lstrip().startswith("|")
-                 and line.strip().strip("|").split("|")[0].strip().casefold() in CATALOG_HOST_KEYS]
-        rows = [CATALOG_ROW.fullmatch(line) for line in hosts]
-        if not all(rows):
-            raise CheckFailed(f"{path}: a catalog row of a host without a version cell in the catalog form")
-        names = sorted(m.group(1) for m in rows)
-        if len(rows) != count or names != sorted(CATALOG_HOST_NAMES):
-            raise CheckFailed(f"{path}: catalog rows of {names}, expected one each of {sorted(CATALOG_HOST_NAMES)}")
-        return [m.group(2) for m in rows]
+        return catalog_versions(text, path, count)
     raise NotMeasurable(f"unknown place kind {kind}")
 
 
