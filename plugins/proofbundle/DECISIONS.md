@@ -6771,11 +6771,20 @@ The rule:
 - The empty bytes are hashed for no surface. An action whose bytes are empty is unresolved, wherever its form came
   from: one function gives every receipt and every action id its digest.
 - The observer names no stored bytes for a merge, since the event does not carry what the receipt hashes. An approved
-  merge that arrived is then "approved, arrived, form not measured", never "reconciled" by the empty bytes.
+  merge that arrived is then "approved, arrived, form not measured", never "reconciled" by the empty bytes. The match
+  of the contract (section 5) reads such an effect as equal to an action in its surface alone. A reading of this rule
+  on 2026-11-03 found that without that sentence a merge listed before an earlier comment on the same pull request
+  took the comment's decision, the earliest decided of the target, and the comment then counted under M5. A rerun of
+  records written before D135 reads their merges so too: an approved merge reads "form not measured" there, where it
+  read "reconciled" by the empty bytes.
+- The repository in the bytes of a merge is written in lower case, as GitHub reads owner and name whatever their case.
 - The key signer signs traceContext only in the gate's form: an object of traceId and parentId or one of them, each an
   id of the form above. Any other value is statement_type, as every other field outside the gate's form is. An operator
   who updates the gate updates key_signer.py with it; the key signer of an earlier version refuses a receipt that
   carries traceContext.
+- Where an earlier GitHub MCP server does not know expectedHeadSha, it merges whatever head the pull request has, and
+  the receipt names a head the merge did not require. The gate does not see the server's version; the argument is
+  measured at the commit named above.
 
 What stays: a receipt that D55 wrote, without traceContext and with the digest of the empty bytes for a merge, verifies
 as before, and the profile reads it as before; tools/pilot/vectors.json does not change. No field of

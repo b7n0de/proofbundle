@@ -436,6 +436,7 @@ def match(effects: list[dict], decisions: list[dict], agent_of: dict, window: di
     """Effects to the proposed actions of the window, by the rule of the contract, section 5, decided by the records
     alone. An effect takes one action of the window with its target and its agent identity that no earlier effect took:
     the one whose surface and bytes it equals when exactly one does, otherwise the earliest decided, ties by decisionId.
+    An effect whose stored bytes the API does not show equals an action in its surface alone (D135).
     An effect that equals actions of different verdicts is `ambiguous`; it counts under M6 when one of them was refused
     and takes the earliest decided. An effect with no action left, or whose action holds no approval decided not later
     than the effect, counts under M5; one that takes a refused action counts under both."""
@@ -449,7 +450,11 @@ def match(effects: list[dict], decisions: list[dict], agent_of: dict, window: di
                       and agent is not None and d["agent"] == agent]
         candidates.sort(key=lambda d: (instant_key(d["decidedAt"]), d["decisionId"]))
         stored = sha256_hex(effect["stored"]) if effect["stored"] is not None else None
-        equal = [d for d in candidates if d["surface"] == effect["surface"] and d["bytes_sha256"] == stored]
+        # D135: an effect whose stored bytes the API does not show (a merge) equals an action by its surface alone.
+        # Compared with None it equalled only the actions that name no bytes, and otherwise fell back to the earliest
+        # decided action of the target, which can be one of another surface (the reading of 2026-11-03).
+        equal = [d for d in candidates if d["surface"] == effect["surface"]
+                 and (effect["stored"] is None or d["bytes_sha256"] == stored)]
         ambiguous = len({d["verdict"] for d in equal}) > 1
         if len(equal) == 1 or ambiguous:
             chosen = equal[0]           # the one it equals, or the earliest decided of the ambiguous ones

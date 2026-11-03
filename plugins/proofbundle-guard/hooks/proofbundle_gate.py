@@ -23398,7 +23398,8 @@ def _pilot_pull_target(positional: list, found: dict) -> str | None:
 
 def _pilot_merge_bytes(owner: str, repo: str, number: str, head: object, method: object, texts: dict) -> bytes | None:
     """D135: the bytes a merge's receipt hashes, the RFC 8785 form of {surface, repository, pullRequest, headCommit,
-    mergeMethod} and of commitTitle and commitMessage where the call writes them (`texts`, by those two names). None
+    mergeMethod} and of commitTitle and commitMessage where the call writes them (`texts`, by those two names), the
+    repository as `<owner>/<repo>` in lower case. None
     where the call names no head commit as an object id or no merge method, or a title or a message that is no
     string: a merge whose head the call does not require is not the merge of one commit. Every value is a string, so
     sorted keys without spaces and the string escapes json.dumps writes are that form (RFC 8785, section 3.2.2.2); a
@@ -23406,8 +23407,9 @@ def _pilot_merge_bytes(owner: str, repo: str, number: str, head: object, method:
     if not (isinstance(head, str) and _PILOT_OID.fullmatch(head)) or method not in ("merge", "squash", "rebase") or \
             not all(isinstance(text, str) for text in texts.values()):
         return None
-    value = {"surface": "github.merge", "repository": f"{owner}/{repo}", "pullRequest": number, "headCommit": head,
-             "mergeMethod": method, **texts}
+    # GitHub names a repository whatever case its owner and name are written in, so the bytes write them lower case
+    value = {"surface": "github.merge", "repository": f"{owner}/{repo}".lower(), "pullRequest": number,
+             "headCommit": head, "mergeMethod": method, **texts}
     try:
         return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
     except UnicodeEncodeError:

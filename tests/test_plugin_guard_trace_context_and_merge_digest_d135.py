@@ -456,3 +456,55 @@ def test_the_key_signer_refuses_a_trace_the_gate_does_not_write(env, tmp_path, t
     assert proc.returncode == 3 and proc.stdout.decode().strip() in ("statement_type", "statement_malformed"), proc
     control = ks.run_key_signer(key.config, ks.request_of(_statement_with(env, None, drop=True)))
     assert control.returncode == 0, control
+
+
+# --- the match of the contract reads a merge by its surface (the reading of 2026-11-03) --------------------------------
+
+def _view(decision_id: str, surface: str, digest, decided_at: str, verdict: str = "ALLOW") -> dict:
+    return {"decisionId": decision_id, "target": f"https://github.com/{REPO}/pull/279", "agent": p1.AGENT_ID,
+            "decidedAt": decided_at, "surface": surface, "bytes_sha256": digest, "verdict": verdict,
+            "decisionType": "preActionAuthorization"}
+
+
+def _effect(surface: str, stored, performed_at: str) -> dict:
+    return {"actor": o.AGENT_GITHUB_ID, "target": f"https://github.com/{REPO}/pull/279", "surface": surface,
+            "stored": stored, "performedAt": performed_at}
+
+
+WINDOW = {"start": "2026-11-03T17:00:00Z", "end": "2026-11-03T18:00:00Z"}
+AGENTS = {o.AGENT_GITHUB_ID: p1.AGENT_ID}
+
+
+@pytest.mark.parametrize("merge_digest", [hashlib.sha256(b"{}").hexdigest(), EMPTY, None])
+def test_a_merge_listed_before_an_earlier_comment_takes_the_merge_decision(merge_digest):
+    """The events API lists the newest first. The merge has no stored bytes the observer can read, and without the
+    rule of D135 it took the comment's decision, the earliest decided of the target, so the comment counted under M5.
+    A merge decision of D55 (the digest of the empty bytes) and one without a digest are read alike."""
+    text = b"Round four of five."
+    comment = _view("a-" + "1" * 32 + "#1", "github.conversationComment", hashlib.sha256(text).hexdigest(),
+                    "2026-11-03T17:10:00Z")
+    merge = _view("a-" + "2" * 32 + "#1", "github.merge", merge_digest, "2026-11-03T17:20:00Z")
+    effects = [_effect("github.merge", None, "2026-11-03T17:21:00Z"),
+               _effect("github.conversationComment", text, "2026-11-03T17:11:00Z")]
+    result = o.pr.match(effects, [comment, merge], AGENTS, WINDOW)
+    assert [row["decision"] for row in result["rows"]] == [merge["decisionId"], comment["decisionId"]]
+    assert (result["M5"], result["M6"]) == (0, 0)
+
+
+def test_a_comment_whose_bytes_differ_still_takes_the_earliest_decision_as_the_contract_says():
+    """The control: an effect with stored bytes that equal no action falls back to the earliest decided, as before."""
+    comment = _view("a-" + "1" * 32 + "#1", "github.conversationComment", hashlib.sha256(b"x").hexdigest(),
+                    "2026-11-03T17:10:00Z")
+    merge = _view("a-" + "2" * 32 + "#1", "github.merge", None, "2026-11-03T17:05:00Z")
+    result = o.pr.match([_effect("github.conversationComment", b"y", "2026-11-03T17:11:00Z")], [comment, merge],
+                        AGENTS, WINDOW)
+    assert [row["decision"] for row in result["rows"]] == [merge["decisionId"]]
+
+
+def test_one_merge_written_in_another_case_has_one_digest():
+    lower = merge_bytes(MERGE)
+    assert merge_bytes(MERGE.replace(REPO, "B7n0de/ProofBundle")) == lower
+    mcp = gate._pilot_mcp_action("mcp__github__merge_pull_request",
+                                 {"owner": "B7N0DE", "repo": "proofbundle", "pullNumber": 279,
+                                  "merge_method": "squash", "expectedHeadSha": HEAD})
+    assert mcp["bytes"] == lower

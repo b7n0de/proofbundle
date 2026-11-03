@@ -36,6 +36,11 @@ GATE_ID, OBSERVER_ID, AGENT_ID = "operator:outbound-gate", "operator:github-obse
 PUSH_URL = "https://github.com/b7n0de/pilot-probe.git"
 PUSH_TARGET = "https://github.com/b7n0de/pilot-probe#refs/heads/main"
 COMMENT = 'gh pr comment 279 --body "Round four of five." --repo b7n0de/proofbundle'
+#: D135: the bytes of a merge that names its head commit and its method.
+MERGE_HEAD = "a" * 40
+MERGE_BYTES = json.dumps({"surface": "github.merge", "repository": "b7n0de/proofbundle", "pullRequest": "279",
+                          "headCommit": MERGE_HEAD, "mergeMethod": "squash"}, sort_keys=True,
+                         separators=(",", ":")).encode("ascii")
 CLOSING_RULES = {"github.conversationComment": "Written by an AI session of b7n0de under owner review.",
                  "github.reviewThreadReply": None, "github.pullRequestBody": "Measurement, not certification.",
                  "git.push": None, "github.merge": None}
@@ -184,8 +189,8 @@ def test_a_retried_action_keeps_its_action_id_and_counts_the_attempt(env, tmp_pa
      "github.reviewThreadReply", "https://github.com/b7n0de/proofbundle/pull/279", b"Fixed."),
     ("gh pr edit https://github.com/b7n0de/proofbundle/pull/279 --body 'New text.'", "github.pullRequestBody",
      "https://github.com/b7n0de/proofbundle/pull/279", b"New text."),
-    ("gh pr merge 279 --squash --repo b7n0de/proofbundle", "github.merge",
-     "https://github.com/b7n0de/proofbundle/pull/279", b""),
+    (f"gh pr merge 279 --squash --repo b7n0de/proofbundle --match-head-commit {MERGE_HEAD}", "github.merge",
+     "https://github.com/b7n0de/proofbundle/pull/279", MERGE_BYTES),
     ("gh pr create --title T --body Body. --head feature --base main --repo b7n0de/proofbundle",
      "github.pullRequestBody", "https://github.com/b7n0de/proofbundle/compare/main...feature", b"Body."),
 ])
