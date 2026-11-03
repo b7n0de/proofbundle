@@ -100,7 +100,7 @@ def check_jws(rep, raw, pin):
              "vCon, form (vCon core 6.4)", "not the signed form", "signed form")
     sigs = signed["signatures"]
     rep.need(isinstance(sigs, list) and sigs, "V2", "JWS signatures", "no signature")
-    header = None
+    headers = []
     for i, so in enumerate(sigs):
         where = "JWS signatures[%d]" % i
         hdr = so.get("header") if isinstance(so, dict) else None
@@ -132,7 +132,7 @@ def check_jws(rep, raw, pin):
         except (InvalidSignature, ValueError, KeyError) as e:
             rep.fail("V2", where, "JWS signature does not verify (%s)" % type(e).__name__)
         rep.ok("V2", where, "JWS signature verifies, alg %s" % alg)
-        header = hdr
+        headers.append(hdr)
     try:
         payload = vp.b64u_dec(signed["payload"])
     except ValueError as e:
@@ -144,8 +144,10 @@ def check_jws(rep, raw, pin):
         rep.fail("V3", "JWS payload", "payload is not strict JSON: %s" % e)
     rep.need(vp.jcs(v) == payload, "V3", "JWS payload", "payload is not its own RFC 8785 serialization",
              "payload in RFC 8785 form, sha256 " + vp.sha256(payload))
-    if "uuid" in header:
-        rep.need(header["uuid"] == v.get("uuid"), "V3", "JWS header uuid", "header uuid differs (6.2.2)")
+    for i, hdr in enumerate(headers):
+        if "uuid" in hdr:
+            rep.need(hdr["uuid"] == v.get("uuid"), "V3", "JWS signatures[%d] header uuid" % i,
+                     "header uuid differs (6.2.2)")
     return v, payload
 
 
@@ -447,6 +449,11 @@ def check_set(rep, v, found, approvals):
     for f in sorted(approvals):
         rep.need(f in cited, "C3", "attachments[%d] (approval record)" % f, "no receipt in the vCon cites it")
     rep.ok("C3", "set", "every approval record is cited, every receipt is bound to a tool call")
+    rep.need(len(approvals) == 1 and len(found) == 2 and
+             sorted(x["pred"]["decision"]["verdict"] for x in found) == ["ALLOW", "DENY"],
+             "C3", "receipt inventory",
+             "expected one approval record and exactly one ALLOW and one DENY decision receipt",
+             "one approval record, one ALLOW and one DENY decision receipt")
 
 
 def check_citing(rep, d, v, payload, a, gate):

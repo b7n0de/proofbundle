@@ -41,7 +41,7 @@ import re
 import sys
 
 RECORDER = {"name": "claude_jsonl_to_vcon", "version": "0.1.0"}
-DATE_RX = re.compile(r"^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?([Zz]|[+-]\d{2}:\d{2})$")
+DATE_RX = re.compile(r"^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?([Zz]|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$")
 
 
 def _when(s: str) -> datetime.datetime:
@@ -131,6 +131,9 @@ def convert(lines, user_id="user", user_name="user", agent_id="agent", agent_nam
         content = msg.get("content")
         blocks = [{"type": "text", "text": content}] if isinstance(content, str) else (
             content if isinstance(content, list) else [])
+        result_blocks = [b for b in blocks if isinstance(b, dict) and b.get("type") == "tool_result"]
+        if isinstance(e.get("permissionDecision"), dict) and len(result_blocks) > 1:
+            raise ValueError("permissionDecision is ambiguous across multiple tool_result blocks")
         model = msg.get("model") if kind == "assistant" and isinstance(msg.get("model"), str) else None
         if model and model not in models:
             models.append(model)
@@ -169,7 +172,7 @@ def convert(lines, user_id="user", user_name="user", agent_id="agent", agent_nam
                 kw.update({"status": "error" if err else "success", "is_error": err})
                 event(e, i, "tool-result", **kw)
                 pd = e.get("permissionDecision")
-                if isinstance(pd, dict) and i == 0:
+                if isinstance(pd, dict) and len(result_blocks) == 1:
                     data = {k: pd[k] for k in ("decision", "source") if isinstance(pd.get(k), str)}
                     if "call_id" in kw:
                         data["call_id"] = kw["call_id"]

@@ -158,9 +158,9 @@ def case_files(mutate, post, rs256=False):
 def receipts_unchanged(fs):
     d = json.loads(fs["vcon.signed.json"])
     v = json.loads(vp.b64u_dec(d["payload"]))
-    inline = [a["body"]["payload"] for a in v.get("attachments", []) if a.get("purpose") == "decision receipt"
+    inline = [a["body"] for a in v.get("attachments", []) if a.get("purpose") == "decision receipt"
               and "body" in a]
-    return inline == [B["env1"]["payload"]] and fs["external/dec-0002.dsse.json"] == B["env2"]
+    return inline == [B["env1"]] and fs["external/dec-0002.dsse.json"] == B["env2"]
 
 
 def run(d, a, n):
