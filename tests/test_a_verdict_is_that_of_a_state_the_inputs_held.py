@@ -1090,7 +1090,9 @@ def _an_befehlen(stellen: dict, rueckruf: Callable[[Any], None], lauf: Callable[
     """``lauf()`` with ``rueckruf(rahmen)`` called before each instruction at ``stellen`` (code object -> offsets) runs.
     From CPython 3.12 through `sys.monitoring`, since there `sys.settrace` gives a frame no opcode events when the trace
     function sets its ``f_trace_opcodes`` (measured under 3.12.15: call, line and return only; CI of pull request 474 at
-    c1cafbb5, test (3.12, 1)); before 3.12 through `sys.settrace`. Either is set for ``lauf()`` only and left as found."""
+    c1cafbb5, test (3.12, 1)); before 3.12 through `sys.settrace`. Either is set for ``lauf()`` only and left as found,
+    also when ``lauf()`` raises: the trace function that was set, and at the free tool id the helper takes the callback
+    and the local events an earlier tool left there (`TheStopHelperLeavesTheInterpreterAsItFoundIt`)."""
     mon = getattr(sys, "monitoring", None)
     if mon is None:
         def spur(rahmen, ereignis, arg):
@@ -1112,16 +1114,19 @@ def _an_befehlen(stellen: dict, rueckruf: Callable[[Any], None], lauf: Callable[
     werkzeug = frei[0]
     mon.use_tool_id(werkzeug, "aba window case")
     try:
-        mon.register_callback(werkzeug, mon.events.INSTRUCTION,
-                              lambda code, stelle: rueckruf(sys._getframe(1)) if stelle in stellen.get(code, ())
-                              else None)
-        for code in stellen:
-            mon.set_local_events(werkzeug, code, mon.events.INSTRUCTION)
-        lauf()
+        alte_ereignisse = {code: mon.get_local_events(werkzeug, code) for code in stellen}
+        alter_rueckruf = mon.register_callback(
+            werkzeug, mon.events.INSTRUCTION,
+            lambda code, stelle: rueckruf(sys._getframe(1)) if stelle in stellen.get(code, ()) else None)
+        try:
+            for code in stellen:
+                mon.set_local_events(werkzeug, code, mon.events.INSTRUCTION)
+            lauf()
+        finally:
+            for code, ereignisse in alte_ereignisse.items():
+                mon.set_local_events(werkzeug, code, ereignisse)
+            mon.register_callback(werkzeug, mon.events.INSTRUCTION, alter_rueckruf)
     finally:
-        for code in stellen:
-            mon.set_local_events(werkzeug, code, 0)
-        mon.register_callback(werkzeug, mon.events.INSTRUCTION, None)
         mon.free_tool_id(werkzeug)
 
 
