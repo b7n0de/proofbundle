@@ -1250,6 +1250,32 @@ class SignatureChain(Base):
 class TagObject(Base):
     """T1: fixed bytes and an expected object id before the approval."""
 
+    def test_t2_an_optional_output_inside_the_output_folder_or_on_another_is_refused(self):
+        """The Codex pre-run of the reading of 8682d4b4: --tag-out and --inventory-out were written after the three
+        artifacts and not held apart from them, so --tag-out on the archive's path replaced it while the report named
+        the archive's size and SHA-256 and said result OK. The driver writes both outside the output folder; each now
+        has to lie outside it and apart from the other, after links are followed, before anything is written."""
+        repo, commit = make_repo(self.tmp, split_files())
+        archive = f"proofbundle-plugin-{VERSION}.tar"
+        link = self.tmp / "into_the_archive"
+        os.symlink(self.tmp / "o" / "link" / archive, link)
+        cases = {
+            "tag on the archive": lambda out: ("--tag-out", str(out / archive)),
+            "inventory on SHA256SUMS": lambda out: ("--inventory-out", str(out / "SHA256SUMS")),
+            "tag on the folder": lambda out: ("--tag-out", str(out)),
+            "both on one path": lambda out: ("--tag-out", str(self.tmp / "same"), "--inventory-out",
+                                             str(self.tmp / "same")),
+            "link": lambda out: ("--tag-out", str(link)),
+        }
+        for name, extra in cases.items():
+            with self.subTest(name=name):
+                out = self.tmp / "o" / ("link" if name == "link" else name.replace(" ", "_"))
+                proc = build(repo, commit, out, extra=extra(out))
+                self.assertEqual(proc.returncode, 2, text(proc))
+                self.assertFalse(out.exists() and any(out.iterdir()), "a refused build wrote artifacts")
+                self.assertFalse((self.tmp / "same").exists())
+                self.assertIn("lie outside the output folder and apart", proc.stderr.decode())
+
     def test_t1_tag_object_is_accepted_and_matches_git_tag(self):
         repo, commit = make_repo(self.tmp, split_files())
         tagfile = self.tmp / "t1.tag"

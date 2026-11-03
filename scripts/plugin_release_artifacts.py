@@ -39,7 +39,8 @@ build
       SHA256SUMS                            A3, two lines derived from A2 and its own hash
     --tag-out writes the raw bytes of the annotated tag object T1, which `git mktag` accepts unchanged.
     --inventory-out writes one line per archived file: mode, size, sha256, path, and a review mark for names that
-    look like key or credential material.
+    look like key or credential material. Both lie outside OUT_DIR and apart, after links are followed; any other
+    path stops the build before anything is written.
     The report on stdout names every place read, every check, each artifact with size and SHA-256, the bytes to sign,
     and T1 with its message hash and expected object id. Two runs on the same commit give the same bytes and report.
 
@@ -827,7 +828,7 @@ def check_public_profile(repo: Path, commit: str, layout: dict) -> list[str]:
         if servers != expected:
             raise CheckFailed(f"{root}{rel}: MCP servers {servers!r}, expected exactly {expected!r}")
     # none in its Claude Code manifest, whose members main c9ab65b1 writes hold no mcpServers (check_marketplaces)
-    tools =server_tools(repo, commit, root + "/server/proofbundle_mcp.py")
+    tools = server_tools(repo, commit, root + "/server/proofbundle_mcp.py")
     if sorted(tools) != sorted(VERIFIER_TOOLS) or len(set(tools)) != len(tools):
         raise CheckFailed(f"{root}/server/proofbundle_mcp.py: tools {sorted(tools)}, expected {sorted(VERIFIER_TOOLS)}")
     return [f"check public profile {root}: no hooks folder, no hooks field, no dependency on the Guard",
@@ -936,6 +937,13 @@ def cmd_build(args: argparse.Namespace) -> int:
     repo, out = Path(args.repo), Path(args.out)
     if out.exists() and any(out.iterdir()):
         raise NotMeasurable(f"the output folder is not empty: {out.name}")
+    # every path a build writes is its own: --tag-out and --inventory-out lie outside the output folder and apart, after
+    # links are followed, as the driver writes them (the Codex pre-run of the reading of 8682d4b4: --tag-out on the
+    # archive's path replaced it while the report named the archive and said result OK)
+    folder = out.resolve()
+    extra = [Path(p).resolve() for p in (args.tag_out, args.inventory_out) if p]
+    if any(p == folder or folder in p.parents for p in extra) or len(set(extra)) != len(extra):
+        raise NotMeasurable("--tag-out and --inventory-out lie outside the output folder and apart")
     if not SEMVER.fullmatch(args.version) or not SEMVER.fullmatch(args.expect_pin):
         raise NotMeasurable("--version and --expect-pin take X.Y.Z")
     layout = INVENTORIES[args.layout]
