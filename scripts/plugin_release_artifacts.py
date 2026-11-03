@@ -16,9 +16,9 @@ build
       - the required paths: LICENSE and every marketplace file of the layout as regular files, every plugin root of
         the layout as a nonempty tree;
       - every required version place and every required pin place of the layout's inventory (INVENTORIES below), with
-        its exact count; script dependency metadata is parsed as TOML (PEP 723), and each block must hold exactly one
-        proofbundle dependency pinned with == to the expected version, whatever else it lists; source constants are
-        read with ast, never executed;
+        its exact count; script dependency metadata is parsed as TOML (PEP 723), and each block must list exactly one
+        dependency, proofbundle pinned with == to the expected version; source constants are read with ast, never
+        executed;
       - every marketplace of the layout: exactly the layout's entries, each source resolving from the folder that
         holds the marketplace to a root of the archive whose manifest carries the same name, no differing version
         field. In the split layout the public marketplace at the repository root lists proofbundle alone, and the
