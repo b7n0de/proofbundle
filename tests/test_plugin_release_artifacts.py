@@ -784,6 +784,24 @@ class GuardProfile(Base):
                 failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
                 self.assertTrue(failed and "in a form the generator reads" in failed[0], failed)
 
+    def test_n6n_a_hook_command_the_shell_does_not_parse_is_refused(self):
+        """The Codex pre-run of the reading of 459d8f7e: a valid start followed by a rest the shell rejects passed,
+        while the shell starts nothing of such a command. The whole command now has to parse, under sh and bash."""
+        for name, command in (("open group", 'python3 -I "${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py" && ('),
+                              ("open quote", 'python3 -I "${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py" || echo \'x')):
+            with self.subTest(name=name):
+                hooks = {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": command}]}]}
+                files = split_files()
+                files[G + "/hooks/hooks.json"] = json.dumps({"hooks": hooks}) + "\n"
+                sub = self.tmp / name.replace(" ", "_")
+                sub.mkdir()
+                repo, commit = make_repo(sub, files)
+                out = sub / "out"
+                proc = build(repo, commit, out)
+                self.assertEqual(proc.returncode, 1, text(proc))
+                failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
+                self.assertTrue(failed and "the shell does not parse" in failed[0], failed)
+
     def test_n6j_control_the_command_forms_the_guard_writes_build(self):
         """The forms of the Guard's hooks at main c9ab65b1: an or-list with a group, a command substitution assigned to a
         variable with an if, and a single-quoted JSON text after the program."""

@@ -617,6 +617,19 @@ def check_marketplaces(repo: Path, commit: str, layout: dict, version: str) -> l
     return lines
 
 
+def shell_parses(command: str) -> bool:
+    """Whether sh and bash both read the command without a syntax error (-n: read, run nothing)."""
+    for shell in ("sh", "bash"):
+        try:
+            proc = subprocess.run([shell, "-n", "-c", command], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                  stderr=subprocess.DEVNULL, timeout=20, check=False)
+        except FileNotFoundError as exc:
+            raise NotMeasurable(f"checking hook commands needs {shell}") from exc
+        if proc.returncode != 0:
+            return False
+    return True
+
+
 def hook_programs(command: object, root: str) -> list[str] | None:
     """The path of the program a hook command starts, as a list of one, or None where the command is no string, does
     not begin with one of the two forms of HOOK_START, names a plugin root more than once, or names a path with a "."
@@ -746,6 +759,10 @@ def check_guard_profile(repo: Path, commit: str, layout: dict) -> list[str]:
     started = set()
     for command, host_root in commands:
         found = hook_programs(command, host_root)
+        # the whole command as the shell reads it, under sh and bash: a valid start before a rest the shell rejects
+        # starts nothing (the Codex pre-run of the reading of 459d8f7e)
+        if found is not None and not shell_parses(command):
+            raise CheckFailed(f"{root}: the hook command {command!r} is one the shell does not parse")
         if found is None:
             raise CheckFailed(f"{root}: the hook command {command!r} names no program of the Guard in a form the "
                               "generator reads")
