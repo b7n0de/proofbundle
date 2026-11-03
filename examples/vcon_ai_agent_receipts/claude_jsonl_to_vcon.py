@@ -9,7 +9,8 @@ on vCon core -05. Standard library only. The output is deterministic for a given
 Mapping, per line of the transcript:
 
 - "user" or "assistant" text (a string content or a "text" block) becomes a "text" Dialog Object. The
-  user line is contributed by party 0, the assistant line by party 1 with model_id. token_usage is set
+  user line is contributed by party 0, the assistant line by party 1 with model_id; parties is written
+  as a list of that one index, [0] or [1] (Section 4.5.4 allows a number or a list). token_usage is set
   once per message id, on its first text Dialog Object.
 - a "tool_use" block becomes a "tool-call" Event Object (tool_name, input, call_id = the block id).
 - a "tool_result" block becomes a "tool-result" Event Object (output, call_id = tool_use_id, is_error,
@@ -141,7 +142,7 @@ def convert(lines, user_id="user", user_name="user", agent_id="agent", agent_nam
             t = blk.get("type") if isinstance(blk, dict) else None
             if t == "text" and isinstance(blk.get("text"), str):
                 eid, pid = ids(e, i)
-                d = {"type": "text", "start": e["timestamp"], "parties": role_party, "mediatype": "text/plain",
+                d = {"type": "text", "start": e["timestamp"], "parties": [role_party], "mediatype": "text/plain",
                      "encoding": "none", "body": blk["text"]}
                 if model:
                     d["model_id"] = model

@@ -80,6 +80,14 @@ def as_list(v):
     return v if isinstance(v, list) else [v]
 
 
+def one_party(v, n):
+    """The one contributing party of a text Dialog Object: a valid index, or a list of exactly one valid
+    index (vCon core 4.5.4 allows both); None for anything else, such as several parties or null."""
+    if isinstance(v, list):
+        return v[0] if len(v) == 1 and index(v[0], n) else None
+    return v if index(v, n) else None
+
+
 def check_cert(rep, cid, where, der, pins):
     try:
         cert = x509.load_der_x509_certificate(der)
@@ -175,7 +183,8 @@ def check_structure(rep, v):
     for i, d in enumerate(dialog):
         where = "dialog[%d]" % i
         rep.need(d.get("type") == "text", "V4", where, "this profile only has text Dialog Objects")
-        rep.need(index(d.get("parties"), len(parties)), "V4", where, "parties is not one valid index")
+        rep.need(one_party(d.get("parties"), len(parties)) is not None, "V4", where,
+                 "parties does not name one valid index")
         try:
             vp.when(d.get("start"))
         except ValueError as e:
@@ -401,7 +410,7 @@ def check_receipts(rep, v, a, gate):
             rep.need(fa["dialog"] in sessions[k].get("dialog", []), "R4a", where, "answer not in the session")
             rep.need(rec.get("approvalId") == d.get("entry_id"), "R4a", where,
                      "approvalId is not the entry_id of the answer")
-            who = parties[d["parties"]]
+            who = parties[one_party(d["parties"], len(parties))]
             rep.need(rec.get("approver") == who.get("uuid"), "R4a", where,
                      "approver %r is not the party of the answer (%r)" % (rec.get("approver"), who.get("uuid")))
             rep.need(who.get("type") == "person", "R4a", where, "answer not from a person")

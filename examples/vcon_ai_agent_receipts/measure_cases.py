@@ -121,7 +121,7 @@ CASES = [
     ("F09", "Event Objects with session instead of sessions", "V4", m_f09, None),
     ("F10", "content_hash without a sha512 token", "A1",
      lambda v: v["attachments"][2].update({"content_hash": [v["attachments"][2]["content_hash"][1]]}), None),
-    ("F11", "approval answer contributed by the agent", "R4a", lambda v: v["dialog"][2].update({"parties": 1}), None),
+    ("F11", "approval answer contributed by the agent", "R4a", lambda v: v["dialog"][2].update({"parties": [1]}), None),
     ("F12", "two ALLOW receipts cite the same approval", "C1", m_f12, None),
     ("F13", "approvedAt is not the time of the answer", "R4a",
      lambda v: v["dialog"][2].update({"start": "2026-10-15T09:00:03.000Z"}), None),

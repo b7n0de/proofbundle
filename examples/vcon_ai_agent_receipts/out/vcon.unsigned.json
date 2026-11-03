@@ -66,7 +66,9 @@
     {
       "type": "text",
       "start": "2026-10-15T09:00:00.000Z",
-      "parties": 0,
+      "parties": [
+        0
+      ],
       "mediatype": "text/plain",
       "encoding": "none",
       "body": "Please push the topic branch to origin.",
@@ -75,7 +77,9 @@
     {
       "type": "text",
       "start": "2026-10-15T09:00:02.000Z",
-      "parties": 1,
+      "parties": [
+        1
+      ],
       "mediatype": "text/plain",
       "encoding": "none",
       "body": "I will run: git push origin refs/heads/topic:refs/heads/topic Do you approve this exact command?",
@@ -91,7 +95,9 @@
     {
       "type": "text",
       "start": "2026-10-15T09:00:04.000Z",
-      "parties": 0,
+      "parties": [
+        0
+      ],
       "mediatype": "text/plain",
       "encoding": "none",
       "body": "Approved.",
@@ -101,7 +107,9 @@
     {
       "type": "text",
       "start": "2026-10-15T09:04:58.000Z",
-      "parties": 0,
+      "parties": [
+        0
+      ],
       "mediatype": "text/plain",
       "encoding": "none",
       "body": "Now merge pull request 7.",
@@ -111,7 +119,9 @@
     {
       "type": "text",
       "start": "2026-10-15T09:05:03.000Z",
-      "parties": 1,
+      "parties": [
+        1
+      ],
       "mediatype": "text/plain",
       "encoding": "none",
       "body": "The merge of pull request 7 was blocked by the gate: required checks failed.",
