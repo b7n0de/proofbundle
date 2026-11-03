@@ -116,7 +116,8 @@ where it is written once. A hook command in any other form, or one that names a 
 manifest or in its house marketplace entry stops the build, and the hooks of its Codex manifest have to be an object.
 For a constant or the tool table read with ast, every mention of its name as a Python token, in the NFKC form Python
 reads it in, has to be that name at that place, written once, as the only target of its top-level assignment, and otherwise read; the tool table may besides be
-looked up or read by `items`, `keys`, `values` or `get`.
+looked up or read by `items`, `keys`, `values` or `get`. The Python files it reads that way have LF line ends, as at main c9ab65b1; a CR in
+one of them stops the build.
 
 The plugin catalog plugins/README.md copies the manifests' version in its text. It is not in the archive and is checked
 by reading.

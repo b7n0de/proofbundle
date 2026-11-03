@@ -411,8 +411,20 @@ def block_pin(content: str, where: str) -> str:
     return pins[0]
 
 
+def python_text(text: str, path: str) -> str:
+    """A Python file the generator reads with ast, tokenize or the PEP 723 pattern, which it reads with LF line ends
+    only, as every such file at main c9ab65b1 has: ast takes a lone CR for a line end while the token reader and the
+    PEP 723 pattern do not, so a place could be read otherwise than Python reads it (the Codex pre-run of the reading
+    of 7cf13c55). A CR in such a file stops the build."""
+    if "\r" in text:
+        raise CheckFailed(f"{path}: CR line ends; the generator reads Python files with LF line ends only")
+    return text
+
+
 def read_place(repo: Path, commit: str, kind: str, path: str, name: str | None, count: int) -> list[str]:
     text = blob_text(repo, commit, path)
+    if kind in ("py_constant", "file_blocks", "const_block"):
+        text = python_text(text, path)
     if kind == "json_version":
         data = json_text(text, path)
         if not isinstance(data, dict) or not isinstance(data.get("version"), str):
@@ -525,7 +537,7 @@ def _hook_commands(value: object) -> list[object]:
 
 def server_tools(repo: Path, commit: str, path: str) -> list[str]:
     """The keys of the top-level TOOLS table of an MCP server, read with ast, in the order written."""
-    source = blob_text(repo, commit, path)
+    source = python_text(blob_text(repo, commit, path), path)
     tables = _assignments(source, path).get("TOOLS", [])
     if len(tables) != 1 or not isinstance(tables[0], ast.Dict):
         raise CheckFailed(f"{path}: {len(tables)} top-level TOOLS tables, expected one dict literal")

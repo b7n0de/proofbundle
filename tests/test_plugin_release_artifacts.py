@@ -365,6 +365,27 @@ class SplitChecks(Base):
         repo, commit = make_repo(self.tmp, files)
         self.assertBuilt(build(repo, commit, self.out))
 
+    def test_s1h_a_python_file_with_cr_line_ends_is_refused_by_name(self):
+        """The Codex pre-run of the reading of 7cf13c55: ast reads a lone CR as a line end and the token reader does not,
+        so the places of a read name differed, and the PEP 723 reader finds no block in such a file either. The files
+        the generator reads with ast have LF line ends at main c9ab65b1, so a CR in one of them stops the build with that
+        reason."""
+        for name, ending in (("cr", "\r"), ("crlf", "\r\n")):
+            with self.subTest(name=name):
+                files = split_files()
+                for root in (V, G):
+                    rel = root + "/server/proofbundle_mcp.py"
+                    files[rel] = files[rel].replace("\n", ending)
+                sub = self.tmp / name
+                sub.mkdir()
+                repo, commit = make_repo(sub, files)
+                out = sub / "out"
+                proc = build(repo, commit, out)
+                self.assertEqual(proc.returncode, 1, text(proc))
+                self.assertFalse(out.exists() and any(out.iterdir()), "a refused build wrote artifacts")
+                failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
+                self.assertTrue(failed and "CR line ends" in failed[0], failed)
+
     def test_s2_missing_guard_gate_pin_is_refused(self):
         self.split_refused(lambda f: f.__setitem__(G + "/hooks/proofbundle_gate.py", gate(constant=False)),
                            "PINNED_PROOFBUNDLE")
