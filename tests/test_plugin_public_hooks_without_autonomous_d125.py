@@ -18,6 +18,14 @@ RED at 16cffca: the four PreToolUse commands of hooks/hooks.json name the flag; 
 the standing GO (free_work_branch_go) where the base gate asks; the asks of decide() for `git reset --hard HEAD~1`, for
 a Write into .git/hooks and for a gated MCP write in the work profile are denies (D85, D93). Controls, green at both: the
 Codex manifest, which never carried the flag, and the read of a key file, a deny with and without it.
+
+Changed by D134 (owner choice F2 A, 2026-10-31): the Guard is a plugin of its own, proofbundle-guard, which the house
+installs beside proofbundle. proofbundle, the plugin everyone installs, registers no hook, so no command of it carries
+the flag and no outside user gets the autonomous answer by installing it. The Guard's hooks are the house's opt-in that
+D125 names: its Claude Code PreToolUse commands start the gate with the flag, its Codex manifest never does. The shipped
+commands run here are the Guard's, with its folder as the plugin root, and each answers as the gate started with the
+flag; the standing GO of D87 still frees no push without its own consent (D129), so the work-branch pushes keep the
+answer of the closed list.
 """
 from __future__ import annotations
 
@@ -36,7 +44,9 @@ import test_plugin_n35_work_branch_go_d87 as d87
 gate = d71.gate
 pytestmark = d71.pytestmark
 _clean = d71._clean
-PLUGIN = pathlib.Path(gate.__file__).resolve().parent.parent
+PLUGIN = pathlib.Path(__file__).resolve().parents[1] / "plugins" / "proofbundle"
+#: The house's hooks, the plugin proofbundle-guard beside the verifier (D134), which holds the gate programs.
+GUARD = PLUGIN.parent / "proofbundle-guard"
 FLAG = "--autonomous"
 #: Asks of decide() that the flag turns into a deny (tests/test_plugin_n35_autonomy_d85.py, D93): (tool, the tool's
 #: input, {R} the repository). One per gate command of the manifest: the shell, a file tool, a gated MCP tool.
@@ -59,8 +69,9 @@ def _commands(node) -> list[str]:
 
 
 def _shipped(tool: str) -> list[str]:
-    """The commands Claude Code runs before `tool`: those of each PreToolUse group of hooks.json whose matcher matches."""
-    groups = json.loads((PLUGIN / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
+    """The commands Claude Code runs before `tool`: those of each PreToolUse group of the Guard's hooks.json whose
+    matcher matches."""
+    groups = json.loads((GUARD / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]["PreToolUse"]
     return [h["command"] for g in groups if re.fullmatch(g["matcher"], tool) for h in g["hooks"]]
 
 
@@ -68,7 +79,7 @@ def _env(tmp_path: pathlib.Path, data: str) -> dict:
     env = {k: os.environ[k] for k in ("PATH", "HOME", "LC_ALL", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM",
                                       "PROOFBUNDLE_GATE_DIR")}
     env["CLAUDE_PLUGIN_DATA"] = env["PLUGIN_DATA"] = str(tmp_path / data)
-    env["CLAUDE_PLUGIN_ROOT"] = str(PLUGIN)
+    env["CLAUDE_PLUGIN_ROOT"] = str(GUARD)
     return env
 
 
@@ -78,24 +89,28 @@ def _event(repo: pathlib.Path, tool: str, tool_input: dict) -> str:
                        "tool_use_id": "toolu_d125", "tool_input": filled})
 
 
-def _run_shipped(repo: pathlib.Path, tmp_path: pathlib.Path, tool: str, tool_input: dict):
-    """The answer and log line of the one shipped command for `tool`, run as the host runs it."""
+def _run_shipped(repo: pathlib.Path, tmp_path: pathlib.Path, tool: str, tool_input: dict, *, without_flag: bool = False):
+    """The answer and log line of the one shipped command for `tool`, run as the host runs it; with without_flag, that
+    command without the house's flag, the gate's base path, which no plugin ships since D134."""
     (command,) = _shipped(tool)
+    if without_flag:
+        command = command.replace(f".py\" {FLAG} ||", ".py\" ||", 1)
     shim = tmp_path / "bin" / "python3"
     if not shim.exists():
         shim.write_text(f'#!/bin/sh\nexec "{sys.executable}" "$@"\n')
         shim.chmod(0o755)
-    line = command.replace("${CLAUDE_PLUGIN_ROOT}", str(PLUGIN))
-    proc, entry = ga.run_hook(["sh", "-c", line], _event(repo, tool, tool_input), _env(tmp_path, "data-shipped"),
-                              cwd=str(repo))
+    line = command.replace("${CLAUDE_PLUGIN_ROOT}", str(GUARD))
+    proc, entry = ga.run_hook(["sh", "-c", line], _event(repo, tool, tool_input),
+                              _env(tmp_path, "data-shipped" + ("-base" if without_flag else "")), cwd=str(repo))
     assert proc.returncode == 0, proc.stderr
     return ga.parsed(proc, entry), entry
 
 
-def _run_base(repo: pathlib.Path, tmp_path: pathlib.Path, tool: str, tool_input: dict):
-    """The answer and log line of the gate started without the flag: the base path, as decide() judges."""
-    proc, entry = ga.run_hook([sys.executable, "-I", gate.__file__], _event(repo, tool, tool_input),
-                              _env(tmp_path, "data-base"), cwd=str(repo))
+def _run_base(repo: pathlib.Path, tmp_path: pathlib.Path, tool: str, tool_input: dict, *flags: str):
+    """The answer and log line of the gate started without the flag: the base path, as decide() judges; with `flags`,
+    the gate started with them."""
+    proc, entry = ga.run_hook([sys.executable, "-I", gate.__file__, *flags], _event(repo, tool, tool_input),
+                              _env(tmp_path, "data-base" + "".join(flags)), cwd=str(repo))
     assert proc.returncode == 0, proc.stderr
     return ga.parsed(proc, entry), entry
 
@@ -105,35 +120,51 @@ def _decision(answer) -> str | None:
         answer["hookSpecificOutput"].get("permissionDecision")
 
 
-@pytest.mark.parametrize("manifest", ["hooks/hooks.json", ".codex-plugin/plugin.json"])
-def test_D125_no_hook_command_of_either_manifest_carries_the_autonomous_flag(manifest):
-    text = (PLUGIN / manifest).read_text(encoding="utf-8")
-    commands = _commands(json.loads(text))
-    assert commands and len(commands) == text.count('"command":'), commands
+@pytest.mark.parametrize("manifest", [".claude-plugin/plugin.json", ".codex-plugin/plugin.json"])
+def test_D125_no_hook_command_of_the_plugin_everyone_installs_carries_the_autonomous_flag(manifest):
+    """D134: it has no hook command at all, so none carries the flag (the command of its MCP server is no hook)."""
+    assert not (PLUGIN / "hooks" / "hooks.json").exists()
+    assert "hooks" not in json.loads((PLUGIN / manifest).read_text(encoding="utf-8"))
+
+
+def test_D125_the_guards_codex_manifest_carries_no_flag_and_its_claude_code_gate_commands_carry_the_houses_opt_in():
+    codex = (GUARD / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8")
+    commands = _commands(json.loads(codex))
+    assert commands and len(commands) == codex.count('"command":'), commands
     assert [c for c in commands if FLAG in c] == []
+    claude = json.loads((GUARD / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
+    pre = [h["command"] for g in claude["PreToolUse"] for h in g["hooks"]]
+    assert pre and all(f'.py" {FLAG} ||' in c for c in pre), pre
+    assert [c for event, groups in claude.items() if event != "PreToolUse" for c in _commands(groups) if FLAG in c] == []
 
 
 @pytest.mark.parametrize("form", d87.FREE)
-def test_D125_the_shipped_hook_grants_no_standing_go_for_the_own_work_branch(tmp_path, form):
+def test_D125_the_shipped_house_hook_grants_no_standing_go_for_the_own_work_branch_without_its_consent(tmp_path, form):
     repo = d87._fixture(tmp_path)
     tool_input = {"command": form.replace("{R}", str(repo))}
     answer, entry = _run_shipped(repo, tmp_path, "Bash", tool_input)
-    base, base_entry = _run_base(repo, tmp_path, "Bash", tool_input)
+    house, house_entry = _run_base(repo, tmp_path, "Bash", tool_input, FLAG)
+    base, _ = _run_base(repo, tmp_path, "Bash", tool_input)
+    assert gate.STANDING_GO_VARIABLE not in _env(tmp_path, "data-shipped")   # no consent of D129 stated
     assert "free_work_branch_go" not in entry["reason_ids"], (form, entry)
-    assert _decision(answer) == "ask" and "autonomy" not in entry, (form, answer, entry)
+    # the closed list asks without the flag, and the house's flag turns that ask into a deny (D85), measured for each
+    # form at the split; a hook that lost the flag would answer the ask
+    assert _decision(base) == "ask", (form, base)
+    assert _decision(answer) == "deny" and "autonomy" in entry, (form, answer, entry)
     assert (_decision(answer), entry["verdict"], entry["decision"], entry["reason_ids"]) == \
-        (_decision(base), base_entry["verdict"], base_entry["decision"], base_entry["reason_ids"]), form
+        (_decision(house), house_entry["verdict"], house_entry["decision"], house_entry["reason_ids"]), form
 
 
 @pytest.mark.parametrize("tool, tool_input", BASE_ASKS, ids=[t for t, _ in BASE_ASKS])
-def test_D125_the_shipped_hook_answers_a_base_ask_as_an_ask(tmp_path, tool, tool_input):
+def test_D125_the_shipped_house_hook_answers_a_base_ask_as_the_gate_with_the_flag(tmp_path, tool, tool_input):
     repo = d71._repo(tmp_path)
     answer, entry = _run_shipped(repo, tmp_path, tool, tool_input)
-    base, base_entry = _run_base(repo, tmp_path, tool, tool_input)
+    base, _ = _run_base(repo, tmp_path, tool, tool_input)
+    house, house_entry = _run_base(repo, tmp_path, tool, tool_input, FLAG)
     assert _decision(base) == "ask", base
-    assert _decision(answer) == "ask" and "autonomy" not in entry, (tool, answer, entry)
+    assert _decision(answer) == _decision(house) == "deny", (tool, answer, house)
     assert (entry["verdict"], entry["decision"], entry["reason_ids"]) == \
-        (base_entry["verdict"], base_entry["decision"], base_entry["reason_ids"]), tool
+        (house_entry["verdict"], house_entry["decision"], house_entry["reason_ids"]), tool
 
 
 @pytest.mark.parametrize("tool, key", [("Read", "file_path"), ("Grep", "path")])
