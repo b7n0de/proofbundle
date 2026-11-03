@@ -52,7 +52,8 @@ last-prompt, queue-operation), lines without a timestamp (an Event Object needs 
 subagents, meta lines, image and document blocks, lines that are not JSON, a tool_use block without an id,
 a tool result whose tool_use is not in the transcript, a permissionDecision of another value, the
 arguments and the tool result of a disallowed operation, whose text is the host's refusal, and a text or
-thinking block that is, as JSON, the arguments of a disallowed operation (a paraphrase is not recognised). Review the output before you publish it; a
+thinking block that holds, whole or inside other text, a JSON value equal to the arguments of a disallowed
+operation (a paraphrase is not recognised). Review the output before you publish it; a
 transcript can hold anything that was typed or read.
 """
 from __future__ import annotations
@@ -202,13 +203,19 @@ def convert(lines, user_id="user", user_name="user", agent_id="agent", agent_nam
     denied_inputs = [inputs[cid] for cid in sorted(disallowed) if cid in inputs]
 
     def repeats_denied(text):
-        """A text that is, as JSON, the arguments of a disallowed operation; a paraphrase is not recognised."""
+        """A text that holds, whole or inside surrounding text, a JSON value equal to the arguments of a disallowed
+        operation; a paraphrase is not recognised."""
         if not isinstance(text, str) or not denied_inputs:
             return False
-        try:
-            return json.loads(text) in denied_inputs
-        except ValueError:
-            return False
+        dec = json.JSONDecoder()
+        for i, c in enumerate(text):
+            if c in "{[":
+                try:
+                    if dec.raw_decode(text, i)[0] in denied_inputs:
+                        return True
+                except ValueError:
+                    pass
+        return False
 
     for e in entries:
         kind = e["type"]

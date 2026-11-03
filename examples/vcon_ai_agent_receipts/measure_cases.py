@@ -106,6 +106,17 @@ def m_f21(v):
     v["events"] = [e for e in v["events"] if not (e.get("operation_id") == OP1 and e["type"] != "policy-decision")]
 
 
+def m_f42(v):
+    v["events"] += [
+        {"type": "policy-decision", "time": "2026-10-15T09:05:04.000Z", "sessions": 0, "party": 1,
+         "decision": "disallowed", "operation": "tool-invocation", "policy_life": "standing", "server": "!host",
+         "tool": "Read"},
+        {"type": "tool-invocation", "time": "2026-10-15T09:05:05.000Z", "sessions": 0, "party": 1,
+         "operation_id": mk.operation(v["sessions"][0]["agent_session_id"], "toolu_read"), "attempt": 1,
+         "server": "!host", "tool": "Read", "mediatype": "application/json", "encoding": "json",
+         "body": {"file_path": "/work/widgets/README.md"}}]
+
+
 def m_f39(v):
     op = mk.operation(v["sessions"][0]["agent_session_id"], "toolu_no_receipt")
     pd = copy.deepcopy(ev(v, OP2, "policy-decision"))
@@ -234,6 +245,13 @@ CASES = [
     ("F40", "the arguments of the denied merge base64url-encoded in a dialog body", "C2",
      lambda v: v["dialog"][4].update({"encoding": "base64url", "body": vp.b64u(vp.jcs({
          "command": "gh pr merge 7 --repo acme/widgets --merge", "description": "Merge pull request 7"}))}), None),
+    ("F41", "the arguments of the denied merge as JSON inside other text in a dialog body", "C2",
+     lambda v: v["dialog"][4].update({"body": "Proposed arguments: " + json.dumps({
+         "command": "gh pr merge 7 --repo acme/widgets --merge", "description": "Merge pull request 7"})}), None),
+    ("F42", "a standing policy-decision disallowed for Read, then an invocation of Read without its own decision (4.1)",
+     "V4", m_f42, None),
+    ("F43", "the tool-result of the push is attempt 2, with no tool-invocation of attempt 2", "V4",
+     lambda v: ev(v, OP1, "tool-result").update({"attempt": 2, "time": "2026-10-15T09:06:00.000Z"}), None),
     ("F38", "a standing policy-decision whose tool is not a string (6.1.9)", "V4",
      lambda v: v["events"].append({"type": "policy-decision", "time": "2026-10-15T09:05:11Z", "sessions": 0,
                                    "party": 1, "decision": "allowed", "policy_life": "standing",

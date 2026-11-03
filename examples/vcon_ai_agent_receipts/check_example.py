@@ -120,6 +120,27 @@ def content_form_ok(e):
     return "content_hash" in e
 
 
+def check_standing(rep, events):
+    """Section 4 and 4.1: an invocation without a policy-decision of its own is governed by the standing decision in
+    effect, the latest one before it for its server and tool (or for all tools of the server); a disallowed one stops
+    it. Which of a tool's and a server's standing decisions applies when both are in effect is open in the draft
+    (TODO in 4.1); this check takes the later one."""
+    standing = [e for e in events if e.get("type") == "policy-decision" and e.get("policy_life") == "standing"
+                and e.get("operation") == "tool-invocation"]
+    own = {e.get("operation_id") for e in events if e.get("type") == "policy-decision" and e.get("policy_life") == "once"}
+    for j, e in enumerate(events):
+        if e.get("type") != "tool-invocation" or e.get("operation_id") in own:
+            continue
+        t = vp.when(e["time"])
+        in_effect = [s for s in standing if s.get("server") == e.get("server") and s.get("tool", e.get("tool")) ==
+                     e.get("tool") and vp.when(s["time"]) <= t]
+        if in_effect:
+            latest = max(in_effect, key=lambda s: vp.when(s["time"]))
+            rep.need(latest.get("decision") != "disallowed", "V4", "events[%d]" % j, "tool-invocation of %s %s at %s "
+                     "while a standing policy-decision disallowed of %s is in effect (4.1)" % (
+                         e.get("server"), e.get("tool"), e["time"], latest["time"]))
+
+
 def check_ti_event(rep, where, e, n_att, extra=()):
     """The parameters of tool-invocation-00 6.1.1 to 6.1.11 for one of its Event Object types (Tables 3 to 5)."""
     typ = e["type"]
@@ -325,12 +346,19 @@ def check_structure(rep, v):
                                 and e.get("operation_id") == o and attempt_ok(e.get("attempt"))})
         rep.need(seen_attempts == list(range(1, len(seen_attempts) + 1)), "V4", "operation %s" % o,
                  "attempts %s do not start at 1 and go up by one (5.1, 6.1.3)" % seen_attempts)
+        # the example records every attempt: a response belongs to an invocation of the same attempt (5.1, 6.1.3)
+        sent = {e.get("attempt") for e in events if e.get("type") == "tool-invocation" and e.get("operation_id") == o}
+        for j, e in enumerate(events):
+            if e.get("type") in TOOL_TYPES - {"tool-invocation"} and e.get("operation_id") == o:
+                rep.need(e.get("attempt") in sent, "V4", "events[%d]" % j, "%s of attempt %r of operation %s has no "
+                         "tool-invocation of that attempt" % (e["type"], e.get("attempt"), o))
         # a disallowed operation is not performed (Section 4), with or without a receipt that names it
         if any(e.get("type") == "policy-decision" and e.get("operation_id") == o and e.get("decision") == "disallowed"
                for e in events):
             done = [j for j, e in enumerate(events) if e.get("type") in TOOL_TYPES and e.get("operation_id") == o]
             rep.need(not done, "V4", "operation %s" % o, "disallowed, but events %s are tool events of it "
                      "(Section 4)" % done)
+    check_standing(rep, events)
     rep.ok("V4", "vCon", "%d parties, %d sessions, %d dialog, %d events, %d attachments" % (
         len(parties), len(sessions), len(dialog), len(events), len(att)))
 
@@ -604,19 +632,27 @@ def candidates(v):
                 pass
 
 
-def digest_of(value):
-    """SHA-256 of the RFC 8785 form of an object or array, or of the JSON text a string holds; None otherwise."""
-    if isinstance(value, str):
+def embedded(text):
+    """Every JSON object or array that a string holds, whole or inside surrounding text, as parsed values."""
+    dec = json.JSONDecoder()
+    for i, c in enumerate(text):
+        if c in "{[":
+            try:
+                yield dec.raw_decode(text, i)[0]
+            except ValueError:
+                pass
+
+
+def digests_of(value):
+    """SHA-256 of the RFC 8785 form of an object or array, or of each one a string holds, whole or embedded."""
+    found = [value] if isinstance(value, (dict, list)) else list(embedded(value)) if isinstance(value, str) else []
+    out = set()
+    for x in found:
         try:
-            value = vp.strict_json(value.encode("utf-8"))
-        except ValueError:
-            return None
-    if not isinstance(value, (dict, list)):
-        return None
-    try:
-        return vp.sha256(vp.jcs(value))
-    except (TypeError, ValueError):
-        return None
+            out.add(vp.sha256(vp.jcs(x)))
+        except (TypeError, ValueError):
+            pass
+    return out
 
 
 def check_set(rep, v, found, approvals):
@@ -641,7 +677,7 @@ def check_set(rep, v, found, approvals):
             # an exact copy of the denied arguments, as a JSON value or as JSON text, anywhere in the vCon
             # (tool-invocation-00 6.1.1); a paraphrase is not detectable from a digest
             denied = x["pred"]["proposedAction"]["parametersDigest"]["sha256"]
-            hits = [path for path, value in candidates(v) if digest_of(value) == denied]
+            hits = [path for path, value in candidates(v) if denied in digests_of(value)]
             rep.need(not hits, "C2", where, "%s holds the arguments of the denied operation (their SHA-256 is the "
                      "parametersDigest of the receipt)" % ", ".join(hits),
                      "no JSON value or JSON text in the vCon has the digest of the denied arguments")
