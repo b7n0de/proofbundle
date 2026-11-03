@@ -51,7 +51,8 @@ Not converted, and counted in the report: lines of other types (for example atta
 last-prompt, queue-operation), lines without a timestamp (an Event Object needs time), sidechain lines of
 subagents, meta lines, image and document blocks, lines that are not JSON, a tool_use block without an id,
 a tool result whose tool_use is not in the transcript, a permissionDecision of another value, the
-arguments and the tool result of a disallowed operation, whose text is the host's refusal. Review the output before you publish it; a
+arguments and the tool result of a disallowed operation, whose text is the host's refusal, and a text or
+thinking block that is, as JSON, the arguments of a disallowed operation (a paraphrase is not recognised). Review the output before you publish it; a
 transcript can hold anything that was typed or read.
 """
 from __future__ import annotations
@@ -161,7 +162,7 @@ def convert(lines, user_id="user", user_name="user", agent_id="agent", agent_nam
             content if isinstance(content, list) else [])
 
     # First pass: the operations and the permission decisions, which the transcript writes on the result line.
-    operations, decisions = {}, {}
+    operations, decisions, inputs = {}, {}, {}
     for e in entries:
         blocks = blocks_of(e)
         for blk in blocks:
@@ -169,6 +170,7 @@ def convert(lines, user_id="user", user_name="user", agent_id="agent", agent_nam
                 if blk["id"] in operations:
                     raise ValueError("tool_use id %r repeated, operation_id would not be unique" % blk["id"])
                 operations[blk["id"]] = operation_id(sid, blk["id"])
+                inputs[blk["id"]] = blk.get("input", {})
         result_blocks = [b for b in blocks if isinstance(b, dict) and b.get("type") == "tool_result"]
         if isinstance(e.get("permissionDecision"), dict):
             if len(result_blocks) > 1:
@@ -197,6 +199,17 @@ def convert(lines, user_id="user", user_name="user", agent_id="agent", agent_nam
 
     # every disallowed operation is known before any Event Object is written, whatever the order of the lines
     disallowed = {cid for cid, (pd, _res, _t) in decisions.items() if policy_decision_value(pd) == "disallowed"}
+    denied_inputs = [inputs[cid] for cid in sorted(disallowed) if cid in inputs]
+
+    def repeats_denied(text):
+        """A text that is, as JSON, the arguments of a disallowed operation; a paraphrase is not recognised."""
+        if not isinstance(text, str) or not denied_inputs:
+            return False
+        try:
+            return json.loads(text) in denied_inputs
+        except ValueError:
+            return False
+
     for e in entries:
         kind = e["type"]
         msg = e.get("message") if isinstance(e.get("message"), dict) else {}
@@ -212,6 +225,9 @@ def convert(lines, user_id="user", user_name="user", agent_id="agent", agent_nam
             models.append(model)
         for i, blk in enumerate(blocks):
             t = blk.get("type") if isinstance(blk, dict) else None
+            if t in ("text", "thinking") and repeats_denied(blk.get(t) if t == "thinking" else blk.get("text")):
+                skipped["text that repeats the arguments of a disallowed operation"] += 1
+                continue
             if t == "text" and isinstance(blk.get("text"), str):
                 eid, pid = ids(e, i)
                 d = {"type": "text", "start": e["timestamp"], "parties": [role_party], "mediatype": "text/plain",

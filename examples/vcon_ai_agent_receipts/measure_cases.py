@@ -101,6 +101,20 @@ def m_f36(v):
     v["events"].append(extra)
 
 
+def m_f21(v):
+    ev(v, OP1, "policy-decision").update({"decision": "disallowed"})
+    v["events"] = [e for e in v["events"] if not (e.get("operation_id") == OP1 and e["type"] != "policy-decision")]
+
+
+def m_f39(v):
+    op = mk.operation(v["sessions"][0]["agent_session_id"], "toolu_no_receipt")
+    pd = copy.deepcopy(ev(v, OP2, "policy-decision"))
+    pd.update({"operation_id": op, "time": "2026-10-15T09:05:04.000Z"})
+    inv = copy.deepcopy(ev(v, OP1, "tool-invocation"))
+    inv.update({"operation_id": op, "time": "2026-10-15T09:05:05.000Z"})
+    v["events"] += [pd, inv]
+
+
 def m_f31(v):
     s = copy.deepcopy(v["sessions"][0])
     s.update({"agent_session_id": "5e551011-0000-4000-8000-000000000009", "dialog": []})
@@ -161,7 +175,8 @@ CASES = [
     ("F02", "receipt for another invocation: the arguments of the tool-invocation are another command", "R2",
      lambda v: ev(v, OP1, "tool-invocation").update({"body": dict(FORCE)}), None),
     ("F03", "approval expired at the time of the tool-invocation", "R4b", m_f03, None),
-    ("F04", "DENY followed by a tool-invocation and a tool-result of the same operation", "C2", m_f04, None),
+    ("F04", "DENY followed by a tool-invocation and a tool-result of the same operation (Section 4)", "V4", m_f04,
+     None),
     ("F05", "vCon changed after it was cited, signed again in both forms", "Z2", m_f05, None),
     ("F06", "attachment without a matching receipt (the ALLOW receipt removed)", "C3",
      lambda v: v["attachments"].pop(1), None),
@@ -176,7 +191,7 @@ CASES = [
      lambda v: v["dialog"][2].update({"start": "2026-10-15T09:00:03.000Z"}), None),
     ("F14", "answer with a duration, approvedAt equals its start", "R4a",
      lambda v: v["dialog"][2].update({"duration": 2}), None),
-    ("F15", "DENY followed by a tool-invocation that ended in tool-failure", "C2",
+    ("F15", "DENY followed by a tool-invocation that ended in tool-failure (Section 4)", "V4",
      lambda v: after_deny(v, "tool-failure"), None),
     ("F16", "COSE_Sign1 signature changed", "Z3", None, p_f16),
     ("F17", "trace-metadata content-hash changed (unprotected header)", "Z3", None, p_f17),
@@ -184,8 +199,8 @@ CASES = [
     ("F19", "the receipt names an operation_id that no policy-decision of the session has", "R2", m_f19, None),
     ("F20", "the approved push has the policy-decision allowed instead of permission-required", "R3",
      lambda v: ev(v, OP1, "policy-decision").update({"decision": "allowed"}), None),
-    ("F21", "the ALLOW receipt names a policy-decision disallowed", "R2",
-     lambda v: ev(v, OP1, "policy-decision").update({"decision": "disallowed"}), None),
+    ("F21", "the ALLOW receipt names a policy-decision disallowed, and the push has no tool event", "R2", m_f21,
+     None),
     ("F22", "the tool-invocation of the approved push carries another operation_id", "R2", m_f22, None),
     ("F23", "attachment on a policy-decision (Table 3: MUST NOT be present)", "V4",
      lambda v: ev(v, OP1, "policy-decision").update({"attachment": 0}), None),
@@ -201,7 +216,7 @@ CASES = [
      lambda v: ev(v, OP2, "policy-decision").update({"time": "2026-10-15T09:05:02.000Z"}), None),
     ("F30", "the tool-invocation and the tool-result of the approved push are attempt 2, the decision attempt 1",
      "R2", lambda v: [ev(v, OP1, typ).update({"attempt": 2}) for typ in ("tool-invocation", "tool-result")], None),
-    ("F31", "a tool-invocation of the denied merge in a second session", "C2", m_f31, None),
+    ("F31", "a tool-invocation of the denied merge in a second session (Section 4)", "V4", m_f31, None),
     ("F32", "the tool-invocation and the tool-result of the approved push name the person as party", "R2",
      lambda v: [ev(v, OP1, typ).update({"party": 0}) for typ in ("tool-invocation", "tool-result")], None),
     ("F33", "every event of both operations is attempt 2, no attempt 1 (5.1, 6.1.3)", "V4",
@@ -214,6 +229,11 @@ CASES = [
     ("F37", "the arguments of the denied merge as JSON text in a dialog body", "C2",
      lambda v: v["dialog"][4].update({"body": json.dumps({"command": "gh pr merge 7 --repo acme/widgets --merge",
                                                           "description": "Merge pull request 7"})}), None),
+    ("F39", "a disallowed policy-decision that no receipt names, followed by its tool-invocation (Section 4)", "V4",
+     m_f39, None),
+    ("F40", "the arguments of the denied merge base64url-encoded in a dialog body", "C2",
+     lambda v: v["dialog"][4].update({"encoding": "base64url", "body": vp.b64u(vp.jcs({
+         "command": "gh pr merge 7 --repo acme/widgets --merge", "description": "Merge pull request 7"}))}), None),
     ("F38", "a standing policy-decision whose tool is not a string (6.1.9)", "V4",
      lambda v: v["events"].append({"type": "policy-decision", "time": "2026-10-15T09:05:11Z", "sessions": 0,
                                    "party": 1, "decision": "allowed", "policy_life": "standing",

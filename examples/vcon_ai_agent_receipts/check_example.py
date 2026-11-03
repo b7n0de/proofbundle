@@ -325,6 +325,12 @@ def check_structure(rep, v):
                                 and e.get("operation_id") == o and attempt_ok(e.get("attempt"))})
         rep.need(seen_attempts == list(range(1, len(seen_attempts) + 1)), "V4", "operation %s" % o,
                  "attempts %s do not start at 1 and go up by one (5.1, 6.1.3)" % seen_attempts)
+        # a disallowed operation is not performed (Section 4), with or without a receipt that names it
+        if any(e.get("type") == "policy-decision" and e.get("operation_id") == o and e.get("decision") == "disallowed"
+               for e in events):
+            done = [j for j, e in enumerate(events) if e.get("type") in TOOL_TYPES and e.get("operation_id") == o]
+            rep.need(not done, "V4", "operation %s" % o, "disallowed, but events %s are tool events of it "
+                     "(Section 4)" % done)
     rep.ok("V4", "vCon", "%d parties, %d sessions, %d dialog, %d events, %d attachments" % (
         len(parties), len(sessions), len(dialog), len(events), len(att)))
 
@@ -586,6 +592,18 @@ def walk(value, path):
             yield from walk(x, "%s[%d]" % (path, i))
 
 
+def candidates(v):
+    """Every JSON value of the vCon with its path, and the decoded bytes of each base64url body as text, so an encoded
+    copy is seen as well as a plain one."""
+    for path, value in walk(v, "vCon"):
+        yield path, value
+        if isinstance(value, dict) and value.get("encoding") == "base64url" and isinstance(value.get("body"), str):
+            try:
+                yield path + ".body (base64url decoded)", vp.b64u_dec(value["body"]).decode("utf-8")
+            except (ValueError, UnicodeDecodeError):
+                pass
+
+
 def digest_of(value):
     """SHA-256 of the RFC 8785 form of an object or array, or of the JSON text a string holds; None otherwise."""
     if isinstance(value, str):
@@ -623,7 +641,7 @@ def check_set(rep, v, found, approvals):
             # an exact copy of the denied arguments, as a JSON value or as JSON text, anywhere in the vCon
             # (tool-invocation-00 6.1.1); a paraphrase is not detectable from a digest
             denied = x["pred"]["proposedAction"]["parametersDigest"]["sha256"]
-            hits = [path for path, value in walk(v, "vCon") if digest_of(value) == denied]
+            hits = [path for path, value in candidates(v) if digest_of(value) == denied]
             rep.need(not hits, "C2", where, "%s holds the arguments of the denied operation (their SHA-256 is the "
                      "parametersDigest of the receipt)" % ", ".join(hits),
                      "no JSON value or JSON text in the vCon has the digest of the denied arguments")
