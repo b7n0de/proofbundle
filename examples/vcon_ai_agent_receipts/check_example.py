@@ -140,6 +140,8 @@ def check_ti_event(rep, where, e, n_att, extra=()):
         else:
             rep.need("operation_id" not in e and "attempt" not in e, "V4", where,
                      "operation_id or attempt in a standing policy-decision (6.1.2, 6.1.3)")
+        if "tool" in e:
+            rep.need(isinstance(e["tool"], str), "V4", where, "tool is not a string (6.1.9)")
         if "reason" in e:
             rep.need(isinstance(e["reason"], str), "V4", where, "reason is not a string (6.1.6)")
     else:
@@ -545,10 +547,20 @@ def check_receipts(rep, v, a, gate):
                      where, "not in the order policy-decision %s, approval %s, decidedAt %s, tool-invocation %s" % (
                          pd["time"], rec["approvedAt"], pred["decidedAt"], tool["time"]),
                      "policy-decision <= approvedAt <= decidedAt <= tool-invocation (Figure 1)")
-            rep.need(vp.when(rec["approvedAt"]) <= t, "R4b", where, "tool-invocation before the approval")
-            rep.need(t <= vp.when(rec["validUntil"]), "R4b", where,
-                     "approval expired at the time of the tool-invocation: time %s, validUntil %s" % (
-                         tool["time"], rec["validUntil"]), "approvedAt <= tool-invocation time <= validUntil")
+            # every attempt of the approved operation, not only the one the decision precedes
+            for j, e in enumerate(events):
+                if e.get("type") == "tool-invocation" and e.get("operation_id") == op:
+                    rep.need(vp.when(rec["approvedAt"]) <= vp.when(e["time"]) <= vp.when(rec["validUntil"]), "R4b",
+                             where, "events[%d], attempt %r of operation %s, at %s is not between the approval %s and "
+                             "validUntil %s" % (j, e.get("attempt"), op, e["time"], rec["approvedAt"],
+                                                rec["validUntil"]))
+            rep.ok("R4b", where, "approvedAt <= every tool-invocation of the operation <= validUntil")
+        if tool is not None:
+            for j, e in enumerate(events):
+                if e.get("type") == "tool-invocation" and e.get("operation_id") == op:
+                    rep.need(vp.when(pd["time"]) <= vp.when(pred["decidedAt"]) <= vp.when(e["time"]), "R2", where,
+                             "events[%d], attempt %r of operation %s, at %s comes before its policy-decision %s or "
+                             "the decision %s" % (j, e.get("attempt"), op, e["time"], pd["time"], pred["decidedAt"]))
         results = [e for e in events if e.get("type") in RESULT_TYPES and e.get("operation_id") == op
                    and e.get("attempt") == pd.get("attempt") and k in as_list(e.get("sessions", []))]
         for j, e in enumerate(events):
@@ -561,6 +573,32 @@ def check_receipts(rep, v, a, gate):
         found.append({"pred": pred, "root": root, "case": case, "approval": f, "op": op, "session": k, "bytes": b,
                       "attachment": i})
     return found, approvals
+
+
+def walk(value, path):
+    """Every JSON value under `value` with its path, the value itself first."""
+    yield path, value
+    if isinstance(value, dict):
+        for k, x in value.items():
+            yield from walk(x, "%s.%s" % (path, k))
+    elif isinstance(value, list):
+        for i, x in enumerate(value):
+            yield from walk(x, "%s[%d]" % (path, i))
+
+
+def digest_of(value):
+    """SHA-256 of the RFC 8785 form of an object or array, or of the JSON text a string holds; None otherwise."""
+    if isinstance(value, str):
+        try:
+            value = vp.strict_json(value.encode("utf-8"))
+        except ValueError:
+            return None
+    if not isinstance(value, (dict, list)):
+        return None
+    try:
+        return vp.sha256(vp.jcs(value))
+    except (TypeError, ValueError):
+        return None
 
 
 def check_set(rep, v, found, approvals):
@@ -582,7 +620,14 @@ def check_set(rep, v, found, approvals):
                 if e.get("type") in TOOL_TYPES and e.get("operation_id") == x["op"]:
                     rep.fail("C2", where, "events[%d] %s after %s: the operation was performed" % (
                         j, e["type"], x["pred"]["decision"]["verdict"]))
-    rep.ok("C2", "set", "no tool event of an operation after its DENY or REFUSE")
+            # an exact copy of the denied arguments, as a JSON value or as JSON text, anywhere in the vCon
+            # (tool-invocation-00 6.1.1); a paraphrase is not detectable from a digest
+            denied = x["pred"]["proposedAction"]["parametersDigest"]["sha256"]
+            hits = [path for path, value in walk(v, "vCon") if digest_of(value) == denied]
+            rep.need(not hits, "C2", where, "%s holds the arguments of the denied operation (their SHA-256 is the "
+                     "parametersDigest of the receipt)" % ", ".join(hits),
+                     "no JSON value or JSON text in the vCon has the digest of the denied arguments")
+    rep.ok("C2", "set", "no tool event and no exact copy of the arguments of an operation after its DENY or REFUSE")
     cited = {x["approval"] for x in found if x["approval"] is not None}
     for f in sorted(approvals):
         rep.need(f in cited, "C3", "attachments[%d] (approval record)" % f, "no receipt in the vCon cites it")

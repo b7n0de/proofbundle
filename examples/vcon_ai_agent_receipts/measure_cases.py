@@ -95,6 +95,12 @@ def m_f12(v):
                              "encoding": "json", "body": env4})
 
 
+def m_f36(v):
+    extra = copy.deepcopy(ev(v, OP1, "tool-invocation"))
+    extra.update({"attempt": 2, "time": "2026-10-15T09:00:03.500Z"})
+    v["events"].append(extra)
+
+
 def m_f31(v):
     s = copy.deepcopy(v["sessions"][0])
     s.update({"agent_session_id": "5e551011-0000-4000-8000-000000000009", "dialog": []})
@@ -204,6 +210,14 @@ CASES = [
      lambda v: ev(v, OP1, "tool-result").update({"encoding": 7}), None),
     ("F35", "the tool-result of the push keeps encoding without body and mediatype (6.1.10)", "V4",
      lambda v: [ev(v, OP1, "tool-result").pop(k) for k in ("body", "mediatype")], None),
+    ("F36", "a second attempt of the approved push, sent before the approval", "R4b", m_f36, None),
+    ("F37", "the arguments of the denied merge as JSON text in a dialog body", "C2",
+     lambda v: v["dialog"][4].update({"body": json.dumps({"command": "gh pr merge 7 --repo acme/widgets --merge",
+                                                          "description": "Merge pull request 7"})}), None),
+    ("F38", "a standing policy-decision whose tool is not a string (6.1.9)", "V4",
+     lambda v: v["events"].append({"type": "policy-decision", "time": "2026-10-15T09:05:11Z", "sessions": 0,
+                                   "party": 1, "decision": "allowed", "policy_life": "standing",
+                                   "operation": "tool-invocation", "server": "!host", "tool": 7}), None),
 ]
 PROPOSAL_CASES = [
     ("F27", "proposal: each policy-decision references the receipt of the other decision", "E1", None, p_f27),

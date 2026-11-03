@@ -25,7 +25,7 @@ proofbundle (https://proofbundle.dev).
 | `claude_jsonl_to_vcon.py` | Converts one transcript into an unsigned vCon with the tool-invocation extension. Standard library only; its docstring lists the mapping and what it does not carry. |
 | `make_example.py` | The producer. Runs the converter, adds the gate, the approval record and the receipts, signs the vCon and writes `out/`. Deterministic, because the test keys are derived from public labels. |
 | `check_example.py` | The offline check of `out/` (or of any folder with the same files). |
-| `measure_cases.py` | Builds 37 failure cases and four passing variants from the example and runs the check twice on each. |
+| `measure_cases.py` | Builds 40 failure cases and four passing variants from the example and runs the check twice on each. |
 | `cases.md` | The output of `measure_cases.py`. |
 | `vcon_profile.py` | Helpers shared by the scripts, for strict JSON, RFC 8785, a small deterministic CBOR codec, COSE_Sign1, JWS with EdDSA and RS256, and the RSA test key derived from its label. |
 | `proposal_decision_receipt.cddl` | Our proposal, one parameter for the `$$event-policy-decision-ext` socket of tool-invocation-00. Not part of any draft. |
@@ -132,6 +132,13 @@ The example had to pick one reading at each of these places; `cases.md` holds a 
   precedes, and every tool event of the operation names the agent party of that decision. After a DENY no tool
   event of the operation may stand anywhere in the vCon, in any session, as an operation_id names one operation.
 - The action bytes of a tool-invocation are the RFC 8785 serialization of its JSON content.
+- The check refuses a vCon in which a JSON value or JSON text with the SHA-256 of a denied operation's arguments
+  appears anywhere, such as a copy in a dialog body; a paraphrase of the arguments cannot be found from a digest.
+- Every attempt of an approved operation lies between the approval and its `validUntil`, and after the receipt's
+  `decidedAt`; attempts start at 1 and go up by one.
+- Redacted content is `content_hash` alone, as in the core CDDL; an `encoding` without a `body` is refused. A
+  parameter that none of the drafts used here defines is refused, which is stricter than the sockets of
+  Appendix D allow.
 - A `content_hash` must carry a `sha512` token.
 - `approvedAt` is the time the answer was sent, its `start` plus its `duration`.
 - `trace-format` is "ietf-vac-v3.0" for a vCon payload, with content type "application/vcon".
