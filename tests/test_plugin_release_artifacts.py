@@ -439,6 +439,8 @@ class SplitChecks(Base):
             "codex row without outer pipes": head + claude + codex + "Codex | fixture | proofbundle | 0.3.0 | Experimental\n",
             "host row in a second table": head + claude + codex + "\n| Other | x |\n|---|---|\n| Codex | 0.3.0 |\n",
             "a row of another kind": head + claude + codex + "| Cursor | fixture | proofbundle | 0.4.0 | x |\n",
+            # the Codex pre-run of the reading of b0828838: a delimiter row narrower than the head makes no table
+            "delimiter narrower than the head": head.replace("|---|---|---|---|---|", "|---|") + claude + codex,
         }
         for name, catalog in cases.items():
             with self.subTest(name=name):

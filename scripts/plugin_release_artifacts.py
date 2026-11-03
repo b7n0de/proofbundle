@@ -109,7 +109,6 @@ PEP723 = re.compile(r"(?m)^# /// (?P<type>[a-zA-Z0-9-]+)$\s(?P<content>(^#(| .*)
 REQUIREMENT = re.compile(r"^\s*(?P<name>[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)\s*(?P<extras>\[[^\]]*\])?\s*"
                          r"(?P<rest>.*)$")
 VERSION_CELL = re.compile(r"\d+\.\d+\.\d+")
-CATALOG_DELIMITER = re.compile(r"\|(?:\s*:?-+:?\s*\|)+")
 CATALOG_HOST_NAMES = ("Claude Code", "Codex")
 CATALOG_HOST_KEYS = {host.casefold() for host in CATALOG_HOST_NAMES}
 REVIEW_NAME = re.compile(r"(?i)(\.pem|\.key|\.p12|\.pfx|\.pub|id_rsa|id_ed25519|secret|credential|token|password|"
@@ -442,8 +441,10 @@ def catalog_versions(text: str, path: str, count: int) -> list[str]:
     end = next((i for i in range(start, len(lines)) if not lines[i].strip()), len(lines))
     table = lines[start:end]
     head = _cells(table[0])
+    # the delimiter row as the house writes it, one --- per column of the head (the Codex pre-run of the reading of
+    # b0828838: a narrower delimiter row makes no table, and the check took it)
     if any(not (line.startswith("|") and line.endswith("|")) for line in table) or len(table) < 2 \
-            or not CATALOG_DELIMITER.fullmatch(table[1]) or head.count("Version") != 1:
+            or table[1] != "|" + "---|" * len(head) or head.count("Version") != 1:
         raise CheckFailed(f"{path}: the catalog table is not in the house form (pipes at both ends of every line, a "
                           "delimiter row, one Version column)")
     width, column = len(head), head.index("Version")
