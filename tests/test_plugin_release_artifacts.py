@@ -438,6 +438,9 @@ class SplitChecks(Base):
             # the Codex pre-run of the reading of e6cfbd9c: a row without its outer pipes belongs to the table too
             "codex row without outer pipes": head + claude + codex + "Codex | fixture | proofbundle | 0.3.0 | Experimental\n",
             "host row in a second table": head + claude + codex + "\n| Other | x |\n|---|---|\n| Codex | 0.3.0 |\n",
+            # the Codex pre-run of the reading of cfbc30ca: a second table whose rows name a host only once rendered
+            "second table with marked hosts": head + claude + codex
+            + "\n| Alias | Version |\n|---|---|\n| **Codex** | 0.3.0 |\n| &#67;odex | 0.3.0 |\n",
             "a row of another kind": head + claude + codex + "| Cursor | fixture | proofbundle | 0.4.0 | x |\n",
             # the Codex pre-run of the reading of b0828838: a delimiter row narrower than the head makes no table
             "delimiter narrower than the head": head.replace("|---|---|---|---|---|", "|---|") + claude + codex,

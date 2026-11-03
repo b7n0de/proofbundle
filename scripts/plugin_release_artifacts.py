@@ -472,10 +472,13 @@ def catalog_versions(text: str, path: str, count: int) -> list[str]:
         if len(cells) != width or cells[0] not in CATALOG_HOST_NAMES or not VERSION_CELL.fullmatch(cells[column]):
             raise CheckFailed(f"{path}: a catalog row not in the form of the head ({cells[0]!r}, {len(cells)} cells, "
                               f"expected a host and {width})")
-    outside = [i + 1 for i, line in enumerate(lines) if not start <= i < end and "|" in line
-               and _cells(line)[0].casefold() in CATALOG_HOST_KEYS]
-    if outside:
-        raise CheckFailed(f"{path}: a host row outside the catalog table (line {outside[0]})")
+    # one table in the file and no character reference, as at main c9ab65b1: a second table could name a host only
+    # once Markdown renders it, by emphasis or a reference such as &#67; (the Codex pre-run of the reading of
+    # cfbc30ca), so no line outside the catalog table holds a pipe and no line of the file an ampersand
+    outside = [i + 1 for i, line in enumerate(lines) if not start <= i < end and "|" in line]
+    if outside or "&" in text:
+        raise CheckFailed(f"{path}: a pipe outside the catalog table or a character reference "
+                          f"(line {outside[0] if outside else 0}); the house writes one table and no reference")
     names = sorted(cells[0] for cells in found)
     if len(found) != count or names != sorted(CATALOG_HOST_NAMES):
         raise CheckFailed(f"{path}: catalog rows of {names}, expected one each of {sorted(CATALOG_HOST_NAMES)}")
