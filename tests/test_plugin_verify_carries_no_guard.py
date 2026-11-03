@@ -18,6 +18,15 @@ hooks as well, the selftest skill and the hooks sentences of both manifests); 13
 marketplace entry, the plugin README and the repository README's task row). The re-cut 13a of owner answer 1, without
 the Codex hooks block, still has 293 Guard words. The cut of delivery -2 has none at each of its four Verify slices, and
 the top of the Guard slices of -1 is a whole Guard (0).
+
+A third state since D134 (owner choice F2 A), the split: the Guard is the plugin proofbundle-guard in
+plugins/proofbundle-guard, a house marketplace of its own (owner choice N2 B), whose hooks/hooks.json registers its
+Claude Code hooks. In a split state
+plugins/proofbundle has no hooks/hooks.json and neither of its host manifests carries "hooks", so installing it
+registers no hook; it holds no hooks/ folder at all, since the bundle after D134 moved the gate programs into the
+Guard's folder (owner answer C, the profile the release generator of delivery -2 checks), and every hook either host
+registers for the Guard starts a program the Guard's folder holds. The Guard's texts stand there, as in a Guard
+state: the Guard is whole, in a plugin of its own.
 """
 from __future__ import annotations
 
@@ -35,6 +44,12 @@ CLAUDE_HOOKS = PLUGIN / "hooks" / "hooks.json"
 GATE = PLUGIN / "hooks" / "proofbundle_gate.py"
 MANIFESTS = (PLUGIN / ".claude-plugin" / "plugin.json", PLUGIN / ".codex-plugin" / "plugin.json")
 MARKETPLACE = pathlib.Path(".claude-plugin") / "marketplace.json"
+#: The Guard as a plugin of its own (D134): its folder, its Claude Code registration and its Codex manifest.
+GUARD = pathlib.Path("plugins") / "proofbundle-guard"
+GUARD_HOOKS = GUARD / "hooks" / "hooks.json"
+GUARD_GATE = GUARD / "hooks" / "proofbundle_gate.py"
+GUARD_CODEX = GUARD / ".codex-plugin" / "plugin.json"
+GUARD_MARKET = GUARD / ".claude-plugin" / "marketplace.json"
 CATALOG = pathlib.Path("plugins") / "README.md"
 #: The words that name the Guard in a text a user reads. The catalog's "Inspect AI hook" is the package's own hook for
 #: Inspect AI, not the plugin's.
@@ -114,8 +129,39 @@ def guard_findings(root: pathlib.Path) -> list[str]:
     return found
 
 
+def split_findings(root: pathlib.Path) -> list[str]:
+    """What a split state must hold (D134): the Guard's folder as a house marketplace whose entry is the folder itself,
+    no entry of the public marketplace for it, no hook of the verifier under either host, no hooks/ folder in the
+    verifier, the gate program in the Guard's folder, and for every hook either host registers for the Guard the
+    program it starts in the Guard's folder."""
+    found = []
+    house = json.loads((root / GUARD_MARKET).read_text(encoding="utf-8")) if (root / GUARD_MARKET).is_file() else {}
+    if [e.get("source") for e in house.get("plugins", [])] != ["./"]:
+        found.append(f"{GUARD_HOOKS} without a house marketplace {GUARD_MARKET} whose one entry is ./")
+    market = json.loads((root / MARKETPLACE).read_text(encoding="utf-8")) if (root / MARKETPLACE).is_file() else {}
+    if any(e.get("source") == f"./{GUARD.as_posix()}" for e in market.get("plugins", [])):
+        found.append(f"{MARKETPLACE} lists {GUARD}, which belongs to no public catalog")
+    for manifest in MANIFESTS:
+        if (root / manifest).is_file() and "hooks" in json.loads((root / manifest).read_text(encoding="utf-8")):
+            found.append(f"{manifest} registers hooks")
+    if (root / PLUGIN / "hooks").exists():
+        found.append(f"{PLUGIN / 'hooks'} holds " + ", ".join(sorted(p.name for p in (root / PLUGIN / "hooks").iterdir())))
+    if not (root / GUARD_GATE).is_file():
+        found.append(f"{GUARD_HOOKS} without {GUARD_GATE}")
+    commands = _strings(json.loads((root / GUARD_HOOKS).read_text(encoding="utf-8")).get("hooks", {}))
+    if (root / GUARD_CODEX).is_file():
+        commands += _strings(json.loads((root / GUARD_CODEX).read_text(encoding="utf-8")).get("hooks", {}))
+    for command in commands:
+        for program in _PROGRAM.findall(command):
+            if not (root / GUARD / program).is_file():
+                found.append(f"a hook of the Guard starts {program}, which {GUARD} does not hold")
+    return found
+
+
 def findings(root: pathlib.Path) -> list[str]:
-    return guard_findings(root) if (root / CLAUDE_HOOKS).is_file() else verify_findings(root)
+    if (root / CLAUDE_HOOKS).is_file():
+        return guard_findings(root)
+    return split_findings(root) if (root / GUARD_HOOKS).is_file() else verify_findings(root)
 
 
 def not_shipped_here(root: pathlib.Path) -> str | None:
@@ -227,6 +273,63 @@ def test_planted_a_whole_guard_has_no_finding_and_a_missing_program_is_found(tmp
     (root / CLAUDE_HOOKS).write_text((root / CLAUDE_HOOKS).read_text(encoding="utf-8").replace(
         "proofbundle_gate.py", "proofbundle_missing.py"), encoding="utf-8")
     assert findings(root) == ["a hook starts hooks/proofbundle_missing.py, which the plugin does not hold"]
+
+
+def _split_copy(tmp_path: pathlib.Path) -> pathlib.Path:
+    """A whole split state of its own (D134): the verifier without a hooks/ folder and without a registration, the
+    Guard's folder with its hooks, the program they start and its house marketplace."""
+    root = _verify_copy(tmp_path)
+    (root / GUARD_HOOKS).parent.mkdir(parents=True)
+    (root / GUARD_GATE).write_text("", encoding="utf-8")
+    (root / GUARD_HOOKS).write_text(json.dumps({"hooks": {"PreToolUse": [{"hooks": [
+        {"type": "command", "command": 'python3 -I "${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py" --autonomous'}]}]}}),
+        encoding="utf-8")
+    (root / MARKETPLACE).parent.mkdir(parents=True)
+    (root / MARKETPLACE).write_text(json.dumps({"plugins": [{"name": "proofbundle", "source": "./plugins/proofbundle"}]}),
+                                    encoding="utf-8")
+    (root / GUARD_MARKET).parent.mkdir(parents=True)
+    (root / GUARD_MARKET).write_text(json.dumps({"plugins": [{"name": "proofbundle-guard", "source": "./"}]}),
+                                     encoding="utf-8")
+    return root
+
+
+def test_planted_a_whole_split_has_no_finding(tmp_path):
+    assert findings(_split_copy(tmp_path)) == []
+
+
+def test_planted_a_split_whose_verifier_registers_hooks_is_found(tmp_path):
+    root = _split_copy(tmp_path)
+    data = json.loads((root / MANIFESTS[1]).read_text(encoding="utf-8"))
+    data["hooks"] = {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "python3 hooks/x.py"}]}]}}
+    (root / MANIFESTS[1]).write_text(json.dumps(data), encoding="utf-8")
+    assert findings(root) == [f"{MANIFESTS[1]} registers hooks"]
+
+
+def test_planted_a_split_whose_verifier_keeps_a_hooks_folder_is_found(tmp_path):
+    """Owner answer C: the gate programs left the verifier; a gate program there, registered or not, is a finding."""
+    root = _split_copy(tmp_path)
+    (root / GATE).parent.mkdir(parents=True)
+    (root / GATE).write_text("", encoding="utf-8")
+    assert findings(root) == [f"{PLUGIN / 'hooks'} holds proofbundle_gate.py"]
+
+
+def test_planted_a_split_whose_guard_lacks_a_program_or_its_house_marketplace_is_found(tmp_path):
+    root = _split_copy(tmp_path)
+    (root / GUARD_GATE).unlink()
+    (root / GUARD_MARKET).unlink()
+    assert findings(root) == [f"{GUARD_HOOKS} without a house marketplace {GUARD_MARKET} whose one entry is ./",
+                              f"{GUARD_HOOKS} without {GUARD_GATE}",
+                              f"a hook of the Guard starts hooks/proofbundle_gate.py, which {GUARD} does not hold"]
+
+
+def test_planted_a_split_whose_public_marketplace_lists_the_guard_is_found(tmp_path):
+    """Owner choice N2 B: the Guard belongs to no public catalog."""
+    root = _split_copy(tmp_path)
+    (root / MARKETPLACE).write_text(json.dumps({"plugins": [{"name": "proofbundle", "source": "./plugins/proofbundle"},
+                                                            {"name": "proofbundle-guard",
+                                                             "source": "./plugins/proofbundle-guard"}]}),
+                                    encoding="utf-8")
+    assert findings(root) == [f"{MARKETPLACE} lists {GUARD}, which belongs to no public catalog"]
 
 
 # --- where the tree test measures: the plugin folder decides, not the checkout markers (ninth reading of PR 441) -----

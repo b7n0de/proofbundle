@@ -870,6 +870,11 @@ def _test_result_member_types(predicate: dict) -> list:
             if isinstance(eintrag, dict) and not any(k in eintrag for k in _DESCRIPTOR_LOCATORS):
                 teile.append((f"configuration[{i}]", "must specify one of uri, digest or content, the rule of a "
                                                      "ResourceDescriptor"))
+            # A locator that is present has its type: `uri` a ResourceURI and `content` base64 bytes, both strings in
+            # JSON. The digest stays the reason of `_descriptor_list_claim_fields` (first reading of 452, P2).
+            for name in ("uri", "content"):
+                if isinstance(eintrag, dict) and name in eintrag and not isinstance(eintrag[name], str):
+                    teile.append((f"configuration[{i}].{name}", f"must be a string, got {type(eintrag[name]).__name__}"))
     return teile
 
 

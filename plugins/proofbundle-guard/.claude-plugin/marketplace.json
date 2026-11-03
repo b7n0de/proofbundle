@@ -1,0 +1,14 @@
+{
+  "name": "proofbundle-house",
+  "owner": {
+    "name": "Konrad Gruszka"
+  },
+  "description": "The house marketplace of b7n0de for proofbundle-guard, added from a local checkout of b7n0de/proofbundle on the owner's machines. The public marketplace at the repository root lists proofbundle alone.",
+  "plugins": [
+    {
+      "name": "proofbundle-guard",
+      "source": "./",
+      "description": "Guard Preview, the house profile of b7n0de: hooks before every Bash call and before supported writes, with the house's autonomous answer under Claude Code; a hook that cannot run blocks the call. Not for general use; install proofbundle from the public marketplace to verify."
+    }
+  ]
+}

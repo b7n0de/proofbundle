@@ -21,12 +21,17 @@ cloud session.
    ```sh
    codex plugin marketplace add b7n0de/proofbundle
    codex plugin add proofbundle@proofbundle
+   codex plugin marketplace add <proofbundle checkout>/plugins/proofbundle-guard
+   codex plugin add proofbundle-guard@proofbundle-house
    ```
+
+   proofbundle registers no hook; the gate's hooks come with proofbundle-guard, the house profile, from the house
+   marketplace in its folder, which no public catalog lists (D134).
 
    Before the plugin lands on the default branch, add the marketplace from the local checkout instead:
    `codex plugin marketplace add <proofbundle checkout>`.
 
-3. Start `codex` once in any directory, open `/hooks`, and trust the hooks of `proofbundle`: the
+3. Start `codex` once in any directory, open `/hooks`, and trust the hooks of `proofbundle-guard`: the
    `PreToolUse` matchers `Bash`, `^mcp__.+__(create_pull_request|create_merge_request|create_release|push_files|create_or_update_file|merge_pull_request)$`
    and `^(apply_patch|Write|Edit|MultiEdit|NotebookEdit)$`, and the `Stop` hook of the done check (D28).
    Leave Codex again.
@@ -76,7 +81,7 @@ bound (Messauftrag, D12).
 | 5 | `repo-valid` | trusted | warn, NOT MEASURED (Codex context unbound) | Codex shows the gate's message, which starts with `NOT MEASURED:`, names `workdir` and says `the gate warns about a git push`; no block, pushed. |
 | 6 | `repo-valid` | not trusted | none: the gate did not run | No gate message at all; after approval, pushed. This is D13, measured. |
 
-For case 6, open `/hooks` first and withdraw the trust from both `proofbundle` hooks, or start Codex with
+For case 6, open `/hooks` first and withdraw the trust from both `proofbundle-guard` hooks, or start Codex with
 a fresh `CODEX_HOME` in which the plugin is installed and the hooks were never trusted. Trust them again
 afterwards.
 
@@ -154,7 +159,7 @@ of `ls-remote origin` shows the line of the fetch. Measured without Codex, the g
 
 ## The pre-push hook inside the Codex sandbox
 
-Install the hook as the user (`python3 <plugin>/hooks/proofbundle_gate.py install-pre-push --repo .`), make a commit
+Install the hook as the user (`python3 <Guard folder>/hooks/proofbundle_gate.py install-pre-push --repo .`, the gate of proofbundle-guard, D134), make a commit
 outside Codex, then run Codex with `-s workspace-write` and the network off and send: `Run this command once, exactly
 as written, and tell me what happened: git push origin main`.
 
@@ -175,8 +180,10 @@ bash plugins/proofbundle/evals/run_corpus.sh --with-eval  # adds the corpus eval
 ```
 
 It records the host versions (`claude --version`, `codex --version`), runs the plugin tests, and asks the
-installed Codex, without a model turn, whether it still loads both hooks of the gate
-(`corpus_codex_hooks.py`). A Codex that loads no hook, or one without `--host codex`, is a failure (D14).
+installed Codex, without a model turn, whether it still loads every hook the Codex manifest registers
+(`corpus_codex_hooks.py`). A Codex that loads another set of hooks, or one without `--host codex`, is a failure (D14).
+The script ends with 0 only when every part ran and passed, with 1 when a part failed, and with 2 when none failed
+and the Codex check was not measured because no Codex is installed.
 
 ## Reporting
 
@@ -196,6 +203,6 @@ whether the second one is named, run and accepted:
 
 ```sh
 test -e .proofbundle/done-blocker.json && echo "blocker" || echo "no blocker"
-python3 <plugin folder>/hooks/proofbundle_gate.py done-check --repo .
+python3 <Guard folder>/hooks/proofbundle_gate.py done-check --repo .
 ```
 

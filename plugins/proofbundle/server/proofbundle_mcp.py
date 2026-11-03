@@ -1,12 +1,13 @@
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["proofbundle==6.3.0"]
+# dependencies = ["proofbundle==6.4.0"]
 # ///
 """MCP server of the proofbundle plugin for Claude Code and Codex.
 
-A stdio JSON-RPC 2.0 server with four tools. Each tool runs the proofbundle command line of the
-package installed next to this interpreter (`python -m proofbundle.cli`), so a verdict and its
-exit code are the package's own, not a re-implementation. The package comes from PyPI through the
+A stdio JSON-RPC 2.0 server with seven tools. The four receipt tools run the proofbundle command
+line of the package installed next to this interpreter (`python -m proofbundle.cli`), so a verdict
+and its exit code are the package's own, not a re-implementation; the three gate tools read the
+gate's log and run its self-test. The package comes from PyPI through the
 pin in the script header above; `uv run --script` installs it.
 
 The server writes only JSON-RPC messages to stdout, one per line. Diagnostics go to stderr.
@@ -97,17 +98,65 @@ INSTRUCTIONS = ("Tools over the proofbundle package. verify_receipt checks a rec
 
 
 #: The gate's local log (DECISIONS.md, D21). The server reads it from the plugin data directory the host
-#: names in the server's own environment; it never looks for the file anywhere else.
+#: names in the server's own environment; it never looks for the file anywhere else but beside it, as D134 says.
 LOG_NAME = "gate-log.jsonl"
 LOG_DIR_VARIABLES = ("CLAUDE_PLUGIN_DATA", "PLUGIN_DATA")
+#: D134: the gate runs in the plugin proofbundle-guard, and Claude Code gives each plugin a data directory of its own,
+#: ~/.claude/plugins/data/<id>/ with <id> the plugin identifier, every character other than a letter, digit, _ or -
+#: written as "-" (plugin manifest reference, read 2026-10-31). The house installs the Guard from its house marketplace,
+#: proofbundle-house (N2 B), so where this server's directory is proofbundle's, `proofbundle-<marketplace>` from
+#: whichever marketplace, the gate's log is in the Guard's beside it, GUARD_DATA_DIR. The D134 test binds that name to
+#: the name in plugins/proofbundle-guard/.claude-plugin/marketplace.json. The Guard brings no MCP server, so this server
+#: runs in the verifier alone, and no other prefix tells the two apart: proofbundle from a marketplace named guard-<rest>
+#: has the directory proofbundle-guard-<rest> (second reading of F2).
+VERIFY_DATA_PREFIX, GUARD_DATA_PREFIX = "proofbundle-", "proofbundle-guard-"
+GUARD_DATA_DIR = GUARD_DATA_PREFIX + "proofbundle-house"
+#: A plugin loaded with --plugin-dir has the identifier <name>@inline, so a Guard loaded so logs into this directory
+#: (measured with Claude Code 2.1.316 in the cloud run M1 -4, 2026-11-02).
+GUARD_INLINE_DIR = GUARD_DATA_PREFIX + "inline"
 SERVER_STARTED = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 SELFTEST_PREFIX = "proofbundle-selftest-"
+
+
+def _guard_log(parent: str, base: str, name: str) -> tuple[str | None, str]:
+    """The gate's log beside the verifier's data directory `base` in `parent`: of the Guard directories the server
+    knows (the house marketplace's, the inline one, the one of the verifier's own marketplace), the one whose log was
+    written last; where none holds a log, the house's; where two carry the same newest time, none, because one time
+    does not say which was written last."""
+    known = list(dict.fromkeys((GUARD_DATA_DIR, GUARD_INLINE_DIR, GUARD_DATA_PREFIX + base[len(VERIFY_DATA_PREFIX):])))
+    written = []
+    for guard in known:
+        path = os.path.join(parent, guard, LOG_NAME)
+        times = []
+        for candidate in (path, path + ".1"):   # a rotated log counts with its own time (a pre-run of the split)
+            try:
+                times.append(os.stat(candidate).st_mtime_ns)
+            except OSError:
+                continue
+        if times:
+            written.append((max(times), guard, path))
+    if not written:
+        return (os.path.join(parent, GUARD_DATA_DIR, LOG_NAME),
+                f"from {name}, the Guard's data directory beside it (D134); no log yet in {', '.join(known)}")
+    newest = max(written)[0]
+    tied = [guard for when, guard, _path in written if when == newest]
+    if len(tied) > 1:   # a coarse clock gives two writes close together one time (a reading of the split)
+        return None, (f"from {name}: the Guard logs in {' and '.join(tied)} carry the same newest modification time, "
+                      "so the server cannot tell which was written last (D134)")
+    _, guard, path = max(written)
+    return path, f"from {name}, the Guard's data directory {guard} beside it, written last of {len(written)} (D134)"
 
 
 def _log_path() -> tuple[str | None, str]:
     for name in LOG_DIR_VARIABLES:
         value = os.environ.get(name)
         if value and os.path.isabs(value):
+            own = os.path.normpath(value)
+            base = os.path.basename(own)
+            # only the house's directory is the Guard's own: proofbundle from a marketplace named guard-inline has the
+            # directory proofbundle-guard-inline too, and the Guard brings no MCP server (a pre-run of the split)
+            if base.startswith(VERIFY_DATA_PREFIX) and base != GUARD_DATA_DIR:
+                return _guard_log(os.path.dirname(own), base, name)
             return os.path.join(value, LOG_NAME), f"from {name}"
     return None, ("the server was given no plugin data directory (CLAUDE_PLUGIN_DATA or PLUGIN_DATA), so it "
                   "cannot tell where the gate writes its log")
@@ -596,11 +645,11 @@ def tool_gate_selftest_prepare(args: dict) -> tuple[dict, bool]:
         _run_git("-C", work, "add", "-A")
         _run_git(*identity, "-C", work, "commit", "-q", "-m", message)
 
-    # The reviewed base: a declaration whose rules are well formed. Its subject is a fixed non-matching
-    # digest, so the push of the next commit is denied for a stale subject, a deny the gate reaches without
-    # the verifier, under both hosts: the gate checks the evidence at the commit the push sends, whose destination
-    # it does not resolve (DECISIONS.md, D3; review round 9, R9-1). The base is pushed to a named branch the work
-    # repository then tracks, so the check can compare that branch with the recorded base (review N6).
+    # The base declares well-formed rules and a fixed non-matching subject. Claude Code's gate reaches
+    # stale_subject for the returned command without starting the verifier. Codex instead rejects its
+    # global -C option as codex_push_not_plain. The check below requires stale_subject and therefore
+    # reports NOT MEASURABLE for that Codex path. The base is pushed to the local named branch that
+    # the work repository tracks, so the check can compare its refs with the recorded base.
     os.makedirs(os.path.join(work, ".proofbundle"))
     with open(os.path.join(work, "README.md"), "w", encoding="utf-8") as handle:
         handle.write("A throwaway repository for the proofbundle gate self-test.\n")
@@ -650,9 +699,10 @@ def tool_gate_selftest_prepare(args: dict) -> tuple[dict, bool]:
                      "repository in a temporary folder, and in the server's environment it pushes there. The "
                      "check reads only the refs of the throwaway remote: a setting only the host's shell carries "
                      "(a push URL, a receive program or its hooks, a transport) can send the push elsewhere or undo "
-                     "its write, and the check does not see that. The gate is expected to deny it (a stale subject). Never change the "
-                     "throwaway repository or its declaration. Then call gate_selftest_check with work and "
-                     "started_at.")}, False
+                     "its write, and the check does not see that. Claude Code is expected to deny it for a stale "
+                     "subject. Codex rejects this command form before that evidence check, so the current self-test "
+                     "reports NOT MEASURABLE there. Never change the throwaway repository or its declaration. Then "
+                     "call gate_selftest_check with work and started_at.")}, False
 
 
 def tool_gate_selftest_check(args: dict) -> tuple[dict, bool]:

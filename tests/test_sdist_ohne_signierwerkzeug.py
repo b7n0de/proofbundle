@@ -420,6 +420,10 @@ AUSGESCHLOSSEN = {
     # tests/test_ci_test_parts_cover_the_suite.py, names .github/ and skips outside a checkout.
     "ci_test_part.py": "splits the suite of the CI job `test` into parts; no CI matrix inside a package",
     "ci_test_part_weights.json": "the measured weights of ci_test_part.py; they name files of this checkout",
+    # 2026-11-02: the closing step of the CI job `coverage`, which checks and combines the data of the parts of
+    # `coverage-part`. An installed package has no CI matrix and no coverage artifacts. Its contract,
+    # tests/test_coverage_parts_cover_the_suite.py, names .github/ and skips outside a checkout.
+    "ci_coverage_combine.py": "combines the coverage data of the CI parts; no CI matrix inside a package",
 }
 
 #: Vom MANIFEST global ausgeschlossen (`global-exclude *.py[cod]`), also nie eine Entscheidung
