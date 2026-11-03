@@ -825,6 +825,60 @@ class CorrelatedChangesGiveTheVerdictOfOneState(_Registriert):
 
 # ── 4. ABA, targeted, up to the public verdict ─────────────────────────────────────────────────────────────────────
 
+def _aba_messen() -> dict:
+    """The ABA measurement of `ABAIsMeasuredUpToThePublicVerdict` in the interpreter that calls it: the verdict of the
+    never-held state, the verdicts of the held states, how many steps found their moment, and the verdict."""
+    gut_text = base64.b64encode(_WURZEL).decode()
+    schlecht_text = base64.b64encode(b"\x00" * 32).decode()
+    anchors.register_anchor_type(_ANKERTYP, lambda proof, root, *, frozen, now: {"ok": True, "warn": False})
+    x = {"type": _ANKERTYP, "target": "statement", "canonicalRoot": schlecht_text,
+         "proof": base64.b64encode(b"p").decode()}
+    y = dict(x, canonicalRoot=gut_text)
+    liste = [x, y]
+    ziele = {"statement": _WURZEL}
+
+    def urteil(eintraege) -> Any:
+        return _verdikt(lambda: anchors.verify_anchors(eintraege, target_roots=ziele), lambda r: r["status"])
+    gehalten = {urteil([dict(x, canonicalRoot=a), dict(y, canonicalRoot=b)])
+                for a, b in ((schlecht_text, gut_text), (schlecht_text, schlecht_text), (gut_text, schlecht_text))}
+    nie_gehalten = urteil([dict(x, canonicalRoot=gut_text), y])
+
+    sammeln_1, sammeln_2, lies = (canonical._lesen_einmal.__code__, canonical._gleich_gelesen.__code__,
+                                  canonical._lies.__code__)
+    schritte = [(sammeln_1, x, [(y, schlecht_text), (x, gut_text)]),
+                (sammeln_2, y, [(x, schlecht_text), (y, gut_text)]),
+                (sammeln_2, x, [(y, schlecht_text), (x, gut_text)])]
+    stand = {"i": 0}
+
+    def cb(phase, info):
+        if phase != "start" or stand["i"] >= len(schritte):
+            return
+        rahmen = sys._getframe(1)
+        if rahmen.f_code is not lies or rahmen.f_back is None:
+            return
+        sammeln, ziel, aenderungen = schritte[stand["i"]]
+        lokal = rahmen.f_locals
+        if rahmen.f_back.f_code is sammeln and lokal.get("wert") is ziel and "paare" not in lokal:
+            for eintrag, text in aenderungen:
+                eintrag["canonicalRoot"] = text
+            stand["i"] += 1
+    aus = _mit_gc(cb, lambda: urteil(liste))
+    return {"nie_gehalten": str(nie_gehalten), "gehalten": sorted(map(str, gehalten)), "schritte": stand["i"],
+            "von": len(schritte), "aus": str(aus)}
+
+
+def _in_frischem_interpreter(funktion: str) -> dict:
+    """``funktion()`` of this module in an interpreter of its own, nothing of the suite run before it; its dict read
+    back as JSON."""
+    code = (f"import json, sys; sys.path[:0] = [{str(REPO / 'tests')!r}]; import {Path(__file__).stem} as m; "
+            f"print(json.dumps(m.{funktion}()))")
+    lauf = subprocess.run([sys.executable, "-I", "-c", code], cwd=REPO, capture_output=True, text=True, timeout=300,
+                          check=False)
+    if lauf.returncode != 0:
+        raise AssertionError((lauf.stdout + lauf.stderr)[-3000:])
+    return json.loads(lauf.stdout.strip().splitlines()[-1])
+
+
 class ABAIsMeasuredUpToThePublicVerdict(_Registriert):
     """Two entries X and Y of one anchor list. Good is an entry over the statement's root, bad one over another root;
     the list PASSes only when both are good. The held states are (bad, good), (bad, bad) and (good, bad), each a FAIL;
@@ -836,48 +890,18 @@ class ABAIsMeasuredUpToThePublicVerdict(_Registriert):
     good; when `_lies` is about to read Y in the second collect, X bad and then Y good; when it is about to read X in
     the second collect, Y bad and then X good. Each value is the same object each time, so each collect reads the same
     objects, the first one Y good and X good, which the list never held together. A step that never found its moment
-    is reported as not measured, never as held."""
+    is reported as not measured, never as held. The measurement runs in an interpreter of its own: whether a collection
+    starts in the frame of `canonical._lies` depends on what ran before it in the process (pull request 473, under
+    CPython 3.14, `TheABACaseIsMeasuredWhateverRanBeforeIt`)."""
 
     def test_aba_reaches_the_public_verdict_only_where_the_limit_is_named(self) -> None:
-        gut_text = base64.b64encode(_WURZEL).decode()
-        schlecht_text = base64.b64encode(b"\x00" * 32).decode()
-        anchors.register_anchor_type(_ANKERTYP, lambda proof, root, *, frozen, now: {"ok": True, "warn": False})
-        x = {"type": _ANKERTYP, "target": "statement", "canonicalRoot": schlecht_text,
-             "proof": base64.b64encode(b"p").decode()}
-        y = dict(x, canonicalRoot=gut_text)
-        liste = [x, y]
-        ziele = {"statement": _WURZEL}
-
-        def urteil(eintraege) -> Any:
-            return _verdikt(lambda: anchors.verify_anchors(eintraege, target_roots=ziele), lambda r: r["status"])
-        gehalten = {urteil([dict(x, canonicalRoot=a), dict(y, canonicalRoot=b)])
-                    for a, b in ((schlecht_text, gut_text), (schlecht_text, schlecht_text), (gut_text, schlecht_text))}
-        self.assertEqual(urteil([dict(x, canonicalRoot=gut_text), y]), "PASS", "the never-held state must pass")
-        self.assertNotIn("PASS", gehalten)
-
-        sammeln_1, sammeln_2, lies = (canonical._lesen_einmal.__code__, canonical._gleich_gelesen.__code__,
-                                      canonical._lies.__code__)
-        schritte = [(sammeln_1, x, [(y, schlecht_text), (x, gut_text)]),
-                    (sammeln_2, y, [(x, schlecht_text), (y, gut_text)]),
-                    (sammeln_2, x, [(y, schlecht_text), (x, gut_text)])]
-        stand = {"i": 0}
-
-        def cb(phase, info):
-            if phase != "start" or stand["i"] >= len(schritte):
-                return
-            rahmen = sys._getframe(1)
-            if rahmen.f_code is not lies or rahmen.f_back is None:
-                return
-            sammeln, ziel, aenderungen = schritte[stand["i"]]
-            lokal = rahmen.f_locals
-            if rahmen.f_back.f_code is sammeln and lokal.get("wert") is ziel and "paare" not in lokal:
-                for eintrag, text in aenderungen:
-                    eintrag["canonicalRoot"] = text
-                stand["i"] += 1
-        aus = _mit_gc(cb, lambda: urteil(liste))
-        if stand["i"] < len(schritte):
-            self.fail(f"NOT MEASURED: {stand['i']} of {len(schritte)} steps found their moment; verdict {aus}")
-        print(f"\nABA: verdict {aus} over a list whose held states give {sorted(gehalten)}")
+        m = _in_frischem_interpreter("_aba_messen")
+        self.assertEqual(m["nie_gehalten"], "PASS", "the never-held state must pass")
+        self.assertNotIn("PASS", m["gehalten"])
+        if m["schritte"] < m["von"]:
+            self.fail(f"NOT MEASURED: {m['schritte']} of {m['von']} steps found their moment; verdict {m['aus']}")
+        aus = m["aus"]
+        print(f"\nABA: verdict {aus} over a list whose held states give {m['gehalten']}")
         if aus == "PASS":
             ohne = [str(p.relative_to(REPO)) for p in (REPO / "src" / "proofbundle" / "canonical.py",
                                                       REPO / "RESTRISIKO_620.md")
