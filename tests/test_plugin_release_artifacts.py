@@ -443,6 +443,10 @@ class SplitChecks(Base):
             "delimiter narrower than the head": head.replace("|---|---|---|---|---|", "|---|") + claude + codex,
             # the Codex pre-run of the reading of 92b47349: stripping every outer pipe dropped empty edge cells
             "empty edge cells": head + claude + "|| Codex | fixture | proofbundle | 0.4.0 | Experimental ||\n",
+            # the Codex pre-run of the reading of 1bc66c8d: an escaped pipe is cell content to Markdown and a cell
+            # border to a split on pipes, so the version column moved
+            "escaped pipes": head + "| Claude Code | fixture | proofbundle \\| 0.4.0 | 0.3.0 |\n"
+            + "| Codex | fixture | proofbundle \\| 0.4.0 | 0.3.0 |\n",
         }
         for name, catalog in cases.items():
             with self.subTest(name=name):

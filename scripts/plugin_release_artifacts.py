@@ -448,6 +448,10 @@ def catalog_versions(text: str, path: str, count: int) -> list[str]:
     head = _cells(table[0])
     # the delimiter row as the house writes it, one --- per column of the head (the Codex pre-run of the reading of
     # b0828838: a narrower delimiter row makes no table, and the check took it)
+    # no backslash in the table, as at main c9ab65b1: an escaped pipe is cell content to Markdown and a cell border to
+    # the split here, so it moved the Version column (the Codex pre-run of the reading of 1bc66c8d)
+    if any("\\" in line for line in table):
+        raise CheckFailed(f"{path}: a backslash in the catalog table; the house writes the table without escapes")
     if any(not (line.startswith("|") and line.endswith("|")) for line in table) or len(table) < 2 \
             or table[1] != "|" + "---|" * len(head) or head.count("Version") != 1:
         raise CheckFailed(f"{path}: the catalog table is not in the house form (pipes at both ends of every line, a "
