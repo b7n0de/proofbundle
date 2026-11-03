@@ -20,12 +20,14 @@ build
         723), is parsed as TOML, and each block must list exactly one dependency, proofbundle pinned with == to the
         expected version; source constants are read with ast, never executed;
       - every marketplace of the layout: exactly the layout's entries, each source resolving from the folder that
-        holds the marketplace to a root of the archive whose manifest carries the same name, no differing version
-        field. In the split layout the public marketplace at the repository root lists proofbundle alone, and the
+        holds the marketplace to a root of the archive whose manifest carries the same name, and the marketplace,
+        each entry and each host manifest of its roots holding only the members main c9ab65b1 writes there
+        (MARKETPLACE_MEMBERS, ENTRY_MEMBERS, MANIFEST_MEMBERS). In the split layout the public marketplace at the repository root lists proofbundle alone, and the
         Guard's own house marketplace in plugins/proofbundle-guard lists proofbundle-guard with the source "./";
       - in the split layout, the public verifier's profile: no hooks/ folder (and so no hooks/hooks.json), no
-        "hooks" field in its two host manifests or its marketplace entry, no dependency on the Guard, exactly one MCP
-        server, proofbundle, in .mcp.json and in the Codex manifest, and the tool set of that server;
+        "hooks" field and no dependency in its two host manifests or its marketplace entry (none is a member main
+        writes there), exactly one MCP server, proofbundle, in .mcp.json and in the Codex manifest, and the tool set
+        of that server;
       - in the split layout, the Guard's profile: hooks/hooks.json and the gate program present, every program a hook
         of either host starts present in the Guard's root, no skills/ folder, no MCP server registered, and its copy of
         the server byte-equal to the verifier's;
@@ -129,6 +131,23 @@ MCP_REGISTRATIONS = {
 }
 VERIFIER_TOOLS = ("emit_receipt", "gate_selftest_check", "gate_selftest_prepare", "gate_status", "inspect_receipt",
                   "receipt_template", "verify_receipt")
+#: The members main c9ab65b1 writes in a marketplace, in each of its entries and in each host manifest of a plugin, the
+#: same at b55d736d for the verifier (measured with git show). A member outside them can change what a host loads or
+#: where it resolves a source (dependencies, commands, agents, strict, metadata.pluginRoot), and a list of refused
+#: members and their forms stays open: line 3 of the reading of 02eb79ba found "dependencies" written as text read
+#: character by character. Any other member stops the build; a member the house adds lands here with its change.
+MARKETPLACE_MEMBERS = frozenset({"description", "name", "owner", "plugins"})
+ENTRY_MEMBERS = frozenset({"description", "name", "source"})
+_CLAUDE_MANIFEST = frozenset({"author", "description", "homepage", "keywords", "license", "name", "repository",
+                              "version"})
+MANIFEST_MEMBERS = {
+    ("proofbundle", "/.claude-plugin/plugin.json"): _CLAUDE_MANIFEST,
+    ("proofbundle", "/.codex-plugin/plugin.json"): frozenset({"description", "keywords", "mcpServers", "name", "skills",
+                                                              "version"}),
+    ("proofbundle-guard", "/.claude-plugin/plugin.json"): _CLAUDE_MANIFEST,
+    ("proofbundle-guard", "/.codex-plugin/plugin.json"): frozenset({"description", "hooks", "keywords", "name",
+                                                                    "version"}),
+}
 #: The hook commands of the Guard, word for word as main c9ab65b1 writes them, for each host its own: @ROOT@ stands for
 #: the host's root variable (Claude Code ${CLAUDE_PLUGIN_ROOT}, Codex ${PLUGIN_ROOT}) and @PROGRAM@ for the path of the
 #: program inside the plugin; the bare start of a program is one form more. A hook command is held whole to one of
@@ -612,10 +631,20 @@ def _resolve(base: str, source: object) -> str | None:
     return "/".join(parts)
 
 
-def check_marketplaces(repo: Path, commit: str, layout: dict, version: str) -> list[str]:
+def _only_members(value: object, allowed: frozenset, where: str) -> dict:
+    """VALUE as an object holding only members of ALLOWED (MARKETPLACE_MEMBERS, ENTRY_MEMBERS, MANIFEST_MEMBERS)."""
+    if not isinstance(value, dict):
+        raise CheckFailed(f"{where}: not a JSON object")
+    extra = sorted(set(value) - allowed)
+    if extra:
+        raise CheckFailed(f"{where}: members {extra} outside the members main c9ab65b1 writes ({sorted(allowed)})")
+    return value
+
+
+def check_marketplaces(repo: Path, commit: str, layout: dict) -> list[str]:
     lines = []
     for path, spec in layout["marketplaces"].items():
-        market = json_blob(repo, commit, path)
+        market = _only_members(json_blob(repo, commit, path), MARKETPLACE_MEMBERS, path)
         if spec["name"] is not None and market.get("name") != spec["name"]:
             raise CheckFailed(f"{path}: marketplace name {market.get('name')!r}, expected {spec['name']!r}")
         entries = market.get("plugins")
@@ -626,22 +655,25 @@ def check_marketplaces(repo: Path, commit: str, layout: dict, version: str) -> l
             raise CheckFailed(f"{path}: entries {names}, expected exactly {sorted(spec['entries'])}")
         for entry in entries:
             name = entry["name"]
+            _only_members(entry, ENTRY_MEMBERS, f"{path} entry {name}")
             root = layout["roots"][name]
             if entry.get("source") != spec["entries"][name]:
                 raise CheckFailed(f"{path}: entry {name} source {entry.get('source')!r}, "
                                   f"expected {spec['entries'][name]!r}")
             if _resolve(spec["base"], entry["source"]) != root:
                 raise CheckFailed(f"{path}: entry {name} source {entry['source']!r} does not resolve to {root}")
-            if "version" in entry and entry["version"] != version:
-                raise CheckFailed(f"{path}: entry {name} version {entry['version']!r}, expected {version!r}")
-            manifest = json_blob(repo, commit, root + "/.claude-plugin/plugin.json")
+            claude = root + "/.claude-plugin/plugin.json"
+            manifest = _only_members(json_blob(repo, commit, claude),
+                                     MANIFEST_MEMBERS[(name, "/.claude-plugin/plugin.json")], claude)
             if manifest.get("name") != name:
-                raise CheckFailed(f"{root}/.claude-plugin/plugin.json: name {manifest.get('name')!r}, expected {name!r}")
-            codex = tree_entry(repo, commit, root + "/.codex-plugin/plugin.json")
-            if codex is not None and json_blob(repo, commit, root + "/.codex-plugin/plugin.json").get("name") != name:
-                raise CheckFailed(f"{root}/.codex-plugin/plugin.json: name differs from {name!r}")
+                raise CheckFailed(f"{claude}: name {manifest.get('name')!r}, expected {name!r}")
+            codex = root + "/.codex-plugin/plugin.json"
+            if tree_entry(repo, commit, codex) is not None and _only_members(
+                    json_blob(repo, commit, codex), MANIFEST_MEMBERS[(name, "/.codex-plugin/plugin.json")],
+                    codex).get("name") != name:
+                raise CheckFailed(f"{codex}: name differs from {name!r}")
             lines.append(f"check marketplace {path} entry {name} -> {entry['source']} resolves to {root}, "
-                         "manifest name equal")
+                         "manifest name equal, every member one main c9ab65b1 writes")
     return lines
 
 
@@ -703,26 +735,8 @@ def check_public_profile(repo: Path, commit: str, layout: dict) -> list[str]:
     if tree_entry(repo, commit, root + "/hooks") is not None:
         raise CheckFailed(f"{root}/hooks: the public verifier holds a hooks folder (a Verify state holds none, "
                           "tests/test_plugin_verify_carries_no_guard.py)")
-    for rel in ("/.claude-plugin/plugin.json", "/.codex-plugin/plugin.json"):
-        if tree_entry(repo, commit, root + rel) is None:
-            continue
-        manifest = json_blob(repo, commit, root + rel)
-        if "hooks" in manifest:
-            raise CheckFailed(f"{root}{rel}: a hooks field in the public verifier")
-        deps = manifest.get("dependencies", [])
-        names = [d if isinstance(d, str) else d.get("name") if isinstance(d, dict) else None
-                 for d in (deps if isinstance(deps, list) else [deps])]
-        if any(isinstance(n, str) and n.split("@")[0] == "proofbundle-guard" for n in names):
-            raise CheckFailed(f"{root}{rel}: the public verifier depends on proofbundle-guard")
-    market = json_blob(repo, commit, MARKETPLACE)
-    for entry in market["plugins"]:
-        if entry.get("name") == "proofbundle":
-            if "hooks" in entry:
-                raise CheckFailed(f"{MARKETPLACE}: a hooks field in the public verifier's entry")
-            deps = entry.get("dependencies", [])
-            if any((d if isinstance(d, str) else d.get("name", "")).split("@")[0] == "proofbundle-guard"
-                   for d in deps if isinstance(d, (str, dict))):
-                raise CheckFailed(f"{MARKETPLACE}: the public verifier's entry depends on proofbundle-guard")
+    # no hooks field and no dependency in either host manifest or in the marketplace entry: neither is a member main
+    # c9ab65b1 writes there, so check_marketplaces stops the build at any of them (MANIFEST_MEMBERS, ENTRY_MEMBERS)
     # each host's registration of the verifier's server as main c9ab65b1 writes it, and none in the Claude Code
     # manifest (line 3 of the reading of 830dc0f9: the names alone let a registration named proofbundle start
     # another program than the server whose tools are read below)
@@ -731,10 +745,8 @@ def check_public_profile(repo: Path, commit: str, layout: dict) -> list[str]:
             else None
         if servers != expected:
             raise CheckFailed(f"{root}{rel}: MCP servers {servers!r}, expected exactly {expected!r}")
-    if "mcpServers" in json_blob(repo, commit, root + "/.claude-plugin/plugin.json"):
-        raise CheckFailed(f"{root}/.claude-plugin/plugin.json: an mcpServers field in the public verifier's Claude "
-                          "Code manifest; its server is registered in .mcp.json")
-    tools = server_tools(repo, commit, root + "/server/proofbundle_mcp.py")
+    # none in its Claude Code manifest, whose members main c9ab65b1 writes hold no mcpServers (check_marketplaces)
+    tools =server_tools(repo, commit, root + "/server/proofbundle_mcp.py")
     if sorted(tools) != sorted(VERIFIER_TOOLS) or len(set(tools)) != len(tools):
         raise CheckFailed(f"{root}/server/proofbundle_mcp.py: tools {sorted(tools)}, expected {sorted(VERIFIER_TOOLS)}")
     return [f"check public profile {root}: no hooks folder, no hooks field, no dependency on the Guard",
@@ -752,16 +764,9 @@ def check_guard_profile(repo: Path, commit: str, layout: dict) -> list[str]:
         if entry is None or entry[1] != "blob" or entry[0] not in ("100644", "100755"):
             raise CheckFailed(f"{path}: required in the Guard as a regular file, found {entry}")
     # The Guard registers its Claude Code hooks in hooks/hooks.json alone, as at main c9ab65b1: a hooks field in its
-    # Claude Code manifest or in its house marketplace entry would add hooks no check here reads, so it stops the build.
-    if "hooks" in json_blob(repo, commit, root + "/.claude-plugin/plugin.json"):
-        raise CheckFailed(f"{root}/.claude-plugin/plugin.json: a hooks field in the Guard's Claude Code manifest; the "
-                          "Guard registers its Claude Code hooks in hooks/hooks.json")
-    for market, spec in layout["marketplaces"].items():
-        if layout["roots"].get("proofbundle-guard") == root and "proofbundle-guard" in spec["entries"]:
-            for entry in json_blob(repo, commit, market).get("plugins", []):
-                if isinstance(entry, dict) and entry.get("name") == "proofbundle-guard" and "hooks" in entry:
-                    raise CheckFailed(f"{market}: a hooks field in the house marketplace entry of proofbundle-guard")
-    registered = json_blob(repo, commit, hooks_file).get("hooks", {})
+    # Claude Code manifest or in its house marketplace entry is no member main writes there, so check_marketplaces
+    # stops the build at it (MANIFEST_MEMBERS, ENTRY_MEMBERS); the Codex manifest's hooks are read below.
+    registered =json_blob(repo, commit, hooks_file).get("hooks", {})
     if not isinstance(registered, dict):
         raise CheckFailed(f"{hooks_file}: hooks is not an object")
     commands = [(c, CLAUDE_ROOT) for c in _hook_commands(registered)]
@@ -904,7 +909,7 @@ def cmd_build(args: argparse.Namespace) -> int:
         if problems:
             raise CheckFailed("; ".join(problems))
         say(f"check every version place says {args.version}, every pin place proofbundle=={args.expect_pin}")
-        lines.extend(check_marketplaces(repo, commit, layout, args.version))
+        lines.extend(check_marketplaces(repo, commit, layout))
         lines.extend(check_public_profile(repo, commit, layout))
         lines.extend(check_guard_profile(repo, commit, layout))
         selected = [LICENSE, MARKETPLACE, *layout["roots"].values()]

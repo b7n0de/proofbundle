@@ -593,8 +593,9 @@ class SplitChecks(Base):
         self.split_refused(lambda f: f.__setitem__(V + "/hooks/hooks.json", "{}\n"), "hooks folder")
 
     def test_s6_hooks_field_in_a_public_manifest_is_refused(self):
+        # no hooks member in the verifier's manifests at main c9ab65b1, so the member rule refuses it first (s8b)
         self.split_refused(lambda f: f.__setitem__(V + "/.claude-plugin/plugin.json", manifest("proofbundle", hooks={})),
-                           "hooks field")
+                           "members ['hooks'] outside the members main c9ab65b1 writes")
 
     def test_s7_symbolic_link_is_refused(self):
         repo, commit = make_repo(self.tmp, split_files(), links={V + "/escape": "/etc/hostname"})
@@ -602,7 +603,54 @@ class SplitChecks(Base):
 
     def test_s8_verifier_depending_on_the_guard_is_refused(self):
         self.split_refused(lambda f: f.__setitem__(V + "/.claude-plugin/plugin.json", manifest(
-            "proofbundle", dependencies=["proofbundle-guard"])), "depends on proofbundle-guard")
+            "proofbundle", dependencies=["proofbundle-guard"])), "members ['dependencies'] outside the members main")
+
+    def test_s8b_a_member_outside_the_ones_main_writes_is_refused(self):
+        """Line 3 of the reading of 02eb79ba: the check for a dependency on the Guard read the field of the public
+        marketplace entry as a list, so "dependencies": "proofbundle-guard" passed character by character. A list of
+        refused fields and their forms stays open; every marketplace, every entry and every host manifest of a root now
+        holds only the members main c9ab65b1 writes for it, and any other member stops the build, the ones that change
+        what a host loads or where it resolves a source among them."""
+        def entry_member(path, name, member, value):
+            def mutate(files):
+                data = json.loads(files[path])
+                for entry in data["plugins"]:
+                    if entry["name"] == name:
+                        entry[member] = value
+                files[path] = json.dumps(data, indent=2) + "\n"
+            return mutate
+
+        def top_member(path, member, value):
+            def mutate(files):
+                data = json.loads(files[path])
+                data[member] = value
+                files[path] = json.dumps(data, indent=2) + "\n"
+            return mutate
+
+        cases = {
+            "public entry dependencies as text": entry_member(".claude-plugin/marketplace.json", "proofbundle",
+                                                              "dependencies", "proofbundle-guard"),
+            "house entry strict": entry_member(HOUSE, "proofbundle-guard", "strict", False),
+            "public marketplace plugin root": top_member(".claude-plugin/marketplace.json", "metadata",
+                                                         {"pluginRoot": "./plugins"}),
+            "verifier claude agents": top_member(V + "/.claude-plugin/plugin.json", "agents", ["./agents/x.md"]),
+            "verifier codex dependencies as text": top_member(V + "/.codex-plugin/plugin.json", "dependencies",
+                                                              "proofbundle-guard"),
+            "guard claude commands": top_member(G + "/.claude-plugin/plugin.json", "commands", "./commands"),
+        }
+        for name, mutate in cases.items():
+            with self.subTest(name=name):
+                files = split_files()
+                mutate(files)
+                sub = self.tmp / name.replace(" ", "_")
+                sub.mkdir()
+                repo, commit = make_repo(sub, files)
+                out = sub / "out"
+                proc = build(repo, commit, out)
+                self.assertEqual(proc.returncode, 1, text(proc))
+                self.assertFalse(out.exists() and any(out.iterdir()), "a refused build wrote artifacts")
+                failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
+                self.assertTrue(failed and "outside the members main c9ab65b1 writes" in failed[0], failed)
 
     def test_s9_two_builds_are_byte_identical_and_a2_is_the_full_object(self):
         repo, commit = make_repo(self.tmp, split_files(), executable=(G + "/hooks/proofbundle_gate.py",))
@@ -772,17 +820,18 @@ class GuardProfile(Base):
         """The Codex pre-run of the reading of e92b63a5: hooks in the Guard's Claude Code manifest were not read, so one
         there could start a program the Guard lacks. The Guard writes its Claude Code hooks in hooks/hooks.json alone,
         so a hooks field in its Claude Code manifest or in its house marketplace entry stops the build, and the Codex
-        manifest's hooks have to be an object the generator reads."""
+        manifest's hooks have to be an object the generator reads. Since the member rule (s8b) neither field is a
+        member main c9ab65b1 writes there, and that rule refuses both first."""
         missing = {"PreToolUse": [{"matcher": "Bash", "hooks": [
             {"type": "command", "command": 'python3 -I "${CLAUDE_PLUGIN_ROOT}/hooks/missing.py"'}]}]}
         cases = {
             "claude manifest": (G + "/.claude-plugin/plugin.json", manifest("proofbundle-guard", hooks=missing),
-                                "a hooks field in the Guard's Claude Code manifest"),
+                                "members ['hooks'] outside the members main c9ab65b1 writes"),
             "house entry": (HOUSE, json.dumps({"name": "proofbundle-house", "owner": {"name": "fixture"},
                                                "description": "fixture", "plugins": [
                                                    {"name": "proofbundle-guard", "source": "./",
                                                     "description": "fixture", "hooks": missing}]}, indent=2) + "\n",
-                            "a hooks field in the house marketplace entry"),
+                            "entry proofbundle-guard: members ['hooks'] outside"),
             "codex path": (G + "/.codex-plugin/plugin.json", manifest("proofbundle-guard", hooks="hooks/other.json"),
                            "hooks is not an object"),
         }

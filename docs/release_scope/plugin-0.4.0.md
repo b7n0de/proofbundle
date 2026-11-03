@@ -106,15 +106,16 @@ The marketplaces and profiles it checks in the same run:
 
 | File or folder | Rule |
 |---|---|
-| `.claude-plugin/marketplace.json` | name proofbundle; exactly one entry, proofbundle with source `./plugins/proofbundle`; no differing version field |
+| `.claude-plugin/marketplace.json` | name proofbundle; exactly one entry, proofbundle with source `./plugins/proofbundle` |
 | `plugins/proofbundle-guard/.claude-plugin/marketplace.json` | name proofbundle-house; exactly one entry, proofbundle-guard with source `./`, which resolves to the Guard's own folder |
 | plugins/proofbundle | no hooks/ folder, no `hooks` field in either host manifest or its marketplace entry, no dependency on the Guard, its server registered in `.mcp.json` and in the Codex manifest exactly as main c9ab65b1 writes it, for each host its own, and none in its Claude Code manifest, and the seven tools of its server: `emit_receipt`, `gate_selftest_check`, `gate_selftest_prepare`, `gate_status`, `inspect_receipt`, `receipt_template`, `verify_receipt` |
 | plugins/proofbundle-guard | `hooks/hooks.json` and the gate program present, every hook command of either host one of the command forms the Guard writes at main c9ab65b1, word for word with only the program path free, through `${CLAUDE_PLUGIN_ROOT}` in `hooks/hooks.json` and `${PLUGIN_ROOT}` in the Codex manifest, and that program present in the Guard's folder, no skills/ folder, no MCP server registered, and its copy of the server byte-equal to the verifier's |
 | every archived entry | a regular file with mode 0644 or 0755; a symbolic link or a gitlink stops the build |
+| both marketplaces, their entries and the host manifests of both plugins | only the members main c9ab65b1 writes there: `description`, `name`, `owner` and `plugins` in a marketplace, `description`, `name` and `source` in an entry, in each Claude Code manifest `author`, `description`, `homepage`, `keywords`, `license`, `name`, `repository` and `version`, in the verifier's Codex manifest `description`, `keywords`, `mcpServers`, `name`, `skills` and `version`, in the Guard's `description`, `hooks`, `keywords`, `name` and `version`; any other member stops the build, a version or a dependency field of an entry among them |
 
 A JSON file the generator reads that names a member twice stops the build, so a version member counts once only
 where it is written once. A hook command in any other form, or one that names a plugin root a second time, stops the build too. The Guard registers its Claude Code hooks in `hooks/hooks.json` alone, so a hooks field in its Claude Code
-manifest or in its house marketplace entry stops the build, and the hooks of its Codex manifest have to be an object.
+manifest or in its house marketplace entry stops the build as a member main does not write there, and the hooks of its Codex manifest have to be an object.
 For a constant or the tool table read with ast, every mention of its name as a Python token, in the NFKC form Python
 reads it in, has to be that name at that place, written once, as the only target of its top-level assignment, and otherwise read; the tool table may besides be
 looked up or read by `items`, `keys`, `values` or `get`. The Python files it reads that way have LF line ends and no BOM or encoding declaration, as at
