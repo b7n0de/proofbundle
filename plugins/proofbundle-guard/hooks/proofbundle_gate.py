@@ -23600,7 +23600,8 @@ def _pilot_digest(action: dict) -> str | None:
 def _pilot_trace(event: dict) -> dict:
     """D135: the traceContext of a receipt of Level 1, the session_id of the hook event as traceId and its tool_use_id
     as parentId (draft-gruszka-audit-decision-receipts-06, section 2), each where the event names it in the form of
-    _PILOT_TRACE_ID. Claude Code and Codex send both with every PreToolUse event."""
+    _PILOT_TRACE_ID. A PreToolUse event of Claude Code and of Codex names both (measured in D94, D110 and the note
+    on Codex 0.162.1); an event that does not gets notChecked in its receipt."""
     trace = {}
     for name, field in (("traceId", "session_id"), ("parentId", "tool_use_id")):
         value = event.get(field)

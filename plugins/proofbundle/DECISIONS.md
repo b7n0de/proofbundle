@@ -6743,8 +6743,10 @@ traceContext.traceId and traceContext.parentId, and its table 4 keeps traceConte
 decision-receipt/v0.1 does.
 
 Measured on 2026-11-03:
-- Claude Code and Codex send session_id and tool_use_id with every PreToolUse event (for Codex, the note above on Codex
-  0.162.1, hooks/src/schema.rs lines 278 to 296).
+- The PreToolUse event names session_id and tool_use_id: for Claude Code as D94 (2.1.302, the tool_use_id an answer
+  carries is that of the PreToolUse event) and D110 (2.1.303, the session of the environment equals the event's)
+  measured it, for Codex as the note above on Codex 0.162.1 read it from hooks/src/schema.rs lines 278 to 296. No
+  test here runs a host; an event that lacks an id, or names it in another form, gets notChecked, as below.
 - The tool merge_pull_request of the GitHub MCP server takes owner, repo, pullNumber, commit_title, commit_message,
   merge_method (merge, squash or rebase) and expectedHeadSha (github/github-mcp-server at 4bcdcdf8,
   pkg/github/pullrequests.go lines 1670 to 1705).
@@ -6785,7 +6787,8 @@ The rule:
 - The key signer signs traceContext only in the gate's form: an object of traceId and parentId or one of them, each an
   id of the form above. Any other value is statement_type, as every other field outside the gate's form is. An operator
   who updates the gate updates key_signer.py with it; the key signer of an earlier version refuses a receipt that
-  carries traceContext.
+  carries traceContext. A receipt then changes no ordinary answer (D55), but under D119 an owner's release needs the
+  signed ALLOW, so it stays unused until the key signer is updated too.
 - Where an earlier GitHub MCP server does not know expectedHeadSha, it merges whatever head the pull request has, and
   the receipt names a head the merge did not require. The gate does not see the server's version; the argument is
   measured at the commit named above.
