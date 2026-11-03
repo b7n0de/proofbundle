@@ -1086,14 +1086,53 @@ class TheABACaseFindsItsMomentsWhereverTheCollectorStarts(unittest.TestCase):
         self.assertEqual(ohne, [], "shifts of the collection starts at which the never-held state was not measured")
 
 
+def _an_befehlen(stellen: dict, rueckruf: Callable[[Any], None], lauf: Callable[[], Any]) -> None:
+    """``lauf()`` with ``rueckruf(rahmen)`` called before each instruction at ``stellen`` (code object -> offsets) runs.
+    From CPython 3.12 through `sys.monitoring`, since there `sys.settrace` gives a frame no opcode events when the trace
+    function sets its ``f_trace_opcodes`` (measured under 3.12.15: call, line and return only; CI of pull request 474 at
+    c1cafbb5, test (3.12, 1)); before 3.12 through `sys.settrace`. Either is set for ``lauf()`` only and left as found."""
+    mon = getattr(sys, "monitoring", None)
+    if mon is None:
+        def spur(rahmen, ereignis, arg):
+            if rahmen.f_code in stellen:
+                rahmen.f_trace_opcodes = True
+                if ereignis == "opcode" and rahmen.f_lasti in stellen[rahmen.f_code]:
+                    rueckruf(rahmen)
+            return spur
+        alt = sys.gettrace()
+        sys.settrace(spur)
+        try:
+            lauf()
+        finally:
+            sys.settrace(alt)
+        return
+    frei = [w for w in range(6) if mon.get_tool(w) is None]
+    if not frei:
+        raise AssertionError("no free tool id of sys.monitoring")
+    werkzeug = frei[0]
+    mon.use_tool_id(werkzeug, "aba window case")
+    try:
+        mon.register_callback(werkzeug, mon.events.INSTRUCTION,
+                              lambda code, stelle: rueckruf(sys._getframe(1)) if stelle in stellen.get(code, ())
+                              else None)
+        for code in stellen:
+            mon.set_local_events(werkzeug, code, mon.events.INSTRUCTION)
+        lauf()
+    finally:
+        for code in stellen:
+            mon.set_local_events(werkzeug, code, 0)
+        mon.register_callback(werkzeug, mon.events.INSTRUCTION, None)
+        mon.free_tool_id(werkzeug)
+
+
 class NoWindowIsOpenWhereTheReadingHasTakenItsEntry(unittest.TestCase):
     """Codex pre-runs on 66b33218 and c1cafbb5 (P2 each): a step counted its moment where a local that is bound only after
     an entry was read still held what it held before. In `canonical._lies` that is ``paare``: while
     ``list(dict.items(wert))`` takes the pairs, and, under CPython 3.12 and later, after it took them and before it binds
     them. In the collects that is ``satz``: after `_lies` returned the record of the entry and before it is bound, when
     ``satz`` still holds the record read before. A change made at such a point comes after the reading took the entry.
-    Here the two collects run over a list under a tracer of opcodes, and at every instruction that binds ``paare`` in
-    `_lies` or ``satz`` in a collect, the window of each step whose entry is being read must be closed."""
+    Here the two collects run over a list, stopped before every instruction that binds ``paare`` in `_lies` or ``satz``
+    in a collect (`_an_befehlen`), and there the window of each step whose entry is being read must be closed."""
 
     def test_the_window_is_closed_wherever_a_read_entry_is_not_yet_bound(self) -> None:
         def binden(code: Any, name: str) -> set:
@@ -1106,25 +1145,16 @@ class NoWindowIsOpenWhereTheReadingHasTakenItsEntry(unittest.TestCase):
         liste = [x, y]
         getroffen, offen = set(), []
 
-        def spur(rahmen, ereignis, arg):
-            if rahmen.f_code in stellen:
-                rahmen.f_trace_opcodes = True
-                if ereignis == "opcode" and rahmen.f_lasti in stellen[rahmen.f_code]:
-                    wert = rahmen.f_locals.get("wert")
-                    sammeln = rahmen.f_back if rahmen.f_code is _LIES else rahmen
-                    ort = f"{rahmen.f_code.co_name} in {sammeln.f_code.co_name}"
-                    getroffen.add((ort, "x" if wert is x else "y" if wert is y else "-"))
-                    for i, ziel in ((0, x), (1, y), (2, x)):
-                        if wert is ziel and _im_fenster(rahmen, i, x, y, liste):
-                            offen.append(f"step {i} at {ort}")
-            return spur
-        alt = sys.gettrace()
-        sys.settrace(spur)
-        try:
-            gelesen = canonical._lesen_einmal(liste)
-            canonical._gleich_gelesen(gelesen)
-        finally:
-            sys.settrace(alt)
+        def halt(rahmen: Any) -> None:
+            wert = rahmen.f_locals.get("wert")
+            sammeln = rahmen.f_back if rahmen.f_code is _LIES else rahmen
+            ort = f"{rahmen.f_code.co_name} in {sammeln.f_code.co_name}"
+            getroffen.add((ort, "x" if wert is x else "y" if wert is y else "-"))
+            for i, ziel in ((0, x), (1, y), (2, x)):
+                if wert is ziel and _im_fenster(rahmen, i, x, y, liste):
+                    offen.append(f"step {i} at {ort}")
+
+        _an_befehlen(stellen, halt, lambda: canonical._gleich_gelesen(canonical._lesen_einmal(liste)))
         erwartet = {(f"{a} in {b}", e) for a, b in (("_lies", "_lesen_einmal"), ("_lies", "_gleich_gelesen"),
                                                      ("_lesen_einmal", "_lesen_einmal"),
                                                      ("_gleich_gelesen", "_gleich_gelesen")) for e in ("x", "y")}
