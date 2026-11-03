@@ -41,7 +41,9 @@ another surface (M3), a write without an approval (M5), a refused write that arr
 2. The signer service (D58) and its key signer (D64), in place before the pilot starts on account A, under two accounts of
    the operator that are neither the agent's user nor each other: the deciding account and the key account.
    - The key signer, under the key account:
-     - a copy of `pilot/key_signer.py` in a folder only the key account reads and writes;
+     - a copy of `pilot/key_signer.py` in a folder only the key account reads and writes, of the same version as the
+       gate: since D135 the gate writes traceContext, which a key signer of an earlier version refuses
+       (`statement_type`);
      - the gate key as 64 hex digits in a key file there that only the key account reads (mode 600);
      - the key signer's configuration there:
 

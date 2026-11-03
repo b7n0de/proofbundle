@@ -23251,6 +23251,13 @@ _GH_PUSH_URLS = (re.compile(rf"https://github\.com/({_GH_OWNER})/({_GH_REPO})(?:
                  re.compile(rf"git@github\.com:({_GH_OWNER})/({_GH_REPO})(?:\.git)?/?\Z", re.ASCII),
                  re.compile(rf"ssh://git@github\.com/({_GH_OWNER})/({_GH_REPO})(?:\.git)?/?\Z", re.ASCII))
 _PILOT_BRANCH = re.compile(r"[A-Za-z0-9._/-]{1,200}\Z", re.ASCII)
+#: D135: the ids of a hook event a receipt of Level 1 names in traceContext, its session_id as traceId and its tool_use_id
+#: as parentId (draft-gruszka-audit-decision-receipts-06, section 2). An id in another form is not copied, and the
+#: receipt's notChecked says so.
+_PILOT_TRACE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z", re.ASCII)
+#: D135: the merge method a gh flag names.
+_PILOT_MERGE_METHODS = {"--merge": "merge", "-m": "merge", "--squash": "squash", "-s": "squash", "--rebase": "rebase",
+                        "-r": "rebase"}
 #: The plain gh forms the pilot reads a write from: the surface, the options that take a value and the slot each fills,
 #: the options without a value. Every other option, a second use of one, `--` and a spelling such as `-bTEXT` leave the
 #: form unread: the gate still decides it, and no receipt is written, so an effect of it counts under M5.
@@ -23258,7 +23265,8 @@ _PILOT_GH_FORMS = {
     ("pr", "comment"): ("github.conversationComment", {"--body": "body", "-b": "body", "--repo": "repo", "-R": "repo"},
                         {}),
     ("pr", "edit"): ("github.pullRequestBody", {"--body": "body", "-b": "body", "--repo": "repo", "-R": "repo"}, {}),
-    ("pr", "merge"): ("github.merge", {"--repo": "repo", "-R": "repo"},
+    ("pr", "merge"): ("github.merge", {"--repo": "repo", "-R": "repo", "--match-head-commit": "head",
+                                       "--subject": "title", "-t": "title", "--body": "body", "-b": "body"},
                       {"--merge": "method", "-m": "method", "--squash": "method", "-s": "method", "--rebase": "method",
                        "-r": "method"}),
     ("pr", "create"): ("github.pullRequestBody", {"--title": "title", "-t": "title", "--body": "body", "-b": "body",
@@ -23367,8 +23375,8 @@ def _pilot_options(args: list[str], valued: dict, flags: dict) -> tuple[dict, li
     return found, positional
 
 
-def _pilot_pull_target(positional: list, found: dict) -> str | None:
-    """https://github.com/<owner>/<repo>/pull/<n> for a pull request named by its URL, or by its number and --repo."""
+def _pilot_pull_parts(positional: list, found: dict) -> tuple[str, str, str] | None:
+    """(owner, repo, number) of a pull request named by its URL, or by its number and --repo."""
     if len(positional) != 1:
         return None
     match = _GH_PULL_URL.fullmatch(positional[0])
@@ -23379,7 +23387,31 @@ def _pilot_pull_target(positional: list, found: dict) -> str | None:
         if not (slug and _PILOT_GH_NUMBER.fullmatch(positional[0])):
             return None
         (owner, repo), number = slug.groups(), positional[0]
-    return None if repo in (".", "..") else f"https://github.com/{owner}/{repo}/pull/{number}"
+    return None if repo in (".", "..") else (owner, repo, number)
+
+
+def _pilot_pull_target(positional: list, found: dict) -> str | None:
+    """https://github.com/<owner>/<repo>/pull/<n> for a pull request named by its URL, or by its number and --repo."""
+    parts = _pilot_pull_parts(positional, found)
+    return f"https://github.com/{parts[0]}/{parts[1]}/pull/{parts[2]}" if parts else None
+
+
+def _pilot_merge_bytes(owner: str, repo: str, number: str, head: object, method: object, texts: dict) -> bytes | None:
+    """D135: the bytes a merge's receipt hashes, the RFC 8785 form of {surface, repository, pullRequest, headCommit,
+    mergeMethod} and of commitTitle and commitMessage where the call writes them (`texts`, by those two names). None
+    where the call names no head commit as an object id or no merge method, or a title or a message that is no
+    string: a merge whose head the call does not require is not the merge of one commit. Every value is a string, so
+    sorted keys without spaces and the string escapes json.dumps writes are that form (RFC 8785, section 3.2.2.2); a
+    lone surrogate has no form, and the bytes are None."""
+    if not (isinstance(head, str) and _PILOT_OID.fullmatch(head)) or method not in ("merge", "squash", "rebase") or \
+            not all(isinstance(text, str) for text in texts.values()):
+        return None
+    value = {"surface": "github.merge", "repository": f"{owner}/{repo}", "pullRequest": number, "headCommit": head,
+             "mergeMethod": method, **texts}
+    try:
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    except UnicodeEncodeError:
+        return None
 
 
 def _pilot_compare_target(owner: str, repo: str, base: object, head: object) -> str | None:
@@ -23435,8 +23467,14 @@ def _pilot_shell_action(command: str) -> dict | None:
         return {"surface": surface, "target": target, "bytes": _pilot_bytes(found["body"]), "media": "text/markdown"}
     target = _pilot_pull_target(positional, found)
     if surface == "github.merge":
-        # A merge writes no text of the agent: its approved bytes are the empty string (D55).
-        return {"surface": surface, "target": target, "bytes": b"", "media": "text/plain"}
+        # D135: the bytes bind what the merge merges. The empty bytes of D55 were the same for every merge of a pull
+        # request, so their digest bound none of them.
+        parts = _pilot_pull_parts(positional, found)
+        texts = {name: found[slot] for name, slot in (("commitTitle", "title"), ("commitMessage", "body"))
+                 if slot in found}
+        data = _pilot_merge_bytes(*parts, found.get("head"), _PILOT_MERGE_METHODS.get(found.get("method", "")),
+                                  texts) if parts else None
+        return {"surface": surface, "target": target, "bytes": data, "media": "application/json"}
     if "body" not in found:
         return None
     return {"surface": surface, "target": target, "bytes": _pilot_bytes(found["body"]), "media": "text/markdown"}
@@ -23458,9 +23496,15 @@ def _pilot_mcp_action(tool: str, tool_input: object) -> dict | None:
     if name == "merge_pull_request":
         number = tool_input.get("pullNumber", tool_input.get("pull_number"))
         number = str(number) if type(number) is int else number
-        target = (f"https://github.com/{owner}/{repo}/pull/{number}"
-                  if isinstance(number, str) and _PILOT_GH_NUMBER.fullmatch(number) else None)
-        return {"surface": "github.merge", "target": target, "bytes": b"", "media": "text/plain"}
+        named = isinstance(number, str) and _PILOT_GH_NUMBER.fullmatch(number)
+        target = f"https://github.com/{owner}/{repo}/pull/{number}" if named else None
+        # D135: the arguments of the tool in the GitHub MCP server (pkg/github/pullrequests.go, merge_pull_request):
+        # expectedHeadSha, merge_method, commit_title and commit_message beside owner, repo and pullNumber.
+        texts = {name: tool_input[arg] for name, arg in (("commitTitle", "commit_title"),
+                                                          ("commitMessage", "commit_message")) if arg in tool_input}
+        data = _pilot_merge_bytes(owner, repo, number, tool_input.get("expectedHeadSha"), tool_input.get("merge_method"),
+                                  texts) if named else None
+        return {"surface": "github.merge", "target": target, "bytes": data, "media": "application/json"}
     if name in ("push_files", "create_or_update_file"):
         branch = tool_input.get("branch")
         target = (f"https://github.com/{owner}/{repo}#refs/heads/{branch}"
@@ -23542,11 +23586,32 @@ def _pilot_sign(config: dict, body: bytes, context: dict) -> bytes:
     return signature
 
 
+def _pilot_digest(action: dict) -> str | None:
+    """The sha256 a receipt names for the bytes of an action (D55), None where the gate resolves no bytes. Also None
+    for the empty bytes (D135): every form that writes nothing would share their digest, so it names no action, and
+    such an action is recorded as unresolved, as a push at Level 1 is. Every receipt and every action id takes its
+    digest here."""
+    data = action["bytes"]
+    return hashlib.sha256(data).hexdigest() if data else None
+
+
+def _pilot_trace(event: dict) -> dict:
+    """D135: the traceContext of a receipt of Level 1, the session_id of the hook event as traceId and its tool_use_id
+    as parentId (draft-gruszka-audit-decision-receipts-06, section 2), each where the event names it in the form of
+    _PILOT_TRACE_ID. Claude Code and Codex send both with every PreToolUse event."""
+    trace = {}
+    for name, field in (("traceId", "session_id"), ("parentId", "tool_use_id")):
+        value = event.get(field)
+        if isinstance(value, str) and _PILOT_TRACE_ID.fullmatch(value):
+            trace[name] = value
+    return trace
+
+
 def _pilot_action_id(config: dict, action: dict, key: str) -> str:
     """The action id of a decision (D55): a digest of the surface, the target, the bytes and the agent, so a retried
     action keeps its id; where the gate resolves no target or no bytes, of the surface, the key of the call and the
-    agent."""
-    digest = hashlib.sha256(action["bytes"]).hexdigest() if action["bytes"] is not None else None
+    agent. The trace of the call (D135) is not part of it: a retried call is another tool call of the same action."""
+    digest = _pilot_digest(action)
     named = [action["surface"], action["target"], digest, config["agent_id"]] if action["target"] and digest else \
         [action["surface"], "unresolved", key, config["agent_id"]]
     return "a-" + hashlib.sha256("\0".join(named).encode("ascii")).hexdigest()[:32]
@@ -23556,9 +23621,10 @@ def _pilot_statement(config: dict, environ: dict, action: dict, verdict: str, re
                      decided_ns: int) -> dict:
     """The in-toto Statement of one decision receipt of github-write/1 (D55), as the gate proposes it and as the signer
     service builds it again from its own decision before it signs (D58): everything but the decision's id and instant
-    follows from the pilot's configuration, the action, the verdict and the reasons."""
-    digest = hashlib.sha256(action["bytes"]).hexdigest() if action["bytes"] is not None else None
-    surface, target = action["surface"], action["target"]
+    follows from the pilot's configuration, the action, the verdict and the reasons. The action of a tool call carries
+    the trace of its event (_pilot_trace, D135); one of Level 2 carries none."""
+    digest = _pilot_digest(action)
+    surface, target, trace = action["surface"], action["target"], action.get("trace")
     closing = None
     if config["closing_rules"] is not None:
         try:
@@ -23583,6 +23649,14 @@ def _pilot_statement(config: dict, environ: dict, action: dict, verdict: str, re
     if target is None or digest is None:
         not_checked.append({"field": "proposedAction", "reason": "the gate does not resolve the target or the "
                             "bytes of this form", "impact": "an effect cannot be matched to this decision by them"})
+    if trace is None:
+        not_checked.append({"field": "traceContext", "reason": "git hands the pre-push hook no session and no "
+                            "tool_use_id, and the session the environment names is a value no receipt carries (D49)",
+                            "impact": "this receipt cannot be matched to one tool call by its trace"})
+    elif set(trace) != {"traceId", "parentId"}:
+        not_checked.append({"field": "traceContext", "reason": "the hook event names no session_id or no tool_use_id "
+                            "in the form the gate copies", "impact": "this receipt cannot be matched to one tool call "
+                            "by its trace"})
     predicate = {
         "schemaVersion": "0.1.0", "decisionId": decision_id, "decisionType": "preActionAuthorization",
         "decidedAt": _pilot_instant(decided_ns), "decisionMaker": {"id": config["gate_id"]},
@@ -23600,6 +23674,8 @@ def _pilot_statement(config: dict, environ: dict, action: dict, verdict: str, re
         "validity": {"audience": [config["observer_id"]], "nonce": decision_id,
                      "expiresAt": _pilot_instant(decided_ns + config["validity_seconds"] * 1_000_000_000)},
     }
+    if trace:
+        predicate["traceContext"] = dict(trace)
     return {"_type": INTOTO_STATEMENT_TYPE,
             "subject": [{"name": f"decision:{decision_id}",
                          "digest": {"sha256": hashlib.sha256(_pilot_canonical(predicate)).hexdigest()}}],
@@ -23688,11 +23764,15 @@ def _pilot_tool_action(event: object) -> tuple[dict | None, str]:
     if isinstance(tool, str) and tool.startswith("mcp__"):
         key = hashlib.sha256(json.dumps(event.get("tool_input"), sort_keys=True, ensure_ascii=True,
                                         default=str).encode("ascii")).hexdigest()
-        return _pilot_mcp_action(tool, event.get("tool_input")), key
-    if isinstance(tool, str) and tool in FILE_WRITE_TOOLS:
+        action = _pilot_mcp_action(tool, event.get("tool_input"))
+    elif isinstance(tool, str) and tool in FILE_WRITE_TOOLS:
         return None, ""
-    command, _cwd = _command_from_event(event)
-    return _pilot_shell_action(command), hashlib.sha256(command.encode("utf-8", "surrogatepass")).hexdigest()
+    else:
+        command, _cwd = _command_from_event(event)
+        action, key = _pilot_shell_action(command), hashlib.sha256(command.encode("utf-8", "surrogatepass")).hexdigest()
+    if action is not None:
+        action["trace"] = _pilot_trace(event)   # D135: the call this receipt decides
+    return action, key
 
 
 def pilot_after_tool(event: object, outcome: "Outcome", environ: dict, host: str = "claude",

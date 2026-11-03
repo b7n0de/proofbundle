@@ -3475,7 +3475,8 @@ The rule:
   does not resolve them there (D3); `gh pr comment`, `gh pr edit --body`, `gh pr merge` and `gh pr create` in their plain
   forms with literal words, a reply in a review thread through `gh api repos/<o>/<r>/pulls/<n>/comments/<id>/replies -f
   body=…`, and the gated MCP tools from their own arguments. A pull request is named `https://github.com/<o>/<r>/pull/<n>`
-  on every surface, a new one `…/compare/<base>...<head>`. A merge writes no text of the agent; its bytes are empty. Any
+  on every surface, a new one `…/compare/<base>...<head>`. A merge writes no text of the agent; its bytes are empty
+  (since D135 the RFC 8785 form of the merge the call names, and the empty bytes are hashed for no surface). Any
   other form is not read: the gate decides it as before and writes no receipt, so an effect of it counts under M5 of
   the contract.
 - The receipt carries no value of the configuration, the environment or a credential (the rule of D49): the names of
@@ -3507,8 +3508,8 @@ The rule:
   api.github.com or from recorded files; the live path runs first in the pilot on account A.
 - An effect is an event of an agent identity of the roster inside the window: a push (`<head>` and a line feed on
   `https://github.com/<o>/<r>#<ref>`), a comment on a pull request's conversation, a reply in a review thread, a pull
-  request opened (on `…/compare/<base>...<head>`) or its body edited, a merge (empty bytes, the merge commit as its
-  object), and every other event under its own name, which matches no decision and counts under M5. A person's write is
+  request opened (on `…/compare/<base>...<head>`) or its body edited, a merge (empty bytes, since D135 none, the merge
+  commit as its object), and every other event under its own name, which matches no decision and counts under M5. A person's write is
   no agent write and is not read.
 - The observer matches effects to decisions by the rule of the contract, section 5 (`pilot_records.match`), from the
   decisions whose signature verifies with the pinned gate key, and signs an outcome for each effect that takes a
@@ -6728,3 +6729,59 @@ their red cases first:
   or releasing a push. The same run found the server's tool count, the number of skills the evals cover and the
   package the signed fixtures were made with, corrected in the texts.
 A Claude Code session at the state after these fixes is NOT MEASURED.
+
+## D135. A receipt of Level 1 names its tool call in traceContext, and a merge's receipt binds the merge by its bytes (owner choice of 2026-11-03, Agent Guard 0.4.0)
+
+Owner choice of 2026-11-03, 18:1x Berlin, in the scope of Agent Guard 0.4.0 and before its release candidate C. Delivery
+-3 of the vCON example (CLOUD-VCON-AI-AGENT-BELEG-BEISPIEL-01) read `_pilot_statement` at cf5c1515 and found two gaps.
+No receipt carried traceContext, so a reader of a session record could not tell which tool call a receipt decides.
+And the receipt of a merge hashed the empty bytes (D55), so every merge of one pull request carried one
+parametersDigest and the digest bound none of them.
+
+Section 2 of draft-gruszka-audit-decision-receipts-06 maps trace_id and parent_id of the architecture onto
+traceContext.traceId and traceContext.parentId, and its table 4 keeps traceContext an open object, as
+decision-receipt/v0.1 does.
+
+Measured on 2026-11-03:
+- Claude Code and Codex send session_id and tool_use_id with every PreToolUse event (for Codex, the note above on Codex
+  0.162.1, hooks/src/schema.rs lines 278 to 296).
+- The tool merge_pull_request of the GitHub MCP server takes owner, repo, pullNumber, commit_title, commit_message,
+  merge_method (merge, squash or rebase) and expectedHeadSha (github/github-mcp-server at 4bcdcdf8,
+  pkg/github/pullrequests.go lines 1670 to 1705).
+- `gh pr merge` of gh 2.92.0 takes --match-head-commit, --subject (-t) and --body (-b) beside the three methods.
+- The events API lists a PullRequestEvent with a pull_request of base, head, id, number and url only (one page of
+  b7n0de/proofbundle, read at 17:4x UTC). It names no merge method and no text of the merge commit, and no `merged`.
+
+The rule:
+- A receipt of Level 1 carries traceContext: traceId is the session_id of the hook event, parentId its tool_use_id.
+  An id is copied only in the form `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`. An id the event lacks, or names in another
+  form, is not copied, and notChecked names traceContext with the reason. The trace is not part of the action id, so
+  a retried call is the next attempt of the same action. The signer service builds the trace from the event it is
+  handed, so a proposal that names another call is not signed (statement_differs).
+- A receipt of Level 2 carries no traceContext. git hands the pre-push hook no session and no tool call, and the
+  session the hook's environment names is a value of the environment, which no receipt carries (D49, D55). Its
+  notChecked says so.
+- The bytes of a merge are the RFC 8785 form of `{"surface": "github.merge", "repository": "<owner>/<repo>",
+  "pullRequest": "<n>", "headCommit": "<object id>", "mergeMethod": "merge" | "squash" | "rebase"}`, with
+  `commitTitle` and `commitMessage` where the call writes them. Every value is a string. gh names the head commit by
+  --match-head-commit, the method by its flag, the title by --subject or -t and the message by --body or -b; the MCP
+  tool by expectedHeadSha, merge_method, commit_title and commit_message. One merge written by gh or by the tool has one
+  digest. A call that does not name the head commit as an object id or does not name a method is recorded as a push at
+  Level 1 is, with the target, a parametersRef and no digest. The media type of these bytes is application/json.
+- The empty bytes are hashed for no surface. An action whose bytes are empty is unresolved, wherever its form came
+  from: one function gives every receipt and every action id its digest.
+- The observer names no stored bytes for a merge, since the event does not carry what the receipt hashes. An approved
+  merge that arrived is then "approved, arrived, form not measured", never "reconciled" by the empty bytes.
+- The key signer signs traceContext only in the gate's form: an object of traceId and parentId or one of them, each an
+  id of the form above. Any other value is statement_type, as every other field outside the gate's form is. An operator
+  who updates the gate updates key_signer.py with it; the key signer of an earlier version refuses a receipt that
+  carries traceContext.
+
+What stays: a receipt that D55 wrote, without traceContext and with the digest of the empty bytes for a merge, verifies
+as before, and the profile reads it as before; tools/pilot/vectors.json does not change. No field of
+decision-receipt/v0.1 changes, nor the DSSE envelope, the keys or the trust policy.
+
+Open, named here: the observer reads `merged` and the body of a pull request from the PullRequestEvent, and the events
+API no longer lists them (measured above). That gap is older than this rule and is not closed here.
+
+Tests: tests/test_plugin_guard_trace_context_and_merge_digest_d135.py.

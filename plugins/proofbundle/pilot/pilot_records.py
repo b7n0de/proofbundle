@@ -364,7 +364,10 @@ def _event_effect(event: dict) -> dict | None:
             effect.update(surface="github.pullRequestBody", target=f"{base}/pull/{number}", objectId=f"pull-{number}",
                           stored=_text(pull.get("body")))
         elif action == "closed" and pull.get("merged") is True:
-            effect.update(surface="github.merge", target=f"{base}/pull/{number}", stored=b"",
+            # D135: a merge's receipt hashes the merge it names (the head commit, the method, the text of the merge
+            # commit), and the event names neither the method nor that text, so no stored bytes are read from it. The
+            # empty bytes of D55 matched every merge of the pull request.
+            effect.update(surface="github.merge", target=f"{base}/pull/{number}", stored=None,
                           objectId=str(pull.get("merge_commit_sha")))
     return effect
 
