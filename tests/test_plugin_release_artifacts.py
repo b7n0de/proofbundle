@@ -450,6 +450,11 @@ class SplitChecks(Base):
             # Markdown shows no table inside an HTML comment or a code block, so a catalog there is no catalog
             "table in a comment": "# Plugins\n\n<!--\n\n" + head[len("# Plugins\n\n"):] + claude + codex + "\n-->\n",
             "table in a fence": "# Plugins\n\n```\n\n" + head[len("# Plugins\n\n"):] + claude + codex + "\n```\n",
+            # the Codex pre-run of the reading of 58ac91a2: an HTML block such as <pre> shows no table either; the
+            # catalog holds no HTML at all
+            "table in a pre block": "# Plugins\n\n<pre>\n\n" + head[len("# Plugins\n\n"):] + claude + codex + "\n</pre>\n",
+            "table in a details block": "# Plugins\n\n<details>\n\n" + head[len("# Plugins\n\n"):] + claude + codex
+            + "\n</details>\n",
             "table indented": "# Plugins\n\n" + "".join("    " + x + "\n" for x in (head[len("# Plugins\n\n"):]
                                                                               + claude + codex).splitlines()),
         }
