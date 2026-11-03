@@ -125,6 +125,12 @@ class _Fixtures:
 
 
 OVERFLOW_STAMPS = ("0001-01-01T00:00:00+23:00", "9999-12-31T23:59:59-23:00")
+# A well-formed SVR predicate carries `verifier.id` as a URI and `timeCreated` as an RFC 3339 date-time, the
+# forms svr v0.1 gives them (TypeURI, Timestamp) and `classify_svr_predicate_shape` asks of them since the
+# owner's choice of 2026-10-31. These cases used "x" and "t", which no longer form an SVR; where a case means
+# another defect, the two members now hold these values so that only the meant defect decides.
+_SVR_ID = {"id": "https://b7n0de.com/proofbundle"}
+_SVR_TIME = "2026-10-31T09:00:00Z"
 
 
 class ShowEvalHostileFields(unittest.TestCase):
@@ -200,9 +206,9 @@ class SvrShapeAndProperties(unittest.TestCase):
     def test_malformed_predicate_shapes_exit_2_without_a_pass_line(self):
         with tempfile.TemporaryDirectory() as d:
             fx = _Fixtures(d)
-            for predicate in ({"verifier": {"id": "x"}, "timeCreated": "t", "properties": 5},
+            for predicate in ({"verifier": _SVR_ID, "timeCreated": _SVR_TIME, "properties": 5},
                               [1, 2, 3],
-                              {"verifier": {"id": "x"}, "properties": ["ok", 7]},
+                              {"verifier": _SVR_ID, "timeCreated": _SVR_TIME, "properties": ["ok", 7]},
                               {"verifier": "x", "properties": []}):
                 rc, out, err = _cli("svr", fx.svr(predicate), "--verify", "--pub", fx.pub_b64)
                 _no_traceback(self, rc, out, err, {2})
@@ -212,11 +218,11 @@ class SvrShapeAndProperties(unittest.TestCase):
     def test_well_formed_svr_still_passes_and_property_rows_cannot_forge(self):
         with tempfile.TemporaryDirectory() as d:
             fx = _Fixtures(d)
-            good = fx.svr({"verifier": {"id": "x"}, "timeCreated": "t", "properties": ["PROOFBUNDLE_SIGNATURE_VALID"]})
+            good = fx.svr({"verifier": _SVR_ID, "timeCreated": _SVR_TIME, "properties": ["PROOFBUNDLE_SIGNATURE_VALID"]})
             rc, out, err = _cli("svr", good, "--verify", "--pub", fx.pub_b64)
             _no_traceback(self, rc, out, err, {0})
             self.assertIn("[PASS] SVR attestation", out)
-            forged = fx.svr({"verifier": {"id": "x"}, "timeCreated": "t",
+            forged = fx.svr({"verifier": _SVR_ID, "timeCreated": _SVR_TIME,
                              "properties": [HOSTILE_STRINGS["newline_forged_ok"], "a\x1b[2Kb"]})
             rc, out, err = _cli("svr", forged, "--verify", "--pub", fx.pub_b64)
             _no_traceback(self, rc, out, err, {0})
@@ -233,7 +239,7 @@ class SvrShapeAndProperties(unittest.TestCase):
             self.assertIs(res["ok"], False)
             self.assertIs(res["predicate_shape_ok"], False)
             self.assertIn("properties", res["content_root_detail"])
-        self.assertEqual(classify_svr_predicate_shape({"predicate": {"verifier": {"id": "x"}, "timeCreated": "t",
+        self.assertEqual(classify_svr_predicate_shape({"predicate": {"verifier": _SVR_ID, "timeCreated": _SVR_TIME,
                                                                      "properties": ["a"]}}), (True, ""))
         # svr/v0.1 requires verifier, verifier.id and timeCreated beside properties.
         self.assertFalse(classify_svr_predicate_shape({"predicate": {"properties": ["a"]}})[0])

@@ -518,6 +518,13 @@ class TestEveryProducerAgreesWithDecode(_Basis):
     STRENGER = {("timestamp=''", name) for name in (
         "export_eval_result_dsse", "to_eval_result_statement", "to_eval_result_predicate",
         "resolve_subject")}
+    #: By the owner's choice of 2026-10-31 the eval-result v0.1 verifier reads `evaluatedAt` as an RFC 3339
+    #: date-time with an offset, as v0.2 does, and the three eval-result producers refuse a claim timestamp in
+    #: another form, so they sign no statement their verifier refuses. decode keeps the claim schema's rule
+    #: for `timestamp`, a string, so these are the corpus timestamps decode accepts and the producers refuse.
+    STRENGER |= {(f"timestamp={wert!r}", name)
+                 for wert in ("x", "0.5", "sha256:x", "sha256:" + "a" * 64, "SHA256:" + "a" * 64)
+                 for name in ("export_eval_result_dsse", "to_eval_result_statement", "to_eval_result_predicate")}
 
     def test_every_producer_and_emit_agree_with_decode(self):
         fp = issuer_fingerprint(self.signer)
