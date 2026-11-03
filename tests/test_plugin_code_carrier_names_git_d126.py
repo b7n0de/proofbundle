@@ -42,7 +42,7 @@ pytestmark = n2c.pytestmark
 env = n2c.env
 _clean_git_environment = n2c._clean_git_environment
 GATE = n2c.GATE
-SCAFFOLD = GATE.parent.parent / "evals" / "_fixtures" / "scaffold.sh"
+SCAFFOLD = pathlib.Path(__file__).resolve().parents[1] / "plugins" / "proofbundle" / "evals" / "_fixtures" / "scaffold.sh"
 
 PUSH = "import os\nos.system('git push origin main')\n"
 #: Python that names git or gh: the package's push, a list-form push, a gh call, and the pilot's body of D39.

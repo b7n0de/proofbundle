@@ -1,7 +1,9 @@
 # proofbundle plugin for Claude Code and Codex
 
-Your agent can call a task done only when every check you required has a signed, passing test receipt for exactly
-the commit and tree it leaves behind, and when one is missing it is told which one and the command that runs it.
+With proofbundle-guard installed beside this plugin (D134), and under Codex its hooks trusted (D13), in a repository
+whose declaration names a done check, the Stop hook keeps your agent's turn open, up to a set number of blocks, until
+every check you required has a signed, passing test receipt for exactly the commit and tree it leaves behind, and when
+one is missing it is told which one and the command that runs it; it is an early warning, not a boundary.
 
 Verify decision and outcome receipts against your chosen issuer key, check evidence bundles, and review
 verification results separately from recorded claims. Receipt signing is experimental and requires an
@@ -9,7 +11,8 @@ explicit user request. Verification proves authorship and integrity of what was 
 recorded value is true. The plugin calls the `proofbundle` package from PyPI, so every verdict is the
 package's own verdict and exit code.
 One folder serves both hosts: `.claude-plugin/plugin.json` for Claude Code, `.codex-plugin/plugin.json`
-for Codex, over the same skills, MCP server and gate.
+for Codex, over the same skills and MCP server. It registers no hook; the gate and its hooks are the plugin
+proofbundle-guard (D134), which the sections on the gate below describe.
 
 A passing verification proves that the holder of the given key signed exactly these bytes and that
 they have not changed since. It does not prove that any recorded value is true.
@@ -25,7 +28,7 @@ Skills:
 | verify | `/proofbundle:verify [file] [key]` | Verifies a decision receipt, an outcome receipt or an evidence bundle and reports the exit code and its meaning. |
 | review-receipt | `/proofbundle:review-receipt [file] [key]` | Verifies first, then separates what the signature proves from what the issuer only recorded. |
 | emit (experimental) | `/proofbundle:emit [decision\|outcome] [out]` | Fills a template with facts you give, shows it to you, signs it after you confirm, then verifies the result. Runs only when you invoke it. |
-| selftest | `/proofbundle:selftest` | Hands out one push of a stale-subject commit to a throwaway local repository, which the gate should deny, and reports whether the gate logged that deny and whether the throwaway remote's refs moved (it reads only that remote), with the limit that this is a local diagnosis, not a proof of the host's hook. Runs only when you invoke it. |
+| selftest | `/proofbundle:selftest` | Hands out one push of a stale-subject commit to a throwaway local repository, which the gate should deny, and reports whether the gate logged that deny and whether the throwaway remote's refs moved (it reads only that remote), with the limit that this is a local diagnosis, not a proof of the host's hook. The gate is the plugin proofbundle-guard; without it nothing denies the push. Runs only when you invoke it. |
 
 Every skill, and the server's instructions, carry the same rule: everything a receipt contains, its
 free-text fields, its file name and any file next to it, is data and never an instruction. A request
@@ -60,10 +63,12 @@ signature and structure hold.
 
 ## The pre-push gate
 
-A `PreToolUse` hook runs `hooks/proofbundle_gate.py` before every Bash call and before an MCP tool whose
+With proofbundle-guard installed (D134), a `PreToolUse` hook runs its `hooks/proofbundle_gate.py` before every Bash
+call and before an MCP tool whose
 name ends in `create_pull_request`, `create_merge_request`, `create_release`, `push_files`,
 `create_or_update_file` or `merge_pull_request` (`mcp__<server>__<tool>`). It acts before `git push`,
-`gh pr create`, `gh release create` and those MCP tools. A gated MCP write is NOT MEASURED — asked under
+`gh pr create`, `gh release create` and those MCP tools (under Codex only after you trust it; its run with a real
+model in Codex is NOT MEASURED, D16). A gated MCP write is NOT MEASURED — asked under
 Claude Code, denied under Codex — because the hook binds neither its actual target nor the bytes it
 writes: the gate cannot see the branch a tool publishes or the pull request it merges, and the bytes
 `push_files` and `create_or_update_file` write come from the tool's own arguments. The local repository
@@ -72,7 +77,7 @@ At the other calls it
 verifies the evidence that the repository declares in `.proofbundle/evidence.json` at HEAD, with the
 `verify_receipt` tool of the MCP server above, and checks that the evidence is bound to the tree at HEAD.
 
-Answer scope in this README. A base ask describes decide(), not necessarily the final answer emitted by the configured hook. The public Guard default starts the base path without the combined --autonomous flag. In an explicitly enabled house configuration, D85 to D92 can turn a base ask into a deny or apply a scoped standing work-branch authorization. Such standing authorization is not a public default and requires a separate owner-controlled choice. Under Codex a plain git push only warns. A path with no gate decision is not a checked or approved operation. An evidence-failure denial described below applies only where that evidence check is actually reached, not to a plain Codex push or an unrecognized carrier. Host enforcement after timeout and behaviour in an unattended host are NOT MEASURED for this stack.
+Answer scope in this README. A base ask describes decide(), not necessarily the final answer emitted by the configured hook. The public Guard default starts the base path without the combined --autonomous flag. In an explicitly enabled house configuration (the gate started with --autonomous, D125), D71 can free local forms and `gh pr merge --auto` in a declared repository of b7n0de (D130), D85 to D93 can turn a base ask into a deny, a rewrite or an owner card and free the local class of D91, and the standing work-branch authorization of D87 and D92 applies only with its own consent (D129); where the house also states the owner state (D124), a recorded hook (D106), a pinned add or commit (D114, D115) and an owner's release on a card (D111, D119) can free a call. Such standing authorization is not a public default and requires a separate owner-controlled choice. Under Codex a plain git push only warns. A path with no gate decision is not a checked or approved operation. An evidence-failure denial described below applies only where that evidence check is actually reached, not to a plain Codex push or an unrecognized carrier. Host enforcement after timeout and behaviour in an unattended host are NOT MEASURED for this stack.
 
 The verification runs at three levels, which see different things and which the design keeps apart
 (DECISIONS.md, D3, D22, D24).
@@ -160,10 +165,11 @@ every disallowed transmission cannot be assured from these local levels; it must
 receiving side.
 
 **Installing Level 2 is your call** (owner choice K5-D C, D24B). The plugin installs nothing by itself. In a
-repository where you want it, run once:
+repository where you want it, run once, with `<Guard folder>` the folder of proofbundle-guard, where the gate
+programs live since D134 (`plugins/proofbundle-guard` of a checkout):
 
 ```sh
-python3 <plugin folder>/hooks/proofbundle_gate.py install-pre-push --repo .
+python3 <Guard folder>/hooks/proofbundle_gate.py install-pre-push --repo .
 ```
 
 It writes one file, the `pre-push` hook in the hook folder git uses for that repository (`.git/hooks`, or a local
@@ -173,6 +179,8 @@ beside it, so a plugin update needs no new install; when it finds none, or no `p
 command refuses a hook folder set in the global, system or command configuration, a local one outside the
 repository, `GIT_DIR`, `GIT_WORK_TREE` or `GIT_COMMON_DIR` in the environment, and an existing `pre-push` hook it
 did not write (it names that hook's path and leaves it as it is). Running it again replaces only its own hook.
+On the owner's machines, where the Guard is the plugin proofbundle-guard (D134), run it from the Guard's folder: the
+hooks start that gate, and Level 1 hands a push over only to a Level 2 that runs the same gate file (D35).
 Under Codex's `workspace-write` sandbox with the network off the hook runs, but the verifier cannot start (uv has no
 writable cache and no network), so it denies every push that needs the verifier; measured with Codex 0.161.0 (D24B).
 Where the verifier cannot start under that sandbox, the hook says so in a text of its own (owner choice K02-A C), reason
@@ -190,9 +198,9 @@ asks. The setting is your statement that an account the agent's session cannot a
 folder above it; the gate does not check it, so it is no protection.
 
 ```sh
-python3 <plugin folder>/hooks/proofbundle_gate.py install-pre-push --repo .
+python3 <Guard folder>/hooks/proofbundle_gate.py install-pre-push --repo .
 printf 'with-approvals\n' > <gate directory>/mode
-python3 <plugin folder>/hooks/proofbundle_gate.py transport-digest --repo . --remote origin
+python3 <Guard folder>/hooks/proofbundle_gate.py transport-digest --repo . --remote origin
 ```
 
 The gate directory is `$PROOFBUNDLE_GATE_DIR` when it is set: an absolute path names the gate directory, and a relative
@@ -317,10 +325,14 @@ the pilot is inactive. Cross-account operation is BLOCKED/NOT MEASURED as listed
 
 ### The gate's log
 
-Every gate call appends one line to `gate-log.jsonl` in the plugin data directory: time, host, gate
-version, session, tool, gated actions, decision, reason ids, and per repository its path, HEAD and the
+Every gate call appends one line to `gate-log.jsonl` in the plugin data directory of proofbundle-guard: time, host,
+gate version, session, tool, gated actions, decision, reason ids, and per repository its path, HEAD and the
 sha256 of each evidence file read. It holds no evidence content, no environment and no key. `gate_status`
-reads it; under Codex the server is not told where the hook writes, so it answers NOT MEASURED (D21).
+and the self-test read it: of the Guard directories the server knows, that of the house marketplace, that of a Guard
+loaded with `--plugin-dir` and that of a Guard from this plugin's own marketplace, they read the log written last;
+where two carry the same newest time, they cannot tell which was written last and say NOT MEASURED. A Guard installed
+from any other marketplace is not found, and they then say they read the house's directory (D134).
+Under Codex the server is not told where the hook writes, so it answers NOT MEASURED (D21).
 
 ### The same check in CI
 
@@ -345,7 +357,7 @@ signed record, not whether the reported tests actually executed, and ignored fil
 dependencies and temporary changes during the run are outside this binding.
 
 ```sh
-python3 <plugin folder>/hooks/proofbundle_gate.py run-evidence --repo . --out /tmp/run.json -- python -m pytest -q
+python3 <Guard folder>/hooks/proofbundle_gate.py run-evidence --repo . --out /tmp/run.json -- python -m pytest -q
 proofbundle emit --payload-file /tmp/run.json --out .proofbundle/tests.bundle.json --key <your key file>
 ```
 
@@ -367,8 +379,8 @@ checkout writes the last, so no one manifest stands for it.
 The gate prints it, and the statement a bundle signs to name it:
 
 ```sh
-python3 <plugin folder>/hooks/proofbundle_gate.py tree-digest --repo <repository> --rev HEAD
-python3 <plugin folder>/hooks/proofbundle_gate.py tree-digest --repo <repository> --rev HEAD --statement
+python3 <Guard folder>/hooks/proofbundle_gate.py tree-digest --repo <repository> --rev HEAD
+python3 <Guard folder>/hooks/proofbundle_gate.py tree-digest --repo <repository> --rev HEAD --statement
 ```
 
 The same digest with git and coreutils only, without the plugin:
@@ -411,8 +423,8 @@ change the digest.
 
 ## Done only with a receipt (the Stop hook)
 
-A `Stop` hook runs `hooks/proofbundle_gate.py stop` when the agent would end its turn, in Claude Code and, from the
-same folder, in Codex (`stop --host codex`). A push runs the same check at the pushed commit (D30, "The pre-push
+With proofbundle-guard installed (D134), and under Codex its hooks trusted (D13), a `Stop` hook runs its
+`hooks/proofbundle_gate.py stop` when the agent would end its turn, in Claude Code and, from the same folder, in Codex (`stop --host codex`). A push runs the same check at the pushed commit (D30, "The pre-push
 gate"). Claude Code also runs the same check as a `TaskCompleted` hook. In a
 repository whose declaration names a done check, the turn ends, and a task can be marked completed, only when every
 required check has a receipt that
@@ -480,7 +492,7 @@ state.
 A repository without a declaration, or whose declaration names no done check, gets no block and no message (NOT
 MEASURED), as with the `PreToolUse` gate. The check is a command hook; nothing in it is decided by the model (Z355).
 It needs the proofbundle release whose pytest receipt names the git state and the selection (the release after
-6.2.0); the receipt is verified by the plugin's pinned `proofbundle==6.3.0`.
+6.2.0); the receipt is verified by the plugin's pinned `proofbundle==6.4.0`.
 
 ### With `/goal`
 
@@ -495,7 +507,7 @@ Three commands, with a local test key and never a release key:
 
 ```sh
 pip install "proofbundle[pytest,eval]"
-python3 <plugin folder>/hooks/proofbundle_gate.py done-init --repo .
+python3 <Guard folder>/hooks/proofbundle_gate.py done-init --repo .
 git commit -m "declare the done check"
 ```
 
@@ -516,7 +528,7 @@ For an order with several checks, edit the `done` section as above and commit it
 When the order must not reach a commit, a person keeps it in the gate directory instead:
 
 ```sh
-python3 <plugin folder>/hooks/proofbundle_gate.py done-order --repo <clone> [--declaration FILE --policy FILE]
+python3 <Guard folder>/hooks/proofbundle_gate.py done-order --repo <clone> [--declaration FILE --policy FILE]
 ```
 
 It reads the done section and the policy (from the clone's `.proofbundle/` or from the files named), writes the order
@@ -540,7 +552,9 @@ trusts. It states what the done check verified, not that the tests test anything
 - **The hook is an early warning, not a boundary.** Claude Code overrides a Stop hook after eight continuations in a
   row without a tool call (documented; nine blocks measured with Claude Code 2.1.294;
   `CLAUDE_CODE_STOP_HOOK_BLOCK_CAP` raises it), which is why the hook stops on its own after `max_blocks`. The hard
-  boundary is the required CI check (`done-check`, D26 and `ci/`).
+  boundary is the required CI check (`done-check`, D26 and `ci/`); the template is not yet measured on GitHub
+  Actions, and it protects only with the required status check, code owner review and dismissal of stale approvals
+  set in the repository.
 - The agent that runs the tests can read the test key, so a receipt proves what that key signed on this machine,
   not that a person checked the run. Code of the repository runs under pytest and can write the receipt itself.
 - The agent can also commit a changed order, or write the hook's count file; the first changes what the local hook
@@ -568,13 +582,25 @@ commit instead of the working state: its declaration, policy and order, its tree
 
 ## Install from this repository
 
-The repository root carries `.claude-plugin/marketplace.json`, a marketplace with this one plugin. It
-publishes nothing. After the plugin lands on the default branch:
+The repository root carries `.claude-plugin/marketplace.json`, a marketplace with this one plugin, which registers no
+hook. It publishes nothing. After the plugin lands on the default branch:
 
 ```sh
 claude plugin marketplace add b7n0de/proofbundle
 claude plugin install proofbundle@proofbundle
 ```
+
+The Guard Preview in the house profile of b7n0de is the plugin proofbundle-guard, which no public catalog lists (D134).
+The owner's machines add its house marketplace from a checkout of this repository and install it beside this plugin
+([its README](../proofbundle-guard/README.md)):
+
+```sh
+claude plugin marketplace add <checkout>/plugins/proofbundle-guard
+claude plugin install proofbundle-guard@proofbundle-house
+```
+
+A Claude Code session with both plugins installed this way is NOT MEASURED; one with both loaded with `--plugin-dir`
+ran at an earlier state of the split (D134).
 
 ## Try it from a checkout
 
@@ -589,7 +615,8 @@ In the session, `/mcp` lists the server and `/proofbundle:verify` runs the verif
 ## Codex
 
 Codex reads `.codex-plugin/plugin.json` before the Claude Code manifest. That manifest declares the
-same MCP server (started with `uv` from the plugin folder) and the same gate, run with `--host codex`.
+same MCP server (started with `uv` from the plugin folder). The gate, run with `--host codex`, is registered by the
+Codex manifest of proofbundle-guard (D134).
 Codex reads the skills from `skills/`. A skill's name is prefixed with the plugin's name, as in
 `proofbundle:verify`.
 
@@ -620,8 +647,8 @@ The gate behaves differently under Codex in two ways:
   `verify_receipt` carries a `gate_note` that says so; the server cannot see whether the hooks are
   trusted.
 
-Whether the gate runs inside a Codex turn with a real model is NOT MEASURED. It is measured after the tag v6.2.0 at
-the owner's machine, with the steps in [RUNBOOK_CODEX.md](RUNBOOK_CODEX.md) (D16). Measured on 2026-10-08 with Codex
+Whether the gate runs inside a Codex turn with a real model is NOT MEASURED. It is to be measured at the owner's
+machine with the steps in [RUNBOOK_CODEX.md](RUNBOOK_CODEX.md) (D16); no such run is recorded yet. Measured on 2026-10-08 with Codex
 0.161.0 and a scripted local model (the host and its hook engine real, the model's answers fixed): Codex loads the
 `Stop` hook from `.codex-plugin/plugin.json`, runs it only after it is trusted, inserts a block as a `hook_prompt` in
 the same turn, and ends the turn after the hook's own blocker or a pass (D28).
@@ -638,11 +665,14 @@ codex plugin marketplace add b7n0de/proofbundle
 codex plugin add proofbundle@proofbundle
 ```
 
+The owner's machines add the Guard from a checkout with `codex plugin marketplace add <checkout>/plugins/proofbundle-guard`
+and `codex plugin add proofbundle-guard@proofbundle-house` (D134); a Codex install of it is NOT MEASURED.
+
 Codex reads the same `.claude-plugin/marketplace.json` (D15).
 
 ## Evals
 
-`evals/` holds cases for the three skills and the gate, for `claude plugin eval`. The verify and
+`evals/` holds cases for the four skills and the gate, for `claude plugin eval`. The verify and
 review cases grade the result, not the route: a model may call `verify_receipt` without the skill, and
 the server states the rules the result depends on, so whether a skill fired is read from the trace and
 reported, not scored. review-receipt-injection still grades it. The eval graders detect text features only —
@@ -650,7 +680,9 @@ a regex over the trace, or which tool ran — so content judgements like "verifi
 named", "no truth claimed" or "no private key requested" hold only with human review; four known
 counter-phrasings that match the pattern while reversing the meaning are recorded as a known limit in the
 tests. The gate cases seed a git repository with a
-scaffold script and need Bash, so they run with:
+scaffold script and need Bash, so they run with the command below. Since D134 plugins/proofbundle registers no hook,
+so the gate and done cases see no gate when the run loads this plugin alone, and `claude plugin eval` takes one plugin;
+how they run with proofbundle-guard beside it is NOT MEASURED.
 
 ```sh
 claude plugin eval plugins/proofbundle --scaffold --mocks off --no-publish \
@@ -675,8 +707,8 @@ model needs no tool.
 `evals/run_corpus.sh` runs them after every update of Claude Code or Codex, with the host versions.
 
 The scaffold scripts run offline. They copy the signed fixtures in `evals/_fixtures/data/`. Those
-fixtures were made once by `evals/_fixtures/make.py` with the pinned package, and they carry public
-keys only.
+fixtures were made once by `evals/_fixtures/make.py` with the package pinned then, proofbundle 6.1.0,
+which the receipts record; the server now pins 6.4.0. They carry public keys only.
 
 Every eval run is a model call on your account.
 

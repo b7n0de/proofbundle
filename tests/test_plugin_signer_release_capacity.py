@@ -74,7 +74,7 @@ def _key(release: dict) -> str:
 def _config(tmp_path: pathlib.Path) -> dict:
     folder = tmp_path / "dienst"
     folder.mkdir()
-    return {"journal": str(folder / "journal.jsonl")}
+    return {"journal": str(folder / "journal.jsonl"), "records": str(tmp_path / "records")}
 
 
 def _record(config: dict) -> pathlib.Path:

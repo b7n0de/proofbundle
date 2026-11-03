@@ -39,31 +39,33 @@ from _gate_answer import skip_where_the_gate_is_not_shipped
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PLUGIN = ROOT / "plugins" / "proofbundle"
-GATE = PLUGIN / "hooks" / "proofbundle_gate.py"
-ANSWERED = PLUGIN / "hooks" / "proofbundle_answered.py"
+#: D134: the gate programs live in the Guard's folder, the pilot stays with the verifier; both are the plugin's code.
+GUARD = ROOT / "plugins" / "proofbundle-guard"
+GATE = GUARD / "hooks" / "proofbundle_gate.py"
+ANSWERED = GUARD / "hooks" / "proofbundle_answered.py"
 
 skip_where_the_gate_is_not_shipped(GATE, ROOT)
 
 #: (file, function, call, mode) -> (the account that reads it, and a text of the code that shows the reader).
 READERS = {
-    ("plugins/proofbundle/hooks/pin_state_schleuse.py", "_write_atomic", "default mode", 0o644): (
+    ("plugins/proofbundle-guard/hooks/pin_state_schleuse.py", "_write_atomic", "default mode", 0o644): (
         "the pilot's signer service decides with the gate directory under an account of its own (D58)",
         ("plugins/proofbundle/pilot/signer_service.py", '"PROOFBUNDLE_GATE_DIR": config["gate_dir"]')),
-    ("plugins/proofbundle/hooks/proofbundle_gate.py", "_pilot_issue", "os.open", 0o644): (
+    ("plugins/proofbundle-guard/hooks/proofbundle_gate.py", "_pilot_issue", "os.open", 0o644): (
         "the observer and the reconciliation read the decisions from the records under the operator's accounts (D56)",
         ("plugins/proofbundle/pilot/pilot_records.py", '(self.folder / "decisions").glob("*.json")')),
-    ("plugins/proofbundle/hooks/proofbundle_gate.py", "_pilot_journal", "os.open", 0o644): (
+    ("plugins/proofbundle-guard/hooks/proofbundle_gate.py", "_pilot_journal", "os.open", 0o644): (
         "the records, the journal among them, are copied for the reconciliation under an account of the operator (D55)",
         ("plugins/proofbundle/pilot/pilot_records.py", "decisions/, journal.jsonl   written by the gate (D55)")),
-    ("plugins/proofbundle/hooks/proofbundle_gate.py", "install_pre_push", "os.chmod", 0o755): (
+    ("plugins/proofbundle-guard/hooks/proofbundle_gate.py", "install_pre_push", "os.chmod", 0o755): (
         "git runs the hook at a push, and the pin check reads its bytes under the signer service's account too",
-        ("plugins/proofbundle/hooks/proofbundle_gate.py", '_hooks_now(paths["hooks"]) != entry["haken"]')),
+        ("plugins/proofbundle-guard/hooks/proofbundle_gate.py", '_hooks_now(paths["hooks"]) != entry["haken"]')),
     ("plugins/proofbundle/pilot/key_signer.py", "_replace", "os.open", 0o644): (
         "the reconciliation reads keysigner/ of the records under an account other than the key account (D65)",
         ("plugins/proofbundle/pilot/pilot_records.py", 'KEY_JOURNAL_FOLDER = "keysigner"')),
-    ("plugins/proofbundle/hooks/proofbundle_gate.py", "_evidence_folder", "os.mkdir", 0o755): (
+    ("plugins/proofbundle-guard/hooks/proofbundle_gate.py", "_evidence_folder", "os.mkdir", 0o755): (
         "a folder of the work tree that holds the committed declaration, made as git makes a folder at a checkout",
-        ("plugins/proofbundle/hooks/proofbundle_gate.py", 'DECLARATION = EVIDENCE_DIR + "evidence.json"')),
+        ("plugins/proofbundle-guard/hooks/proofbundle_gate.py", 'DECLARATION = EVIDENCE_DIR + "evidence.json"')),
 }
 
 #: The calls of os whose mode the guard reads, with the position of the mode.
@@ -108,7 +110,7 @@ def wide_modes(source: str) -> list[tuple[str, str, int]]:
 
 
 def _plugin_sources() -> list[pathlib.Path]:
-    return sorted(p for p in PLUGIN.rglob("*.py") if "__pycache__" not in p.parts)
+    return sorted(p for folder in (PLUGIN, GUARD) for p in folder.rglob("*.py") if "__pycache__" not in p.parts)
 
 
 def _load(path: pathlib.Path, name: str):

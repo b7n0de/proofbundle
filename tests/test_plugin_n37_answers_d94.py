@@ -34,6 +34,8 @@ pytestmark = d71.pytestmark
 _clean = d71._clean
 AUTONOMOUS = [gate.AUTONOMOUS_FLAG] if hasattr(gate, "AUTONOMOUS_FLAG") else []
 HOOKS = pathlib.Path(gate.__file__).parent
+#: The house's hooks, the plugin proofbundle-guard beside the verifier (D134).
+GUARD = HOOKS.parent.parent / "proofbundle-guard"
 ANSWER_HOOK = HOOKS / "proofbundle_answered.py"
 OUTSIDE = "https://github.com/someone/proofbundle.git"
 
@@ -183,7 +185,7 @@ def test_D94_a_card_is_counted_of_its_own():
 
 
 def test_D94_the_answer_hook_stands_in_hooks_json_after_every_gated_call_and_not_for_codex():
-    hooks = json.loads((HOOKS / "hooks.json").read_text())["hooks"]
+    hooks = json.loads((GUARD / "hooks" / "hooks.json").read_text())["hooks"]
     # the hook of the key paths of D102 never asks, so it has no answer hook
     matchers = [entry["matcher"] for entry in hooks["PreToolUse"]
                 if "proofbundle_secrets.py" not in entry["hooks"][0]["command"]]
@@ -192,7 +194,7 @@ def test_D94_the_answer_hook_stands_in_hooks_json_after_every_gated_call_and_not
         for entry in hooks[event]:
             (hook,) = entry["hooks"]
             assert hook["command"] == 'python3 -I "${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_answered.py" || true'
-    codex = (HOOKS.parent / ".codex-plugin" / "plugin.json").read_text()
+    codex = (GUARD / ".codex-plugin" / "plugin.json").read_text()
     assert "proofbundle_answered" not in codex
     hook = gate._answer_hook()
     assert (hook.LOG_NAME, hook.DATA_VARIABLE, hook.ASKS_PENDING, hook.ASKS_SCHEMA) == \

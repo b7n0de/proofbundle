@@ -5249,15 +5249,15 @@ def verify_items(requests: list[dict], deadline: float) -> list[dict]:
         result_obj = reply["result"]
         content = result_obj.get("content") if isinstance(result_obj, dict) else None
         # Every element of content is checked against the measured contract, not only the first (review round 13, K2).
-        # Measured at proofbundle 6.1.0 and again at 6.3.0: the MCP server wraps each tool result as
+        # Measured at proofbundle 6.1.0, again at 6.3.0 and at 6.4.0: the MCP server wraps each tool result as
         # content with exactly one element, the object {"type": "text", "text": <json string>} (server _call_tool). A
         # schema-breaking sibling block — a second element, a non-object, a wrong type, a non-string text — is not
         # ignored; it refuses the whole run with GateError, so an invalid stream can never reach a pass (envelope-error
         # status, R12-4). There is no element the reader leaves unexamined.
         if not isinstance(content, list) or len(content) != 1:
             raise GateError(f"the verifier's result for item {n} does not carry exactly one content element, as the "
-                            "tool-result contract of the plugin's server requires (measured at proofbundle 6.1.0 and "
-                            "6.3.0), which refuses the whole verifier run")
+                            "tool-result contract of the plugin's server requires (measured at proofbundle 6.1.0, "
+                            "6.3.0 and 6.4.0), which refuses the whole verifier run")
         block = content[0]
         if not (isinstance(block, dict) and block.get("type") == "text" and isinstance(block.get("text"), str)):
             raise GateError(f"the verifier's result for item {n} is not one text block the gate can read, which "
@@ -9552,11 +9552,23 @@ def _gate_dir(environ: dict) -> str | None:
 #: done-init, which a person runs, still write them, whatever their own environment sets.
 OWNER_STATE_VARIABLE = "PROOFBUNDLE_OWNER_STATE"
 OWNER_STATE_PROTECTED = "protected"
+#: D129 (owner answer 9 of Nachtrag 7, option B): the standing GO of D87 applies, in the autonomous answer, only where
+#: the hook's environment also sets STANDING_GO_VARIABLE to STANDING_GO_PROTECTED, the house's separate consent to it;
+#: --autonomous alone no longer frees a push. Only the GO of D87 reads it. As with D124 the setting is the house's
+#: statement, not a protection: the protected channel is a record signed with a key outside the session that the house
+#: builds (owner answer 5 of Nachtrag 7), and until then the gate takes the setting as it stands.
+STANDING_GO_VARIABLE = "PROOFBUNDLE_STANDING_GO"
+STANDING_GO_PROTECTED = "protected"
 
 
 def _owner_state_read(environ: dict) -> bool:
     """D124: whether the gate reads the owner's files of its directory at all."""
     return environ.get(OWNER_STATE_VARIABLE) == OWNER_STATE_PROTECTED
+
+
+def _standing_go_consented(environ: dict) -> bool:
+    """D129: whether the hook's environment states the house's consent to the standing GO of D87."""
+    return environ.get(STANDING_GO_VARIABLE) == STANDING_GO_PROTECTED
 
 
 def _read_mode(environ: dict) -> str:
@@ -12061,7 +12073,8 @@ def _sh_script_naming_git(step: "_ShStep", environ) -> str | None:
 # declares and whose every remote is a repository of b7n0de on github.com, under Claude Code and never under Codex, a
 # read, a local change that can be taken back and `gh pr merge --auto` are free after the profile of their class finds
 # nothing. D71 only ever turns an ask of the not-modeled kind into a pass: a deny stays, every other ask stays, and the
-# answer of every command that is not one of its forms stays as it is.
+# answer of every command that is not one of its forms stays as it is. Since D130 (owner answer 10 of Nachtrag 7) it
+# applies only in the gate started with --autonomous, the house's opt-in; the public hook commands carry no flag (D125).
 
 #: The owner of the repositories in which D71 frees work, the one of the push that creates a branch (D61).
 WORK_OWNER = NEW_BRANCH_OWNER
@@ -14331,19 +14344,20 @@ def _with_house_rules(outcome: "Outcome | None", command: str, cwd: str | None, 
 
 
 def decide(command: str, cwd: str, deadline: float, host: str = "claude",
-           environ: dict | None = None) -> Outcome | None:
+           environ: dict | None = None, autonomous: bool = False) -> Outcome | None:
     """The answer of _decide_judged, with one rule of D117: a word in data is no call, and so D117 takes
     away an ask, never a deny. Where D117 can change the answer (_d117_touches) and the answer is no deny, the gate
     answers once more without D117; is that answer a deny, it stands (no case that denies today becomes free; the corpus
     counts a here-document that writes `git push --no-verify` into a file as harmful, S373). Both judgments read the
-    state files of a folder once (D96): the memo holds for the whole command and no longer."""
+    state files of a folder once (D96): the memo holds for the whole command and no longer. autonomous is the hook's
+    --autonomous, the house's opt-in (D85, D125): only with it does the work profile of D71 apply (D130)."""
     memo = _STATE_FILES_MEMO.set({})
     try:
-        outcome = _decide_judged(command, cwd, deadline, host, environ)
+        outcome = _decide_judged(command, cwd, deadline, host, environ, autonomous)
         if (outcome is None or outcome.decision != "deny") and _d117_touches(command, host, environ):
             token = _D117_OFF.set(True)
             try:
-                before = _decide_judged(command, cwd, deadline, host, environ)
+                before = _decide_judged(command, cwd, deadline, host, environ, autonomous)
             finally:
                 _D117_OFF.reset(token)
             if before is not None and before.decision == "deny":
@@ -14354,7 +14368,7 @@ def decide(command: str, cwd: str, deadline: float, host: str = "claude",
 
 
 def _decide_judged(command: str, cwd: str, deadline: float, host: str = "claude",
-                   environ: dict | None = None) -> Outcome | None:
+                   environ: dict | None = None, autonomous: bool = False) -> Outcome | None:
     """None for a call the gate does not gate, else the combined outcome. Under Codex the judge cannot bind
     a gated shell call to the directory it runs in, so it reports it NOT MEASURED (review round 5, R5-2).
     The former free list for local git commands has been removed. Those forms are NOT MEASURED, asked under
@@ -14398,7 +14412,9 @@ def _decide_judged(command: str, cwd: str, deadline: float, host: str = "claude"
     Under Claude Code, in a repository that declares and whose every remote is a repository of b7n0de on github.com, an
     ask of the not-modeled kind for a form of the work profile becomes a pass where the profile of its class finds
     nothing: a read, a local change that can be taken back, a fetch or ls-remote, `gh pr merge --auto` and `gh pr edit`
-    (D71, _work_profile). A deny, every other ask and every answer under Codex stay as they are.
+    (D71, _work_profile). A deny, every other ask and every answer under Codex stay as they are. D71 applies only where
+    the gate is started with --autonomous, the house's opt-in (autonomous; D130); without it a form of D71 keeps the
+    answer the gate gives without D71.
 
     The house rules go before every answer that lets a call run, D71 included, under both hosts (D73,
     _with_house_rules): `--admin` on `gh pr merge` and a `gh api` call that bypasses or changes a protection rule deny
@@ -14418,7 +14434,8 @@ def _decide_judged(command: str, cwd: str, deadline: float, host: str = "claude"
             outcome = _unknown_program_outcome(unknown, outcome)
     if outcome is not None:
         _name_narrower_spelling(outcome, judged, cwd, deadline, host, environ)
-    outcome = _work_profile(outcome, judged, cwd, deadline, host, environ)
+    if autonomous:   # D130: the work profile of D71 is the house's opt-in, never the public default
+        outcome = _work_profile(outcome, judged, cwd, deadline, host, environ)
     outcome = _with_house_rules(_with_done_order(outcome, judged, host, environ, deadline), judged, cwd, deadline,
                                 environ)   # the house rules and the guards read the environment decide() is given
     outcome = _with_pin_script(outcome, judged, host, environ, deadline)   # D114, follow-up note 51: only a person pins
@@ -16524,7 +16541,7 @@ def _autonomy_judge(call: dict, cwd: str, deadline: float, environ: dict) -> tup
         return ("free", "") if out is None else ("blocked", f"the Write of it is {out.decision}")
     text = _autonomy_text(call, shown=False)
     directory = call["directory"] or cwd
-    out = decide(text, directory, deadline, "claude", environ)
+    out = decide(text, directory, deadline, "claude", environ, autonomous=True)   # D130: as the gate with the flag
     if out is not None and out.decision == "ask":
         out = _autonomy_external(out, text, directory, deadline, environ) or \
             _autonomy_recorded(out, text, directory, deadline, environ) or \
@@ -16889,7 +16906,10 @@ def _autonomy_go(outcome: "Outcome", m: "_PushMeasure", words: list[str], deadli
     a configured remote; the repository is one of D71 (it declares, and every URL of every remote is a repository of
     WORK_OWNER on github.com); the push configuration adds nothing the command does not name and the push URL is the
     fetch URL; GIT_NAMESPACE is unset; the evidence rules at the commit it sends equal those of a local record
-    (_go_rules_equal, D20). Else None, and the ask stays."""
+    (_go_rules_equal, D20). Before all of that, the hook's environment states the house's consent to the standing GO
+    (_standing_go_consented, D129). Else None, and the ask stays."""
+    if not _standing_go_consented(environ):   # D129
+        return None
     dests = m.dests or []
     if len(dests) != 1 or not dests[0].startswith(GO_BRANCHES) or m.force or m.mirror or m.delete or \
             m.tags or m.why is not None or m.remote is None or m.repo is None:
@@ -18031,7 +18051,8 @@ MAX_RELEASE_FILES = 256
 RELEASE_SECONDS = 15 * 60
 RELEASE_SKEW_SECONDS = 60
 #: The releases used, in the plugin data directory: the hook writes the use under a lock before the call runs, and only
-#: where it runs (release_settle, D119).
+#: where it runs (release_settle, D119). An identity whose use it dropped stays in it as a digest (verbraucht,
+#: _release_take), which it never drops (follow-up note 28).
 RELEASES_USED = "freigaben-genutzt.json"
 RELEASES_USED_SCHEMA = "proofbundle-plugin/freigaben-genutzt/v0.1"
 MAX_RELEASES_USED = 1024
@@ -18039,6 +18060,8 @@ MAX_RELEASES_USED_BYTES = 512 * 1024
 _CARD_ID = re.compile(r"OA-[0-9a-f]{10}")
 _SESSION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 _UTC_STAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
+#: The digest of an identity in the record of the releases used (verbraucht, _release_identity).
+_CONSUMED = re.compile(r"[0-9a-f]{32}")
 #: D119: the owner's own doors, which no release on a card opens: --admin, a forced push, a tag, a
 #: release, PyPI, a signature and root; and a merge whose line does not pin the head it merges (--match-head-commit),
 #: as the card shows a line, not the head the merge finds when it runs. (English, German.)
@@ -18328,36 +18351,79 @@ def _release_key(release: dict) -> str:
 
 
 def _release_used(release: dict, used: dict) -> bool:
-    """Whether the record of the releases used names this release: by its key, or by the key of D111, which named the
-    time of the answer as well."""
-    return _release_key(release) in used or f"{_release_key(release)}:{release['antwort']}" in used
+    """Whether the record of the releases used names a use of this release's identity: by its key, or by a key of D111,
+    which named the time of the answer as well, whatever time it names, so a copy of the release with another answer
+    is the same release (follow-up note 28). No part of the key holds a colon."""
+    key = _release_key(release)
+    return key in used or any(name.startswith(key + ":") for name in used)
 
 
-def _releases_used(directory: str) -> dict:
-    """D111: the releases used {key: time of use}; a ValueError where the record does not read whole, so no release is
-    used twice through a record the gate cannot read."""
+def _release_identity(key: str) -> str:
+    """The digest of the identity a key of the record names: the first 32 hex signs of the sha256 of card, sha256 and
+    session. The key of D111 names the time of the answer as well; the identity leaves it out, as no part of it holds
+    a colon."""
+    return hashlib.sha256(":".join(key.split(":")[:3]).encode("utf-8")).hexdigest()[:32]
+
+
+def _release_free(release: dict, used: dict, consumed: set, now: float) -> bool:
+    """Whether this release may be used now: now lies within its window (RELEASE_SKEW_SECONDS before its answer to
+    RELEASE_SECONDS after it), the record names no use of it (_release_used), and the record dropped no use of its
+    identity into its digests (consumed, _releases_record), whatever answer time this copy of the release carries
+    (follow-up note 28). The gate chooses by it and _release_take checks it again under the lock with the clock that
+    stamps the use."""
+    return release["zeit"] - RELEASE_SKEW_SECONDS <= now <= release["zeit"] + RELEASE_SECONDS and \
+        not _release_used(release, used) and _release_identity(_release_key(release)) not in consumed
+
+
+def _releases_record(directory: str) -> tuple[dict, set]:
+    """D111, D119: the releases used {key: time of use}, and the digests of the identities whose use the record dropped
+    (verbraucht, _release_identity), which it never drops; a ValueError where the record does not read whole, a field
+    it does not know included, so no release is used twice through a record the gate cannot read."""
     try:
         raw = _read_regular(os.path.join(directory, RELEASES_USED), MAX_RELEASES_USED_BYTES + 1)
     except FileNotFoundError:
-        return {}
+        return {}, set()
     data = strict_json(raw) if len(raw) <= MAX_RELEASES_USED_BYTES else None
-    if not isinstance(data, dict) or data.get("schema") != RELEASES_USED_SCHEMA or \
-            not isinstance(data.get("genutzt"), dict):
+    if not isinstance(data, dict) or not set(data) <= {"schema", "genutzt", "verbraucht"} or \
+            data.get("schema") != RELEASES_USED_SCHEMA or not isinstance(data.get("genutzt"), dict):
         raise ValueError("the record of the releases used does not read whole")
-    return dict(data["genutzt"])
+    consumed = data.get("verbraucht", [])
+    if not isinstance(consumed, list) or not all(isinstance(d, str) and _CONSUMED.fullmatch(d) for d in consumed):
+        raise ValueError("the record of the releases used does not read whole")
+    return dict(data["genutzt"]), set(consumed)
 
 
-def _write_releases_used(directory: str, used: dict) -> None:
+def _write_releases_used(directory: str, used: dict, consumed: set | frozenset = frozenset()) -> None:
+    """The record as _releases_record reads it; a ValueError before anything is written where it would pass
+    MAX_RELEASES_USED_BYTES, so the hook never writes a record it cannot read."""
+    record = {"schema": RELEASES_USED_SCHEMA, "genutzt": used}
+    if consumed:
+        record["verbraucht"] = sorted(consumed)
+    text = json.dumps(record, sort_keys=False)
+    if len(text.encode("utf-8")) > MAX_RELEASES_USED_BYTES:
+        raise ValueError("the record of the releases used would pass MAX_RELEASES_USED_BYTES")
     fd, tmp = tempfile.mkstemp(prefix=".freigaben-", dir=directory)
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        json.dump({"schema": RELEASES_USED_SCHEMA, "genutzt": used}, handle, sort_keys=False)
+        handle.write(text)
     os.replace(tmp, os.path.join(directory, RELEASES_USED))
+
+
+def _release_use_past(stamp: object, now: float) -> bool:
+    """Whether a use the record keeps lies more than RELEASE_SECONDS + RELEASE_SKEW_SECONDS before now: a release is used
+    no earlier than RELEASE_SKEW_SECONDS before its answer and binds at most RELEASE_SECONDS after it, so no release binds
+    any more with the answer it had. A time that does not read is no such use."""
+    seconds = _ts_seconds(stamp) if isinstance(stamp, str) else None
+    return seconds is not None and seconds < now - RELEASE_SECONDS - RELEASE_SKEW_SECONDS
 
 
 def _release_take(release: dict, environ, now: float | None = None) -> bool:
     """D111, D119: write the use of a release to RELEASES_USED in the plugin data directory, under the lock of the
-    answer hook (D94); False where the record names it already, or where the gate cannot read or write the record:
-    then the release lets nothing run."""
+    answer hook (D94); False where _release_free does not let it be used now (outside its window, used, or an identity
+    whose use was dropped), where the record is full, where it would pass MAX_RELEASES_USED_BYTES, or where the gate
+    cannot read or write the record: then the release lets nothing run and the record stays as it is. At
+    MAX_RELEASES_USED uses the record first drops the uses with which no release binds any more (_release_use_past,
+    follow-up note 26) and keeps their identities as digests, so no copy of such a release with a later answer is
+    used again (follow-up note 28); where it is still full, it stays as it is."""
     data = environ.get("CLAUDE_PLUGIN_DATA")
     if not data or not os.path.isabs(data) or not os.path.isdir(data):
         return False
@@ -18365,13 +18431,17 @@ def _release_take(release: dict, environ, now: float | None = None) -> bool:
     try:
         hook = _answer_hook()
         with hook.asks_lock(data, RELEASES_USED):
-            used = _releases_used(data)
-            if _release_used(release, used):
+            used, consumed = _releases_record(data)
+            if not _release_free(release, used, consumed, now):
                 return False
+            if len(used) >= MAX_RELEASES_USED:
+                kept = {key: stamp for key, stamp in used.items() if not _release_use_past(stamp, now)}
+                if len(kept) >= MAX_RELEASES_USED:
+                    return False
+                consumed = consumed | {_release_identity(key) for key in used if key not in kept}
+                used = kept
             used[_release_key(release)] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now))
-            while len(used) > MAX_RELEASES_USED:
-                used.pop(next(iter(used)))
-            _write_releases_used(data, used)
+            _write_releases_used(data, used, consumed)
     except (OSError, ValueError, UnicodeDecodeError, ImportError, AttributeError, SyntaxError):
         return False
     return True
@@ -18413,10 +18483,10 @@ def _autonomy_release(answer: "Outcome", command: str | None, environ, now: floa
         return _release_kept(answer, fitting[0], f"the line touches {_RELEASE_DOORS[door][0]}, an own door of the "
                                                  "owner that no card opens (DECISIONS.md D119)")
     try:
-        used = _releases_used(data)
+        used, consumed = _releases_record(data)
     except (OSError, ValueError, UnicodeDecodeError):
         return None
-    release = next((r for r in fitting if not _release_used(r, used)), None)
+    release = next((r for r in fitting if _release_free(r, used, consumed, now)), None)
     if release is None or (take and not _release_take(release, environ, now)):
         return None
     verdict = Verdict("pass", f"proofbundle gate: the owner released this command on the card {release['karte']}, "
@@ -22398,11 +22468,11 @@ VSA_PREDICATE_TYPE = "https://slsa.dev/verification_summary/v1"
 #: The verifier of the Verification Summary, a URI that names the plugin's done check; a consumer accepts only the
 #: (signer, verifier) pairs it trusts (SLSA VSA v1.2, verifier).
 VSA_VERIFIER_ID = "https://github.com/b7n0de/proofbundle/tree/main/plugins/proofbundle#done-check"
-PINNED_PROOFBUNDLE = "6.3.0"
+PINNED_PROOFBUNDLE = "6.4.0"
 _RESOURCE_URI = re.compile(r"[a-z][a-z0-9+.-]*:[!-~]+")
 _SIGN_TOOL = """# /// script
 # requires-python = ">=3.10"
-# dependencies = ["proofbundle==6.3.0"]
+# dependencies = ["proofbundle==6.4.0"]
 # ///
 import hashlib, json, sys
 from proofbundle.dsse import sign_envelope
@@ -22534,7 +22604,7 @@ def done_statement_command(argv: list[str]) -> int:
 
 _KEY_TOOL = """# /// script
 # requires-python = ">=3.10"
-# dependencies = ["proofbundle==6.3.0"]
+# dependencies = ["proofbundle==6.4.0"]
 # ///
 import base64, os, sys
 from proofbundle.emit import generate_signer, load_signer, save_signer
@@ -23705,8 +23775,9 @@ PRE_PUSH_MARK = "# proofbundle-pre-push-wrapper 1"
 #: the environment (GIT_CONFIG_COUNT, GIT_CONFIG_PARAMETERS) shows up in the `command` scope and is refused there.
 _INSTALL_MOVED_BY = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR")
 #: Run by the wrapper at each push with the recorded plugin root: the gate of that root, or, when the root is a
-#: version folder of an installed plugin (`…/proofbundle/<version>`), the gate of the newest version folder beside
-#: it, so a plugin update needs no new install. Prints nothing when it finds none. No single quote may appear here.
+#: version folder of an installed plugin (`…/proofbundle/<version>`, or `…/proofbundle-guard/<version>` of the Guard,
+#: D134), the gate of the newest version folder beside it, so a plugin update needs no new install. Prints nothing
+#: when it finds none. No single quote may appear here.
 _PRE_PUSH_RESOLVER = """import os, re, sys
 root = sys.argv[1]
 version = re.compile(r"[0-9]+([.][0-9]+)*")
@@ -23715,7 +23786,7 @@ def gate(folder):
     return path if os.path.isfile(path) and not os.path.islink(path) else None
 family, name = os.path.split(root)
 found = None
-if version.fullmatch(name) and os.path.basename(family) == "proofbundle":
+if version.fullmatch(name) and os.path.basename(family) in ("proofbundle", "proofbundle-guard"):
     best = None
     for entry in (os.listdir(family) if os.path.isdir(family) else []):
         if version.fullmatch(entry) and gate(os.path.join(family, entry)):
@@ -23991,7 +24062,7 @@ def tool_outcome(event_text: str, host: str, deadline: float,
             tool = "Bash"
             command, cwd = _command_from_event(event)
             actions = sorted({name for name, _, _ in gated_calls(_program_values(command))})
-            verdict = decide(command, cwd, deadline, host=host)
+            verdict = decide(command, cwd, deadline, host=host, autonomous=autonomous)   # D130: D71 with the flag only
         if autonomous and host == "claude" and verdict is not None and verdict.decision == "ask":
             try:   # D85: the autonomous answer; a failure in it keeps the ask, which lets nothing run
                 verdict = autonomous_outcome(verdict, command, cwd, deadline, host, tool=tool, take=False)

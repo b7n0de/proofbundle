@@ -34,7 +34,7 @@ gate = pd.gate
 ROOT = p1.ROOT
 SERVICE = ROOT / "plugins" / "proofbundle" / "pilot" / "signer_service.py"
 KEY_SIGNER = ROOT / "plugins" / "proofbundle" / "pilot" / "key_signer.py"
-GATE_FILE = ROOT / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py"
+GATE_FILE = ROOT / "plugins" / "proofbundle-guard" / "hooks" / "proofbundle_gate.py"
 SERVICE_LABEL = "z405 signer service probe"
 PAYLOAD_TYPE = b"application/vnd.in-toto+json"
 
@@ -277,13 +277,13 @@ def test_a_service_whose_gate_file_is_not_the_one_the_records_keep_signs_nothing
     (('PILOT_SIGNER_SECONDS = 10.0', 'PILOT_SIGNER_SECONDS = 10.0  # a copy of the agent, changed'),
      "policy_differs")])
 def test_another_gate_file_on_the_agents_side_changes_nothing_in_the_services_verdict(env, tmp_path, change, reason):
-    """The agent runs a changed copy of the plugin: one that records an ask as ALLOW, and one changed in a comment only,
+    """The agent runs a changed copy of the Guard, where the gate lives (D134): one that records an ask as ALLOW, and one changed in a comment only,
     whose statement names another gate digest. The service decides with its own copy: ESCALATE either way, and it
     signs neither."""
     repo = pd.Repo(tmp_path).path
     service = Service(env, tmp_path)
     copy = tmp_path / "agent_plugin"
-    shutil.copytree(ROOT / "plugins" / "proofbundle", copy, ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copytree(ROOT / "plugins" / "proofbundle-guard", copy, ignore=shutil.ignore_patterns("__pycache__"))
     agent_gate = copy / "hooks" / "proofbundle_gate.py"
     text = agent_gate.read_text(encoding="utf-8")
     assert text.count(change[0]) == 1

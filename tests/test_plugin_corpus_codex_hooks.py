@@ -11,6 +11,11 @@ not ok when one is missing, one is extra, one lacks --host codex or one starts a
 -1, AUSWERTUNGEN finding 1 and A-6). How a real Codex words the command in hooks/list is NOT MEASURED: the check takes
 the manifest's text, or that text with ${PLUGIN_ROOT} as the folder the hook was loaded from. No Codex runs here; what
 a real Codex loads stays NOT MEASURED (RUNBOOK_CODEX.md).
+
+Changed by D134 (owner choice F2 A): the hooks are those of the Guard's Codex manifest, plugins/proofbundle-guard, and
+the check installs both plugins as the house does; a hook that proofbundle, the plugin everyone installs, loaded makes
+the check not ok. The cases no longer pass on a manifest without hooks: the Guard's registers them, and a case that
+returned early there could not fail.
 """
 from __future__ import annotations
 
@@ -24,7 +29,9 @@ from _plugin_env import plugin_env
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "proofbundle"
 CHECK = PLUGIN / "evals" / "corpus_codex_hooks.py"
-MANIFEST = PLUGIN / ".codex-plugin" / "plugin.json"
+#: The Codex manifest of the Guard, the plugin that registers the hooks since D134.
+MANIFEST = ROOT / "plugins" / "proofbundle-guard" / ".codex-plugin" / "plugin.json"
+GUARD_ID = "proofbundle-guard@proofbundle-house"   # the house marketplace (owner choice N2 B)
 
 #: A stand-in for the codex program: version, the two install commands, and an app-server that answers initialize
 #: and hooks/list with the hooks given in FAKE_HOOKS (a JSON file next to it), as Codex's app-server words them.
@@ -59,7 +66,8 @@ def _manifest_hooks() -> list[dict]:
             for hook in entry["hooks"]:
                 loaded.append({"eventName": event[0].lower() + event[1:], "matcher": entry.get("matcher"),
                                "command": hook["command"], "sourcePath": str(MANIFEST),
-                               "trustStatus": "trusted", "pluginId": "proofbundle@proofbundle"})
+                               "trustStatus": "trusted", "pluginId": GUARD_ID})
+    assert loaded, "the Guard's Codex manifest registers hooks"
     return loaded
 
 
@@ -82,8 +90,6 @@ def test_a_load_of_exactly_the_manifests_hooks_is_ok(tmp_path):
 
 def test_a_load_that_misses_a_hook_of_the_manifest_is_not_ok(tmp_path):
     hooks = _manifest_hooks()
-    if not hooks:
-        return                                  # a manifest without hooks has no hook to miss
     for missing in range(len(hooks)):
         code, report = _run(tmp_path, hooks[:missing] + hooks[missing + 1:])
         assert (code, report["ok"]) == (1, False), (missing, report)
@@ -91,8 +97,6 @@ def test_a_load_that_misses_a_hook_of_the_manifest_is_not_ok(tmp_path):
 
 def test_a_hook_without_the_codex_host_is_not_ok(tmp_path):
     hooks = _manifest_hooks()
-    if not hooks:
-        return
     hooks[0] = dict(hooks[0], command=hooks[0]["command"].replace("--host codex", "--autonomous"))
     code, report = _run(tmp_path, hooks)
     assert (code, report["ok"]) == (1, False), report
@@ -100,17 +104,13 @@ def test_a_hook_without_the_codex_host_is_not_ok(tmp_path):
 
 def test_an_extra_hook_is_not_ok(tmp_path):
     hooks = _manifest_hooks()
-    extra = dict(hooks[0], eventName="postToolUse") if hooks else {
-        "eventName": "postToolUse", "matcher": "Bash", "command": "python3 x.py --host codex",
-        "sourcePath": str(MANIFEST), "trustStatus": "trusted", "pluginId": "proofbundle@proofbundle"}
+    extra = dict(hooks[0], eventName="postToolUse")
     code, report = _run(tmp_path, hooks + [extra])
     assert (code, report["ok"]) == (1, False), report
 
 
 def test_a_hook_that_starts_another_command_is_not_ok(tmp_path):
     hooks = _manifest_hooks()
-    if not hooks:
-        return
     hooks[-1] = dict(hooks[-1], command=hooks[-1]["command"].replace("proofbundle_gate.py", "proofbundle_other.py"))
     code, report = _run(tmp_path, hooks)
     assert (code, report["ok"]) == (1, False), report
@@ -123,8 +123,26 @@ def test_the_order_of_the_answer_does_not_matter(tmp_path):
 
 
 def test_a_command_with_the_plugin_root_written_out_is_ok(tmp_path):
-    installed = tmp_path / "home" / "plugins" / "proofbundle"
+    installed = tmp_path / "home" / "plugins" / "proofbundle-guard"
     hooks = [dict(h, command=h["command"].replace("${PLUGIN_ROOT}", str(installed)),
                   sourcePath=str(installed / ".codex-plugin" / "plugin.json")) for h in _manifest_hooks()]
     code, report = _run(tmp_path, hooks)
     assert (code, report["ok"]) == (0, True), report
+
+
+def test_a_hook_the_plugin_everyone_installs_loaded_is_not_ok(tmp_path):
+    """D134: proofbundle registers no hook; a load that gives it one, beside the Guard's exact hooks, is not ok."""
+    hooks = _manifest_hooks()
+    code, report = _run(tmp_path, hooks + [dict(hooks[0], pluginId="proofbundle@proofbundle")])
+    assert (code, report["ok"], report["verify_hooks"]) == (1, False, ["preToolUse"]), report
+    assert len(report["hooks"]) == len(hooks)
+
+
+def test_a_codex_hook_that_carries_the_houses_flag_is_not_ok(tmp_path):
+    """D125, D134: --autonomous is the house's flag under Claude Code, and no Codex hook carries it; the gate reads
+    --host codex with or without it, so the host check alone let it through. Red at the split commit."""
+    hooks = _manifest_hooks()
+    hooks[0] = dict(hooks[0], command=hooks[0]["command"].replace("--host codex", "--host codex --autonomous", 1))
+    code, report = _run(tmp_path, hooks)
+    assert (code, report["ok"]) == (1, False), report
+    assert [h["autonomous"] for h in report["hooks"]] == [True] + [False] * (len(hooks) - 1), report

@@ -11,6 +11,9 @@ among the unapproved effects, and its window carries the sentence (D113).
 RED at f5540aad (the head of PLUGIN_N28B_KETTE): the sentence of the window; the counts of M5 are green there, as the
 reconciliation counted them before. The reconciliation applies the profile the records keep, which needs the decision
 verifier of main 22aa954e; an interpreter whose proofbundle does not have it skips this file, as for the tests of D57.
+
+Changed by D129: the hook's environment states the house's consent to the standing GO (PROOFBUNDLE_STANDING_GO), which
+the GO push needs; the service, without the operator's autonomous setting, decides as before.
 """
 from __future__ import annotations
 
@@ -64,7 +67,8 @@ def test_O28B1_a_go_push_without_its_receipt_counts_under_m5_and_the_window_says
     data = tmp_path / "data"
     data.mkdir()
     env.update(CLAUDE_PLUGIN_DATA=str(data), PLUGIN_DATA=str(data), CLAUDE_CODE_SESSION_ID=SESSION,
-               PYTHONPATH=str(pathlib.Path(p1.ROOT) / "src"))
+               PYTHONPATH=str(pathlib.Path(p1.ROOT) / "src"),
+               PROOFBUNDLE_STANDING_GO="protected")   # D129: the house's consent to the standing GO of D87
     service = s.Service(env, tmp_path)
     repo = d87._fixture(tmp_path / "work", url=f"https://github.com/{o.REPO}.git")
     event = json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": str(repo), "session_id": SESSION,
