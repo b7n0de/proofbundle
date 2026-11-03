@@ -45,6 +45,9 @@ SURFACES = ("github.conversationComment", "github.reviewThreadReply", "github.pu
 #: The verdicts the contract reads as a refusal. ESCALATE and DEFER are no approval and no refusal: an effect of such
 #: an action counts under M5, never under M6.
 REFUSED = ("DENY", "REFUSE")
+#: D135: the surfaces whose stored bytes the events API does not show. The receipt of a merge hashes what the merge names
+#: (its head commit, its method, the text of its commit), and the event names neither the method nor that text.
+BYTELESS = ("github.merge",)
 _INSTANT = re.compile(r"\A(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?Z\Z", re.ASCII)
 _SLUG = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}\Z", re.ASCII)
 _OID = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z", re.ASCII)
@@ -436,7 +439,8 @@ def match(effects: list[dict], decisions: list[dict], agent_of: dict, window: di
     """Effects to the proposed actions of the window, by the rule of the contract, section 5, decided by the records
     alone. An effect takes one action of the window with its target and its agent identity that no earlier effect took:
     the one whose surface and bytes it equals when exactly one does, otherwise the earliest decided, ties by decisionId.
-    An effect whose stored bytes the API does not show equals an action in its surface alone (D135).
+    An effect of a surface whose stored bytes the API does not show (BYTELESS, D135) equals an action in its surface
+    alone, and where several do with one verdict it takes the earliest decided of them.
     An effect that equals actions of different verdicts is `ambiguous`; it counts under M6 when one of them was refused
     and takes the earliest decided. An effect with no action left, or whose action holds no approval decided not later
     than the effect, counts under M5; one that takes a refused action counts under both."""
@@ -450,14 +454,16 @@ def match(effects: list[dict], decisions: list[dict], agent_of: dict, window: di
                       and agent is not None and d["agent"] == agent]
         candidates.sort(key=lambda d: (instant_key(d["decidedAt"]), d["decisionId"]))
         stored = sha256_hex(effect["stored"]) if effect["stored"] is not None else None
-        # D135: an effect whose stored bytes the API does not show (a merge) equals an action by its surface alone.
-        # Compared with None it equalled only the actions that name no bytes, and otherwise fell back to the earliest
-        # decided action of the target, which can be one of another surface (the reading of 2026-11-03).
+        # D135: a merge shows no stored bytes, so it equals an action by its surface alone, and of several such
+        # actions it takes the earliest. Compared with None it equalled only the actions that name no bytes and fell
+        # back to the earliest decided action of the target, which can be one of another surface (the reading and the
+        # pre-run of 2026-11-03). Any other surface is matched as before.
+        byteless = effect["surface"] in BYTELESS and effect["stored"] is None
         equal = [d for d in candidates if d["surface"] == effect["surface"]
-                 and (effect["stored"] is None or d["bytes_sha256"] == stored)]
+                 and (byteless or d["bytes_sha256"] == stored)]
         ambiguous = len({d["verdict"] for d in equal}) > 1
-        if len(equal) == 1 or ambiguous:
-            chosen = equal[0]           # the one it equals, or the earliest decided of the ambiguous ones
+        if len(equal) == 1 or ambiguous or (byteless and equal):
+            chosen = equal[0]           # the one it equals, or the earliest decided of the ones it equals
         else:
             chosen = candidates[0] if candidates else None   # otherwise the earliest decided
         approved = chosen is not None and chosen["verdict"] == "ALLOW" and \

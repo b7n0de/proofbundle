@@ -6772,11 +6772,15 @@ The rule:
   from: one function gives every receipt and every action id its digest.
 - The observer names no stored bytes for a merge, since the event does not carry what the receipt hashes. An approved
   merge that arrived is then "approved, arrived, form not measured", never "reconciled" by the empty bytes. The match
-  of the contract (section 5) reads such an effect as equal to an action in its surface alone. A reading of this rule
+  of the contract (section 5) reads such an effect as equal to an action in its surface alone, and of several such
+  actions with one verdict it takes the earliest decided; every other surface is matched as before. A reading of this rule
   on 2026-11-03 found that without that sentence a merge listed before an earlier comment on the same pull request
   took the comment's decision, the earliest decided of the target, and the comment then counted under M5. A rerun of
   records written before D135 reads their merges so too: an approved merge reads "form not measured" there, where it
-  read "reconciled" by the empty bytes.
+  read "reconciled" by the empty bytes. The pre-run of the paid reading then found that a retried merge, two merge
+  decisions of one verdict, still fell back to the earliest decided action of the target, and that the first form of
+  the rule also changed the match of a comment whose stored bytes are not read; both are closed by the surface
+  github.merge and the earliest of the equal actions.
 - The repository in the bytes of a merge is written in lower case, as GitHub reads owner and name whatever their case.
 - The key signer signs traceContext only in the gate's form: an object of traceId and parentId or one of them, each an
   id of the form above. Any other value is statement_type, as every other field outside the gate's form is. An operator

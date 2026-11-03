@@ -508,3 +508,29 @@ def test_one_merge_written_in_another_case_has_one_digest():
                                  {"owner": "B7N0DE", "repo": "proofbundle", "pullNumber": 279,
                                   "merge_method": "squash", "expectedHeadSha": HEAD})
     assert mcp["bytes"] == lower
+
+
+def test_a_merge_takes_the_earliest_of_several_merge_decisions_never_the_earlier_comment():
+    """The pre-run of 2026-11-03 (finding 1): two decisions of one merge, a retried call, with the same verdict. The
+    merge equals both by its surface and takes the earlier of them, not the earliest decided action of the target."""
+    text = b"Round four of five."
+    comment = _view("a-" + "1" * 32 + "#1", "github.conversationComment", hashlib.sha256(text).hexdigest(),
+                    "2026-11-03T17:10:00Z")
+    first = _view("a-" + "2" * 32 + "#1", "github.merge", hashlib.sha256(b"{}").hexdigest(), "2026-11-03T17:20:00Z")
+    second = _view("a-" + "2" * 32 + "#2", "github.merge", hashlib.sha256(b"{}").hexdigest(), "2026-11-03T17:21:00Z")
+    effects = [_effect("github.merge", None, "2026-11-03T17:22:00Z"),
+               _effect("github.conversationComment", text, "2026-11-03T17:11:00Z")]
+    result = o.pr.match(effects, [comment, first, second], AGENTS, WINDOW)
+    assert [row["decision"] for row in result["rows"]] == [first["decisionId"], comment["decisionId"]]
+    assert (result["M5"], result["M6"]) == (0, 0)
+
+
+def test_an_effect_of_another_surface_without_stored_bytes_is_matched_as_before_d135():
+    """The pre-run of 2026-11-03 (finding 2): only the merge is read by its surface. A comment whose body GitHub shows
+    in no form the observer reads (stored None) is matched as before: it equals only the actions that name no bytes."""
+    named = _view("a-" + "1" * 32 + "#1", "github.conversationComment", hashlib.sha256(b"x").hexdigest(),
+                  "2026-11-03T17:10:00Z")
+    unnamed = _view("a-" + "3" * 32 + "#1", "github.conversationComment", None, "2026-11-03T17:12:00Z")
+    result = o.pr.match([_effect("github.conversationComment", None, "2026-11-03T17:13:00Z")], [named, unnamed],
+                        AGENTS, WINDOW)
+    assert [row["decision"] for row in result["rows"]] == [unnamed["decisionId"]]

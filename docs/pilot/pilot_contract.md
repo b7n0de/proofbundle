@@ -93,7 +93,7 @@ no proposal identifier. Surface, bytes and closing lines are not part of the mat
 compare, so an action that arrived altered or on another surface answers under M2 or M3. Effects are taken in the
 order the API shows them, and each takes one proposed action of the window with the same target and identity that
 no earlier effect took: the one whose surface and bytes it equals when exactly one does, otherwise the earliest
-decided, and among decisions with the same `decidedAt` the one whose `decisionId` sorts first, so the order is total. An effect whose stored bytes the API does not show, a merge since DECISIONS.md D135, equals an action in its surface alone. An effect that equals, in surface and bytes, actions of different verdicts is the mismatch class
+decided, and among decisions with the same `decidedAt` the one whose `decisionId` sorts first, so the order is total. An effect whose stored bytes the API does not show, a merge since DECISIONS.md D135, equals an action in its surface alone, and where several do with one verdict it takes the earliest decided of them. An effect that equals, in surface and bytes, actions of different verdicts is the mismatch class
 `ambiguous effect`: M1 is `ambiguous` for each of them, it counts under M6 when any of them was refused, and it
 still takes the earliest decided of them. An effect that finds no action left counts under M5 as an unapproved
 effect, so one approval never covers two writes. An approval is a decision of type `preActionAuthorization` that
