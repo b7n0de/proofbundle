@@ -24,8 +24,9 @@ Mapping, per line of the transcript:
   Object comes first, with policy_life "once", operation "tool-invocation", server "!host" (the tools of
   Claude Code are provided by the host) and tool = the block's name. Its decision is "disallowed" for
   decision "reject", "permission-required" for decision "accept" with source "user" (a person granted
-  it), and "allowed" for any other "accept". For "disallowed", the text of the tool result, the host's
-  refusal, becomes the reason.
+  it), and "allowed" for any other "accept". The text of the host's refusal is not carried as the reason:
+  it is free text and can repeat the proposed arguments, which a disallowed operation must not record
+  (tool-invocation-00 6.1.1).
 - an operation that is not disallowed gets a "tool-invocation" Event Object with the block's input as
   JSON content, and its "tool_result" block becomes a "tool-result" Event Object, or "tool-failure" when
   is_error is true (tool-invocation-00 Appendix A). A disallowed operation gets neither: its arguments
@@ -50,7 +51,7 @@ Not converted, and counted in the report: lines of other types (for example atta
 last-prompt, queue-operation), lines without a timestamp (an Event Object needs time), sidechain lines of
 subagents, meta lines, image and document blocks, lines that are not JSON, a tool_use block without an id,
 a tool result whose tool_use is not in the transcript, a permissionDecision of another value, the
-arguments and the tool result of a disallowed operation. Review the output before you publish it; a
+arguments and the tool result of a disallowed operation, whose text is the host's refusal. Review the output before you publish it; a
 transcript can hold anything that was typed or read.
 """
 from __future__ import annotations
@@ -238,14 +239,12 @@ def convert(lines, user_id="user", user_name="user", agent_id="agent", agent_nam
                 common = {"time": e["timestamp"], "sessions": 0, "party": 1}
                 verdict, sent = None, e["timestamp"]
                 if blk["id"] in decisions:
-                    pd, res, result_time = decisions[blk["id"]]
+                    pd, _res, result_time = decisions[blk["id"]]
                     verdict = policy_decision_value(pd)
                     if verdict is None:
                         skipped["permissionDecision %s" % pd.get("decision")] += 1
                     else:
                         ev = {"type": "policy-decision", **common, "decision": verdict}
-                        if verdict == "disallowed" and isinstance(res.get("content"), str):
-                            ev["reason"] = res["content"]
                         ev.update({"operation": "tool-invocation", "policy_life": "once", "operation_id": op,
                                    "attempt": 1, "server": HOST, "tool": blk["name"]})
                         events.append(ev)

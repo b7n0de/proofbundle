@@ -25,7 +25,7 @@ proofbundle (https://proofbundle.dev).
 | `claude_jsonl_to_vcon.py` | Converts one transcript into an unsigned vCon with the tool-invocation extension. Standard library only; its docstring lists the mapping and what it does not carry. |
 | `make_example.py` | The producer. Runs the converter, adds the gate, the approval record and the receipts, signs the vCon and writes `out/`. Deterministic, because the test keys are derived from public labels. |
 | `check_example.py` | The offline check of `out/` (or of any folder with the same files). |
-| `measure_cases.py` | Builds 31 failure cases and four passing variants from the example and runs the check twice on each. |
+| `measure_cases.py` | Builds 34 failure cases and four passing variants from the example and runs the check twice on each. |
 | `cases.md` | The output of `measure_cases.py`. |
 | `vcon_profile.py` | Helpers shared by the scripts, for strict JSON, RFC 8785, a small deterministic CBOR codec, COSE_Sign1, JWS with EdDSA and RS256, and the RSA test key derived from its label. |
 | `proposal_decision_receipt.cddl` | Our proposal, one parameter for the `$$event-policy-decision-ext` socket of tool-invocation-00. Not part of any draft. |
@@ -125,8 +125,12 @@ The example had to pick one reading at each of these places; `cases.md` holds a 
   latest time at which it was sent. The DENY receipt's `decidedAt` is the time of its policy-decision.
 - The converter assigns the operation_id, derived from the session id and the tool_use id; every operation has
   attempt 1. The tools of Claude Code are provided by the host, so `server` is `!host`.
-- A disallowed operation's tool result in the transcript is the host's refusal, not a response of the tool; it
-  becomes the `reason` of the policy-decision, and no tool event is written.
+- A disallowed operation's tool result in the transcript is the host's refusal, not a response of the tool, and no
+  tool event is written. Its text is not carried as the `reason` either: it is free text and can repeat the proposed
+  arguments, which a disallowed operation must not record.
+- The invocation and the results the check binds to a receipt are those of the attempt its policy-decision
+  precedes, and every tool event of the operation names the agent party of that decision. After a DENY no tool
+  event of the operation may stand anywhere in the vCon, in any session, as an operation_id names one operation.
 - The action bytes of a tool-invocation are the RFC 8785 serialization of its JSON content.
 - A `content_hash` must carry a `sha512` token.
 - `approvedAt` is the time the answer was sent, its `start` plus its `duration`.

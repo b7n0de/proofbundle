@@ -95,6 +95,18 @@ def m_f12(v):
                              "encoding": "json", "body": env4})
 
 
+def m_f31(v):
+    s = copy.deepcopy(v["sessions"][0])
+    s.update({"agent_session_id": "5e551011-0000-4000-8000-000000000009", "dialog": []})
+    v["sessions"].append(s)
+    pd = ev(v, OP2, "policy-decision")
+    v["events"].append({"type": "tool-invocation", "time": "2026-10-15T09:05:01.000Z", "sessions": 1, "party": 1,
+                        "operation_id": OP2, "attempt": 1, "server": pd["server"], "tool": pd["tool"],
+                        "mediatype": "application/json", "encoding": "json",
+                        "body": {"command": "gh pr merge 7 --repo acme/widgets --merge",
+                                 "description": "Merge pull request 7"}})
+
+
 def m_f19(v):
     ev(v, OP1, "policy-decision")["operation_id"] = mk.operation(v["sessions"][0]["agent_session_id"], "toolu_other")
 
@@ -181,6 +193,11 @@ CASES = [
      lambda v: ev(v, OP1, "policy-decision").update({"time": "2026-10-15T09:00:05.000Z"}), None),
     ("F29", "the policy-decision disallowed is not at decidedAt of the DENY receipt", "R2",
      lambda v: ev(v, OP2, "policy-decision").update({"time": "2026-10-15T09:05:02.000Z"}), None),
+    ("F30", "the tool-invocation and the tool-result of the approved push are attempt 2, the decision attempt 1",
+     "R2", lambda v: [ev(v, OP1, typ).update({"attempt": 2}) for typ in ("tool-invocation", "tool-result")], None),
+    ("F31", "a tool-invocation of the denied merge in a second session", "C2", m_f31, None),
+    ("F32", "the tool-invocation and the tool-result of the approved push name the person as party", "R2",
+     lambda v: [ev(v, OP1, typ).update({"party": 0}) for typ in ("tool-invocation", "tool-result")], None),
 ]
 PROPOSAL_CASES = [
     ("F27", "proposal: each policy-decision references the receipt of the other decision", "E1", None, p_f27),

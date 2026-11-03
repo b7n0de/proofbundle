@@ -29,6 +29,7 @@ import datetime
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -444,6 +445,8 @@ def check_receipts(rep, v, a, gate):
         rep.need(len(pds) == 1, "R2", where, "traceContext.parentId %r names no single policy-decision of the session"
                  % op)
         pd = events[pds[0]]
+        rep.need(pd.get("operation") == "tool-invocation", "R2", where,
+                 "policy-decision of operation %s is not for a tool-invocation" % op)
         verdict = pred["decision"]["verdict"]
         rep.need(pd.get("decision") in FITS.get(verdict, ()), "R2", where,
                  "policy-decision %r of operation %s does not fit the verdict %s" % (pd.get("decision"), op, verdict))
@@ -453,8 +456,9 @@ def check_receipts(rep, v, a, gate):
         principal = pred.get("principal", {}).get("id")
         people = [p for p in parties if p.get("type") == "person" and p.get("uuid") == principal]
         rep.need(len(people) == 1, "R2", where, "principal.id %r is not the uuid of one person in the vCon" % principal)
+        # the invocation and the results of the attempt the decision precedes (6.1.3), by the agent of the decision
         invs = [j for j, e in enumerate(events) if e.get("type") == "tool-invocation" and e.get("operation_id") == op
-                and k in as_list(e.get("sessions", []))]
+                and e.get("attempt") == pd.get("attempt") and k in as_list(e.get("sessions", []))]
         tool, action = None, None
         if pd.get("decision") == "disallowed":
             rep.need(vp.when(pd["time"]) == vp.when(pred["decidedAt"]), "R2", where,
@@ -462,7 +466,8 @@ def check_receipts(rep, v, a, gate):
             rep.ok("R2", where, "operation %s disallowed; its arguments are not in the vCon (tool-invocation-00 "
                    "6.1.1), parametersDigest is bound by the receipt alone" % op)
         else:
-            rep.need(len(invs) == 1, "R2", where, "operation %s has no single tool-invocation in the session" % op)
+            rep.need(len(invs) == 1, "R2", where, "operation %s has no single tool-invocation of attempt %r in the "
+                     "session" % (op, pd.get("attempt")))
             tool = events[invs[0]]
             rep.need(tool.get("encoding") == "json" and "body" in tool, "R2", where,
                      "the arguments of operation %s are not inline JSON" % op)
@@ -525,7 +530,12 @@ def check_receipts(rep, v, a, gate):
                      "approval expired at the time of the tool-invocation: time %s, validUntil %s" % (
                          tool["time"], rec["validUntil"]), "approvedAt <= tool-invocation time <= validUntil")
         results = [e for e in events if e.get("type") in RESULT_TYPES and e.get("operation_id") == op
-                   and k in as_list(e.get("sessions", []))]
+                   and e.get("attempt") == pd.get("attempt") and k in as_list(e.get("sessions", []))]
+        for j, e in enumerate(events):
+            if e.get("type") in TOOL_TYPES and e.get("operation_id") == op:
+                rep.need(e.get("party") == pd.get("party"), "R2", where, "events[%d] %s of operation %s names party %r, "
+                         "not the agent %r of its policy-decision (6.1)" % (j, e["type"], op, e.get("party"),
+                                                                           pd.get("party")))
         T = vp.iso(min(vp.when(e["time"]) for e in results)) if results else pred["decidedAt"]
         full_check(rep, "R5", where + ", T " + T, b, a, T, case, action, ap_b)
         found.append({"pred": pred, "root": root, "case": case, "approval": f, "op": op, "session": k, "bytes": b,
@@ -547,9 +557,9 @@ def check_set(rep, v, found, approvals):
     for x in found:
         if x["pred"]["decision"]["verdict"] in ("DENY", "REFUSE"):
             where = "%s, operation %s" % (x["pred"]["decisionId"], x["op"])
+            # operation_id names one operation in the whole vCon (6.1.2), whatever sessions an event names
             for j, e in enumerate(events):
-                if e.get("type") in TOOL_TYPES and e.get("operation_id") == x["op"] \
-                        and x["session"] in as_list(e.get("sessions", [])):
+                if e.get("type") in TOOL_TYPES and e.get("operation_id") == x["op"]:
                     rep.fail("C2", where, "events[%d] %s after %s: the operation was performed" % (
                         j, e["type"], x["pred"]["decision"]["verdict"]))
     rep.ok("C2", "set", "no tool event of an operation after its DENY or REFUSE")
@@ -589,6 +599,9 @@ def check_proposal(rep, d, rel, v, found, att, external):
         ref = e[PROPOSAL_PARAMETER]
         rep.need(isinstance(ref, dict) and not set(ref) - {"url", "content_hash", "mediatype"} and "content_hash" in ref,
                  "E1", w, "%s is not an object of url, content_hash and mediatype" % PROPOSAL_PARAMETER)
+        rep.need(isinstance(ref.get("mediatype", ""), str) and all(
+            isinstance(t, str) and re.fullmatch(r"[a-z0-9]+-[A-Za-z0-9_-]+", t) for t in as_list(ref["content_hash"])),
+            "E1", w, "mediatype is not a string, or a content_hash token is malformed")
         x = by_op.get(e.get("operation_id"))
         rep.need(x is not None, "E1", w, "no receipt names operation %s" % e.get("operation_id"))
         sha512 = [t[7:] for t in as_list(ref["content_hash"]) if isinstance(t, str) and t.startswith("sha512-")]

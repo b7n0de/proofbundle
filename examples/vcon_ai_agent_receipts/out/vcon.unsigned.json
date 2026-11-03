@@ -192,7 +192,6 @@
       "sessions": 0,
       "party": 1,
       "decision": "disallowed",
-      "reason": "Blocked by gate-1: required_check_failed",
       "operation": "tool-invocation",
       "policy_life": "once",
       "operation_id": "5d67adf0-d064-8500-80ff-a7b826055c60",
