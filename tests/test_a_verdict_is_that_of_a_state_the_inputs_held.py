@@ -836,27 +836,31 @@ def _im_fenster(rahmen: Any, i: int, x: Any, y: Any, liste: Any) -> bool:
     """Whether a collection that starts in ``rahmen`` lies in the window of step ``i`` of the ABA case over ``liste``
     with the entries ``x`` and ``y`` (`_aba_messen`). Judged by what the frames hold (the record of the first collect,
     the value being read, whether its pairs are taken), never by an offset of the bytecode, so a step finds its moment
-    wherever in its window a collection starts. A point where that cannot be told (the collect's own frame between
-    reading X and recording it) is outside every window."""
+    wherever in its window a collection starts. A point where that cannot be told is outside every window: the
+    collect's own frame between reading X and recording it, and every frame of `canonical._lies` that reads the entry
+    of the step itself, where the reading may have begun to take its pairs (inside the call that takes them, or after
+    it and before they are bound, `NoWindowIsOpenWhereTheReadingHasTakenItsEntry`). A frame of `_lies` counts only
+    where it reads the entry before, with its pairs bound."""
     sammeln = _SAMMELN_1 if i == 0 else _SAMMELN_2
     lokal = rahmen.f_locals
     if rahmen.f_code is _LIES:
         if rahmen.f_back is None or rahmen.f_back.f_code is not sammeln:
             return False
-        wert, genommen = lokal.get("wert"), "paare" in lokal
+        wert = lokal.get("wert")
         if i == 1:
-            return wert is liste or (wert is y and not genommen)
-        return (wert is y and genommen) or (wert is x and not genommen)
+            return wert is liste
+        return wert is y and "paare" in lokal
     gelesen = lokal.get("gelesen")
     if rahmen.f_code is not sammeln or type(gelesen) is not dict or id(liste) not in gelesen:
         return False
     wert = lokal.get("wert")
     if i == 0:
         return id(y) in gelesen and id(x) not in gelesen and wert is not x
+    satz = lokal.get("satz")   # the list read before Y gives a "list" record, Y a "dict" one
     if i == 1:
         reihe = list(gelesen)
-        return "wert" not in lokal or (id(wert) in gelesen and reihe.index(id(wert)) < reihe.index(id(y)))
-    satz = lokal.get("satz")   # the list read before Y gives a "list" record, Y a "dict" one
+        return ("wert" not in lokal or (id(wert) in gelesen and reihe.index(id(wert)) < reihe.index(id(y)))
+                or (wert is y and type(satz) is tuple and satz[:1] == ("list",)))
     return wert is y and type(satz) is tuple and satz[:1] == ("dict",)
 
 
@@ -952,16 +956,19 @@ class ABAIsMeasuredUpToThePublicVerdict(_Registriert):
     is the same object each time, so each collect reads the same objects, the first one Y good and X good, which the
     list never held together. Each window is judged by what the frames hold, so a step finds its moment wherever in
     its window a collection starts (`TheABACaseFindsItsMomentsWhereverTheCollectorStarts`; until then a step waited for
-    a collection at the one call that takes the pairs). A step that never found its moment is reported as not measured,
-    never as held. The measurement runs in an interpreter of its own: what ran before it in the process moved the
-    collection starts (pull request 473, under CPython 3.14, `TheABACaseIsMeasuredWhateverRanBeforeIt`)."""
+    a collection at the one call that takes the pairs). The case counts as measured only where it observed what it
+    claims, at `canonical._gleich_gelesen`: a first collect recorded X and Y both good and the second found the same
+    objects. Otherwise it is reported as not measured, never as held. The measurement runs in an interpreter of its
+    own: what ran before it in the process moved the collection starts (pull request 473, under CPython 3.14,
+    `TheABACaseIsMeasuredWhateverRanBeforeIt`)."""
 
     def test_aba_reaches_the_public_verdict_only_where_the_limit_is_named(self) -> None:
         m = _in_frischem_interpreter("_aba_messen")
         self.assertEqual(m["nie_gehalten"], "PASS", "the never-held state must pass")
         self.assertNotIn("PASS", m["gehalten"])
-        if m["schritte"] < m["von"]:
-            self.fail(f"NOT MEASURED: {m['schritte']} of {m['von']} steps found their moment; verdict {m['aus']}")
+        if m["schritte"] < m["von"] or not m["gemessen"]:
+            self.fail(f"NOT MEASURED: {m['schritte']} of {m['von']} steps found their moment, and the pairs of "
+                      f"collects over the list read {m['lesungen']}; verdict {m['aus']}")
         aus = m["aus"]
         print(f"\nABA: verdict {aus} over a list whose held states give {m['gehalten']}")
         if aus == "PASS":
@@ -1064,16 +1071,17 @@ class TheABACaseFindsItsMomentsWhereverTheCollectorStarts(unittest.TestCase):
     """CI of pull request 474 at ad42ad9b, test (3.13, 1) and test (3.14, 1): the ABA case, measured in an interpreter of
     its own, reported "1 of 3 steps found their moment". Where a collection starts depends on how many objects were
     allocated since the last one, and that moves with the version, with modules compiled afresh and with what the
-    callback itself allocates. Here the callback allocates 0 to 7 objects after each collection, which moves every later
-    collection start, and for each of them every step must find its moment."""
+    callback itself allocates. Here the callback allocates 0 to 7 lists, and one list holding them, after each
+    collection, which moves every later collection start, and for each shift every step must find its moment and a pair
+    of collects must read the never-held state as one."""
 
     def test_every_step_finds_its_moment_for_each_shift_of_the_collection_starts(self) -> None:
         ohne = []
         for versatz in range(8):
             m = _in_frischem_interpreter("_aba_messen", versatz)
-            if m["schritte"] < m["von"]:
-                ohne.append(f"shift {versatz}: {m['schritte']} of {m['von']}")
-        self.assertEqual(ohne, [], "shifts of the collection starts at which a step found no moment")
+            if m["schritte"] < m["von"] or not m["gemessen"]:
+                ohne.append(f"shift {versatz}: {m['schritte']} of {m['von']}, read {m['lesungen']}")
+        self.assertEqual(ohne, [], "shifts of the collection starts at which the never-held state was not measured")
 
 
 class NoWindowIsOpenWhereTheReadingHasTakenItsEntry(unittest.TestCase):
