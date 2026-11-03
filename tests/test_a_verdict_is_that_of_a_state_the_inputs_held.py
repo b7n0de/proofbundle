@@ -1113,9 +1113,11 @@ def _an_befehlen(stellen: dict, rueckruf: Callable[[Any], None], lauf: Callable[
         raise AssertionError("no free tool id of sys.monitoring")
     werkzeug = frei[0]
     mon.use_tool_id(werkzeug, "aba window case")
+    alter_rueckruf = None
     try:
+        alter_rueckruf = mon.register_callback(werkzeug, mon.events.INSTRUCTION, None)
         alte_ereignisse = {code: mon.get_local_events(werkzeug, code) for code in stellen}
-        alter_rueckruf = mon.register_callback(
+        mon.register_callback(
             werkzeug, mon.events.INSTRUCTION,
             lambda code, stelle: rueckruf(sys._getframe(1)) if stelle in stellen.get(code, ()) else None)
         try:
@@ -1125,9 +1127,11 @@ def _an_befehlen(stellen: dict, rueckruf: Callable[[Any], None], lauf: Callable[
         finally:
             for code, ereignisse in alte_ereignisse.items():
                 mon.set_local_events(werkzeug, code, ereignisse)
-            mon.register_callback(werkzeug, mon.events.INSTRUCTION, alter_rueckruf)
     finally:
+        # local events can be set only at an id in use, a callback also at a free one; under CPython 3.14
+        # free_tool_id drops the callbacks of the id, so the old one goes back after it (pre-run on f7c0ef13)
         mon.free_tool_id(werkzeug)
+        mon.register_callback(werkzeug, mon.events.INSTRUCTION, alter_rueckruf)
 
 
 class NoWindowIsOpenWhereTheReadingHasTakenItsEntry(unittest.TestCase):
