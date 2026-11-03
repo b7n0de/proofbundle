@@ -30,6 +30,7 @@ import base64
 import collections
 import copy
 import dataclasses
+import dis
 import gc
 import hashlib
 import json
@@ -825,10 +826,46 @@ class CorrelatedChangesGiveTheVerdictOfOneState(_Registriert):
 
 # ── 4. ABA, targeted, up to the public verdict ─────────────────────────────────────────────────────────────────────
 
+#: The code of the reading's two collects and of the read of one container, taken at import, before `_aba_messen`
+#: puts an observer in the place of `canonical._gleich_gelesen`.
+_SAMMELN_1, _SAMMELN_2, _LIES = (canonical._lesen_einmal.__code__, canonical._gleich_gelesen.__code__,
+                                 canonical._lies.__code__)
+
+
+def _im_fenster(rahmen: Any, i: int, x: Any, y: Any, liste: Any) -> bool:
+    """Whether a collection that starts in ``rahmen`` lies in the window of step ``i`` of the ABA case over ``liste``
+    with the entries ``x`` and ``y`` (`_aba_messen`). Judged by what the frames hold (the record of the first collect,
+    the value being read, whether its pairs are taken), never by an offset of the bytecode, so a step finds its moment
+    wherever in its window a collection starts. A point where that cannot be told (the collect's own frame between
+    reading X and recording it) is outside every window."""
+    sammeln = _SAMMELN_1 if i == 0 else _SAMMELN_2
+    lokal = rahmen.f_locals
+    if rahmen.f_code is _LIES:
+        if rahmen.f_back is None or rahmen.f_back.f_code is not sammeln:
+            return False
+        wert, genommen = lokal.get("wert"), "paare" in lokal
+        if i == 1:
+            return wert is liste or (wert is y and not genommen)
+        return (wert is y and genommen) or (wert is x and not genommen)
+    gelesen = lokal.get("gelesen")
+    if rahmen.f_code is not sammeln or type(gelesen) is not dict or id(liste) not in gelesen:
+        return False
+    wert = lokal.get("wert")
+    if i == 0:
+        return id(y) in gelesen and id(x) not in gelesen and wert is not x
+    if i == 1:
+        reihe = list(gelesen)
+        return "wert" not in lokal or (id(wert) in gelesen and reihe.index(id(wert)) < reihe.index(id(y)))
+    satz = lokal.get("satz")   # the list read before Y gives a "list" record, Y a "dict" one
+    return wert is y and type(satz) is tuple and satz[:1] == ("dict",)
+
+
 def _aba_messen(versatz: int = 0) -> dict:
     """The ABA measurement of `ABAIsMeasuredUpToThePublicVerdict` in the interpreter that calls it: the verdict of the
-    never-held state, the verdicts of the held states, how many steps found their moment, and the verdict. With
-    ``versatz`` the callback allocates that many objects after each collection, which moves every later collection
+    never-held state, the verdicts of the held states, how many steps found their moment, what each pair of collects
+    over the list read (the root the first collect recorded for X and for Y, and whether the second found the same
+    objects), whether one pair read the never-held state as one, and the verdict. With ``versatz`` the callback
+    allocates that many lists and one list holding them after each collection, which moves every later collection
     start (`TheABACaseFindsItsMomentsWhereverTheCollectorStarts`)."""
     gut_text = base64.b64encode(_WURZEL).decode()
     schlecht_text = base64.b64encode(b"\x00" * 32).decode()
@@ -845,53 +882,45 @@ def _aba_messen(versatz: int = 0) -> dict:
                 for a, b in ((schlecht_text, gut_text), (schlecht_text, schlecht_text), (gut_text, schlecht_text))}
     nie_gehalten = urteil([dict(x, canonicalRoot=gut_text), y])
 
-    sammeln_1, sammeln_2, lies = (canonical._lesen_einmal.__code__, canonical._gleich_gelesen.__code__,
-                                  canonical._lies.__code__)
     schritte = [[(y, schlecht_text), (x, gut_text)],   # first collect, after the pairs of Y, before those of X
                 [(x, schlecht_text), (y, gut_text)],   # second collect, before the pairs of Y
                 [(y, schlecht_text), (x, gut_text)]]   # second collect, after the pairs of Y, before those of X
     stand = {"i": 0}
     halde: list = []
+    gleich_gelesen = canonical._gleich_gelesen
+    lesungen: list = []
 
-    def im_fenster(rahmen) -> bool:
-        """Whether a collection that starts in ``rahmen`` lies in the window of the next step. Judged by what the frames
-        hold (the record of the first collect, the value being read, whether its pairs are taken), never by an offset of
-        the bytecode, so a step finds its moment wherever in its window a collection starts. A point where that cannot
-        be told (the collect's own frame between reading X and recording it) is outside every window."""
-        i = stand["i"]
-        sammeln = sammeln_1 if i == 0 else sammeln_2
-        lokal = rahmen.f_locals
-        if rahmen.f_code is lies:
-            if rahmen.f_back is None or rahmen.f_back.f_code is not sammeln:
-                return False
-            wert, genommen = lokal.get("wert"), "paare" in lokal
-            if i == 1:
-                return wert is liste or (wert is y and not genommen)
-            return (wert is y and genommen) or (wert is x and not genommen)
-        gelesen = lokal.get("gelesen")
-        if rahmen.f_code is not sammeln or type(gelesen) is not dict or id(liste) not in gelesen:
-            return False
-        wert = lokal.get("wert")
-        if i == 0:
-            return id(y) in gelesen and id(x) not in gelesen and wert is not x
-        if i == 1:
-            reihe = list(gelesen)
-            return "wert" not in lokal or (id(wert) in gelesen and reihe.index(id(wert)) < reihe.index(id(y)))
-        satz = lokal.get("satz")   # the list read before Y gives a "list" record, Y a "dict" one
-        return wert is y and type(satz) is tuple and satz[:1] == ("dict",)
+    def wurzel_von(satz: Any) -> Any:
+        if type(satz) is not tuple or satz[:1] != ("dict",):
+            return None
+        wurzel = dict(satz[2]).get("canonicalRoot")
+        return "good" if wurzel == gut_text else ("bad" if wurzel == schlecht_text else None)
+
+    def beobachtet(gelesen: dict) -> bool:
+        """`canonical._gleich_gelesen` as it is; for a pair of collects over the list it also notes what the first collect
+        recorded for X and Y and what the second answered."""
+        gleich = gleich_gelesen(gelesen)
+        if id(liste) in gelesen:
+            lesungen.append([wurzel_von(gelesen.get(id(x))), wurzel_von(gelesen.get(id(y))), gleich])
+        return gleich
 
     def cb(phase, info):
         if phase == "stop" and versatz:
             halde.append([[] for _ in range(versatz)])
         if phase != "start" or stand["i"] >= len(schritte):
             return
-        if im_fenster(sys._getframe(1)):
+        if _im_fenster(sys._getframe(1), stand["i"], x, y, liste):
             for eintrag, text in schritte[stand["i"]]:
                 eintrag["canonicalRoot"] = text
             stand["i"] += 1
-    aus = _mit_gc(cb, lambda: urteil(liste))
+    canonical._gleich_gelesen = beobachtet
+    try:
+        aus = _mit_gc(cb, lambda: urteil(liste))
+    finally:
+        canonical._gleich_gelesen = gleich_gelesen
     return {"nie_gehalten": str(nie_gehalten), "gehalten": sorted(map(str, gehalten)), "schritte": stand["i"],
-            "von": len(schritte), "aus": str(aus)}
+            "von": len(schritte), "lesungen": lesungen, "gemessen": ["good", "good", True] in lesungen,
+            "aus": str(aus)}
 
 
 def _in_frischem_interpreter(funktion: str, *argumente: int) -> dict:
@@ -1045,3 +1074,39 @@ class TheABACaseFindsItsMomentsWhereverTheCollectorStarts(unittest.TestCase):
             if m["schritte"] < m["von"]:
                 ohne.append(f"shift {versatz}: {m['schritte']} of {m['von']}")
         self.assertEqual(ohne, [], "shifts of the collection starts at which a step found no moment")
+
+
+class NoWindowIsOpenWhereTheReadingHasTakenItsEntry(unittest.TestCase):
+    """Codex pre-run on 66b33218 (P2): a step counted its moment where ``paare`` was not yet bound in `canonical._lies`.
+    That is also so while ``list(dict.items(wert))`` takes the pairs, and, under CPython 3.12 and later, after it took
+    them and before it binds them; a change made there comes after the reading took the entry. Here the two collects of
+    the reading run over a list under a tracer of opcodes, and at the instruction that binds ``paare`` (the pairs taken,
+    not yet bound) the window of each step whose entry is being read must be closed."""
+
+    def test_the_window_is_closed_where_the_pairs_are_taken_and_not_yet_bound(self) -> None:
+        binden = {b.offset for b in dis.get_instructions(_LIES) if b.opname.startswith("STORE_FAST")
+                  and "paare" in (b.argval if isinstance(b.argval, tuple) else (b.argval,))}
+        self.assertTrue(binden, "no instruction of canonical._lies binds paare")
+        x, y = {"canonicalRoot": "a", "proof": "p"}, {"canonicalRoot": "b", "proof": "p"}
+        liste = [x, y]
+        getroffen, offen = [], []
+
+        def spur(rahmen, ereignis, arg):
+            if rahmen.f_code is _LIES:
+                rahmen.f_trace_opcodes = True
+                if ereignis == "opcode" and rahmen.f_lasti in binden:
+                    getroffen.append(rahmen.f_back.f_code.co_name)
+                    for i, ziel in ((0, x), (1, y), (2, x)):
+                        if rahmen.f_locals.get("wert") is ziel and _im_fenster(rahmen, i, x, y, liste):
+                            offen.append(f"step {i} in {rahmen.f_back.f_code.co_name}")
+            return spur
+        alt = sys.gettrace()
+        sys.settrace(spur)
+        try:
+            gelesen = canonical._lesen_einmal(liste)
+            canonical._gleich_gelesen(gelesen)
+        finally:
+            sys.settrace(alt)
+        self.assertEqual(sorted(getroffen), ["_gleich_gelesen"] * 2 + ["_lesen_einmal"] * 2,
+                         "the tracer did not stop where each collect binds the pairs of X and Y")
+        self.assertEqual(offen, [], "windows open where the reading has taken the entry of their step")
