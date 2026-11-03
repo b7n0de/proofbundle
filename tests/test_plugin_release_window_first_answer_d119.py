@@ -250,3 +250,35 @@ def test_a_second_hook_releases_no_later_copy_while_the_first_has_read_an_earlie
     monkeypatch.setattr(gate, "_releases", releases)
     assert not _passes(OTHER, first + 60)
     assert second["released"] is False
+
+
+def test_a_held_release_is_not_used_while_another_hook_notes_an_earlier_answer(env, monkeypatch):
+    """The fourth pre-run of the reading (at d6964b2d): _release_take read the record of first answers under the lock of
+    the uses alone, so a held release (the path of the signer service, settled by release_settle) was used while
+    another hook had read an earlier answer under the lock of the record and not noted it yet. _release_take now holds
+    that lock as well, the record's first. Here the other hook pauses right after its read, and the held release is
+    settled then; it waits for the lock, gives up after LOCK_SECONDS and is not used. RED at d6964b2d: it was used."""
+    first = float(int(time.time())) - 20 * 60
+    later = first + 10 * 60
+    folder = env / "gatedir" / "freigaben"
+    data = pathlib.Path(os.environ["CLAUDE_PLUGIN_DATA"])
+    _copy(env, "b.json", later)
+    assert not _passes(OTHER, later + 1)
+    (folder / "b.json").unlink()
+    held = {"karte": d111.CARD, "sitzung": SESSION, "sha256": gate.command_sha256(COMMAND), "antwort": _stamp(later),
+            "zeit": later}
+    _copy(env, "a.json", first)
+    real = gate._releases
+    settled = {}
+
+    def releases(environ):
+        found = real(environ)
+        if not settled:
+            monkeypatch.setattr(gate._answer_hook(), "LOCK_SECONDS", 0.2)
+            settled["used"] = gate._release_take(held, {"CLAUDE_PLUGIN_DATA": str(data)}, first + 20 * 60)
+        return found
+
+    monkeypatch.setattr(gate, "_releases", releases)
+    assert not _passes(OTHER, first + 60)
+    assert settled["used"] is False
+    assert not (data / gate.RELEASES_USED).exists()

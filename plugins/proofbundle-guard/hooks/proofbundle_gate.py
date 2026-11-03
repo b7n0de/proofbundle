@@ -18511,7 +18511,9 @@ def _release_take(release: dict, environ, now: float | None = None) -> bool:
     now = time.time() if now is None else now
     try:
         hook = _answer_hook()
-        with hook.asks_lock(data, RELEASES_USED):
+        # the lock of the record of first answers first, then that of the uses, so no hook notes an earlier answer it
+        # has read while the use is decided (the fourth pre-run of the reading); no other path takes the two locks
+        with hook.asks_lock(data, RELEASES_FIRST), hook.asks_lock(data, RELEASES_USED):
             used, consumed = _releases_record(data)
             # the window again from the earliest answer of the identity, as it stands now (a record that does not read
             # whole is a ValueError: then nothing is used)

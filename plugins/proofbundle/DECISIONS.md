@@ -5847,7 +5847,9 @@ form, which no form the reader takes undercuts, so rewriting a record the reader
 record of the uses keeps the default form; there a write past the bound only refuses the release. The folder is read
 under the lock under which the answers are noted, so no second hook decides between the read of an earlier copy and
 the note of its answer (the third line of the reading of 586d245c: a hook paused after its read let a second hook
-release a later copy); a hook that cannot take the lock within LOCK_SECONDS releases nothing. A write that fails
+release a later copy); a hook that cannot take the lock within LOCK_SECONDS releases nothing. _release_take holds
+the same lock before the lock of the uses, so a held release is not used while another hook notes an earlier answer
+it has read (the fourth pre-run); no path takes the two locks the other way round. A write that fails
 loses what that call read, as a copy the gate never read is lost. Where a later copy can arise: the writer at the farmer
 (scripts/b7_klickfreigabe_schreiber.py of 2bedone, pull request 2454, not landed) writes one file per card and line,
 once, and refuses a second click under the same name; a later copy needs the first file gone (a cleared folder; the
