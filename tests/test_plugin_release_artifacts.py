@@ -443,6 +443,35 @@ class GuardProfile(Base):
                 failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
                 self.assertTrue(failed and "in a form the generator reads" in failed[0], failed)
 
+    def test_n6k_hook_program_joined_after_a_command_substitution_is_refused(self):
+        """The Codex pre-run of the reading of af7c414d: shlex splits $(printf x) from the quoted path that follows it,
+        while the shell joins both into one word and starts x<root>/hooks/proofbundle_gate.py. Since then a hook
+        command is held to the two forms the Guard writes, read from the start of the command, not to a list of forms
+        it must not have. Also a second mention of a plugin root and leading blanks are refused."""
+        commands = {
+            "substitution claude": 'python3 -I $(printf x)"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py"',
+            "substitution codex": 'python3 -I $(printf x)"${PLUGIN_ROOT}/hooks/proofbundle_gate.py"',
+            "second root": 'python3 -I "${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py" "${CLAUDE_PLUGIN_ROOT}/x"',
+            "leading blank": ' python3 -I "${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py"',
+        }
+        for name, command in commands.items():
+            with self.subTest(name=name):
+                hooks = {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": command}]}]}
+                files = split_files()
+                if "codex" in name:
+                    files[G + "/.codex-plugin/plugin.json"] = manifest("proofbundle-guard", hooks=hooks)
+                else:
+                    files[G + "/hooks/hooks.json"] = json.dumps({"hooks": hooks}) + "\n"
+                sub = self.tmp / name.replace(" ", "_")
+                sub.mkdir()
+                repo, commit = make_repo(sub, files)
+                out = sub / "out"
+                proc = build(repo, commit, out)
+                self.assertEqual(proc.returncode, 1, text(proc))
+                self.assertFalse(out.exists() and any(out.iterdir()), "a refused build wrote artifacts")
+                failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
+                self.assertTrue(failed and "in a form the generator reads" in failed[0], failed)
+
     def test_n6j_control_the_command_forms_the_guard_writes_build(self):
         """The forms of the Guard's hooks at main c9ab65b1: an or-list with a group, a command substitution assigned to a
         variable with an if, and a single-quoted JSON text after the program."""

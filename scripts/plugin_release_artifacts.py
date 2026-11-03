@@ -84,7 +84,6 @@ import io
 import json
 import os
 import re
-import shlex
 import subprocess
 import sys
 import tarfile
@@ -118,14 +117,15 @@ HOUSE_MARKETPLACE = G + "/.claude-plugin/marketplace.json"
 #: MCP server; its copy of the server, which only the gate starts, must be byte-equal to the verifier's.
 VERIFIER_TOOLS = ("emit_receipt", "gate_selftest_check", "gate_selftest_prepare", "gate_status", "inspect_receipt",
                   "receipt_template", "verify_receipt")
-#: A program of the plugin that a hook command starts, as both hosts write it: a shell word that is exactly the host's
-#: plugin root in braces, Claude Code's ${CLAUDE_PLUGIN_ROOT} or Codex's ${PLUGIN_ROOT}, and a path inside the plugin,
-#: written in double quotes (hook_programs). The command is split into words as a POSIX shell splits it (shlex), so no
-#: text joined to the quotes, directly or through an escaped blank, is read as the program. Every word that names a
-#: plugin root must be such a start, and a command without one is refused (check_guard_profile): a form the generator
-#: does not read is no program it has checked.
-HOOK_ROOTS = ("${CLAUDE_PLUGIN_ROOT}/", "${PLUGIN_ROOT}/")
-HOOK_PATH = re.compile(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*")
+#: The two forms in which a hook command of the Guard starts its program, as the Guard writes them at main c9ab65b1,
+#: read from the start of the command (hook_programs): python3 -I and the program path in double quotes, Claude Code's
+#: ${CLAUDE_PLUGIN_ROOT} or Codex's ${PLUGIN_ROOT} and a path inside the plugin, followed by a blank or the end; or the
+#: same assigned to out by a command substitution, followed by a blank or its closing parenthesis. Since the path starts
+#: the command and a blank or an end follows it, no text can be joined to it, and the plugin root may be named once
+#: only. Every other form stops the build (check_guard_profile): it is held to the forms allowed, not to a list of forms
+#: it must not have, which the readings of 2bcbf9f3, 03958484 and af7c414d each found one more of.
+_HOOK_PATH = r'"\$\{(?:CLAUDE_PLUGIN_ROOT|PLUGIN_ROOT)\}/([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*)"'
+HOOK_START = re.compile(r"python3 -I " + _HOOK_PATH + r"(?= |$)|out=\$\(python3 -I " + _HOOK_PATH + r"(?=[ )])")
 
 #: Every required version place ("version") and pin place ("pin"), by layout. Kinds:
 #:   json_version   the "version" member of a JSON file
@@ -437,28 +437,18 @@ def check_marketplaces(repo: Path, commit: str, layout: dict, version: str) -> l
 
 
 def hook_programs(command: object) -> list[str] | None:
-    """The paths of the programs a hook command starts, in its order, or None where the command is no string, does not
-    split into shell words, names a plugin root in a word that is not exactly a root and a path inside the plugin
-    written in double quotes, or starts no program."""
+    """The path of the program a hook command starts, as a list of one, or None where the command is no string, does
+    not begin with one of the two forms of HOOK_START, names a plugin root more than once, or names a path with a "."
+    or ".." segment."""
     if not isinstance(command, str):
         return None
-    try:
-        lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
-        lexer.whitespace_split = True
-        words = list(lexer)
-    except ValueError:
+    m = HOOK_START.match(command)
+    if m is None or command.count("PLUGIN_ROOT") != 1:
         return None
-    found = []
-    for word in words:
-        if "PLUGIN_ROOT" not in word:
-            continue
-        root = next((r for r in HOOK_ROOTS if word.startswith(r)), None)
-        path = word[len(root):] if root else ""
-        if root is None or not HOOK_PATH.fullmatch(path) or any(part in (".", "..") for part in path.split("/")) \
-                or f'"{word}"' not in command:
-            return None
-        found.append(path)
-    return found or None
+    path = m.group(1) or m.group(2)
+    if any(part in (".", "..") for part in path.split("/")):
+        return None
+    return [path]
 
 
 def _hook_commands(value: object) -> list[object]:
