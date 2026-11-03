@@ -33,6 +33,7 @@ commit and checks these rows against the landed changes; this file does not name
 | PR466 | 466, landed as `8bb289c8` | the record of the owner releases used reads only its own fields, keeps every dropped identity as a digest, writes a use only within its window and chooses a release by the same predicate it writes it by | `fix/d119-release-record-full-refuses` |
 | PR469 | 469, landed as `c1c123c3` | the verifier pin `proofbundle==6.4.0` in the gate and in the MCP server, with the texts that name it | `build/plugin-pin-6.4.0` |
 | PR472 | 472, landed as `a466f4d6` | the Guard becomes the plugin proofbundle-guard in plugins/proofbundle-guard with its own house marketplace and its own copy of the server; proofbundle registers no hook; the public marketplace lists proofbundle alone; the server reads the gate's log from the Guard's data directory | `build/plugin-guard-apart-d134` |
+| PR468 | 468 | a copy of an owner's release with a later answer does not extend the window of its identity | `fix/release-window-binds-to-the-first-answer` |
 | RP1 | the pull request that adds this file | the release tools `scripts/plugin_release_artifacts.py` and `scripts/plugin_release_run_probe.sh` with their counterprobes in `tests/test_plugin_release_artifacts.py`, the release notes `release_notes/RELEASE_NOTES_plugin_0.4.0.md`, this scope file and its pinned state in `tests/test_release_scope_title_gate.py`, and the decision in `MANIFEST.in` and `tests/test_sdist_ohne_signierwerkzeug.py` that the sdist does not ship the two tools | `build/plugin-release-plan-0.4.0` |
 
 Two corrections of the Guard's decision receipts are in this release as well. The owner chose on 2026-11-03 to take
@@ -66,9 +67,9 @@ Out means that an item is not part of the plugin release; it does not prove abse
 
 ## Open points
 
-1. Pull request 468 is open and changes two files of the Guard: a copy of an owner's release with a later answer
-   does not extend the window of its identity. If it lands before the release commit, it is in the archive and needs
-   a row in In; if it lands later, it is out. Which of the two is the owner's decision.
+1. Pull request 468 changes two files of the Guard: a copy of an owner's release with a later answer does not extend
+   the window of its identity. The owner chose on 2026-11-03 to take it into 0.4.0; it lands before this file, has
+   its row in In, and the acceptance at the release commit measures it.
 2. A change to plugins/, .claude-plugin/ or LICENSE that lands between this file's pull request and the release commit
    needs its own row, and the generator's inventory below is read again at the release commit.
 3. The README section "Release 0.4.0 verification and migration", which the release notes link, is written after the
