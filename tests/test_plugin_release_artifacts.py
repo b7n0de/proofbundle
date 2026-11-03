@@ -386,6 +386,26 @@ class SplitChecks(Base):
                 failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
                 self.assertTrue(failed and "CR line ends" in failed[0], failed)
 
+    def test_s1i_a_python_file_with_an_encoding_cookie_or_a_bom_is_refused(self):
+        """Python decodes a file by its coding cookie (PEP 263) or BOM, while the generator decodes every file as UTF-8,
+        so a cookie naming another encoding could make Python read a place otherwise. No file the generator reads with
+        ast has either at main c9ab65b1, so both stop the build."""
+        for name, head in (("cookie", "# -*- coding: latin-1 -*-\n"), ("bom", "\ufeff")):
+            with self.subTest(name=name):
+                files = split_files()
+                for root in (V, G):
+                    rel = root + "/server/proofbundle_mcp.py"
+                    files[rel] = head + files[rel]
+                sub = self.tmp / name
+                sub.mkdir()
+                repo, commit = make_repo(sub, files)
+                out = sub / "out"
+                proc = build(repo, commit, out)
+                self.assertEqual(proc.returncode, 1, text(proc))
+                self.assertFalse(out.exists() and any(out.iterdir()), "a refused build wrote artifacts")
+                failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
+                self.assertTrue(failed and "encoding" in failed[0], failed)
+
     def test_s2_missing_guard_gate_pin_is_refused(self):
         self.split_refused(lambda f: f.__setitem__(G + "/hooks/proofbundle_gate.py", gate(constant=False)),
                            "PINNED_PROOFBUNDLE")

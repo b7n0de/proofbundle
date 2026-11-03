@@ -411,6 +411,10 @@ def block_pin(content: str, where: str) -> str:
     return pins[0]
 
 
+#: The encoding declaration of PEP 263, in the form the PEP gives for the first two lines of a file.
+PEP263 = re.compile(r"^[ \t\f]*#.*?coding[:=][ \t]*([-\w.]+)")
+
+
 def python_text(text: str, path: str) -> str:
     """A Python file the generator reads with ast, tokenize or the PEP 723 pattern, which it reads with LF line ends
     only, as every such file at main c9ab65b1 has: ast takes a lone CR for a line end while the token reader and the
@@ -418,6 +422,11 @@ def python_text(text: str, path: str) -> str:
     of 7cf13c55). A CR in such a file stops the build."""
     if "\r" in text:
         raise CheckFailed(f"{path}: CR line ends; the generator reads Python files with LF line ends only")
+    # Python decodes a file by its BOM or its coding cookie (PEP 263), the generator every file as UTF-8; no file it
+    # reads this way carries either at main c9ab65b1, so either stops the build.
+    if text.startswith("\ufeff") or any(PEP263.match(line) for line in text.split("\n")[:2]):
+        raise CheckFailed(f"{path}: a BOM or an encoding declaration; the generator reads Python files as UTF-8 "
+                          "without either")
     return text
 
 
