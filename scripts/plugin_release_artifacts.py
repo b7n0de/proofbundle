@@ -16,9 +16,9 @@ build
       - the required paths: LICENSE and every marketplace file of the layout as regular files, every plugin root of
         the layout as a nonempty tree;
       - every required version place and every required pin place of the layout's inventory (INVENTORIES below), with
-        its exact count; script dependency metadata is parsed as TOML (PEP 723), and each block must list exactly one
-        dependency, proofbundle pinned with == to the expected version; source constants are read with ast, never
-        executed;
+        its exact count; script dependency metadata is read only from a block whose every line is a comment (PEP
+        723), is parsed as TOML, and each block must list exactly one dependency, proofbundle pinned with == to the
+        expected version; source constants are read with ast, never executed;
       - every marketplace of the layout: exactly the layout's entries, each source resolving from the folder that
         holds the marketplace to a root of the archive whose manifest carries the same name, no differing version
         field. In the split layout the public marketplace at the repository root lists proofbundle alone, and the
@@ -164,8 +164,8 @@ HOOK_START = {root: tuple(re.compile(re.escape(t).replace("@ROOT@", root).replac
 #: Every required version place ("version") and pin place ("pin"), by layout. Kinds:
 #:   json_version   the "version" member of a JSON file
 #:   py_constant    a top-level NAME = "string" assignment, read with ast, exactly one
-#:   file_blocks    PEP 723 script blocks in the raw file text, exactly COUNT of them
-#:   const_block    the PEP 723 script block inside the top-level string constant NAME, exactly one
+#:   file_blocks    PEP 723 script blocks of the file, every line a comment, exactly COUNT of them
+#:   const_block    the PEP 723 script block of the script in the top-level string constant NAME, exactly one
 #:   catalog_rows   rows "| Claude Code |" and "| Codex |" of the plugin catalog with a version cell, exactly COUNT
 #: "marketplaces" maps each marketplace file to the folder its sources are relative to, its name (None: not checked)
 #: and its exact entries, plugin name -> source.
@@ -414,11 +414,23 @@ def py_constant(source: str, path: str, name: str) -> str:
     return value.value
 
 
-def script_blocks(text: str) -> list[str]:
+def script_blocks(text: str, where: str) -> list[str]:
+    """The script metadata blocks of a Python text. PEP 723 defines them as top-level comment blocks while its
+    reference pattern reads the raw text, so a block written into a string literal matched as well and stood for the
+    pin (line 3 of the reading of c3dd68eb). Every line of a block read here is a comment token at column 0, as the
+    servers and the gate's constants write it at main c9ab65b1 and b55d736d; any other block stops the build."""
+    try:
+        comments = {token.start[0] for token in tokenize.generate_tokens(io.StringIO(text).readline)
+                    if token.type == tokenize.COMMENT and token.start[1] == 0}
+    except (tokenize.TokenError, SyntaxError) as exc:
+        raise CheckFailed(f"{where}: not readable as Python tokens ({exc})") from exc
     blocks = []
     for match in PEP723.finditer(text):
         if match.group("type") != "script":
             continue
+        first, last = text.count("\n", 0, match.start()) + 1, text.count("\n", 0, match.end()) + 1
+        if any(line not in comments for line in range(first, last + 1)):
+            raise CheckFailed(f"{where}: a script metadata block at lines {first}-{last} that is not a comment")
         content = "".join(line[2:] if line.startswith("# ") else line[1:]
                           for line in match.group("content").splitlines(keepends=True))
         blocks.append(content)
@@ -557,12 +569,15 @@ def read_place(repo: Path, commit: str, kind: str, path: str, name: str | None, 
     if kind == "py_constant":
         return [py_constant(text, path, name)]
     if kind == "file_blocks":
-        blocks = script_blocks(text)
+        blocks = script_blocks(text, path)
         if len(blocks) != count:
             raise CheckFailed(f"{path}: {len(blocks)} script metadata blocks, expected {count}")
         return [block_pin(b, f"{path} block {i}") for i, b in enumerate(blocks, 1)]
     if kind == "const_block":
-        blocks = script_blocks(py_constant(text, path, name))
+        # the constant is a script the gate writes out and runs, read like a file (python_text): LF line ends only, no
+        # BOM and no encoding declaration, as both constants at main c9ab65b1 hold
+        where = f"{path} {name}"
+        blocks = script_blocks(python_text(py_constant(text, path, name), where), where)
         if len(blocks) != 1:
             raise CheckFailed(f"{path}: {len(blocks)} script metadata blocks in {name}, expected 1")
         return [block_pin(blocks[0], f"{path} {name}")]

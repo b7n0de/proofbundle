@@ -535,6 +535,46 @@ class SplitChecks(Base):
                 failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
                 self.assertTrue(failed and reason in failed[0], failed)
 
+    def test_s1n_a_script_block_inside_a_string_is_refused_in_a_file(self):
+        """Line 3 of the reading of c3dd68eb: the PEP 723 pattern found a block inside a triple-quoted string as well,
+        so a server whose only block lies in a string literal passed as pinned. A block of a file is read only where
+        every line of it is a comment, as the servers at main c9ab65b1 write it; the gate's blocks inside its string
+        constants are read as before."""
+        files = split_files()
+        for root in (V, G):
+            rel = root + "/server/proofbundle_mcp.py"
+            block = script_block('# dependencies = ["proofbundle==6.4.0"]')
+            self.assertTrue(files[rel].startswith(block))
+            files[rel] = 'NOTE = """\n' + block + '"""\n' + files[rel][len(block):]
+        repo, commit = make_repo(self.tmp, files)
+        self.assertRefused(build(repo, commit, self.out), "not a comment")
+
+    def test_s1o_a_script_block_inside_a_string_is_refused_in_a_constant(self):
+        """The neighbor of s1n: the gate's constants are scripts the gate writes out and runs, and their blocks were read
+        with the same pattern. At main c9ab65b1 the block of both constants is a comment of the constant's script, so a
+        block written into a string literal inside the constant stops the build as well."""
+        files = split_files()
+        rel = G + "/hooks/proofbundle_gate.py"
+        old = '_SIGN_TOOL = """# /// script'
+        self.assertEqual(files[rel].count(old), 1)
+        start = files[rel].index(old) + len('_SIGN_TOOL = """')
+        end = files[rel].index("# ///\n", start + len("# /// script")) + len("# ///\n")
+        files[rel] = files[rel][:start] + "X = '''\n" + files[rel][start:end] + "'''\n" + files[rel][end:]
+        repo, commit = make_repo(self.tmp, files)
+        self.assertRefused(build(repo, commit, self.out), "not a comment")
+
+    def test_s1p_a_cr_in_a_constant_script_is_refused(self):
+        """A constant's script is read with the PEP 723 pattern and the token reader like a file, and a file with a CR
+        stops the build (python_text); the constants at main c9ab65b1 hold LF line ends only, so a CR in one stops it
+        as well."""
+        files = split_files()
+        rel = G + "/hooks/proofbundle_gate.py"
+        old = "import sys\n" + chr(34) * 3
+        self.assertEqual(files[rel].count(old), 1)
+        files[rel] = files[rel].replace(old, "import sys\\r\n" + chr(34) * 3)
+        repo, commit = make_repo(self.tmp, files)
+        self.assertRefused(build(repo, commit, self.out), "CR line ends")
+
     def test_s2_missing_guard_gate_pin_is_refused(self):
         self.split_refused(lambda f: f.__setitem__(G + "/hooks/proofbundle_gate.py", gate(constant=False)),
                            "PINNED_PROOFBUNDLE")
