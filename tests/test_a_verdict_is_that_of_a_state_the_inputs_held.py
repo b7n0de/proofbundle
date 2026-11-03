@@ -1085,28 +1085,36 @@ class TheABACaseFindsItsMomentsWhereverTheCollectorStarts(unittest.TestCase):
 
 
 class NoWindowIsOpenWhereTheReadingHasTakenItsEntry(unittest.TestCase):
-    """Codex pre-run on 66b33218 (P2): a step counted its moment where ``paare`` was not yet bound in `canonical._lies`.
-    That is also so while ``list(dict.items(wert))`` takes the pairs, and, under CPython 3.12 and later, after it took
-    them and before it binds them; a change made there comes after the reading took the entry. Here the two collects of
-    the reading run over a list under a tracer of opcodes, and at the instruction that binds ``paare`` (the pairs taken,
-    not yet bound) the window of each step whose entry is being read must be closed."""
+    """Codex pre-runs on 66b33218 and c1cafbb5 (P2 each): a step counted its moment where a local that is bound only after
+    an entry was read still held what it held before. In `canonical._lies` that is ``paare``: while
+    ``list(dict.items(wert))`` takes the pairs, and, under CPython 3.12 and later, after it took them and before it binds
+    them. In the collects that is ``satz``: after `_lies` returned the record of the entry and before it is bound, when
+    ``satz`` still holds the record read before. A change made at such a point comes after the reading took the entry.
+    Here the two collects run over a list under a tracer of opcodes, and at every instruction that binds ``paare`` in
+    `_lies` or ``satz`` in a collect, the window of each step whose entry is being read must be closed."""
 
-    def test_the_window_is_closed_where_the_pairs_are_taken_and_not_yet_bound(self) -> None:
-        binden = {b.offset for b in dis.get_instructions(_LIES) if b.opname.startswith("STORE_FAST")
-                  and "paare" in (b.argval if isinstance(b.argval, tuple) else (b.argval,))}
-        self.assertTrue(binden, "no instruction of canonical._lies binds paare")
+    def test_the_window_is_closed_wherever_a_read_entry_is_not_yet_bound(self) -> None:
+        def binden(code: Any, name: str) -> set:
+            return {b.offset for b in dis.get_instructions(code) if b.opname.startswith("STORE_FAST")
+                    and name in (b.argval if isinstance(b.argval, tuple) else (b.argval,))}
+        stellen = {_LIES: binden(_LIES, "paare"), _SAMMELN_1: binden(_SAMMELN_1, "satz"),
+                   _SAMMELN_2: binden(_SAMMELN_2, "satz")}
+        self.assertTrue(all(stellen.values()), "an instruction that binds paare or satz was not found")
         x, y = {"canonicalRoot": "a", "proof": "p"}, {"canonicalRoot": "b", "proof": "p"}
         liste = [x, y]
-        getroffen, offen = [], []
+        getroffen, offen = set(), []
 
         def spur(rahmen, ereignis, arg):
-            if rahmen.f_code is _LIES:
+            if rahmen.f_code in stellen:
                 rahmen.f_trace_opcodes = True
-                if ereignis == "opcode" and rahmen.f_lasti in binden:
-                    getroffen.append(rahmen.f_back.f_code.co_name)
+                if ereignis == "opcode" and rahmen.f_lasti in stellen[rahmen.f_code]:
+                    wert = rahmen.f_locals.get("wert")
+                    sammeln = rahmen.f_back if rahmen.f_code is _LIES else rahmen
+                    ort = f"{rahmen.f_code.co_name} in {sammeln.f_code.co_name}"
+                    getroffen.add((ort, "x" if wert is x else "y" if wert is y else "-"))
                     for i, ziel in ((0, x), (1, y), (2, x)):
-                        if rahmen.f_locals.get("wert") is ziel and _im_fenster(rahmen, i, x, y, liste):
-                            offen.append(f"step {i} in {rahmen.f_back.f_code.co_name}")
+                        if wert is ziel and _im_fenster(rahmen, i, x, y, liste):
+                            offen.append(f"step {i} at {ort}")
             return spur
         alt = sys.gettrace()
         sys.settrace(spur)
@@ -1115,6 +1123,8 @@ class NoWindowIsOpenWhereTheReadingHasTakenItsEntry(unittest.TestCase):
             canonical._gleich_gelesen(gelesen)
         finally:
             sys.settrace(alt)
-        self.assertEqual(sorted(getroffen), ["_gleich_gelesen"] * 2 + ["_lesen_einmal"] * 2,
-                         "the tracer did not stop where each collect binds the pairs of X and Y")
+        erwartet = {(f"{a} in {b}", e) for a, b in (("_lies", "_lesen_einmal"), ("_lies", "_gleich_gelesen"),
+                                                     ("_lesen_einmal", "_lesen_einmal"),
+                                                     ("_gleich_gelesen", "_gleich_gelesen")) for e in ("x", "y")}
+        self.assertEqual(sorted(erwartet - getroffen), [], "the tracer did not stop where X or Y is bound")
         self.assertEqual(offen, [], "windows open where the reading has taken the entry of their step")
