@@ -1,6 +1,6 @@
 """Offline check of a signed vCon that carries decision receipts.
 
-    python check_example.py DIR [--signed FILE] [--proofbundle CMD] [--adrverify PATH]
+    python check_example.py DIR [--signed FILE] [--proposal FILE] [--proofbundle CMD] [--adrverify PATH]
                                 [--action-bytes jcs|none] [--report FILE]
 
 DIR holds vcon.signed.json (JWS with EdDSA or RS256; --signed names another file in DIR, such as
@@ -13,8 +13,13 @@ the recorder's two test certificates, one for EdDSA and one for RS256. Each rece
 --strict`, and, where --adrverify names a second checker of Section 3 of
 draft-gruszka-audit-decision-receipts, with that checker for Case 1 or Case 2.
 
+The Event Objects follow draft-petrie-vcon-tool-invocation-00: a receipt names the operation by its
+operation_id, the policy-decision of that operation must fit the verdict, and a disallowed operation has
+no tool event at all. --proposal names the file under DIR with our proposed parameter on the
+policy-decision (proposal/vcon.with-receipt-reference.unsigned.json in out/), checked as E1.
+
 Check ids: V1 to V4 the vCon, A1 the attachments, R1 to R5 each receipt in the vCon, C1 to C3 the set,
-Z1 to Z3 the citing receipt and the two signed forms. Exit 0 PASS, 1 FAIL, 2 usage.
+Z1 to Z3 the citing receipt and the two signed forms, E1 the proposal file. Exit 0 PASS, 1 FAIL, 2 usage.
 """
 from __future__ import annotations
 
@@ -46,7 +51,19 @@ AUDIENCE = "observer-1"
 RECORDER_CERT_SHA256 = "87c4bb91013e1f4bd9428aa5e471ea3649d0ad80f41f96cd91d91e1fc6e188b5"
 RECORDER_RSA_CERT_SHA256 = "051a828a0c51395652ba6d81c6fb2b5443f8d878bf6f4772e63f7a9830351236"
 CITE_TIME = "2026-10-15T09:21:00Z"
-AI_AGENT_TYPES = {"tool-call", "tool-result", "reasoning", "system-event"}
+AI_AGENT_TYPES = {"reasoning", "system-event"}
+TOOL_TYPES = {"tool-invocation", "tool-pending", "tool-progress", "tool-input", "tool-input-response", "tool-result",
+              "tool-failure", "tool-error", "tool-denied", "tool-timeout", "tool-cancel"}
+RESULT_TYPES = {"tool-result", "tool-failure", "tool-error", "tool-denied"}
+TI_TYPES = TOOL_TYPES | {"policy-decision"}
+DECISIONS = ("allowed", "permission-required", "disallowed")
+#: The policy-decision values that fit a verdict of the receipt.
+FITS = {"ALLOW": ("allowed", "permission-required"), "DENY": ("disallowed",), "REFUSE": ("disallowed",)}
+COMMON = {"type", "time", "sessions", "party"}
+CONTENT = {"mediatype", "encoding", "body", "url", "content_hash"}
+PD_PARAMS = COMMON | {"decision", "policy_life", "reason", "operation", "operation_id", "attempt", "server", "tool"}
+TOOL_PARAMS = COMMON | {"operation_id", "attempt"} | CONTENT | {"attachment"}
+PROPOSAL_PARAMETER = "decision_receipt"
 RECEIPT, APPROVAL = "decision receipt", "approval record"
 
 
@@ -78,6 +95,54 @@ def index(v, n):
 
 def as_list(v):
     return v if isinstance(v, list) else [v]
+
+
+def attempt_ok(v):
+    return isinstance(v, int) and not isinstance(v, bool) and v >= 1
+
+
+def check_ti_event(rep, where, e, n_att, extra=()):
+    """The parameters of tool-invocation-00 6.1.1 to 6.1.11 for one of its Event Object types (Tables 3 to 5)."""
+    typ = e["type"]
+    if typ == "policy-decision":
+        allowed = PD_PARAMS | set(extra)
+        rep.need(e.get("decision") in DECISIONS, "V4", where, "decision %r is not allowed, permission-required or "
+                 "disallowed (6.1.4)" % (e.get("decision"),))
+        rep.need(e.get("policy_life") in ("once", "standing"), "V4", where, "policy_life %r is not once or standing "
+                 "(6.1.5)" % (e.get("policy_life"),))
+        rep.need(isinstance(e.get("operation"), str), "V4", where, "operation missing (6.1.7)")
+        rep.need(isinstance(e.get("server"), str) and e["server"] != "", "V4", where, "server missing (6.1.8)")
+        if e["policy_life"] == "once":
+            rep.need(isinstance(e.get("operation_id"), str) and e["operation_id"], "V4", where,
+                     "operation_id missing in a policy-decision with policy_life once (6.1.2)")
+            rep.need(attempt_ok(e.get("attempt")), "V4", where, "attempt missing or below 1 (6.1.3)")
+            if e["operation"] == "tool-invocation":
+                rep.need(isinstance(e.get("tool"), str) and e["tool"], "V4", where, "tool missing (6.1.9)")
+        else:
+            rep.need("operation_id" not in e and "attempt" not in e, "V4", where,
+                     "operation_id or attempt in a standing policy-decision (6.1.2, 6.1.3)")
+        if "reason" in e:
+            rep.need(isinstance(e["reason"], str), "V4", where, "reason is not a string (6.1.6)")
+    else:
+        allowed = TOOL_PARAMS | ({"server", "tool"} if typ == "tool-invocation" else set())
+        rep.need(isinstance(e.get("operation_id"), str) and e["operation_id"], "V4", where,
+                 "operation_id missing (6.1.2)")
+        rep.need(attempt_ok(e.get("attempt")), "V4", where, "attempt missing or below 1 (6.1.3)")
+        if typ == "tool-invocation":
+            rep.need(isinstance(e.get("server"), str) and e["server"] != "" and isinstance(e.get("tool"), str)
+                     and e["tool"] != "", "V4", where, "server or tool missing in a tool-invocation (6.1.8, 6.1.9)")
+        if "body" in e:
+            rep.need("encoding" in e and "url" not in e and "mediatype" in e, "V4", where,
+                     "inline content without encoding or mediatype, or with url (6.1.10)")
+        if "url" in e:
+            rep.need("content_hash" in e, "V4", where, "url without content_hash (6.1.10)")
+        for k in as_list(e.get("attachment", [])):
+            rep.need(index(k, n_att), "V4", where, "attachment index %r invalid (6.1.11)" % (k,))
+    server = e.get("server")
+    if isinstance(server, str) and server.startswith("!"):
+        rep.need(server == "!host", "V4", where, "server %r starts with ! and is not !host (6.1.8)" % server)
+    odd = sorted(set(e) - allowed)
+    rep.need(not odd, "V4", where, "parameter(s) %s not defined for %s (tool-invocation-00 6.1.1)" % (odd, typ))
 
 
 def one_party(v, n):
@@ -193,9 +258,10 @@ def check_structure(rep, v):
             if "entry_id" in d:
                 rep.need((k, d["entry_id"]) not in seen, "V4", where, "entry_id repeated in session %d" % k)
                 seen.add((k, d["entry_id"]))
+    tools = {}
     for i, e in enumerate(events):
         where = "events[%d]" % i
-        if e.get("type") not in AI_AGENT_TYPES:
+        if e.get("type") not in AI_AGENT_TYPES and e.get("type") not in TI_TYPES:
             rep.ok("V4", where, "type %r not in this profile, ignored (vCon core 2.5)" % e.get("type"))
             continue
         try:
@@ -208,10 +274,13 @@ def check_structure(rep, v):
         for k in as_list(e["sessions"]):
             rep.need(index(k, len(sessions)), "V4", where, "sessions index %r invalid" % k)
         rep.need(index(e.get("party"), len(parties)), "V4", where, "party invalid")
-        if e["type"] == "tool-call":
-            rep.need(isinstance(e.get("tool_name"), str) and "input" in e, "V4", where, "tool_name or input missing")
-        if e["type"] == "tool-result":
-            rep.need("output" in e, "V4", where, "output missing")
+        if e["type"] in TI_TYPES:
+            check_ti_event(rep, where, e, len(att))
+            if "operation_id" in e and "tool" in e:
+                # the server and tool of an operation are the same in its policy-decision and its invocations
+                ident = tools.setdefault(e["operation_id"], (e.get("server"), e.get("tool")))
+                rep.need(ident == (e.get("server"), e.get("tool")), "V4", where,
+                         "operation_id %s names another tool than before (6.1.2)" % e["operation_id"])
         if "entry_id" in e:
             for k in as_list(e["sessions"]):
                 rep.need((k, e["entry_id"]) not in seen, "V4", where, "entry_id repeated in session %d" % k)
@@ -228,6 +297,11 @@ def check_structure(rep, v):
             rep.need(index(a["dialog"], len(dialog)), "V4", where, "dialog invalid")
         for k in as_list(a.get("session", [])):
             rep.need(index(k, len(sessions)), "V4", where, "session invalid")
+    for o in sorted({e["operation_id"] for e in events if e.get("type") in TI_TYPES and "operation_id" in e}):
+        for typ in ("policy-decision", "tool-invocation"):
+            per = [e.get("attempt") for e in events if e.get("type") == typ and e.get("operation_id") == o]
+            rep.need(len(per) == len(set(per)), "V4", "operation %s" % o,
+                     "more than one %s for the same attempt (6.1.2)" % typ)
     rep.ok("V4", "vCon", "%d parties, %d sessions, %d dialog, %d events, %d attachments" % (
         len(parties), len(sessions), len(dialog), len(events), len(att)))
 
@@ -359,32 +433,48 @@ def check_receipts(rep, v, a, gate):
         where = "attachments[%d] (decision receipt)" % i
         pred, root = open_receipt(rep, "R1", where, b, gate)
         where += " " + str(pred.get("decisionId"))
-        # R2 the tool call
+        # R2 the operation (tool-invocation-00): the policy-decision it names, and its tool-invocation
         tc = pred.get("traceContext", {})
         ks = [k for k, s in enumerate(sessions) if s.get("agent_session_id") == tc.get("traceId")]
         rep.need(len(ks) == 1, "R2", where, "traceContext.traceId %r names no session" % tc.get("traceId"))
         k = ks[0]
-        in_k = [j for j, e in enumerate(events) if e.get("type") == "tool-call" and k in as_list(e.get("sessions", []))]
-        by_call = [j for j in in_k if events[j].get("call_id") == tc.get("parentId")]
-        js = by_call or [j for j in in_k if events[j].get("entry_id") == tc.get("parentId")]
-        rep.need(len(js) == 1, "R2", where, "traceContext.parentId %r names no single tool call of the session"
-                 % tc.get("parentId"))
-        j = js[0]
-        tool = events[j]
-        agent = parties[tool["party"]]
+        op = tc.get("parentId")
+        pds = [j for j, e in enumerate(events) if e.get("type") == "policy-decision" and e.get("policy_life") == "once"
+               and e.get("operation_id") == op and k in as_list(e.get("sessions", []))]
+        rep.need(len(pds) == 1, "R2", where, "traceContext.parentId %r names no single policy-decision of the session"
+                 % op)
+        pd = events[pds[0]]
+        verdict = pred["decision"]["verdict"]
+        rep.need(pd.get("decision") in FITS.get(verdict, ()), "R2", where,
+                 "policy-decision %r of operation %s does not fit the verdict %s" % (pd.get("decision"), op, verdict))
+        agent = parties[pd["party"]]
         rep.need(agent.get("uuid") == pred["agent"]["id"] and "agent_meta" in agent, "R2", where,
-                 "agent.id %r is not the party of the tool call" % pred["agent"]["id"])
+                 "agent.id %r is not the party of the policy-decision" % pred["agent"]["id"])
         principal = pred.get("principal", {}).get("id")
         people = [p for p in parties if p.get("type") == "person" and p.get("uuid") == principal]
         rep.need(len(people) == 1, "R2", where, "principal.id %r is not the uuid of one person in the vCon" % principal)
-        action =vp.jcs(tool["input"]) if a.action_bytes == "jcs" else None
-        if action is not None:
-            rep.need(vp.sha256(action) == pred["proposedAction"]["parametersDigest"]["sha256"], "R2", where,
-                     "SHA-256 of the RFC 8785 form of events[%d].input is not parametersDigest" % j,
-                     "events[%d] (call_id %s), parametersDigest = SHA-256(JCS(input))" % (j, tool.get("call_id")))
+        invs = [j for j, e in enumerate(events) if e.get("type") == "tool-invocation" and e.get("operation_id") == op
+                and k in as_list(e.get("sessions", []))]
+        tool, action = None, None
+        if pd.get("decision") == "disallowed":
+            rep.need(vp.when(pd["time"]) == vp.when(pred["decidedAt"]), "R2", where,
+                     "decidedAt %s is not the time of the policy-decision %s" % (pred["decidedAt"], pd["time"]))
+            rep.ok("R2", where, "operation %s disallowed; its arguments are not in the vCon (tool-invocation-00 "
+                   "6.1.1), parametersDigest is bound by the receipt alone" % op)
         else:
-            rep.ok("R2", where, "events[%d] (call_id %s) bound by traceContext only; action bytes not checked"
-                   % (j, tool.get("call_id")))
+            rep.need(len(invs) == 1, "R2", where, "operation %s has no single tool-invocation in the session" % op)
+            tool = events[invs[0]]
+            rep.need(tool.get("encoding") == "json" and "body" in tool, "R2", where,
+                     "the arguments of operation %s are not inline JSON" % op)
+            action = vp.jcs(tool["body"]) if a.action_bytes == "jcs" else None
+            if action is not None:
+                rep.need(vp.sha256(action) == pred["proposedAction"]["parametersDigest"]["sha256"], "R2", where,
+                         "SHA-256 of the RFC 8785 form of the arguments of events[%d] is not parametersDigest"
+                         % invs[0], "events[%d] (operation %s), parametersDigest = SHA-256(JCS(arguments))"
+                         % (invs[0], op))
+            else:
+                rep.ok("R2", where, "events[%d] (operation %s) bound by operation_id only; action bytes not checked"
+                       % (invs[0], op))
         # R3 the case, from the vCon
         digest = pred["proposedAction"].get("parametersDigest", {}).get("sha256")
         cands = [f for f, (fb, fv) in approvals.items() if isinstance(fv, dict)
@@ -394,6 +484,10 @@ def check_receipts(rep, v, a, gate):
         rep.need(cands or not named, "R3", where, "inputSnapshot names an approval record, but no approval record "
                  "in the vCon fits the action and the session")
         case = "approval" if cands else "declined"
+        if verdict == "ALLOW":
+            want = "permission-required" if cands else "allowed"
+            rep.need(pd.get("decision") == want, "R3", where, "operation %s %s, but its policy-decision is %r, not %r"
+                     % (op, "was approved by a person" if cands else "had no approval", pd.get("decision"), want))
         rep.ok("R3", where, "Case %s, chosen from the vCon (%d matching approval records)" % (
             "1" if cands else "2", len(cands)))
         ap_b, f = None, None
@@ -419,16 +513,23 @@ def check_receipts(rep, v, a, gate):
                      "approvedAt %s is not the send time of the answer %s" % (rec["approvedAt"], vp.iso(send_time(d))),
                      "approval record = dialog[%d] (entry_id %s, party %s)" % (fa["dialog"], d.get("entry_id"),
                                                                              who.get("uuid")))
+            rep.need(tool is not None, "R4b", where, "approved operation %s was not invoked" % op)
             t = vp.when(tool["time"])
-            rep.need(vp.when(rec["approvedAt"]) <= t, "R4b", where, "tool call before the approval")
+            # the order of Figure 1 of tool-invocation-00: decision, then the grant, then the invocation
+            rep.need(vp.when(pd["time"]) <= vp.when(rec["approvedAt"]) <= vp.when(pred["decidedAt"]) <= t, "R4b",
+                     where, "not in the order policy-decision %s, approval %s, decidedAt %s, tool-invocation %s" % (
+                         pd["time"], rec["approvedAt"], pred["decidedAt"], tool["time"]),
+                     "policy-decision <= approvedAt <= decidedAt <= tool-invocation (Figure 1)")
+            rep.need(vp.when(rec["approvedAt"]) <= t, "R4b", where, "tool-invocation before the approval")
             rep.need(t <= vp.when(rec["validUntil"]), "R4b", where,
-                     "approval expired at the time of the tool call: time %s, validUntil %s" % (
-                         tool["time"], rec["validUntil"]), "approvedAt <= tool call time <= validUntil")
-        results = [e for e in events if e.get("type") == "tool-result" and e.get("call_id") is not None
-                   and e.get("call_id") == tool.get("call_id") and k in as_list(e.get("sessions", []))]
+                     "approval expired at the time of the tool-invocation: time %s, validUntil %s" % (
+                         tool["time"], rec["validUntil"]), "approvedAt <= tool-invocation time <= validUntil")
+        results = [e for e in events if e.get("type") in RESULT_TYPES and e.get("operation_id") == op
+                   and k in as_list(e.get("sessions", []))]
         T = vp.iso(min(vp.when(e["time"]) for e in results)) if results else pred["decidedAt"]
         full_check(rep, "R5", where + ", T " + T, b, a, T, case, action, ap_b)
-        found.append({"pred": pred, "root": root, "case": case, "approval": f, "call": j, "session": k})
+        found.append({"pred": pred, "root": root, "case": case, "approval": f, "op": op, "session": k, "bytes": b,
+                      "attachment": i})
     return found, approvals
 
 
@@ -445,25 +546,60 @@ def check_set(rep, v, found, approvals):
     rep.ok("C1", "set", "%d approvals, at most one ALLOW each" % len(ident))
     for x in found:
         if x["pred"]["decision"]["verdict"] in ("DENY", "REFUSE"):
-            tool = events[x["call"]]
-            where = "%s, tool call %s" % (x["pred"]["decisionId"], tool.get("call_id"))
-            rep.need(tool.get("call_id") is not None, "C2", where, "tool call without call_id, cannot be checked")
-            for e in events:
-                if e.get("type") == "tool-result" and e.get("call_id") == tool["call_id"] \
+            where = "%s, operation %s" % (x["pred"]["decisionId"], x["op"])
+            for j, e in enumerate(events):
+                if e.get("type") in TOOL_TYPES and e.get("operation_id") == x["op"] \
                         and x["session"] in as_list(e.get("sessions", [])):
-                    ran = not (e.get("is_error") is True or e.get("status") == "error")
-                    rep.need(not ran, "C2", where, "tool result %s after %s counts as executed" % (
-                        e.get("entry_id"), x["pred"]["decision"]["verdict"]))
-    rep.ok("C2", "set", "no executed tool result after DENY or REFUSE")
+                    rep.fail("C2", where, "events[%d] %s after %s: the operation was performed" % (
+                        j, e["type"], x["pred"]["decision"]["verdict"]))
+    rep.ok("C2", "set", "no tool event of an operation after its DENY or REFUSE")
     cited = {x["approval"] for x in found if x["approval"] is not None}
     for f in sorted(approvals):
         rep.need(f in cited, "C3", "attachments[%d] (approval record)" % f, "no receipt in the vCon cites it")
-    rep.ok("C3", "set", "every approval record is cited, every receipt is bound to a tool call")
+    rep.ok("C3", "set", "every approval record is cited, every receipt is bound to a policy-decision")
     rep.need(len(approvals) == 1 and len(found) == 2 and
              sorted(x["pred"]["decision"]["verdict"] for x in found) == ["ALLOW", "DENY"],
              "C3", "receipt inventory",
              "expected one approval record and exactly one ALLOW and one DENY decision receipt",
              "one approval record, one ALLOW and one DENY decision receipt")
+
+
+def check_proposal(rep, d, rel, v, found, att, external):
+    """E1, our proposal: the file is the vCon with one parameter added to each policy-decision that a receipt names,
+    and that parameter references exactly the bytes of that receipt."""
+    where = "proposal " + rel
+    try:
+        pv = vp.strict_json((Path(d) / rel).read_bytes())
+    except (OSError, ValueError) as e:
+        rep.fail("E1", where, "not readable: %s" % e)
+    rep.need(isinstance(pv, dict) and isinstance(pv.get("events"), list) and len(pv["events"]) == len(v["events"]),
+             "E1", where, "not the vCon with the same Event Objects")
+    base = json.loads(json.dumps(pv))
+    for e in base["events"]:
+        if isinstance(e, dict) and e.get("type") == "policy-decision":
+            e.pop(PROPOSAL_PARAMETER, None)
+    rep.need(vp.jcs(base) == vp.jcs(v), "E1", where, "differs from the signed vCon in more than %s" % PROPOSAL_PARAMETER,
+             "only %s added, the rest is the signed vCon" % PROPOSAL_PARAMETER)
+    by_op = {x["op"]: x for x in found}
+    for j, e in enumerate(pv["events"]):
+        if e.get("type") != "policy-decision" or PROPOSAL_PARAMETER not in e:
+            continue
+        w = "%s events[%d]" % (where, j)
+        check_ti_event(rep, w, e, len(att), extra=(PROPOSAL_PARAMETER,))
+        ref = e[PROPOSAL_PARAMETER]
+        rep.need(isinstance(ref, dict) and not set(ref) - {"url", "content_hash", "mediatype"} and "content_hash" in ref,
+                 "E1", w, "%s is not an object of url, content_hash and mediatype" % PROPOSAL_PARAMETER)
+        x = by_op.get(e.get("operation_id"))
+        rep.need(x is not None, "E1", w, "no receipt names operation %s" % e.get("operation_id"))
+        sha512 = [t[7:] for t in as_list(ref["content_hash"]) if isinstance(t, str) and t.startswith("sha512-")]
+        rep.need(sha512 == [vp.b64u(hashlib.sha512(x["bytes"]).digest())], "E1", w,
+                 "content_hash is not the sha512 of the receipt of operation %s" % e["operation_id"],
+                 "references the receipt %s by sha512" % x["pred"]["decisionId"])
+        if "url" in ref:
+            rep.need(ref["url"] == att[x["attachment"]].get("url"), "E1", w, "url is not the url of the receipt")
+    named = {e.get("operation_id") for e in pv["events"] if e.get("type") == "policy-decision"
+             and PROPOSAL_PARAMETER in e}
+    rep.need(named == set(by_op), "E1", where, "not every receipt is referenced from its policy-decision")
 
 
 def check_citing(rep, d, v, payload, a, gate):
@@ -534,6 +670,7 @@ def main(argv=None):
     ap.add_argument("--action-bytes", choices=("jcs", "none"), default="jcs",
                     help="jcs: action bytes are the RFC 8785 form of the tool input; none: not checked")
     ap.add_argument("--signed", default="vcon.signed.json", help="the JWS file in DIR to check")
+    ap.add_argument("--proposal", help="the file in DIR with our proposed parameter on the policy-decision (E1)")
     ap.add_argument("--recorder-cert-sha256", action="append",
                     help="pin a recorder certificate by its SHA-256 instead of the two pinned here (repeatable)")
     ap.add_argument("--report")
@@ -549,6 +686,8 @@ def main(argv=None):
         check_set(rep, v, found, approvals)
         pred = check_citing(rep, a.dir, v, payload, a, gate)
         check_cose(rep, a.dir, v, payload, pred, pins)
+        if a.proposal:
+            check_proposal(rep, a.dir, a.proposal, v, found, v.get("attachments", []), a.external)
     except Stop:
         pass
     except (KeyError, TypeError, IndexError, ValueError, AttributeError, OSError) as e:

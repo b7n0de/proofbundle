@@ -1,0 +1,26 @@
+; A PROPOSAL, not part of any draft: one parameter on the policy-decision
+; Event Object of draft-petrie-vcon-tool-invocation-00, added through
+; its $$event-policy-decision-ext socket. It references a signed record
+; of that decision, here a decision receipt in a DSSE envelope, by the
+; digest of its bytes and, where it is held outside the vCon, by url.
+;
+; Used together with the core vCon CDDL (draft-ietf-vcon-vcon-core-05)
+; and Appendix D of tool-invocation-00; it uses the core rules
+; url_value_type, content_hash_type and media_type_value_type, and no
+; other socket. Table 3 of tool-invocation-00 keeps content and
+; attachment off the policy-decision, and this parameter uses neither.
+;
+; Not enforced by this CDDL:
+; - content_hash covers the exact bytes of the referenced record, and
+;   carries a sha512 token as vCon core requires for external content.
+; - The record names the same operation_id and attempt as the event
+;   that carries this parameter.
+$$event-policy-decision-ext //= (
+    decision_receipt: decision_receipt_type
+  )
+
+decision_receipt_type = {
+    ? url: url_value_type,
+    content_hash: content_hash_type,
+    ? mediatype: media_type_value_type
+  }

@@ -3,11 +3,12 @@
   "uuid": "d89e1d66-b1e2-85f3-9340-f98d7e3585d8",
   "created_at": "2026-10-15T09:00:00.000Z",
   "extensions": [
+    "tool-invocation",
     "ai_agent"
   ],
   "recording_agent": {
     "name": "claude_jsonl_to_vcon",
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "vcs": {
     "type": "git",
@@ -97,7 +98,7 @@
       "encoding": "none",
       "body": "Approved.",
       "entry_id": "00000000-0000-4000-8000-000000000003",
-      "parent_id": "00000000-0000-4000-8000-000000000002"
+      "parent_id": "00000000-0000-4000-8000-000000000005"
     },
     {
       "type": "text",
@@ -132,6 +133,35 @@
   ],
   "events": [
     {
+      "type": "policy-decision",
+      "time": "2026-10-15T09:00:03.000Z",
+      "sessions": 0,
+      "party": 1,
+      "decision": "permission-required",
+      "operation": "tool-invocation",
+      "policy_life": "once",
+      "operation_id": "dc895440-19d3-8bf8-a3d2-bb171406fa25",
+      "attempt": 1,
+      "server": "!host",
+      "tool": "Bash"
+    },
+    {
+      "type": "tool-invocation",
+      "time": "2026-10-15T09:00:08.000Z",
+      "sessions": 0,
+      "party": 1,
+      "operation_id": "dc895440-19d3-8bf8-a3d2-bb171406fa25",
+      "attempt": 1,
+      "server": "!host",
+      "tool": "Bash",
+      "mediatype": "application/json",
+      "encoding": "json",
+      "body": {
+        "command": "git push origin refs/heads/topic:refs/heads/topic",
+        "description": "Push the topic branch"
+      }
+    },
+    {
       "type": "reasoning",
       "time": "2026-10-15T09:00:04.500Z",
       "sessions": 0,
@@ -141,84 +171,29 @@
       "parent_id": "00000000-0000-4000-8000-000000000003"
     },
     {
-      "type": "tool-call",
-      "time": "2026-10-15T09:00:05.000Z",
-      "sessions": 0,
-      "party": 1,
-      "tool_name": "Bash",
-      "input": {
-        "command": "git push origin refs/heads/topic:refs/heads/topic",
-        "description": "Push the topic branch"
-      },
-      "call_id": "toolu_example_01",
-      "entry_id": "00000000-0000-4000-8000-000000000005",
-      "parent_id": "00000000-0000-4000-8000-000000000004"
-    },
-    {
       "type": "tool-result",
       "time": "2026-10-15T09:00:08.000Z",
       "sessions": 0,
       "party": 1,
-      "output": "To https://git.example/acme/widgets\n * [new branch]      topic -> topic",
-      "call_id": "toolu_example_01",
-      "status": "success",
-      "is_error": false,
-      "entry_id": "00000000-0000-4000-8000-000000000006",
-      "parent_id": "00000000-0000-4000-8000-000000000005"
+      "operation_id": "dc895440-19d3-8bf8-a3d2-bb171406fa25",
+      "attempt": 1,
+      "mediatype": "text/plain",
+      "encoding": "none",
+      "body": "To https://git.example/acme/widgets\n * [new branch]      topic -> topic"
     },
     {
-      "type": "system-event",
-      "time": "2026-10-15T09:00:08.000Z",
-      "sessions": 0,
-      "party": 1,
-      "event_type": "permission-decision",
-      "data": {
-        "decision": "accept",
-        "source": "config",
-        "call_id": "toolu_example_01"
-      },
-      "entry_id": "00000000-0000-4000-8000-000000000006.permission",
-      "parent_id": "00000000-0000-4000-8000-000000000006"
-    },
-    {
-      "type": "tool-call",
+      "type": "policy-decision",
       "time": "2026-10-15T09:05:00.000Z",
       "sessions": 0,
       "party": 1,
-      "tool_name": "Bash",
-      "input": {
-        "command": "gh pr merge 7 --repo acme/widgets --merge",
-        "description": "Merge pull request 7"
-      },
-      "call_id": "toolu_example_02",
-      "entry_id": "00000000-0000-4000-8000-000000000008",
-      "parent_id": "00000000-0000-4000-8000-000000000007"
-    },
-    {
-      "type": "tool-result",
-      "time": "2026-10-15T09:05:02.000Z",
-      "sessions": 0,
-      "party": 1,
-      "output": "Blocked by gate-1: required_check_failed",
-      "call_id": "toolu_example_02",
-      "status": "error",
-      "is_error": true,
-      "entry_id": "00000000-0000-4000-8000-000000000009",
-      "parent_id": "00000000-0000-4000-8000-000000000008"
-    },
-    {
-      "type": "system-event",
-      "time": "2026-10-15T09:05:02.000Z",
-      "sessions": 0,
-      "party": 1,
-      "event_type": "permission-decision",
-      "data": {
-        "decision": "reject",
-        "source": "config",
-        "call_id": "toolu_example_02"
-      },
-      "entry_id": "00000000-0000-4000-8000-000000000009.permission",
-      "parent_id": "00000000-0000-4000-8000-000000000009"
+      "decision": "disallowed",
+      "reason": "Blocked by gate-1: required_check_failed",
+      "operation": "tool-invocation",
+      "policy_life": "once",
+      "operation_id": "5d67adf0-d064-8500-80ff-a7b826055c60",
+      "attempt": 1,
+      "server": "!host",
+      "tool": "Bash"
     },
     {
       "type": "system-event",

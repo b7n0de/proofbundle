@@ -3,11 +3,12 @@
   "uuid": "d89e1d66-b1e2-85f3-9340-f98d7e3585d8",
   "created_at": "2026-10-15T09:00:00.000Z",
   "extensions": [
+    "tool-invocation",
     "ai_agent"
   ],
   "recording_agent": {
     "name": "claude_jsonl_to_vcon",
-    "version": "0.1.0"
+    "version": "0.2.0"
   },
   "vcs": {
     "type": "git",
@@ -102,7 +103,7 @@
       "encoding": "none",
       "body": "Approved.",
       "entry_id": "00000000-0000-4000-8000-000000000003",
-      "parent_id": "00000000-0000-4000-8000-000000000002"
+      "parent_id": "00000000-0000-4000-8000-000000000005"
     },
     {
       "type": "text",
@@ -137,6 +138,35 @@
   ],
   "events": [
     {
+      "type": "policy-decision",
+      "time": "2026-10-15T09:00:03.000Z",
+      "sessions": 0,
+      "party": 1,
+      "decision": "permission-required",
+      "operation": "tool-invocation",
+      "policy_life": "once",
+      "operation_id": "dc895440-19d3-8bf8-a3d2-bb171406fa25",
+      "attempt": 1,
+      "server": "!host",
+      "tool": "Bash"
+    },
+    {
+      "type": "tool-invocation",
+      "time": "2026-10-15T09:00:08.000Z",
+      "sessions": 0,
+      "party": 1,
+      "operation_id": "dc895440-19d3-8bf8-a3d2-bb171406fa25",
+      "attempt": 1,
+      "server": "!host",
+      "tool": "Bash",
+      "mediatype": "application/json",
+      "encoding": "json",
+      "body": {
+        "command": "git push origin refs/heads/topic:refs/heads/topic",
+        "description": "Push the topic branch"
+      }
+    },
+    {
       "type": "reasoning",
       "time": "2026-10-15T09:00:04.500Z",
       "sessions": 0,
@@ -146,84 +176,29 @@
       "parent_id": "00000000-0000-4000-8000-000000000003"
     },
     {
-      "type": "tool-call",
-      "time": "2026-10-15T09:00:05.000Z",
-      "sessions": 0,
-      "party": 1,
-      "tool_name": "Bash",
-      "input": {
-        "command": "git push origin refs/heads/topic:refs/heads/topic",
-        "description": "Push the topic branch"
-      },
-      "call_id": "toolu_example_01",
-      "entry_id": "00000000-0000-4000-8000-000000000005",
-      "parent_id": "00000000-0000-4000-8000-000000000004"
-    },
-    {
       "type": "tool-result",
       "time": "2026-10-15T09:00:08.000Z",
       "sessions": 0,
       "party": 1,
-      "output": "To https://git.example/acme/widgets\n * [new branch]      topic -> topic",
-      "call_id": "toolu_example_01",
-      "status": "success",
-      "is_error": false,
-      "entry_id": "00000000-0000-4000-8000-000000000006",
-      "parent_id": "00000000-0000-4000-8000-000000000005"
+      "operation_id": "dc895440-19d3-8bf8-a3d2-bb171406fa25",
+      "attempt": 1,
+      "mediatype": "text/plain",
+      "encoding": "none",
+      "body": "To https://git.example/acme/widgets\n * [new branch]      topic -> topic"
     },
     {
-      "type": "system-event",
-      "time": "2026-10-15T09:00:08.000Z",
-      "sessions": 0,
-      "party": 1,
-      "event_type": "permission-decision",
-      "data": {
-        "decision": "accept",
-        "source": "config",
-        "call_id": "toolu_example_01"
-      },
-      "entry_id": "00000000-0000-4000-8000-000000000006.permission",
-      "parent_id": "00000000-0000-4000-8000-000000000006"
-    },
-    {
-      "type": "tool-call",
+      "type": "policy-decision",
       "time": "2026-10-15T09:05:00.000Z",
       "sessions": 0,
       "party": 1,
-      "tool_name": "Bash",
-      "input": {
-        "command": "gh pr merge 7 --repo acme/widgets --merge",
-        "description": "Merge pull request 7"
-      },
-      "call_id": "toolu_example_02",
-      "entry_id": "00000000-0000-4000-8000-000000000008",
-      "parent_id": "00000000-0000-4000-8000-000000000007"
-    },
-    {
-      "type": "tool-result",
-      "time": "2026-10-15T09:05:02.000Z",
-      "sessions": 0,
-      "party": 1,
-      "output": "Blocked by gate-1: required_check_failed",
-      "call_id": "toolu_example_02",
-      "status": "error",
-      "is_error": true,
-      "entry_id": "00000000-0000-4000-8000-000000000009",
-      "parent_id": "00000000-0000-4000-8000-000000000008"
-    },
-    {
-      "type": "system-event",
-      "time": "2026-10-15T09:05:02.000Z",
-      "sessions": 0,
-      "party": 1,
-      "event_type": "permission-decision",
-      "data": {
-        "decision": "reject",
-        "source": "config",
-        "call_id": "toolu_example_02"
-      },
-      "entry_id": "00000000-0000-4000-8000-000000000009.permission",
-      "parent_id": "00000000-0000-4000-8000-000000000009"
+      "decision": "disallowed",
+      "reason": "Blocked by gate-1: required_check_failed",
+      "operation": "tool-invocation",
+      "policy_life": "once",
+      "operation_id": "5d67adf0-d064-8500-80ff-a7b826055c60",
+      "attempt": 1,
+      "server": "!host",
+      "tool": "Bash"
     },
     {
       "type": "system-event",
@@ -269,27 +244,27 @@
       "filename": "dec-0001.dsse.json",
       "encoding": "json",
       "body": {
-        "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJwcmVkaWNhdGUiOnsiYWdlbnQiOnsiaWQiOiJhZ2VudC00MiJ9LCJkZWNpZGVkQXQiOiIyMDI2LTEwLTE1VDA5OjAwOjA2WiIsImRlY2lzaW9uIjp7InJlYXNvbkNvZGVzIjpbInVzZXJfYXBwcm92YWwiXSwidmVyZGljdCI6IkFMTE9XIn0sImRlY2lzaW9uQ2hhbmdlQ29uZGl0aW9ucyI6W3siY29uZGl0aW9uVHlwZSI6InJ1bGVDaGFuZ2UiLCJkZXNjcmlwdGlvbiI6ImEgY2hhbmdlZCBnYXRlLCBtb2RlIG9yIHJ1bGUgb2YgdGhlIGdhdGUifV0sImRlY2lzaW9uSWQiOiJkZWMtMDAwMSIsImRlY2lzaW9uTWFrZXIiOnsiaWQiOiJnYXRlLTEifSwiZGVjaXNpb25UeXBlIjoicHJlQWN0aW9uQXV0aG9yaXphdGlvbiIsImV2aWRlbmNlUmVmcyI6W10sImlucHV0U25hcHNob3QiOlt7ImRpZ2VzdCI6eyJzaGEyNTYiOiI0MjQ0ZjkxMjdjZjkxNTY5NjliYjUyODhkODVhZGIxYmJjNTg3MTI1OTZhNDJiOTBkMzVjMDBjNDdkM2UyOGY4In0sIm1lZGlhVHlwZSI6ImFwcGxpY2F0aW9uL2pzb24iLCJuYW1lIjoiYXBwcm92ZWQgYnl0ZXMifSx7ImRpZ2VzdCI6eyJzaGEyNTYiOiJiMDBjNmE2MDUyOTBjMDc2MmFiZGQ1NTgzODY4NzEzNDE4OGYxYzIyNWQ1NzczOTE2NDY5Y2Q1M2EwYmZiMDMyIn0sIm1lZGlhVHlwZSI6ImFwcGxpY2F0aW9uL2pzb24iLCJuYW1lIjoiYXBwcm92YWwgcmVjb3JkIn1dLCJub3RDaGVja2VkIjpbeyJmaWVsZCI6ImNvbnRlbnQiLCJpbXBhY3QiOiJhbiBhcHByb3ZlZCB0ZXh0IGNhbiBiZSB3cm9uZyIsInJlYXNvbiI6InRoZSBnYXRlIGRvZXMgbm90IGp1ZGdlIHdoZXRoZXIgdGhlIHRleHQgaXMgdHJ1ZSJ9XSwicG9saWN5Qm91bmRhcnkiOnsiYnVuZGxlUmV2aXNpb24iOiIxIiwiZGVjaXNpb25QYXRoIjoib3V0Ym91bmQtZ2F0ZS9hbGxvdy13cml0ZSIsInBvbGljeURpZ2VzdCI6eyJzaGEyNTYiOiI0Mzc4OWI0MTkxNWFlMGZlYmNkMTMyNjNkMjkzMTAxYWY1YWIwNDFlYjdjMjM0ZTFjYmU2MjVkNjMxMjgxNWY2In0sInBvbGljeUVuZ2luZSI6InByb29mYnVuZGxlLXBpbG90L2dpdGh1Yi13cml0ZSIsInBvbGljeUlkIjoib3V0Ym91bmQtZ2F0ZS1ydWxlcyJ9LCJwcmluY2lwYWwiOnsiaWQiOiJ1c2VyLTEyMyJ9LCJwcml2YWN5Ijp7InJhd0lucHV0c0luY2x1ZGVkIjpmYWxzZX0sInByb3Bvc2VkQWN0aW9uIjp7ImFjdGlvblR5cGUiOiJnaXQucHVzaCIsIm1ldGhvZCI6IndyaXRlIiwicGFyYW1ldGVyc0RpZ2VzdCI6eyJzaGEyNTYiOiI0MjQ0ZjkxMjdjZjkxNTY5NjliYjUyODhkODVhZGIxYmJjNTg3MTI1OTZhNDJiOTBkMzVjMDBjNDdkM2UyOGY4In0sInRhcmdldCI6eyJuYW1lIjoiaHR0cHM6Ly9naXQuZXhhbXBsZS9hY21lL3dpZGdldHMgcmVmcy9oZWFkcy90b3BpYyIsInVyaSI6Imh0dHBzOi8vZ2l0LmV4YW1wbGUvYWNtZS93aWRnZXRzIn19LCJzY2hlbWFWZXJzaW9uIjoiMC4xLjAiLCJ0cmFjZUNvbnRleHQiOnsicGFyZW50SWQiOiJ0b29sdV9leGFtcGxlXzAxIiwidHJhY2VJZCI6IjVlNTUxMDExLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSJ9LCJ2YWxpZGl0eSI6eyJhdWRpZW5jZSI6WyJvYnNlcnZlci0xIl0sImV4cGlyZXNBdCI6IjIwMjYtMTAtMTVUMDk6MDU6MDZaIiwibm9uY2UiOiJkZWMtMDAwMSJ9fSwicHJlZGljYXRlVHlwZSI6Imh0dHBzOi8vYjduMGRlLmNvbS9wcm9vZmJ1bmRsZS9wcmVkaWNhdGVzL2RlY2lzaW9uLXJlY2VpcHQvdjAuMSIsInN1YmplY3QiOlt7ImRpZ2VzdCI6eyJzaGEyNTYiOiJlN2FlZGY3NmRlMjI4Y2Q0ZDM0N2NhMGE2ZjJhMDkxMTE3NGE5MjQ3ZDA1ZGZlM2QyNWZmN2Y0YmVjZjM4YmVhIn0sIm5hbWUiOiJkZWNpc2lvbjpkZWMtMDAwMSJ9XX0=",
+        "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJwcmVkaWNhdGUiOnsiYWdlbnQiOnsiaWQiOiJhZ2VudC00MiJ9LCJkZWNpZGVkQXQiOiIyMDI2LTEwLTE1VDA5OjAwOjA2WiIsImRlY2lzaW9uIjp7InJlYXNvbkNvZGVzIjpbInVzZXJfYXBwcm92YWwiXSwidmVyZGljdCI6IkFMTE9XIn0sImRlY2lzaW9uQ2hhbmdlQ29uZGl0aW9ucyI6W3siY29uZGl0aW9uVHlwZSI6InJ1bGVDaGFuZ2UiLCJkZXNjcmlwdGlvbiI6ImEgY2hhbmdlZCBnYXRlLCBtb2RlIG9yIHJ1bGUgb2YgdGhlIGdhdGUifV0sImRlY2lzaW9uSWQiOiJkZWMtMDAwMSIsImRlY2lzaW9uTWFrZXIiOnsiaWQiOiJnYXRlLTEifSwiZGVjaXNpb25UeXBlIjoicHJlQWN0aW9uQXV0aG9yaXphdGlvbiIsImV2aWRlbmNlUmVmcyI6W10sImlucHV0U25hcHNob3QiOlt7ImRpZ2VzdCI6eyJzaGEyNTYiOiI0MjQ0ZjkxMjdjZjkxNTY5NjliYjUyODhkODVhZGIxYmJjNTg3MTI1OTZhNDJiOTBkMzVjMDBjNDdkM2UyOGY4In0sIm1lZGlhVHlwZSI6ImFwcGxpY2F0aW9uL2pzb24iLCJuYW1lIjoiYXBwcm92ZWQgYnl0ZXMifSx7ImRpZ2VzdCI6eyJzaGEyNTYiOiJiMDBjNmE2MDUyOTBjMDc2MmFiZGQ1NTgzODY4NzEzNDE4OGYxYzIyNWQ1NzczOTE2NDY5Y2Q1M2EwYmZiMDMyIn0sIm1lZGlhVHlwZSI6ImFwcGxpY2F0aW9uL2pzb24iLCJuYW1lIjoiYXBwcm92YWwgcmVjb3JkIn1dLCJub3RDaGVja2VkIjpbeyJmaWVsZCI6ImNvbnRlbnQiLCJpbXBhY3QiOiJhbiBhcHByb3ZlZCB0ZXh0IGNhbiBiZSB3cm9uZyIsInJlYXNvbiI6InRoZSBnYXRlIGRvZXMgbm90IGp1ZGdlIHdoZXRoZXIgdGhlIHRleHQgaXMgdHJ1ZSJ9XSwicG9saWN5Qm91bmRhcnkiOnsiYnVuZGxlUmV2aXNpb24iOiIxIiwiZGVjaXNpb25QYXRoIjoib3V0Ym91bmQtZ2F0ZS9hbGxvdy13cml0ZSIsInBvbGljeURpZ2VzdCI6eyJzaGEyNTYiOiI0Mzc4OWI0MTkxNWFlMGZlYmNkMTMyNjNkMjkzMTAxYWY1YWIwNDFlYjdjMjM0ZTFjYmU2MjVkNjMxMjgxNWY2In0sInBvbGljeUVuZ2luZSI6InByb29mYnVuZGxlLXBpbG90L2dpdGh1Yi13cml0ZSIsInBvbGljeUlkIjoib3V0Ym91bmQtZ2F0ZS1ydWxlcyJ9LCJwcmluY2lwYWwiOnsiaWQiOiJ1c2VyLTEyMyJ9LCJwcml2YWN5Ijp7InJhd0lucHV0c0luY2x1ZGVkIjpmYWxzZX0sInByb3Bvc2VkQWN0aW9uIjp7ImFjdGlvblR5cGUiOiJnaXQucHVzaCIsIm1ldGhvZCI6IndyaXRlIiwicGFyYW1ldGVyc0RpZ2VzdCI6eyJzaGEyNTYiOiI0MjQ0ZjkxMjdjZjkxNTY5NjliYjUyODhkODVhZGIxYmJjNTg3MTI1OTZhNDJiOTBkMzVjMDBjNDdkM2UyOGY4In0sInRhcmdldCI6eyJuYW1lIjoiaHR0cHM6Ly9naXQuZXhhbXBsZS9hY21lL3dpZGdldHMgcmVmcy9oZWFkcy90b3BpYyIsInVyaSI6Imh0dHBzOi8vZ2l0LmV4YW1wbGUvYWNtZS93aWRnZXRzIn19LCJzY2hlbWFWZXJzaW9uIjoiMC4xLjAiLCJ0cmFjZUNvbnRleHQiOnsicGFyZW50SWQiOiJkYzg5NTQ0MC0xOWQzLThiZjgtYTNkMi1iYjE3MTQwNmZhMjUiLCJ0cmFjZUlkIjoiNWU1NTEwMTEtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIn0sInZhbGlkaXR5Ijp7ImF1ZGllbmNlIjpbIm9ic2VydmVyLTEiXSwiZXhwaXJlc0F0IjoiMjAyNi0xMC0xNVQwOTowNTowNloiLCJub25jZSI6ImRlYy0wMDAxIn19LCJwcmVkaWNhdGVUeXBlIjoiaHR0cHM6Ly9iN24wZGUuY29tL3Byb29mYnVuZGxlL3ByZWRpY2F0ZXMvZGVjaXNpb24tcmVjZWlwdC92MC4xIiwic3ViamVjdCI6W3siZGlnZXN0Ijp7InNoYTI1NiI6IjI4MDFkMmZiYmRhMGViYjM0NTU5YzI2NjdjZTI5NTA3NzMzODU1ZDRhNWVmYzMxNGJjMTdkOWQzZDc2YTUzYWYifSwibmFtZSI6ImRlY2lzaW9uOmRlYy0wMDAxIn1dfQ==",
         "payloadType": "application/vnd.in-toto+json",
         "signatures": [
           {
             "keyid": "SHA256:NjZMAelLq9XON3pxV5tR5hZjX99NkQyw4gGJSRc2gP8",
-            "sig": "FJgULQGUOhQgsJUMnK1cxPfqiFMrKKCwZt1gegPedEtUpUKSIryWxBqCoctcpsTpnXHa/oLC1UAe9tg/ZnbxBQ=="
+            "sig": "BOjwBTRReCXswok+8B9LkPZ1HSthDChJUJI3wZ79ZhUqKvwmNWVVrk+bBpZZXIgjuQumUa6l5wUITGzA8g+aAQ=="
           }
         ]
       }
     },
     {
       "purpose": "decision receipt",
-      "start": "2026-10-15T09:05:01Z",
+      "start": "2026-10-15T09:05:00Z",
       "party": 2,
       "session": 0,
       "mediatype": "application/json",
       "filename": "dec-0002.dsse.json",
       "url": "https://receipts.example/acme/widgets/dec-0002.dsse.json",
       "content_hash": [
-        "sha512-_gEvM25Cpn_qdxsOLawOGuraYKRjmud-5TNv0c_P7K4PuE53JryqAEsJ89E1OIutDssXooXv5IuTbeUk3PMVsg",
-        "sha256-rzwm6vqNxkRyNgMa0PRsHDpMOO5YIlw6H8ibq-xQWZc"
+        "sha512--WPV-BSBE-VK9gIZMSslCgAL1QQrnLar-3njzXPuZ7auX9NKokN4QQAT59ZXJou4gYpmfSXGpojqBpcUcOAyUQ",
+        "sha256-WAxIqRRxzQrupszwzZvYLi6zUBYGF7yhdPW0zdFKNRw"
       ]
     }
   ]

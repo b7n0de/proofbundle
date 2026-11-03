@@ -2,15 +2,21 @@
 
     python make_example.py --out out
 
-1. claude_jsonl_to_vcon.py turns sample_session.jsonl into a vCon with the ai_agent extension.
+1. claude_jsonl_to_vcon.py turns sample_session.jsonl into a vCon with the tool-invocation extension,
+   one policy-decision per tool use and a tool-invocation for the push that was not disallowed.
 2. A gate party and three attachments are added: the approval record of the "Approved." message,
    an ALLOW decision receipt (Case 1) inline and a DENY decision receipt (Case 2) referenced by url and
-   content_hash. Both receipts name the session by agent_session_id and the tool call by its call_id in
-   traceContext.
+   content_hash. Both receipts name the session by agent_session_id and the operation by its operation_id
+   in traceContext. The DENY receipt binds the digest of the proposed arguments, which the vCon does not
+   hold (tool-invocation-00 6.1.1); the gate saw them in the request, read here from the transcript.
 3. The vCon is signed three times over the same payload bytes, its RFC 8785 serialization: in the signed
    form of vCon core (JWS) with EdDSA and, as a second file, with RS256, and in the COSE_Sign1
    signed-agent-record of Appendix B of the ai_agent draft, with trace-metadata.
 4. A third receipt, dec-0003, cites the signed conversation record by digest.
+5. A second, unsigned file under proposal/ is the same vCon with one parameter of our own on each
+   policy-decision, decision_receipt, which references the receipt of that decision by
+   content_hash. It is a proposal for the $$event-policy-decision-ext socket of tool-invocation-00, not
+   part of any draft, and nothing else in that file differs.
 
 Test keys only. Each Ed25519 seed is SHA-256 over a public ASCII label, and the RSA test key is derived
 from its label by vcon_profile.rsa_from_label, so every byte can be rebuilt; the gate key is the gate-1
@@ -50,6 +56,8 @@ APPROVAL_ENTRY = "00000000-0000-4000-8000-000000000003"
 PEOPLE = {"user_id": "user-123", "user_name": "Alice", "agent_id": "agent-42", "agent_name": "Coding Agent",
           "model_provider": "example-provider"}
 POLICY_BYTES = b"example gate rules, revision 1\n"
+#: Our proposal for the $$event-policy-decision-ext socket of tool-invocation-00, see proposal/.
+PROPOSAL_PARAMETER = "decision_receipt"
 
 
 def key(label):
@@ -115,12 +123,27 @@ def converted():
     return conv.convert(lines, **PEOPLE)
 
 
-def call(v, call_id):
-    return next(e for e in v["events"] if e["type"] == "tool-call" and e.get("call_id") == call_id)
+def operation(sid, call_id):
+    return conv.operation_id(sid, call_id)
 
 
-def allow(v, sid, did, decided, expires, call_id, approval_bytes):
-    a = vp.jcs(call(v, call_id)["input"])
+def invocation(v, op):
+    return next(e for e in v["events"] if e["type"] == "tool-invocation" and e.get("operation_id") == op)
+
+
+def proposed_input(call_id):
+    """The arguments of a tool_use block as the agent proposed them, from the transcript. The gate sees them in
+    the request; for a disallowed operation the vCon does not hold them."""
+    for line in (HERE / "sample_session.jsonl").read_text(encoding="utf-8").splitlines():
+        content = (json.loads(line).get("message") or {}).get("content") if line.strip() else None
+        for blk in content if isinstance(content, list) else []:
+            if isinstance(blk, dict) and blk.get("type") == "tool_use" and blk.get("id") == call_id:
+                return blk["input"]
+    raise KeyError(call_id)
+
+
+def allow(v, sid, did, decided, expires, op, approval_bytes):
+    a = vp.jcs(invocation(v, op)["body"])
     p = dict(COMMON)
     p.update({
         "decisionId": did, "decidedAt": decided,
@@ -132,7 +155,7 @@ def allow(v, sid, did, decided, expires, call_id, approval_bytes):
              "mediaType": "application/json"}],
         "policyBoundary": boundary("outbound-gate/allow-write"), "evidenceRefs": [],
         "decision": {"verdict": "ALLOW", "reasonCodes": ["user_approval"]},
-        "traceContext": {"traceId": sid, "parentId": call_id},
+        "traceContext": {"traceId": sid, "parentId": op},
         "validity": {"audience": ["observer-1"], "nonce": did, "expiresAt": expires}})
     return emit(p)
 
@@ -141,16 +164,17 @@ def base():
     """The example without changes: every file of out/ as bytes, and the parts the cases reuse."""
     v, report = converted()
     sid = v["sessions"][0]["agent_session_id"]
+    op1, op2 = operation(sid, "toolu_example_01"), operation(sid, "toolu_example_02")
     answer = next(i for i, d in enumerate(v["dialog"]) if d.get("entry_id") == APPROVAL_ENTRY)
     approval = {"approvalId": APPROVAL_ENTRY, "approver": PEOPLE["user_id"], "session": sid,
-                "actionDigest": {"sha256": vp.sha256(vp.jcs(call(v, "toolu_example_01")["input"]))},
+                "actionDigest": {"sha256": vp.sha256(vp.jcs(invocation(v, op1)["body"]))},
                 "approvedAt": "2026-10-15T09:00:04Z", "validUntil": "2026-10-15T09:15:04Z"}
     ap = vp.jcs(approval)
-    env1 = allow(v, sid, "dec-0001", "2026-10-15T09:00:06Z", "2026-10-15T09:05:06Z", "toolu_example_01", ap)
-    a2 = vp.jcs(call(v, "toolu_example_02")["input"])
+    env1 = allow(v, sid, "dec-0001", "2026-10-15T09:00:06Z", "2026-10-15T09:05:06Z", op1, ap)
+    a2 = vp.jcs(proposed_input("toolu_example_02"))
     p2 = dict(COMMON)
     p2.update({
-        "decisionId": "dec-0002", "decidedAt": "2026-10-15T09:05:01Z",
+        "decisionId": "dec-0002", "decidedAt": "2026-10-15T09:05:00Z",
         "proposedAction": {"actionType": "github.merge", "method": "write", "target": dict(PR7),
                            "parametersDigest": {"sha256": vp.sha256(a2)}},
         "inputSnapshot": [{"name": "proposed bytes", "digest": {"sha256": vp.sha256(a2)},
@@ -158,8 +182,8 @@ def base():
         "policyBoundary": boundary("outbound-gate/deny-write"), "evidenceRefs": [],
         "decision": {"verdict": "DENY", "reasonCodes": ["required_check_failed"]},
         "actionOutcome": {"status": "blocked", "performedAt": None, "outcomeRef": None},
-        "traceContext": {"traceId": sid, "parentId": "toolu_example_02"},
-        "validity": {"audience": ["observer-1"], "nonce": "dec-0002", "expiresAt": "2026-10-15T09:10:01Z"}})
+        "traceContext": {"traceId": sid, "parentId": op2},
+        "validity": {"audience": ["observer-1"], "nonce": "dec-0002", "expiresAt": "2026-10-15T09:10:00Z"}})
     env2 = envelope_bytes(emit(p2))
     full = copy.deepcopy(v)
     full["parties"].append({"name": "gate-1", "type": "bot", "uuid": "gate-1"})
@@ -169,11 +193,24 @@ def base():
          "body": approval},
         {"purpose": "decision receipt", "start": "2026-10-15T09:00:06Z", "party": 2, "session": 0,
          "mediatype": "application/json", "filename": "dec-0001.dsse.json", "encoding": "json", "body": env1},
-        {"purpose": "decision receipt", "start": "2026-10-15T09:05:01Z", "party": 2, "session": 0,
+        {"purpose": "decision receipt", "start": "2026-10-15T09:05:00Z", "party": 2, "session": 0,
          "mediatype": "application/json", "filename": "dec-0002.dsse.json", "url": DENY_URL,
          "content_hash": content_hash(env2)}]
     return {"converted": v, "report": report, "full": full, "approval": ap, "env1": env1, "env2": env2,
-            "ap_obj": approval}
+            "ap_obj": approval, "op1": op1, "op2": op2}
+
+
+def with_receipt_reference(b):
+    """The proposal: the same vCon, each policy-decision that a receipt names carries decision_receipt,
+    the content_hash of that receipt's bytes (for the inline one its RFC 8785 form, as the attachment check reads it)
+    and the url where the receipt is external."""
+    v = copy.deepcopy(b["full"])
+    refs = {b["op1"]: {"content_hash": content_hash(vp.jcs(b["env1"])), "mediatype": "application/json"},
+            b["op2"]: {"url": DENY_URL, "content_hash": content_hash(b["env2"]), "mediatype": "application/json"}}
+    for e in v["events"]:
+        if e["type"] == "policy-decision" and e.get("operation_id") in refs:
+            e[PROPOSAL_PARAMETER] = refs[e["operation_id"]]
+    return v
 
 
 def sign(v):
@@ -204,7 +241,7 @@ def citing(v, payload, cose):
     """dec-0003: the gate declines a second push with the same approval in a later session and cites the signed
     conversation record twice, by the digest of its payload and by the digest of the COSE_Sign1 bytes."""
     d, uri = vp.sha256(payload), RECORDS + v["uuid"]
-    a1 = vp.jcs(call(v, "toolu_example_01")["input"])
+    a1 = vp.jcs(invocation(v, operation(v["sessions"][0]["agent_session_id"], "toolu_example_01"))["body"])
     p = dict(COMMON)
     p.update({
         "decisionId": "dec-0003", "decidedAt": "2026-10-15T09:20:00Z",
@@ -242,6 +279,7 @@ def files():
         "vcon.signed.json": jws,
         "vcon.signed-rs256.json": sign_rs256(b["full"]),
         "vcon.cose": cose,
+        "proposal/vcon.with-receipt-reference.unsigned.json": vp.pretty(with_receipt_reference(b)),
         "recorder-test-cert.der": CERT_DER,
         "recorder-rs256-test-cert.der": CERT_RSA_DER,
         "test-keys.json": vp.pretty({
