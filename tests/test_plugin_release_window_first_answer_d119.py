@@ -353,3 +353,17 @@ def test_a_record_that_cannot_be_written_releases_nothing_only_where_it_has_to_c
     assert _passes(COMMAND, now, take=take) is runs
     record = json.loads((data / gate.RELEASES_FIRST).read_text(encoding="utf-8"))
     assert record["erste"] == {ident: _stamp(answer + held)}, "the record stays as it was"
+
+
+def test_the_card_says_its_window_runs_from_the_earliest_answer_the_gate_has_read(env):
+    """Line 3 of the reading of 7b01bc3b: the card said the line is freed within the window of "its first answer", while
+    the gate knows only the earliest answer it has read; a copy taken away before any call reached the gate stays
+    unknown to it, the limit DECISIONS.md D119 names. The card now says what the gate holds. RED at 7b01bc3b: the card
+    said "of its first answer"."""
+    repo = d71._repo(env)
+    deadline = time.monotonic() + 60
+    out = gate.autonomous_outcome(gate.decide(d119.CREATE, str(repo), deadline, "claude"), d119.CREATE, str(repo),
+                                  deadline, "claude")
+    assert out.autonomy["klasse"] == "karte", out.autonomy
+    assert (f"within {gate.RELEASE_SECONDS // 60} minutes of the earliest answer the gate has read for this card, line "
+            "and session; a changed line needs a new card") in out.text, out.text

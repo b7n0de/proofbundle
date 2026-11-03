@@ -18019,8 +18019,8 @@ def _autonomy_card(answer: "Outcome", command: str | None, cwd: str, deadline: f
         door = _release_door(command, answer)
         binding = (f" The card carries the line verbatim, sha256 {command_sha256(command)}, and what it does outside: "
                    f"{said}. The owner's answer A frees exactly this line once, in this session, within "
-                   f"{RELEASE_SECONDS // 60} minutes of its first answer; a changed line needs a new card (DECISIONS.md "
-                   "D111, D119).") if door is None else \
+                   f"{RELEASE_SECONDS // 60} minutes of the earliest answer the gate has read for this card, line and "
+                   "session; a changed line needs a new card (DECISIONS.md D111, D119).") if door is None else \
             (f" The line touches {_RELEASE_DOORS[door][0]}, an own door of the owner: no card frees it. Say so on the "
              "card; the owner runs the line themselves (DECISIONS.md D119).")
     verdict = Verdict("deny", f"proofbundle gate, autonomous operation (D93): {said} is asked of the owner on a card in "
