@@ -6772,8 +6772,9 @@ The rule:
   Level 1 is, with the target, a parametersRef and no digest. The media type of these bytes is application/json.
 - The empty bytes are hashed for no surface. An action whose bytes are empty is unresolved, wherever its form came
   from: one function gives every receipt and every action id its digest.
-- The observer names no stored bytes for a merge, since the event does not carry what the receipt hashes. An approved
-  merge that arrived is then "approved, arrived, form not measured", never "reconciled" by the empty bytes. The match
+- The observer names no stored bytes for a merge, since the event does not carry what the receipt hashes. Where it
+  reads an event as a merge, which needs `merged` in the event (see the open gap below), an approved merge that arrived
+  is then "approved, arrived, form not measured", never "reconciled" by the empty bytes. The match
   of the contract (section 5) reads such an effect as equal to an action in its surface alone, and of several such
   actions with one verdict it takes the earliest decided; every other surface is matched as before. A reading of this rule
   on 2026-11-03 found that without that sentence a merge listed before an earlier comment on the same pull request
@@ -6798,6 +6799,8 @@ as before, and the profile reads it as before; tools/pilot/vectors.json does not
 decision-receipt/v0.1 changes, nor the DSSE envelope, the keys or the trust policy.
 
 Open, named here: the observer reads `merged` and the body of a pull request from the PullRequestEvent, and the events
-API no longer lists them (measured above). That gap is older than this rule and is not closed here.
+API no longer lists them (measured above). That gap is older than this rule and is not closed here. In the shape of
+2026-11-03 a merge is therefore no `github.merge` effect at all but an event under its own name, which matches no
+decision and counts under M5; a test pins that limit, so that a fix of the observer changes it knowingly.
 
 Tests: tests/test_plugin_guard_trace_context_and_merge_digest_d135.py.

@@ -339,6 +339,19 @@ def test_the_observer_names_no_stored_bytes_for_a_merge():
         ("github.merge", f"https://github.com/{REPO}/pull/279", None)
 
 
+def test_the_observer_reads_no_merge_from_the_event_shape_of_2026_11_03_a_named_limit():
+    """The limit D135 names, pinned so that a fix of the observer changes it knowingly (the reading of 87d27057): the
+    events API listed a PullRequestEvent with a pull_request of base, head, id, number and url only, without `merged`.
+    The observer then reads no merge from it, and the event stands under its own name, which matches no decision."""
+    effect = o.pr._event_effect({"id": "1", "type": "PullRequestEvent", "created_at": "2026-11-03T16:47:23Z",
+                                 "actor": {"id": o.AGENT_GITHUB_ID}, "repo": {"id": 1, "name": REPO},
+                                 "payload": {"action": "closed", "number": 279,
+                                             "pull_request": {"base": {}, "head": {"sha": HEAD}, "id": 1,
+                                                              "number": 279, "url": "u"}}})
+    assert (effect["surface"], effect["target"], effect["stored"]) == \
+        ("github.event.PullRequestEvent", f"https://github.com/{REPO}#event", None)
+
+
 # --- the signer service builds the same trace from the event -----------------------------------------------------------
 
 def test_the_signer_service_signs_a_receipt_with_the_trace_of_its_event(env, tmp_path):
