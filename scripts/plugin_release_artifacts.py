@@ -88,6 +88,7 @@ import subprocess
 import sys
 import tarfile
 import tokenize
+import unicodedata
 from pathlib import Path
 
 try:
@@ -290,10 +291,11 @@ def ls_tree(repo: Path, commit: str, paths: list[str]) -> list[tuple[str, str, s
 # --- reading places -----------------------------------------------------------------------------------------------
 
 #: How a module may use a name the generator reads with ast (py_constant, server_tools), as every such name is used at
-#: main c9ab65b1: every mention of the name as a Python token is an ast.Name at that place, exactly one of them is
-#: written, as the only target of the top-level assignment the generator reads, and all others are read. A binding in
-#: any other form (a pattern, global, an import, a parameter, a def, a keyword, a second target) is a token without such
-#: a name or a second write, and stops the build. The TOOLS table is a dict, so besides it may only be looked up
+#: main c9ab65b1: every mention of the name as a Python token, in the NFKC form Python reads it in, is an ast.Name at
+#: that place, exactly one of them is written, as the only target of the top-level assignment the generator reads, and
+#: all others are read. A binding in any other form (a pattern, global, an import, a parameter, a def, a keyword, a
+#: second target, another spelling of the same name) is a token without such a name or a second write, and stops the
+#: build. The TOOLS table is a dict, so besides it may only be looked up
 #: (TOOLS[key], key in TOOLS) or read by one of TABLE_READS. Code that changes a module's globals by name at run time
 #: (globals(), setattr on the module) is not read; the generator reads what the source writes.
 TABLE_READS = ("items", "keys", "values", "get")
@@ -308,8 +310,10 @@ def _parse(source: str, path: str) -> ast.Module:
 
 def _name_tokens(source: str, name: str, path: str) -> set[tuple[int, int]]:
     try:
+        # Python reads an identifier in NFKC (the Codex pre-run of the reading of 9830cdf1: a fullwidth spelling in an
+        # import binds the same name), so the tokens are compared in that form.
         return {t.start for t in tokenize.generate_tokens(io.StringIO(source).readline)
-                if t.type == tokenize.NAME and t.string == name}
+                if t.type == tokenize.NAME and unicodedata.normalize("NFKC", t.string) == name}
     except (tokenize.TokenError, SyntaxError) as exc:
         raise CheckFailed(f"{path}: not readable as Python tokens ({exc})") from exc
 

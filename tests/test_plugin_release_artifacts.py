@@ -320,6 +320,11 @@ class SplitChecks(Base):
             "mapping rest": ("SERVER_VERSION", None, 'match {}:\n    case {**SERVER_VERSION}:\n        pass\n'),
             "chained alias": ("TOOLS", ("TOOLS = {\n", "TOOLS = ALIAS = {\n"), "ALIAS.clear()\n"),
             "keyword": ("SERVER_VERSION", None, "dict(SERVER_VERSION=1)\n"),
+            # The Codex pre-run of the reading of 9830cdf1: Python reads identifiers in NFKC, so a fullwidth spelling
+            # binds the same name; the tokens are compared in that form too.
+            "fullwidth import": ("SERVER_VERSION", None, "import sys as \uff33\uff25\uff32\uff36\uff25\uff32_"
+                                 "\uff36\uff25\uff32\uff33\uff29\uff2f\uff2e\n"),
+            "fullwidth table import": ("TOOLS", None, "import sys as \uff34\uff2f\uff2f\uff2c\uff33\n"),
         }
         for name, (reason, replace, line) in changes.items():
             with self.subTest(name=name):
