@@ -123,7 +123,8 @@ CLAUDE_HOOKS = json.dumps({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks":
     {"type": "command", "command": 'python3 -I "${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py"'}]}]}}, indent=2)
 #: The form the Guard's Codex manifest writes since pull request 472: the host's plugin root, ${PLUGIN_ROOT}, in quotes.
 CODEX_HOOKS = {"PreToolUse": [{"matcher": "Bash", "hooks": [
-    {"type": "command", "command": 'python3 -I "${PLUGIN_ROOT}/hooks/proofbundle_gate.py" --host codex'}]}]}
+    {"type": "command", "command": 'python3 -I "${PLUGIN_ROOT}/hooks/proofbundle_gate.py" --host codex || { echo '
+                                   "'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }"}]}]}
 CATALOG = ("# Plugins\n\n| Host | What it does | Plugin | Version | Maturity |\n|---|---|---|---|---|\n"
            "| Claude Code | fixture | [proofbundle](proofbundle/README.md) | 0.4.0 | Experimental |\n"
            "| Codex | fixture | [proofbundle](proofbundle/README.md) | 0.4.0 | Experimental |\n")
@@ -800,17 +801,23 @@ class GuardProfile(Base):
                 proc = build(repo, commit, out)
                 self.assertEqual(proc.returncode, 1, text(proc))
                 failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
-                self.assertTrue(failed and "the shell does not parse" in failed[0], failed)
+                # since the reading of ae0b16e4 a command is held to the Guard's templates, so these are no form
+                self.assertTrue(failed and "in a form the generator reads" in failed[0], failed)
 
     def test_n6j_control_the_command_forms_the_guard_writes_build(self):
-        """The forms of the Guard's hooks at main c9ab65b1: an or-list with a group, a command substitution assigned to a
-        variable with an if, and a single-quoted JSON text after the program."""
+        """The five command forms of the Guard's hooks/hooks.json at main c9ab65b1, word for word."""
+        gate = '"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py"'
         forms = [
-            'python3 -I "${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py" --autonomous || { echo \'x\' >&2; exit 2; }',
-            'out=$(python3 -I "${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py" task-completed) || { echo \'x\' >&2; '
-            'exit 2; }; if [ -n "$out" ]; then printf \'%s\\n\' "$out" >&2; exit 2; fi',
-            'python3 -I "${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py" session-start || printf \'%s\\n\' '
-            '\'{"systemMessage": "x (D127)."}\'',
+            f"python3 -I {gate} --autonomous || {{ echo 'proofbundle gate: the gate could not run, so the call is "
+            "blocked' >&2; exit 2; }",
+            f"python3 -I {gate} || true",
+            f"python3 -I {gate} stop || {{ echo 'proofbundle done check: the check could not run, so the session "
+            "does not end' >&2; exit 2; }",
+            f"out=$(python3 -I {gate} task-completed) || {{ echo 'proofbundle done check: the check could not run, "
+            "so the task stays open' >&2; exit 2; }; if [ -n \"$out\" ]; then printf '%s\\n' \"$out\" >&2; exit 2; fi",
+            f"python3 -I {gate} session-start || printf '%s\\n' '{{\"systemMessage\": \"proofbundle done check: the "
+            "hand-over could not run, so an open blocker was not handed on; the done check at Stop is unchanged "
+            "(D127).\"}'",
         ]
         hooks = {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": c} for c in forms]}]}
         files = split_files()
@@ -819,6 +826,14 @@ class GuardProfile(Base):
         proc = build(repo, commit, self.out)
         self.assertBuilt(proc)
         self.assertIn("(1: hooks/proofbundle_gate.py)", text(proc))
+
+    def test_n6o_a_hook_command_with_a_redirection_is_refused(self):
+        """The Codex pre-run of the reading of ae0b16e4: a valid start and a rest that parses still started nothing
+        where an input redirection failed. Each hook command is now held whole to the forms the Guard writes."""
+        command = 'python3 -I "${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py" < /missing-input'
+        hooks = {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": command}]}]}
+        self.split_refused(lambda f: f.__setitem__(G + "/hooks/hooks.json", json.dumps({"hooks": hooks}) + "\n"),
+                           "in a form the generator reads")
 
     def test_n6f_control_the_hook_forms_of_both_hosts_build(self):
         repo, commit = make_repo(self.tmp, split_files())

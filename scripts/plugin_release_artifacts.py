@@ -129,24 +129,37 @@ MCP_REGISTRATIONS = {
 }
 VERIFIER_TOOLS = ("emit_receipt", "gate_selftest_check", "gate_selftest_prepare", "gate_status", "inspect_receipt",
                   "receipt_template", "verify_receipt")
-#: The two forms in which a hook command of the Guard starts its program, as the Guard writes them at main c9ab65b1,
-#: read from the start of the command (hook_programs): python3 -I and the program path in double quotes, Claude Code's
-#: ${CLAUDE_PLUGIN_ROOT} or Codex's ${PLUGIN_ROOT} and a path inside the plugin, followed by a blank or the end; or the
-#: same assigned to out by a command substitution, followed by a blank or its closing parenthesis. Since the path starts
-#: the command and a blank or an end follows it, no text can be joined to it, and the plugin root may be named once
-#: only. Every other form stops the build (check_guard_profile): it is held to the forms allowed, not to a list of forms
-#: it must not have, which the readings of 2bcbf9f3, 03958484 and af7c414d each found one more of.
-#: Each host its own root variable (line 3 of the reading of 830dc0f9: a Codex hook naming ${CLAUDE_PLUGIN_ROOT} was
-#: taken, while Codex sets ${PLUGIN_ROOT}): hooks/hooks.json starts through the first, the Codex manifest the second.
+#: The hook commands of the Guard, word for word as main c9ab65b1 writes them, for each host its own: @ROOT@ stands for
+#: the host's root variable (Claude Code ${CLAUDE_PLUGIN_ROOT}, Codex ${PLUGIN_ROOT}) and @PROGRAM@ for the path of the
+#: program inside the plugin; the bare start of a program is one form more. A hook command is held whole to one of
+#: them (hook_programs). The readings of 2bcbf9f3 to ae0b16e4 found, one after the other, text joined to the quoted
+#: path, an escaped blank, a leading command substitution, a rest the shell rejects and a failing input redirection,
+#: each of which a reading of only the start let pass; a whole command can hide nothing else.
 CLAUDE_ROOT, CODEX_ROOT = "CLAUDE_PLUGIN_ROOT", "PLUGIN_ROOT"
-
-
-def _hook_start(root: str) -> re.Pattern:
-    path = r'"\$\{' + root + r'\}/([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*)"'
-    return re.compile(r"python3 -I " + path + r"(?= |$)|out=\$\(python3 -I " + path + r"(?=[ )])")
-
-
-HOOK_START = {CLAUDE_ROOT: _hook_start(CLAUDE_ROOT), CODEX_ROOT: _hook_start(CODEX_ROOT)}
+_BLOCKED = "{ echo 'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }"
+HOOK_TEMPLATES = {
+    CLAUDE_ROOT: (
+        'python3 -I "${@ROOT@}/@PROGRAM@"',
+        'python3 -I "${@ROOT@}/@PROGRAM@" --autonomous || ' + _BLOCKED,
+        'python3 -I "${@ROOT@}/@PROGRAM@" || true',
+        'python3 -I "${@ROOT@}/@PROGRAM@" stop || { echo \'proofbundle done check: the check could not run, so the '
+        "session does not end' >&2; exit 2; }",
+        'out=$(python3 -I "${@ROOT@}/@PROGRAM@" task-completed) || { echo \'proofbundle done check: the check could '
+        "not run, so the task stays open' >&2; exit 2; }; if [ -n \"$out\" ]; then printf '%s\\n' \"$out\" >&2; exit 2; fi",
+        'python3 -I "${@ROOT@}/@PROGRAM@" session-start || printf \'%s\\n\' \'{"systemMessage": "proofbundle done check: '
+        "the hand-over could not run, so an open blocker was not handed on; the done check at Stop is unchanged "
+        "(D127).\"}'",
+    ),
+    CODEX_ROOT: (
+        'python3 -I "${@ROOT@}/@PROGRAM@"',
+        'python3 -I "${@ROOT@}/@PROGRAM@" --host codex || ' + _BLOCKED,
+        'python3 -I "${@ROOT@}/@PROGRAM@" stop --host codex || { echo \'proofbundle done check: the check could not '
+        "run, so the session goes on' >&2; exit 2; }",
+    ),
+}
+_HOOK_PATH = r"([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*)"
+HOOK_START = {root: tuple(re.compile(re.escape(t).replace("@ROOT@", root).replace("@PROGRAM@", _HOOK_PATH))
+                          for t in templates) for root, templates in HOOK_TEMPLATES.items()}
 
 #: Every required version place ("version") and pin place ("pin"), by layout. Kinds:
 #:   json_version   the "version" member of a JSON file
@@ -617,29 +630,16 @@ def check_marketplaces(repo: Path, commit: str, layout: dict, version: str) -> l
     return lines
 
 
-def shell_parses(command: str) -> bool:
-    """Whether sh and bash both read the command without a syntax error (-n: read, run nothing)."""
-    for shell in ("sh", "bash"):
-        try:
-            proc = subprocess.run([shell, "-n", "-c", command], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                  stderr=subprocess.DEVNULL, timeout=20, check=False)
-        except FileNotFoundError as exc:
-            raise NotMeasurable(f"checking hook commands needs {shell}") from exc
-        if proc.returncode != 0:
-            return False
-    return True
-
-
 def hook_programs(command: object, root: str) -> list[str] | None:
-    """The path of the program a hook command starts, as a list of one, or None where the command is no string, does
-    not begin with one of the two forms of HOOK_START, names a plugin root more than once, or names a path with a "."
+    """The path of the program a hook command starts, as a list of one, or None where the command is no string, is
+    not one of its host's HOOK_TEMPLATES as a whole, names a plugin root more than once, or names a path with a "."
     or ".." segment."""
     if not isinstance(command, str):
         return None
-    m = HOOK_START[root].match(command)
+    m = next((m for m in (pattern.fullmatch(command) for pattern in HOOK_START[root]) if m), None)
     if m is None or command.count("PLUGIN_ROOT") != 1:
         return None
-    path = m.group(1) or m.group(2)
+    path = m.group(1)
     if any(part in (".", "..") for part in path.split("/")):
         return None
     return [path]
@@ -759,10 +759,6 @@ def check_guard_profile(repo: Path, commit: str, layout: dict) -> list[str]:
     started = set()
     for command, host_root in commands:
         found = hook_programs(command, host_root)
-        # the whole command as the shell reads it, under sh and bash: a valid start before a rest the shell rejects
-        # starts nothing (the Codex pre-run of the reading of 459d8f7e)
-        if found is not None and not shell_parses(command):
-            raise CheckFailed(f"{root}: the hook command {command!r} is one the shell does not parse")
         if found is None:
             raise CheckFailed(f"{root}: the hook command {command!r} names no program of the Guard in a form the "
                               "generator reads")

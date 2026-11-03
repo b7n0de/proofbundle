@@ -109,12 +109,11 @@ The marketplaces and profiles it checks in the same run:
 | `.claude-plugin/marketplace.json` | name proofbundle; exactly one entry, proofbundle with source `./plugins/proofbundle`; no differing version field |
 | `plugins/proofbundle-guard/.claude-plugin/marketplace.json` | name proofbundle-house; exactly one entry, proofbundle-guard with source `./`, which resolves to the Guard's own folder |
 | plugins/proofbundle | no hooks/ folder, no `hooks` field in either host manifest or its marketplace entry, no dependency on the Guard, its server registered in `.mcp.json` and in the Codex manifest exactly as main c9ab65b1 writes it, for each host its own, and none in its Claude Code manifest, and the seven tools of its server: `emit_receipt`, `gate_selftest_check`, `gate_selftest_prepare`, `gate_status`, `inspect_receipt`, `receipt_template`, `verify_receipt` |
-| plugins/proofbundle-guard | `hooks/hooks.json` and the gate program present, every hook command of either host starting its program in one of the two forms the Guard writes, `python3 -I "${CLAUDE_PLUGIN_ROOT}/<path>"` in `hooks/hooks.json` and `python3 -I "${PLUGIN_ROOT}/<path>"` in the Codex manifest, at its start, alone or as `out=$(…)`, and that program present in the Guard's folder, no skills/ folder, no MCP server registered, and its copy of the server byte-equal to the verifier's |
+| plugins/proofbundle-guard | `hooks/hooks.json` and the gate program present, every hook command of either host one of the command forms the Guard writes at main c9ab65b1, word for word with only the program path free, through `${CLAUDE_PLUGIN_ROOT}` in `hooks/hooks.json` and `${PLUGIN_ROOT}` in the Codex manifest, and that program present in the Guard's folder, no skills/ folder, no MCP server registered, and its copy of the server byte-equal to the verifier's |
 | every archived entry | a regular file with mode 0644 or 0755; a symbolic link or a gitlink stops the build |
 
 A JSON file the generator reads that names a member twice stops the build, so a version member counts once only
-where it is written once. A hook command in any other form, one that names a plugin root a second time, or one that sh or bash does not parse,
-stops the build too. The Guard registers its Claude Code hooks in `hooks/hooks.json` alone, so a hooks field in its Claude Code
+where it is written once. A hook command in any other form, or one that names a plugin root a second time, stops the build too. The Guard registers its Claude Code hooks in `hooks/hooks.json` alone, so a hooks field in its Claude Code
 manifest or in its house marketplace entry stops the build, and the hooks of its Codex manifest have to be an object.
 For a constant or the tool table read with ast, every mention of its name as a Python token, in the NFKC form Python
 reads it in, has to be that name at that place, written once, as the only target of its top-level assignment, and otherwise read; the tool table may besides be
