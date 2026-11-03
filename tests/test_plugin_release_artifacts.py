@@ -435,6 +435,10 @@ class SplitChecks(Base):
             "codex with a cell more": head + claude
             + "| Codex | fixture | [proofbundle](proofbundle/README.md) | 0.3.0 | 0.4.0 | Experimental |\n",
             "codex with a cell less": head + claude + "| Codex | fixture | 0.4.0 | Experimental |\n",
+            # the Codex pre-run of the reading of e6cfbd9c: a row without its outer pipes belongs to the table too
+            "codex row without outer pipes": head + claude + codex + "Codex | fixture | proofbundle | 0.3.0 | Experimental\n",
+            "host row in a second table": head + claude + codex + "\n| Other | x |\n|---|---|\n| Codex | 0.3.0 |\n",
+            "a row of another kind": head + claude + codex + "| Cursor | fixture | proofbundle | 0.4.0 | x |\n",
         }
         for name, catalog in cases.items():
             with self.subTest(name=name):

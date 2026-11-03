@@ -109,6 +109,7 @@ PEP723 = re.compile(r"(?m)^# /// (?P<type>[a-zA-Z0-9-]+)$\s(?P<content>(^#(| .*)
 REQUIREMENT = re.compile(r"^\s*(?P<name>[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)\s*(?P<extras>\[[^\]]*\])?\s*"
                          r"(?P<rest>.*)$")
 VERSION_CELL = re.compile(r"\d+\.\d+\.\d+")
+CATALOG_DELIMITER = re.compile(r"\|(?:\s*:?-+:?\s*\|)+")
 CATALOG_HOST_NAMES = ("Claude Code", "Codex")
 CATALOG_HOST_KEYS = {host.casefold() for host in CATALOG_HOST_NAMES}
 REVIEW_NAME = re.compile(r"(?i)(\.pem|\.key|\.p12|\.pfx|\.pub|id_rsa|id_ed25519|secret|credential|token|password|"
@@ -425,22 +426,36 @@ def _cells(line: str) -> list[str]:
 
 
 def catalog_versions(text: str, path: str, count: int) -> list[str]:
-    """The version cells of the catalog rows of both hosts, read as the table is written at main c9ab65b1: the head
-    row whose first cell is Host names the Version column, and every table row whose first cell names a host, read
-    without its blanks and in any case, has as many cells as the head, the host written as in CATALOG_HOST_NAMES, and
-    a version of the form X.Y.Z in that column; each host has exactly one row. The readings of 149788f8, c2ff7601 and
-    950d341d found a pattern over the row text counting matches, missing a row written with other blanks and reading
-    a later number of a row with one cell more."""
-    rows = [line for line in text.split("\n") if line.lstrip().startswith("|")]
-    heads = [_cells(line) for line in rows if _cells(line)[0].casefold() == "host"]
-    if len(heads) != 1 or heads[0].count("Version") != 1:
-        raise CheckFailed(f"{path}: no single catalog head with one Version column")
-    width, column = len(heads[0]), heads[0].index("Version")
-    found = [_cells(line) for line in rows if _cells(line)[0].casefold() in CATALOG_HOST_KEYS]
+    """The version cells of the catalog rows of both hosts, read as the table is written at main c9ab65b1. The table
+    runs from its head row, the one line whose first cell is Host, to the first blank line, as GitHub Markdown ends a
+    table. Every line of it has the house form, starting and ending with a pipe, the second line is the delimiter row,
+    and every further line is a row of a host with as many cells as the head, the host written as in
+    CATALOG_HOST_NAMES and a version X.Y.Z in the Version column; each host has exactly one row, and no line outside
+    the table names a host in its first cell. The readings of 149788f8, c2ff7601, 950d341d and e6cfbd9c found a
+    pattern counting matches, a row written with other blanks, a later number of a row with one cell more and a row
+    without its outer pipes; the table is now held to its form as a whole."""
+    lines = text.split("\n")
+    heads = [i for i, line in enumerate(lines) if "|" in line and _cells(line)[0].casefold() == "host"]
+    if len(heads) != 1:
+        raise CheckFailed(f"{path}: {len(heads)} catalog heads with a first cell Host, expected 1")
+    start = heads[0]
+    end = next((i for i in range(start, len(lines)) if not lines[i].strip()), len(lines))
+    table = lines[start:end]
+    head = _cells(table[0])
+    if any(not (line.startswith("|") and line.endswith("|")) for line in table) or len(table) < 2 \
+            or not CATALOG_DELIMITER.fullmatch(table[1]) or head.count("Version") != 1:
+        raise CheckFailed(f"{path}: the catalog table is not in the house form (pipes at both ends of every line, a "
+                          "delimiter row, one Version column)")
+    width, column = len(head), head.index("Version")
+    found = [_cells(line) for line in table[2:]]
     for cells in found:
         if len(cells) != width or cells[0] not in CATALOG_HOST_NAMES or not VERSION_CELL.fullmatch(cells[column]):
-            raise CheckFailed(f"{path}: a catalog row of a host not in the form of the head ({cells[0]!r}, "
-                              f"{len(cells)} cells, expected {width})")
+            raise CheckFailed(f"{path}: a catalog row not in the form of the head ({cells[0]!r}, {len(cells)} cells, "
+                              f"expected a host and {width})")
+    outside = [i + 1 for i, line in enumerate(lines) if not start <= i < end and "|" in line
+               and _cells(line)[0].casefold() in CATALOG_HOST_KEYS]
+    if outside:
+        raise CheckFailed(f"{path}: a host row outside the catalog table (line {outside[0]})")
     names = sorted(cells[0] for cells in found)
     if len(found) != count or names != sorted(CATALOG_HOST_NAMES):
         raise CheckFailed(f"{path}: catalog rows of {names}, expected one each of {sorted(CATALOG_HOST_NAMES)}")
