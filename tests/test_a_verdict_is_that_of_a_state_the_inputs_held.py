@@ -1090,9 +1090,10 @@ def _an_befehlen(stellen: dict, rueckruf: Callable[[Any], None], lauf: Callable[
     """``lauf()`` with ``rueckruf(rahmen)`` called before each instruction at ``stellen`` (code object -> offsets) runs.
     From CPython 3.12 through `sys.monitoring`, since there `sys.settrace` gives a frame no opcode events when the trace
     function sets its ``f_trace_opcodes`` (measured under 3.12.15: call, line and return only; CI of pull request 474 at
-    c1cafbb5, test (3.12, 1)); before 3.12 through `sys.settrace`. Either is set for ``lauf()`` only and left as found,
-    also when ``lauf()`` raises: the trace function that was set, and at the free tool id the helper takes the callback
-    and the local events an earlier tool left there (`TheStopHelperLeavesTheInterpreterAsItFoundIt`)."""
+    c1cafbb5, test (3.12, 1)); before 3.12 through `sys.settrace`. It runs only in an interpreter of its own
+    (`_fenster_an_den_bindungen`), so what it leaves of either ends with that process: three pre-runs (on 7e30036b,
+    f7c0ef13 and a892fe4b) each found another part of the state of `sys.monitoring` that putting it back in the test
+    process missed (`TheWindowCaseLeavesTheToolsOfTheTestProcessAsItFoundThem`)."""
     mon = getattr(sys, "monitoring", None)
     if mon is None:
         def spur(rahmen, ereignis, arg):
@@ -1101,38 +1102,49 @@ def _an_befehlen(stellen: dict, rueckruf: Callable[[Any], None], lauf: Callable[
                 if ereignis == "opcode" and rahmen.f_lasti in stellen[rahmen.f_code]:
                     rueckruf(rahmen)
             return spur
-        alt = sys.gettrace()
         sys.settrace(spur)
         try:
             lauf()
         finally:
-            sys.settrace(alt)
+            sys.settrace(None)
         return
     frei = [w for w in range(6) if mon.get_tool(w) is None]
     if not frei:
         raise AssertionError("no free tool id of sys.monitoring")
-    werkzeug = frei[0]
-    mon.use_tool_id(werkzeug, "aba window case")
-    alter_rueckruf = None
-    try:
-        alter_rueckruf = mon.register_callback(werkzeug, mon.events.INSTRUCTION, None)
-        alte_ereignisse = {code: mon.get_local_events(werkzeug, code) for code in stellen}
-        mon.register_callback(
-            werkzeug, mon.events.INSTRUCTION,
-            lambda code, stelle: rueckruf(sys._getframe(1)) if stelle in stellen.get(code, ()) else None)
-        try:
-            for code in stellen:
-                mon.set_local_events(werkzeug, code, mon.events.INSTRUCTION)
-            lauf()
-        finally:
-            for code, ereignisse in alte_ereignisse.items():
-                mon.set_local_events(werkzeug, code, ereignisse)
-    finally:
-        # local events can be set only at an id in use, a callback also at a free one; under CPython 3.14
-        # free_tool_id drops the callbacks of the id, so the old one goes back after it (pre-run on f7c0ef13)
-        mon.free_tool_id(werkzeug)
-        mon.register_callback(werkzeug, mon.events.INSTRUCTION, alter_rueckruf)
+    mon.use_tool_id(frei[0], "aba window case")
+    mon.register_callback(frei[0], mon.events.INSTRUCTION,
+                          lambda code, stelle: rueckruf(sys._getframe(1)) if stelle in stellen.get(code, ()) else None)
+    for code in stellen:
+        mon.set_local_events(frei[0], code, mon.events.INSTRUCTION)
+    lauf()
 
+
+def _fenster_an_den_bindungen() -> dict:
+    """The measurement of `NoWindowIsOpenWhereTheReadingHasTakenItsEntry`, meant for an interpreter of its own: the two
+    collects run over a list, stopped before every instruction that binds ``paare`` in `canonical._lies` or ``satz`` in
+    a collect; at each stop the windows of the steps whose entry is being read are asked. Its process id, whether every
+    binding instruction was found, where it stopped, and the windows found open."""
+    def binden(code: Any, name: str) -> set:
+        return {b.offset for b in dis.get_instructions(code) if b.opname.startswith("STORE_FAST")
+                and name in (b.argval if isinstance(b.argval, tuple) else (b.argval,))}
+    stellen = {_LIES: binden(_LIES, "paare"), _SAMMELN_1: binden(_SAMMELN_1, "satz"),
+               _SAMMELN_2: binden(_SAMMELN_2, "satz")}
+    x, y = {"canonicalRoot": "a", "proof": "p"}, {"canonicalRoot": "b", "proof": "p"}
+    liste = [x, y]
+    getroffen, offen = set(), []
+
+    def halt(rahmen: Any) -> None:
+        wert = rahmen.f_locals.get("wert")
+        sammeln = rahmen.f_back if rahmen.f_code is _LIES else rahmen
+        ort = f"{rahmen.f_code.co_name} in {sammeln.f_code.co_name}"
+        getroffen.add((ort, "x" if wert is x else "y" if wert is y else "-"))
+        for i, ziel in ((0, x), (1, y), (2, x)):
+            if wert is ziel and _im_fenster(rahmen, i, x, y, liste):
+                offen.append(f"step {i} at {ort}")
+
+    _an_befehlen(stellen, halt, lambda: canonical._gleich_gelesen(canonical._lesen_einmal(liste)))
+    return {"pid": os.getpid(), "stellen": all(stellen.values()), "getroffen": sorted(map(list, getroffen)),
+            "offen": offen}
 
 class NoWindowIsOpenWhereTheReadingHasTakenItsEntry(unittest.TestCase):
     """Codex pre-runs on 66b33218 and c1cafbb5 (P2 each): a step counted its moment where a local that is bound only after
@@ -1141,34 +1153,19 @@ class NoWindowIsOpenWhereTheReadingHasTakenItsEntry(unittest.TestCase):
     them. In the collects that is ``satz``: after `_lies` returned the record of the entry and before it is bound, when
     ``satz`` still holds the record read before. A change made at such a point comes after the reading took the entry.
     Here the two collects run over a list, stopped before every instruction that binds ``paare`` in `_lies` or ``satz``
-    in a collect (`_an_befehlen`), and there the window of each step whose entry is being read must be closed."""
+    in a collect, and there the window of each step whose entry is being read must be closed. The measurement runs in an
+    interpreter of its own (`_fenster_an_den_bindungen`), so the stops touch no tool of the test process."""
 
     def test_the_window_is_closed_wherever_a_read_entry_is_not_yet_bound(self) -> None:
-        def binden(code: Any, name: str) -> set:
-            return {b.offset for b in dis.get_instructions(code) if b.opname.startswith("STORE_FAST")
-                    and name in (b.argval if isinstance(b.argval, tuple) else (b.argval,))}
-        stellen = {_LIES: binden(_LIES, "paare"), _SAMMELN_1: binden(_SAMMELN_1, "satz"),
-                   _SAMMELN_2: binden(_SAMMELN_2, "satz")}
-        self.assertTrue(all(stellen.values()), "an instruction that binds paare or satz was not found")
-        x, y = {"canonicalRoot": "a", "proof": "p"}, {"canonicalRoot": "b", "proof": "p"}
-        liste = [x, y]
-        getroffen, offen = set(), []
-
-        def halt(rahmen: Any) -> None:
-            wert = rahmen.f_locals.get("wert")
-            sammeln = rahmen.f_back if rahmen.f_code is _LIES else rahmen
-            ort = f"{rahmen.f_code.co_name} in {sammeln.f_code.co_name}"
-            getroffen.add((ort, "x" if wert is x else "y" if wert is y else "-"))
-            for i, ziel in ((0, x), (1, y), (2, x)):
-                if wert is ziel and _im_fenster(rahmen, i, x, y, liste):
-                    offen.append(f"step {i} at {ort}")
-
-        _an_befehlen(stellen, halt, lambda: canonical._gleich_gelesen(canonical._lesen_einmal(liste)))
+        m = _in_frischem_interpreter("_fenster_an_den_bindungen")
+        self.assertNotEqual(m["pid"], os.getpid(), "the stops ran in the test process")
+        self.assertTrue(m["stellen"], "an instruction that binds paare or satz was not found")
+        getroffen = {tuple(g) for g in m["getroffen"]}
         erwartet = {(f"{a} in {b}", e) for a, b in (("_lies", "_lesen_einmal"), ("_lies", "_gleich_gelesen"),
                                                      ("_lesen_einmal", "_lesen_einmal"),
                                                      ("_gleich_gelesen", "_gleich_gelesen")) for e in ("x", "y")}
         self.assertEqual(sorted(erwartet - getroffen), [], "the tracer did not stop where X or Y is bound")
-        self.assertEqual(offen, [], "windows open where the reading has taken the entry of their step")
+        self.assertEqual(m["offen"], [], "windows open where the reading has taken the entry of their step")
 
 
 #: Single events of `sys.monitoring` the case below plants callbacks for; BRANCH is left out, since under CPython 3.14
