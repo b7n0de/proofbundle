@@ -1,0 +1,16 @@
+{
+  "session_id": "5e551011-0000-4000-8000-000000000001",
+  "lines_converted": 11,
+  "dialog": 5,
+  "events": 8,
+  "events_by_type": {
+    "reasoning": 1,
+    "system-event": 3,
+    "tool-call": 2,
+    "tool-result": 2
+  },
+  "not_converted": {
+    "type attachment": 1,
+    "type last-prompt": 1
+  }
+}

@@ -1,0 +1,227 @@
+{
+  "vcon": "0.5.0",
+  "uuid": "d89e1d66-b1e2-85f3-9340-f98d7e3585d8",
+  "created_at": "2026-10-15T09:00:00.000Z",
+  "extensions": [
+    "ai_agent"
+  ],
+  "recording_agent": {
+    "name": "claude_jsonl_to_vcon",
+    "version": "0.1.0"
+  },
+  "vcs": {
+    "type": "git",
+    "branch": "topic"
+  },
+  "parties": [
+    {
+      "name": "Alice",
+      "type": "person",
+      "uuid": "user-123"
+    },
+    {
+      "name": "Coding Agent",
+      "type": "bot",
+      "uuid": "agent-42",
+      "agent_meta": {
+        "model_id": "example-model-2026-10",
+        "model_provider": "example-provider",
+        "cli_name": "claude-code",
+        "cli_version": "1.2.0"
+      }
+    }
+  ],
+  "sessions": [
+    {
+      "start": "2026-10-15T09:00:00.000Z",
+      "duration": 310,
+      "parties": [
+        0,
+        1
+      ],
+      "dialog": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "agent_session_id": "5e551011-0000-4000-8000-000000000001",
+      "format": "interactive",
+      "environment": {
+        "working_dir": "/work/widgets",
+        "vcs": {
+          "type": "git",
+          "branch": "topic"
+        }
+      }
+    }
+  ],
+  "dialog": [
+    {
+      "type": "text",
+      "start": "2026-10-15T09:00:00.000Z",
+      "parties": 0,
+      "mediatype": "text/plain",
+      "encoding": "none",
+      "body": "Please push the topic branch to origin.",
+      "entry_id": "00000000-0000-4000-8000-000000000001"
+    },
+    {
+      "type": "text",
+      "start": "2026-10-15T09:00:02.000Z",
+      "parties": 1,
+      "mediatype": "text/plain",
+      "encoding": "none",
+      "body": "I will run: git push origin refs/heads/topic:refs/heads/topic Do you approve this exact command?",
+      "model_id": "example-model-2026-10",
+      "token_usage": {
+        "input": 1210,
+        "output": 38,
+        "cached": 0
+      },
+      "entry_id": "00000000-0000-4000-8000-000000000002",
+      "parent_id": "00000000-0000-4000-8000-000000000001"
+    },
+    {
+      "type": "text",
+      "start": "2026-10-15T09:00:04.000Z",
+      "parties": 0,
+      "mediatype": "text/plain",
+      "encoding": "none",
+      "body": "Approved.",
+      "entry_id": "00000000-0000-4000-8000-000000000003",
+      "parent_id": "00000000-0000-4000-8000-000000000002"
+    },
+    {
+      "type": "text",
+      "start": "2026-10-15T09:04:58.000Z",
+      "parties": 0,
+      "mediatype": "text/plain",
+      "encoding": "none",
+      "body": "Now merge pull request 7.",
+      "entry_id": "00000000-0000-4000-8000-000000000007",
+      "parent_id": "00000000-0000-4000-8000-000000000006"
+    },
+    {
+      "type": "text",
+      "start": "2026-10-15T09:05:03.000Z",
+      "parties": 1,
+      "mediatype": "text/plain",
+      "encoding": "none",
+      "body": "The merge of pull request 7 was blocked by the gate: required checks failed.",
+      "model_id": "example-model-2026-10",
+      "token_usage": {
+        "input": 1400,
+        "output": 22,
+        "cached": 1340
+      },
+      "entry_id": "00000000-0000-4000-8000-000000000010",
+      "parent_id": "00000000-0000-4000-8000-000000000009"
+    }
+  ],
+  "events": [
+    {
+      "type": "reasoning",
+      "time": "2026-10-15T09:00:04.500Z",
+      "sessions": 0,
+      "party": 1,
+      "content": "The user approved this exact command. Run it unchanged.",
+      "entry_id": "00000000-0000-4000-8000-000000000004",
+      "parent_id": "00000000-0000-4000-8000-000000000003"
+    },
+    {
+      "type": "tool-call",
+      "time": "2026-10-15T09:00:05.000Z",
+      "sessions": 0,
+      "party": 1,
+      "tool_name": "Bash",
+      "input": {
+        "command": "git push origin refs/heads/topic:refs/heads/topic",
+        "description": "Push the topic branch"
+      },
+      "call_id": "toolu_example_01",
+      "entry_id": "00000000-0000-4000-8000-000000000005",
+      "parent_id": "00000000-0000-4000-8000-000000000004"
+    },
+    {
+      "type": "tool-result",
+      "time": "2026-10-15T09:00:08.000Z",
+      "sessions": 0,
+      "party": 1,
+      "output": "To https://git.example/acme/widgets\n * [new branch]      topic -> topic",
+      "call_id": "toolu_example_01",
+      "status": "success",
+      "is_error": false,
+      "entry_id": "00000000-0000-4000-8000-000000000006",
+      "parent_id": "00000000-0000-4000-8000-000000000005"
+    },
+    {
+      "type": "system-event",
+      "time": "2026-10-15T09:00:08.000Z",
+      "sessions": 0,
+      "party": 1,
+      "event_type": "permission-decision",
+      "data": {
+        "decision": "accept",
+        "source": "config",
+        "call_id": "toolu_example_01"
+      },
+      "entry_id": "00000000-0000-4000-8000-000000000006.permission",
+      "parent_id": "00000000-0000-4000-8000-000000000006"
+    },
+    {
+      "type": "tool-call",
+      "time": "2026-10-15T09:05:00.000Z",
+      "sessions": 0,
+      "party": 1,
+      "tool_name": "Bash",
+      "input": {
+        "command": "gh pr merge 7 --repo acme/widgets --merge",
+        "description": "Merge pull request 7"
+      },
+      "call_id": "toolu_example_02",
+      "entry_id": "00000000-0000-4000-8000-000000000008",
+      "parent_id": "00000000-0000-4000-8000-000000000007"
+    },
+    {
+      "type": "tool-result",
+      "time": "2026-10-15T09:05:02.000Z",
+      "sessions": 0,
+      "party": 1,
+      "output": "Blocked by gate-1: required_check_failed",
+      "call_id": "toolu_example_02",
+      "status": "error",
+      "is_error": true,
+      "entry_id": "00000000-0000-4000-8000-000000000009",
+      "parent_id": "00000000-0000-4000-8000-000000000008"
+    },
+    {
+      "type": "system-event",
+      "time": "2026-10-15T09:05:02.000Z",
+      "sessions": 0,
+      "party": 1,
+      "event_type": "permission-decision",
+      "data": {
+        "decision": "reject",
+        "source": "config",
+        "call_id": "toolu_example_02"
+      },
+      "entry_id": "00000000-0000-4000-8000-000000000009.permission",
+      "parent_id": "00000000-0000-4000-8000-000000000009"
+    },
+    {
+      "type": "system-event",
+      "time": "2026-10-15T09:05:10.000Z",
+      "sessions": 0,
+      "party": 1,
+      "event_type": "informational",
+      "data": {
+        "level": "info",
+        "content": "Session ended."
+      },
+      "entry_id": "00000000-0000-4000-8000-000000000011",
+      "parent_id": "00000000-0000-4000-8000-000000000010"
+    }
+  ]
+}

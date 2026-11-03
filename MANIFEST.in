@@ -258,6 +258,8 @@ prune plugins
 # file, which tests/test_sdist_ohne_signierwerkzeug.py refuses in the sdist, and the directory vendors a
 # third-party file under its own MIT licence. The package does not need either, so the directory stays out.
 prune examples/verdict_contract
+# OUT (2026-11-03): examples/vcon_ai_agent_receipts/ derives private test keys from labels in make_example.py, which tests/test_sdist_ohne_signierwerkzeug.py refuses in the sdist.
+prune examples/vcon_ai_agent_receipts
 global-exclude __pycache__
 global-exclude *.py[cod]
 global-exclude *.so
