@@ -419,7 +419,7 @@ def check_receipts(rep, v, a, gate):
                    and e.get("call_id") == tool.get("call_id") and k in as_list(e.get("sessions", []))]
         T = vp.iso(min(vp.when(e["time"]) for e in results)) if results else pred["decidedAt"]
         full_check(rep, "R5", where + ", T " + T, b, a, T, case, action, ap_b)
-        found.append({"pred": pred, "root": root, "case": case, "approval": f, "call": j})
+        found.append({"pred": pred, "root": root, "case": case, "approval": f, "call": j, "session": k})
     return found, approvals
 
 
@@ -440,7 +440,8 @@ def check_set(rep, v, found, approvals):
             where = "%s, tool call %s" % (x["pred"]["decisionId"], tool.get("call_id"))
             rep.need(tool.get("call_id") is not None, "C2", where, "tool call without call_id, cannot be checked")
             for e in events:
-                if e.get("type") == "tool-result" and e.get("call_id") == tool["call_id"]:
+                if e.get("type") == "tool-result" and e.get("call_id") == tool["call_id"] \
+                        and x["session"] in as_list(e.get("sessions", [])):
                     ran = not (e.get("is_error") is True or e.get("status") == "error")
                     rep.need(not ran, "C2", where, "tool result %s after %s counts as executed" % (
                         e.get("entry_id"), x["pred"]["decision"]["verdict"]))
