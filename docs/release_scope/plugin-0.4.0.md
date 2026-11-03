@@ -67,9 +67,10 @@ Out means that an item is not part of the plugin release; it does not prove abse
 
 ## Open points
 
-1. Pull request 468 changes two files of the Guard: a copy of an owner's release with a later answer does not extend
-   the window of its identity. The owner chose on 2026-11-03 to take it into 0.4.0; it lands before this file, has
-   its row in In, and the acceptance at the release commit measures it.
+1. Pull request 468 changes the Guard's gate, `plugins/proofbundle-guard/hooks/proofbundle_gate.py`, and the decision
+   record of the verifier, `plugins/proofbundle/DECISIONS.md` (D119): a copy of an owner's release with a later
+   answer does not extend the window of its identity. The owner chose on 2026-11-03 to take it into 0.4.0; it landed
+   as d406a35b before this file, has its row in In, and the acceptance at the release commit measures it.
 2. A change to plugins/, .claude-plugin/ or LICENSE that lands between this file's pull request and the release commit
    needs its own row, and the generator's inventory below is read again at the release commit.
 3. The README section "Release 0.4.0 verification and migration", which the release notes link, is written after the
