@@ -10,7 +10,8 @@ original validity. The signer service decides with the same code (signer_service
 
 The property: the window of an identity runs from the earliest answer the gate has seen for it, every copy that lies in
 the folder freigaben now and every answer recorded in freigaben-erste.json of the plugin data directory, which the gate
-writes for each identity it reads and never moves later. A record it cannot read or write releases nothing.
+writes for each identity it reads and never moves later. A record it cannot read, or one that has to change and cannot be
+written, releases nothing.
 
 The limit, named: the gate sees only the copies that lie in the folder when it decides. A copy the gate never read,
 written and taken away before any call reached the release, is unknown to it; only the writer of the releases at the
@@ -323,3 +324,32 @@ def test_the_pass_names_no_start_of_its_window_that_the_use_decides_again(env, m
     text = out.verdicts[-1].text()
     assert re.findall(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", text) == [_stamp(later)], text
     assert f"answered at {_stamp(later)}" in text, text
+
+
+@pytest.mark.parametrize("take", [True, False], ids=["the use written before the pass", "the release held"])
+@pytest.mark.parametrize("held, runs", [(0, True), (2 * 60, False)],
+                         ids=["the record holds the answer already", "the record has to take an earlier answer"])
+def test_a_record_that_cannot_be_written_releases_nothing_only_where_it_has_to_change(env, monkeypatch, take, held,
+                                                                                         runs):
+    """Line 3 of the reading of c660a495: the texts said that a record which cannot be written releases nothing, while
+    the gate writes the record only where it changes. A record that already holds the answer of every copy the call
+    reads loses nothing and is not written again, so the call runs; a record that has to take an earlier answer and
+    cannot be written releases nothing. Both pin the rule as the texts now say it; the code did not change, so both are
+    green at c660a495 as well."""
+    now = float(int(time.time()))
+    answer = now - 5 * 60
+    data = pathlib.Path(os.environ["CLAUDE_PLUGIN_DATA"])
+    ident = gate._release_identity(f"{d111.CARD}:{gate.command_sha256(COMMAND)}:{SESSION}")
+    (data / gate.RELEASES_FIRST).write_text(gate._releases_first_text({ident: answer + held}), encoding="utf-8")
+    _copy(env, "a.json", answer)
+    real = gate.tempfile.mkstemp
+
+    def mkstemp(*args, **kwargs):
+        if str(kwargs.get("prefix", "")).startswith(".freigaben-erste-"):
+            raise PermissionError(13, "the record of first answers cannot be written")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(gate.tempfile, "mkstemp", mkstemp)
+    assert _passes(COMMAND, now, take=take) is runs
+    record = json.loads((data / gate.RELEASES_FIRST).read_text(encoding="utf-8"))
+    assert record["erste"] == {ident: _stamp(answer + held)}, "the record stays as it was"

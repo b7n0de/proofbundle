@@ -18449,8 +18449,10 @@ def _release_first_note(directory: str, environ) -> tuple[list[dict], dict] | No
     RELEASES_FIRST, both under the lock of the answer hook (D94), and return the releases and the record as it then
     stands, {_release_identity: seconds}; an answer already there is never moved later. The folder is read under the
     lock, so no second hook decides between the read of an earlier copy and the note of its answer (the reading of
-    586d245c). None where the record does not read or cannot be written, or where it cannot take an identity it does
-    not hold yet without passing MAX_RELEASES_USED_BYTES: then the gate releases nothing. An earlier answer of an
+    586d245c). None where the record does not read, where it has to change and cannot be written, or where it cannot
+    take an identity it does not hold yet without passing MAX_RELEASES_USED_BYTES: then the gate releases nothing. A
+    record that already holds every answer the call read is not written again, so it loses nothing (the reading of
+    c660a495). An earlier answer of an
     identity the record holds is written in that case too, since its time has one width and takes no byte more, so the
     bound never makes the gate forget an answer it has read (the pre-run of the reading of the main-in of 468)."""
     try:

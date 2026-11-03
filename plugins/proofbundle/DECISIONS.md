@@ -5837,8 +5837,10 @@ copies do not extend the original validity; once held. Since then the window of 
 answer the gate has read for it: every copy that lies in the folder freigaben when it decides, and the record
 RELEASES_FIRST (freigaben-erste.json in the plugin data directory, {_release_identity: time}), which the gate writes
 for every release it reads, of any line, under the lock of the answer hook, and in which it never moves an answer
-later. _release_take reads the record again under its lock. A record that does not read whole or cannot be written
-releases nothing, a write past MAX_RELEASES_USED_BYTES included. Where the record cannot take an identity it does not
+later. _release_take reads the record again under its lock. A record that does not read whole releases nothing, and so does
+one that has to change and cannot be written, a write past MAX_RELEASES_USED_BYTES included; a record that already holds
+every answer the call read is not written again and loses nothing (line 3 of the reading of c660a495 found that the
+first wording promised more). Where the record cannot take an identity it does not
 hold yet, the gate still writes an earlier answer of an identity it holds, since the time has one width and takes no
 byte more; the first form wrote nothing then, so a later copy of a known identity opened its window again once the
 earlier copy was gone (the pre-run of the reading of the main-in, 2026-11-03). The record is written in its compact
