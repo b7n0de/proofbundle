@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: done-red-tests-block
+context:
+  scaffold_script: scaffold.sh

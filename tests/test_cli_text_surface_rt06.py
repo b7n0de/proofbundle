@@ -233,7 +233,10 @@ class SvrShapeAndProperties(unittest.TestCase):
             self.assertIs(res["ok"], False)
             self.assertIs(res["predicate_shape_ok"], False)
             self.assertIn("properties", res["content_root_detail"])
-        self.assertEqual(classify_svr_predicate_shape({"predicate": {"properties": ["a"]}}), (True, ""))
+        self.assertEqual(classify_svr_predicate_shape({"predicate": {"verifier": {"id": "x"}, "timeCreated": "t",
+                                                                     "properties": ["a"]}}), (True, ""))
+        # svr/v0.1 requires verifier, verifier.id and timeCreated beside properties.
+        self.assertFalse(classify_svr_predicate_shape({"predicate": {"properties": ["a"]}})[0])
         self.assertFalse(classify_svr_predicate_shape({"predicate": [1]})[0])
         self.assertFalse(classify_svr_predicate_shape(None)[0])
 
@@ -260,7 +263,8 @@ class TimestampOverflowFamily(unittest.TestCase):
             bad = fx.policy(valid_until=OVERFLOW_STAMPS[0])
             ok = fx.policy(signature={"allowed_algs": ["ed25519"]})
             receipt = fx.receipt("s")
-            svr = fx.svr({"verifier": {"id": "x"}, "properties": []})
+            svr = fx.svr({"verifier": {"id": "https://example.invalid/verifier"},
+                          "timeCreated": "2026-10-31T00:00:00Z", "properties": []})
             for argv in (["policy", "lint", bad], ["policy", "explain", bad],
                          ["policy", "lint", "--json", bad],
                          ["verify", "--policy", bad, receipt],
@@ -270,6 +274,11 @@ class TimestampOverflowFamily(unittest.TestCase):
                          ["relation-statement", "verify", svr, "--pub", fx.pub_b64, "--policy", bad]):
                 rc, out, err = _cli(*argv)
                 _no_traceback(self, rc, out, err, {2})
+                if argv[:2] in (["decision", "verify"], ["outcome", "verify"], ["relation-statement", "verify"]):
+                    # Exit 2 alone does not bind the case to the policy: these commands also exit 2 for a valid policy
+                    # whose rule they do not apply (measured 2026-11-01). The reason is the policy's own sentence on the
+                    # overflowing time, not any text that happens to hold the word (Codex pre-run of round 3).
+                    self.assertIn("valid_until must be an ISO-8601 timestamp string", err, (argv[:2], err))
 
     def test_sibling_datetime_sites_never_raise_on_the_overflow_vector(self):
         # The sweep of every datetime site: the two siblings do not overflow on this vector (aware
