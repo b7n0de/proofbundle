@@ -1160,3 +1160,66 @@ class NoWindowIsOpenWhereTheReadingHasTakenItsEntry(unittest.TestCase):
                                                      ("_gleich_gelesen", "_gleich_gelesen")) for e in ("x", "y")}
         self.assertEqual(sorted(erwartet - getroffen), [], "the tracer did not stop where X or Y is bound")
         self.assertEqual(offen, [], "windows open where the reading has taken the entry of their step")
+
+
+class TheStopHelperLeavesTheInterpreterAsItFoundIt(unittest.TestCase):
+    """Codex pre-run on 7e30036b (P2): ``get_tool(w) is None`` says only that a tool id of `sys.monitoring` is free. An
+    earlier tool can have left its callback and its local events at it (under CPython 3.12 and 3.13 both stay after
+    ``free_tool_id``, under 3.14 the local events; measured), and `_an_befehlen` overwrote both and set them to nothing,
+    also when the run raised. Here such a state is planted where the helper stops: under CPython 3.12 and later at the
+    free tool id it takes, before 3.12 at `sys.settrace`, where it can only show that the helper keeps what it found. The
+    helper runs once, and once with a run that raises; after each the state must be the planted one."""
+
+    def test_the_planted_state_is_there_after_the_helper_ran_and_after_it_raised(self) -> None:
+        def ziel() -> int:
+            return 1
+
+        def wirft() -> None:
+            raise LookupError("planted")
+        stellen = {ziel.__code__: {0}}
+        mon = getattr(sys, "monitoring", None)
+        if mon is None:
+            def gepflanzt(rahmen, ereignis, arg):
+                return None
+            alt = sys.gettrace()
+            sys.settrace(gepflanzt)
+            try:
+                _an_befehlen(stellen, lambda rahmen: None, lambda: None)
+                nach_lauf = sys.gettrace()
+                with self.assertRaises(LookupError):
+                    _an_befehlen(stellen, lambda rahmen: None, wirft)
+                nach_fehler = sys.gettrace()
+            finally:
+                sys.settrace(alt)
+            self.assertIs(nach_lauf, gepflanzt, "the helper left another trace function than it found")
+            self.assertIs(nach_fehler, gepflanzt, "after a run that raised the helper left another trace function")
+            return
+        ereignis = mon.events.INSTRUCTION
+        w = next(w for w in range(6) if mon.get_tool(w) is None)   # the id the helper takes
+
+        def gepflanzt(code, stelle):
+            return None
+
+        def zustand() -> tuple:
+            rueckruf = mon.register_callback(w, ereignis, None)
+            mon.register_callback(w, ereignis, rueckruf)
+            return rueckruf, mon.get_local_events(w, ziel.__code__)
+        mon.use_tool_id(w, "planted")
+        mon.register_callback(w, ereignis, gepflanzt)
+        mon.set_local_events(w, ziel.__code__, ereignis)
+        mon.free_tool_id(w)
+        try:
+            vorher = zustand()
+            _an_befehlen(stellen, lambda rahmen: None, lambda: None)
+            nach_lauf = zustand()
+            with self.assertRaises(LookupError):
+                _an_befehlen(stellen, lambda rahmen: None, wirft)
+            nach_fehler = zustand()
+        finally:
+            mon.use_tool_id(w, "cleanup")
+            mon.set_local_events(w, ziel.__code__, 0)
+            mon.register_callback(w, ereignis, None)
+            mon.free_tool_id(w)
+        self.assertEqual(vorher[1], ereignis, "the planted local events did not stay at the free tool id")
+        self.assertEqual(nach_lauf, vorher, "the helper left another callback or other local events than it found")
+        self.assertEqual(nach_fehler, vorher, "after a run that raised the helper left another state than it found")
