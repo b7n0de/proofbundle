@@ -223,3 +223,30 @@ def test_an_earlier_answer_is_kept_in_a_compact_record_the_reader_takes_at_its_b
     _copy(env, "b.json", later)
     assert not _passes(COMMAND, first + 20 * 60, take=take)
     assert json.loads((data / gate.RELEASES_FIRST).read_text(encoding="utf-8"))["erste"][ident] == _stamp(first)
+
+
+@pytest.mark.parametrize("take", [True, False], ids=["the use written before the pass", "the release held"])
+def test_a_second_hook_releases_no_later_copy_while_the_first_has_read_an_earlier_answer(env, monkeypatch, take):
+    """The reading of 586d245c (line 3): the gate read the folder outside the lock under which it notes the answers.
+    A hook that had read the earlier copy and not noted it yet left a gap: meanwhile the earlier copy was taken away, a
+    later one appeared, and a second hook read only that and released it after the end of the first window. The folder
+    is now read under the same lock. Here the first hook pauses right after its read, and the second runs then; it
+    waits for the lock, gives up after LOCK_SECONDS and releases nothing. RED at 586d245c: the second hook released."""
+    first = float(int(time.time())) - 20 * 60
+    early = _copy(env, "a.json", first)
+    real = gate._releases
+    second = {}
+
+    def releases(environ):
+        found = real(environ)
+        if not second:
+            second["running"] = True
+            early.unlink()
+            _copy(env, "b.json", first + 10 * 60)
+            monkeypatch.setattr(gate._answer_hook(), "LOCK_SECONDS", 0.2)
+            second["released"] = _passes(COMMAND, first + 20 * 60, take=take)
+        return found
+
+    monkeypatch.setattr(gate, "_releases", releases)
+    assert not _passes(OTHER, first + 60)
+    assert second["released"] is False

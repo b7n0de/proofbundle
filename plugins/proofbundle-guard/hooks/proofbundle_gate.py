@@ -18444,16 +18444,19 @@ def _releases_first_text(first: dict) -> str:
         separators=(",", ":"))
 
 
-def _release_first_note(directory: str, releases: list[dict]) -> dict | None:
-    """Write the earliest answer of each identity among `releases` into RELEASES_FIRST, under the lock of the answer hook
-    (D94), and return the record as it then stands, {_release_identity: seconds}; an answer already there is never
-    moved later. None where the record does not read or cannot be written, or where it cannot take an identity it does
+def _release_first_note(directory: str, environ) -> tuple[list[dict], dict] | None:
+    """Read the releases of the folder (_releases) and write the earliest answer of each of their identities into
+    RELEASES_FIRST, both under the lock of the answer hook (D94), and return the releases and the record as it then
+    stands, {_release_identity: seconds}; an answer already there is never moved later. The folder is read under the
+    lock, so no second hook decides between the read of an earlier copy and the note of its answer (the reading of
+    586d245c). None where the record does not read or cannot be written, or where it cannot take an identity it does
     not hold yet without passing MAX_RELEASES_USED_BYTES: then the gate releases nothing. An earlier answer of an
     identity the record holds is written in that case too, since its time has one width and takes no byte more, so the
     bound never makes the gate forget an answer it has read (the pre-run of the reading of the main-in of 468)."""
     try:
         hook = _answer_hook()
         with hook.asks_lock(directory, RELEASES_FIRST):
+            releases = _releases(environ)
             first = _releases_first(directory)
             known, fresh = dict(first), {}
             for release in releases:
@@ -18476,7 +18479,7 @@ def _release_first_note(directory: str, releases: list[dict]) -> dict | None:
                 return None
     except (OSError, ValueError, UnicodeDecodeError, ImportError, AttributeError, SyntaxError):
         return None
-    return merged
+    return releases, merged
 
 
 def _release_from_first(release: dict, first: dict) -> dict:
@@ -18558,10 +18561,10 @@ def _autonomy_release(answer: "Outcome", command: str | None, environ, now: floa
     # The window of an identity runs from the earliest answer the gate has read for it, every copy in the folder now
     # and the record of first answers included, so a copy with a later answer does not extend it (RELEASES_FIRST). The
     # gate notes every release it reads, of any line, so a copy it read once keeps its answer after it is gone.
-    present = _releases(environ)
-    first = _release_first_note(data, present) if present else {}
-    if first is None:
+    noted = _release_first_note(data, environ)
+    if noted is None:
         return None
+    present, first = noted
     fitting = [r for r in (_release_from_first(r, first) for r in present) if r["sha256"] == sha
                and r["sitzung"] == session and r["zeit"] - RELEASE_SKEW_SECONDS <= now <= r["zeit"] + RELEASE_SECONDS]
     if not fitting:
