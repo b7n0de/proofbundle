@@ -355,6 +355,16 @@ class SplitChecks(Base):
         repo, commit = make_repo(self.tmp, files)
         self.assertBuilt(build(repo, commit, self.out))
 
+    def test_s1g_control_a_read_after_a_non_ascii_character_on_its_line_builds(self):
+        """The Codex pre-run of the reading of 023a7d8b: tokenize counts columns in characters and ast in UTF-8 bytes,
+        so a read of SERVER_VERSION after an umlaut on the same line was taken for a mention without its name and the
+        build refused a valid file. Both sides are now compared in bytes."""
+        files = split_files()
+        for root in (V, G):
+            files[root + "/server/proofbundle_mcp.py"] += 'label = "\u00e4"; print(SERVER_VERSION, TOOLS["x"] if "x" in TOOLS else 0)\n'
+        repo, commit = make_repo(self.tmp, files)
+        self.assertBuilt(build(repo, commit, self.out))
+
     def test_s2_missing_guard_gate_pin_is_refused(self):
         self.split_refused(lambda f: f.__setitem__(G + "/hooks/proofbundle_gate.py", gate(constant=False)),
                            "PINNED_PROOFBUNDLE")

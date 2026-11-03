@@ -309,10 +309,15 @@ def _parse(source: str, path: str) -> ast.Module:
 
 
 def _name_tokens(source: str, name: str, path: str) -> set[tuple[int, int]]:
+    """The places of the tokens of name, as (line, UTF-8 byte offset in the line), the unit of ast's col_offset:
+    tokenize counts columns in characters, and a non-ASCII character before a read on its line made the two differ
+    (the Codex pre-run of the reading of 023a7d8b)."""
+    lines = io.StringIO(source).readlines()
     try:
         # Python reads an identifier in NFKC (the Codex pre-run of the reading of 9830cdf1: a fullwidth spelling in an
         # import binds the same name), so the tokens are compared in that form.
-        return {t.start for t in tokenize.generate_tokens(io.StringIO(source).readline)
+        return {(t.start[0], len(lines[t.start[0] - 1][:t.start[1]].encode("utf-8")))
+                for t in tokenize.generate_tokens(io.StringIO(source).readline)
                 if t.type == tokenize.NAME and unicodedata.normalize("NFKC", t.string) == name}
     except (tokenize.TokenError, SyntaxError) as exc:
         raise CheckFailed(f"{path}: not readable as Python tokens ({exc})") from exc
