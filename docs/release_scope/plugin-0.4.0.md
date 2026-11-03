@@ -108,8 +108,11 @@ The marketplaces and profiles it checks in the same run:
 | `.claude-plugin/marketplace.json` | name proofbundle; exactly one entry, proofbundle with source `./plugins/proofbundle`; no differing version field |
 | `plugins/proofbundle-guard/.claude-plugin/marketplace.json` | name proofbundle-house; exactly one entry, proofbundle-guard with source `./`, which resolves to the Guard's own folder |
 | plugins/proofbundle | no hooks/ folder, no `hooks` field in either host manifest or its marketplace entry, no dependency on the Guard, exactly one MCP server, proofbundle, in `.mcp.json` and in the Codex manifest, and the seven tools of its server: `emit_receipt`, `gate_selftest_check`, `gate_selftest_prepare`, `gate_status`, `inspect_receipt`, `receipt_template`, `verify_receipt` |
-| plugins/proofbundle-guard | `hooks/hooks.json` and the gate program present, every program a hook of either host starts present in the Guard's folder, no skills/ folder, no MCP server registered, and its copy of the server byte-equal to the verifier's |
+| plugins/proofbundle-guard | `hooks/hooks.json` and the gate program present, every hook command of either host naming its program as `"${CLAUDE_PLUGIN_ROOT}/<path>"` or `"${PLUGIN_ROOT}/<path>"` and that program present in the Guard's folder, no skills/ folder, no MCP server registered, and its copy of the server byte-equal to the verifier's |
 | every archived entry | a regular file with mode 0644 or 0755; a symbolic link or a gitlink stops the build |
+
+A JSON file the generator reads that names a member twice stops the build, so a version member counts once only
+where it is written once. A hook command that names no program in one of the two forms above stops the build too.
 
 The plugin catalog plugins/README.md copies the manifests' version in its text. It is not in the archive and is checked
 by reading.

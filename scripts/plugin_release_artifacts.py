@@ -117,8 +117,12 @@ HOUSE_MARKETPLACE = G + "/.claude-plugin/marketplace.json"
 #: MCP server; its copy of the server, which only the gate starts, must be byte-equal to the verifier's.
 VERIFIER_TOOLS = ("emit_receipt", "gate_selftest_check", "gate_selftest_prepare", "gate_status", "inspect_receipt",
                   "receipt_template", "verify_receipt")
-#: A program of the plugin that a hook command starts, as both hosts write it.
-HOOK_PROGRAM = re.compile(r"(?:\$\{CLAUDE_PLUGIN_ROOT\}/|(?<![\w/.-]))(hooks/[\w.-]+\.py)")
+#: A program of the plugin that a hook command starts, as both hosts write it: the host's plugin root in braces, Claude
+#: Code's ${CLAUDE_PLUGIN_ROOT} or Codex's ${PLUGIN_ROOT}, and the path inside the plugin, all in double quotes. Every
+#: mention of a plugin root in a command must be such a start, and a command without one is refused (check_guard_profile):
+#: a form the generator does not read is no program it has checked.
+HOOK_PROGRAM = re.compile(r'"\$\{(?:CLAUDE_PLUGIN_ROOT|PLUGIN_ROOT)\}/([^"$`\\]+)"')
+HOOK_ROOT = re.compile(r"(?:CLAUDE_)?PLUGIN_ROOT")
 
 #: Every required version place ("version") and pin place ("pin"), by layout. Kinds:
 #:   json_version   the "version" member of a JSON file
@@ -232,11 +236,31 @@ def blob_text(repo: Path, commit: str, path: str) -> str:
         raise CheckFailed(f"{path}: not UTF-8") from exc
 
 
-def json_blob(repo: Path, commit: str, path: str) -> dict:
+class DuplicateMember(ValueError):
+    """A JSON object that names one member twice."""
+
+
+def _members(pairs: list[tuple[str, object]]) -> dict:
+    """object_pairs_hook of every JSON reader here: json.loads keeps the last of two equal members, so a file could
+    name "version" twice and read as one place; such a file is refused instead."""
+    names = [name for name, _ in pairs]
+    twice = sorted({name for name in names if names.count(name) > 1})
+    if twice:
+        raise DuplicateMember(f"duplicate member {', '.join(twice)}")
+    return dict(pairs)
+
+
+def json_text(text: str, path: str) -> object:
     try:
-        data = json.loads(blob_text(repo, commit, path))
+        return json.loads(text, object_pairs_hook=_members)
+    except DuplicateMember as exc:
+        raise CheckFailed(f"{path}: {exc}") from exc
     except ValueError as exc:
         raise CheckFailed(f"{path}: not JSON") from exc
+
+
+def json_blob(repo: Path, commit: str, path: str) -> dict:
+    data = json_text(blob_text(repo, commit, path), path)
     if not isinstance(data, dict):
         raise CheckFailed(f"{path}: not a JSON object")
     return data
@@ -326,10 +350,7 @@ def block_pin(content: str, where: str) -> str:
 def read_place(repo: Path, commit: str, kind: str, path: str, name: str | None, count: int) -> list[str]:
     text = blob_text(repo, commit, path)
     if kind == "json_version":
-        try:
-            data = json.loads(text)
-        except ValueError as exc:
-            raise CheckFailed(f"{path}: not JSON") from exc
+        data = json_text(text, path)
         if not isinstance(data, dict) or not isinstance(data.get("version"), str):
             raise CheckFailed(f"{path}: no string member version")
         return [data["version"]]
@@ -412,13 +433,14 @@ def check_marketplaces(repo: Path, commit: str, layout: dict, version: str) -> l
     return lines
 
 
-def _strings(value: object) -> list[str]:
-    if isinstance(value, str):
-        return [value]
+def _hook_commands(value: object) -> list[object]:
+    """The values of every "command" member of a hook structure, of any type, so a command that is no string is
+    refused rather than passed over."""
     if isinstance(value, dict):
-        return [s for v in value.values() for s in _strings(v)]
+        return [v for k, v in value.items() if k == "command"] + \
+            [c for k, v in value.items() if k != "command" for c in _hook_commands(v)]
     if isinstance(value, list):
-        return [s for v in value for s in _strings(v)]
+        return [c for v in value for c in _hook_commands(v)]
     return []
 
 
@@ -493,16 +515,24 @@ def check_guard_profile(repo: Path, commit: str, layout: dict) -> list[str]:
         entry = tree_entry(repo, commit, path)
         if entry is None or entry[1] != "blob" or entry[0] not in ("100644", "100755"):
             raise CheckFailed(f"{path}: required in the Guard as a regular file, found {entry}")
-    commands = _strings(json_blob(repo, commit, hooks_file).get("hooks", {}))
+    commands = _hook_commands(json_blob(repo, commit, hooks_file).get("hooks", {}))
     codex = root + "/.codex-plugin/plugin.json"
     if tree_entry(repo, commit, codex) is not None:
-        commands += _strings(json_blob(repo, commit, codex).get("hooks", {}))
-    programs = sorted({p for command in commands for p in HOOK_PROGRAM.findall(command)})
+        commands += _hook_commands(json_blob(repo, commit, codex).get("hooks", {}))
+    started = set()
+    for command in commands:
+        found = HOOK_PROGRAM.findall(command) if isinstance(command, str) else []
+        if not found or len(found) != len(HOOK_ROOT.findall(command)) or \
+                any(part in ("", ".", "..") for program in found for part in program.split("/")):
+            raise CheckFailed(f"{root}: the hook command {command!r} names no program of the Guard in a form the "
+                              "generator reads")
+        started.update(found)
+    programs = sorted(started)
     if not programs:
         raise CheckFailed(f"{root}: no hook of either host starts a program of the Guard")
     for program in programs:
         entry = tree_entry(repo, commit, f"{root}/{program}")
-        if entry is None or entry[1] != "blob":
+        if entry is None or entry[1] != "blob" or entry[0] not in ("100644", "100755"):
             raise CheckFailed(f"{root}: a hook starts {program}, which the Guard does not hold")
     if tree_entry(repo, commit, root + "/skills") is not None:
         raise CheckFailed(f"{root}/skills: the Guard adds no skill")

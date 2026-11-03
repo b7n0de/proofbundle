@@ -115,8 +115,9 @@ def marketplace(name: str, entries: list[tuple[str, str]]) -> str:
 MCP = {"proofbundle": {"command": "uv", "args": ["run", "--script", "server/proofbundle_mcp.py"]}}
 CLAUDE_HOOKS = json.dumps({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [
     {"type": "command", "command": 'python3 -I "${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py"'}]}]}}, indent=2)
+#: The form the Guard's Codex manifest writes since pull request 472: the host's plugin root, ${PLUGIN_ROOT}, in quotes.
 CODEX_HOOKS = {"PreToolUse": [{"matcher": "Bash", "hooks": [
-    {"type": "command", "command": "python3 -I hooks/proofbundle_gate.py --host codex"}]}]}
+    {"type": "command", "command": 'python3 -I "${PLUGIN_ROOT}/hooks/proofbundle_gate.py" --host codex'}]}]}
 CATALOG = ("# Plugins\n\n| Host | What it does | Plugin | Version | Maturity |\n|---|---|---|---|---|\n"
            "| Claude Code | fixture | [proofbundle](proofbundle/README.md) | 0.4.0 | Experimental |\n"
            "| Codex | fixture | [proofbundle](proofbundle/README.md) | 0.4.0 | Experimental |\n")
@@ -265,6 +266,19 @@ class SplitChecks(Base):
             self.assertIn(prefix + rel, names)
         self.assertNotIn(prefix + "plugins/README.md", names)
 
+    def test_s1b_a_version_member_named_twice_is_refused(self):
+        """The Codex pre-run of the reading of 99bdcf27: json.loads keeps the last of two equal members, so a manifest
+        with "version" 0.3.0 and then 0.4.0 read as one place saying 0.4.0, while the scope file counts one member."""
+        twice = manifest("proofbundle-guard").replace('"version": "0.4.0"', '"version": "0.3.0",\n  "version": "0.4.0"')
+        self.assertEqual(twice.count('"version"'), 2)
+        self.split_refused(lambda f: f.__setitem__(G + "/.claude-plugin/plugin.json", twice), "duplicate member")
+
+    def test_s1c_a_marketplace_member_named_twice_is_refused(self):
+        """The same reader for every JSON file the generator checks: a house marketplace whose name is written twice."""
+        twice = marketplace("proofbundle-house", [("proofbundle-guard", "./")]).replace(
+            '"name": "proofbundle-house"', '"name": "proofbundle",\n  "name": "proofbundle-house"')
+        self.split_refused(lambda f: f.__setitem__(HOUSE, twice), "duplicate member")
+
     def test_s2_missing_guard_gate_pin_is_refused(self):
         self.split_refused(lambda f: f.__setitem__(G + "/hooks/proofbundle_gate.py", gate(constant=False)),
                            "PINNED_PROOFBUNDLE")
@@ -355,6 +369,36 @@ class GuardProfile(Base):
     def test_n6_hook_starting_a_program_the_guard_lacks_is_refused(self):
         self.split_refused(lambda f: f.__setitem__(G + "/hooks/hooks.json", CLAUDE_HOOKS.replace(
             "proofbundle_gate.py", "proofbundle_gone.py") + "\n"), "which the Guard does not hold")
+
+    def test_n6b_hook_starting_a_nested_program_the_guard_lacks_is_refused(self):
+        """The Codex pre-run of the reading of 99bdcf27: the pattern read a program directly under hooks/ only, so a
+        hook that started hooks/sub/missing.py passed while another hook named the gate."""
+        self.split_refused(lambda f: f.__setitem__(G + "/hooks/hooks.json", CLAUDE_HOOKS.replace(
+            "hooks/proofbundle_gate.py", "hooks/sub/missing.py") + "\n"), "which the Guard does not hold")
+
+    def test_n6c_hook_starting_a_shell_program_the_guard_lacks_is_refused(self):
+        self.split_refused(lambda f: f.__setitem__(G + "/hooks/hooks.json", CLAUDE_HOOKS.replace(
+            "hooks/proofbundle_gate.py", "hooks/missing.sh") + "\n"), "which the Guard does not hold")
+
+    def test_n6d_codex_hook_starting_a_program_the_guard_lacks_is_refused(self):
+        """The neighbour found while reading the finding: the Guard's Codex manifest writes ${PLUGIN_ROOT}, which the
+        pattern did not read at all, so no Codex hook was checked."""
+        gone = json.loads(json.dumps(CODEX_HOOKS).replace("proofbundle_gate.py", "proofbundle_gone.py"))
+        self.split_refused(lambda f: f.__setitem__(G + "/.codex-plugin/plugin.json",
+                                                   manifest("proofbundle-guard", hooks=gone)),
+                           "which the Guard does not hold")
+
+    def test_n6e_hook_command_naming_no_program_in_a_form_the_generator_reads_is_refused(self):
+        """A command whose started program the generator cannot read is refused, not passed over."""
+        self.split_refused(lambda f: f.__setitem__(G + "/hooks/hooks.json", CLAUDE_HOOKS.replace(
+            'python3 -I \\"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py\\"', "bash -c 'python3 hooks/x.py'")
+            + "\n"), "in a form the generator reads")
+
+    def test_n6f_control_the_hook_forms_of_both_hosts_build(self):
+        repo, commit = make_repo(self.tmp, split_files())
+        proc = build(repo, commit, self.out)
+        self.assertBuilt(proc)
+        self.assertIn("(1: hooks/proofbundle_gate.py)", text(proc))
 
     def test_n7_guard_registering_an_mcp_server_is_refused(self):
         self.split_refused(lambda f: f.__setitem__(G + "/.mcp.json", json.dumps({"mcpServers": MCP}) + "\n"),
