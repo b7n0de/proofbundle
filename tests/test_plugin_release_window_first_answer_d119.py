@@ -171,3 +171,31 @@ def test_the_signer_service_refuses_the_later_copy_with_a_data_directory_of_its_
     assert decision == "deny" and "released_by_owner" not in entry["reason_ids"], (decision, entry)
     assert world.used() == {} and "ALLOW" not in world.receipts()
     assert (folder / "data" / gate.RELEASES_FIRST).exists(), "the service records the first answer in its own data"
+
+
+@pytest.mark.parametrize("take", [True, False], ids=["the use written before the pass", "the release held"])
+def test_an_earlier_answer_of_a_known_identity_is_kept_where_new_identities_pass_the_bound(env, monkeypatch, take):
+    """The pre-run of the reading of the main-in of 468: where the record could not take the identities a call read,
+    the gate wrote nothing, so an earlier answer of an identity the record already held was lost with them. Once the
+    folder held only the later copy again, its window ran from the later answer. An earlier answer of a known identity
+    takes no byte more (the time has one width) and is kept whatever the bound; the new identities still release
+    nothing. RED at 4329696f: the later copy let the call run after the end of the first window."""
+    first = float(int(time.time())) - 20 * 60
+    later = first + 10 * 60
+    folder = env / "gatedir" / "freigaben"
+    data = pathlib.Path(os.environ["CLAUDE_PLUGIN_DATA"])
+    _copy(env, "b.json", later)
+    assert not _passes(OTHER, later + 1)
+    (folder / "b.json").unlink()
+    monkeypatch.setattr(gate, "MAX_RELEASES_USED_BYTES", len((data / gate.RELEASES_FIRST).read_bytes()) + 10)
+    _copy(env, "a.json", first)
+    for i in range(3):
+        _copy(env, f"n{i}.json", first, card=f"OA-0000000{i}ff")
+    assert not _passes(OTHER, first + 60)
+    for path in folder.iterdir():
+        path.unlink()
+    _copy(env, "b.json", later)
+    assert not _passes(COMMAND, first + 20 * 60, take=take)
+    record = json.loads((data / gate.RELEASES_FIRST).read_text(encoding="utf-8"))
+    ident = gate._release_identity(f"{d111.CARD}:{gate.command_sha256(COMMAND)}:{SESSION}")
+    assert record["erste"] == {ident: _stamp(first)}

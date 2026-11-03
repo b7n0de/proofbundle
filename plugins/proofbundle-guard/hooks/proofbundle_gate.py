@@ -18435,30 +18435,42 @@ def _releases_first(directory: str) -> dict:
     return first
 
 
+def _releases_first_text(first: dict) -> str:
+    """The record of first answers as _releases_first reads it."""
+    return json.dumps({"schema": RELEASES_FIRST_SCHEMA, "erste": {
+        identity: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(seconds)) for identity, seconds in first.items()}})
+
+
 def _release_first_note(directory: str, releases: list[dict]) -> dict | None:
     """Write the earliest answer of each identity among `releases` into RELEASES_FIRST, under the lock of the answer hook
     (D94), and return the record as it then stands, {_release_identity: seconds}; an answer already there is never
-    moved later. None where the record does not read or cannot be written, a write past MAX_RELEASES_USED_BYTES
-    included: then the gate releases nothing."""
+    moved later. None where the record does not read or cannot be written, or where it cannot take an identity it does
+    not hold yet without passing MAX_RELEASES_USED_BYTES: then the gate releases nothing. An earlier answer of an
+    identity the record holds is written in that case too, since its time has one width and takes no byte more, so the
+    bound never makes the gate forget an answer it has read (the pre-run of the reading of the main-in of 468)."""
     try:
         hook = _answer_hook()
         with hook.asks_lock(directory, RELEASES_FIRST):
             first = _releases_first(directory)
-            merged = dict(first)
+            known, fresh = dict(first), {}
             for release in releases:
                 identity = _release_identity(_release_key(release))
-                if identity not in merged or release["zeit"] < merged[identity]:
-                    merged[identity] = release["zeit"]
+                into = known if identity in known else fresh
+                if identity not in into or release["zeit"] < into[identity]:
+                    into[identity] = release["zeit"]
+            full = bool(fresh) and \
+                len(_releases_first_text({**known, **fresh}).encode("utf-8")) > MAX_RELEASES_USED_BYTES
+            merged = known if full else {**known, **fresh}
             if merged != first:
-                text = json.dumps({"schema": RELEASES_FIRST_SCHEMA, "erste": {
-                    identity: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(seconds))
-                    for identity, seconds in merged.items()}})
+                text = _releases_first_text(merged)
                 if len(text.encode("utf-8")) > MAX_RELEASES_USED_BYTES:
                     return None
                 fd, tmp = tempfile.mkstemp(prefix=".freigaben-erste-", dir=directory)
                 with os.fdopen(fd, "w", encoding="utf-8") as handle:
                     handle.write(text)
                 os.replace(tmp, os.path.join(directory, RELEASES_FIRST))
+            if full:
+                return None
     except (OSError, ValueError, UnicodeDecodeError, ImportError, AttributeError, SyntaxError):
         return None
     return merged
