@@ -1276,16 +1276,27 @@ class TagObject(Base):
             "existing file": lambda out: ("--tag-out", str(existing)),
             "hard link": lambda out: ("--tag-out", str(self.tmp / "t1.tag"), "--inventory-out",
                                       str(self.tmp / "inventory.txt")),
+            # the pre-run of the reading of 4532c3b5: a path above the folder passed, and mkdir made it a folder after
+            # which the tag could not be written while the three artifacts were; the neighbors of the same assumption,
+            # that every write after the first succeeds, are a path below the other optional output and a path whose
+            # folder does not exist
+            "tag above the folder": lambda out: ("--tag-out", str(out.parent)),
+            "inventory below the tag": lambda out: ("--tag-out", str(self.tmp / "below"), "--inventory-out",
+                                                    str(self.tmp / "below" / "inventory.txt")),
+            "folder of the tag missing": lambda out: ("--tag-out", str(self.tmp / "missing" / "t1.tag")),
         }
         for name, extra in cases.items():
             with self.subTest(name=name):
                 out = self.tmp / "o" / ("link" if name == "link" else name.replace(" ", "_"))
+                if name == "tag above the folder":
+                    out = out / "assets"
                 proc = build(repo, commit, out, extra=extra(out))
                 self.assertEqual(proc.returncode, 2, text(proc))
                 self.assertFalse(out.exists() and any(out.iterdir()), "a refused build wrote artifacts")
                 self.assertFalse((self.tmp / "same").exists())
                 self.assertEqual((self.tmp / "t1.tag").read_bytes(), b"placeholder")
                 self.assertEqual(existing.read_bytes(), b"placeholder")
+                self.assertFalse((self.tmp / "below").exists() or (self.tmp / "missing").exists())
                 self.assertIn("lie outside the output folder, apart and new", proc.stderr.decode())
 
     def test_t1_tag_object_is_accepted_and_matches_git_tag(self):

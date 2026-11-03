@@ -39,8 +39,9 @@ build
       SHA256SUMS                            A3, two lines derived from A2 and its own hash
     --tag-out writes the raw bytes of the annotated tag object T1, which `git mktag` accepts unchanged.
     --inventory-out writes one line per archived file: mode, size, sha256, path, and a review mark for names that
-    look like key or credential material. Both lie outside OUT_DIR, apart after links are followed, and do not exist
-    before; any other path stops the build before anything is written, and every file is created new.
+    look like key or credential material. Both lie neither in OUT_DIR nor above it, apart after links are followed,
+    do not exist before and lie in a folder that exists; any other path stops the build before anything is
+    written, and every file is created new.
     The report on stdout names every place read, every check, each artifact with size and SHA-256, the bytes to sign,
     and T1 with its message hash and expected object id. Two runs on the same commit give the same bytes and report.
 
@@ -943,18 +944,19 @@ def cmd_build(args: argparse.Namespace) -> int:
     repo, out = Path(args.repo), Path(args.out)
     if out.exists() and any(out.iterdir()):
         raise NotMeasurable(f"the output folder is not empty: {out.name}")
-    # every path a build writes is its own and new: --tag-out and --inventory-out lie outside the output folder, apart
-    # after links are followed, and do not exist before, as a file or a link, as the driver writes them. The Codex
-    # pre-run of the reading of 8682d4b4 found --tag-out on the archive's path, which replaced the archive while the
-    # report said result OK, and the one of a0688801 two paths outside the folder joined by a hard link, which
-    # resolve() does not see; a file that does not exist yet has no other name. Every file is written with an
-    # exclusive create (_write_new).
+    # every path a build writes is its own and new, and each write after the first can succeed: --tag-out and
+    # --inventory-out lie neither in the output folder nor above it, apart after links are followed, do not exist
+    # before, as a file or a link, and lie in a folder that exists, as the driver writes them. The Codex pre-runs of the
+    # readings of 8682d4b4, a0688801 and 4532c3b5 found, one after the other, --tag-out on the archive's path, two paths
+    # joined by a hard link and a path above the folder, which mkdir made a folder; each let a build write the
+    # artifacts and then replace one or fail. Every file is written with an exclusive create (_write_new).
     folder = out.resolve()
     given = [Path(p) for p in (args.tag_out, args.inventory_out) if p]
     extra = [p.resolve() for p in given]
-    if any(p == folder or folder in p.parents for p in extra) or len(set(extra)) != len(extra) \
-            or any(p.exists() or p.is_symlink() for p in given):
-        raise NotMeasurable("--tag-out and --inventory-out lie outside the output folder, apart and new")
+    if any(p == folder or folder in p.parents or p in folder.parents for p in extra) or len(set(extra)) != len(extra) \
+            or any(p.exists() or p.is_symlink() or not p.parent.is_dir() for p in given):
+        raise NotMeasurable("--tag-out and --inventory-out lie outside the output folder, apart and new, each in a "
+                            "folder that exists")
     if not SEMVER.fullmatch(args.version) or not SEMVER.fullmatch(args.expect_pin):
         raise NotMeasurable("--version and --expect-pin take X.Y.Z")
     layout = INVENTORIES[args.layout]
