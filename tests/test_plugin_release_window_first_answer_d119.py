@@ -282,3 +282,18 @@ def test_a_held_release_is_not_used_while_another_hook_notes_an_earlier_answer(e
     assert not _passes(OTHER, first + 60)
     assert settled["used"] is False
     assert not (data / gate.RELEASES_USED).exists()
+
+
+def test_the_pass_names_the_earliest_answer_its_window_runs_from(env):
+    """The reading of 93fa78d9 (line 3, text): the pass named the answer of the copy it read and said the window ran
+    from "the answer", while the window of its identity runs from the earliest answer the gate has read for it. The pass
+    now names that answer. RED at 93fa78d9: the text named only the later answer."""
+    first = float(int(time.time())) - 5 * 60
+    early = _copy(env, "a.json", first)
+    assert not _passes(OTHER, first + 60)
+    early.unlink()
+    _copy(env, "b.json", first + 2 * 60)
+    out = gate._autonomy_release(gate.Outcome("deny", "", []), COMMAND, d119._settle_env(), first + 4 * 60)
+    assert out is not None and out.decision == "pass"
+    text = out.verdicts[-1].text()
+    assert f"within {gate.RELEASE_SECONDS // 60} minutes of the earliest answer" in text and _stamp(first) in text, text

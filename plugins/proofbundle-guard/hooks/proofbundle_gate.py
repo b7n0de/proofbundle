@@ -18019,7 +18019,7 @@ def _autonomy_card(answer: "Outcome", command: str | None, cwd: str, deadline: f
         door = _release_door(command, answer)
         binding = (f" The card carries the line verbatim, sha256 {command_sha256(command)}, and what it does outside: "
                    f"{said}. The owner's answer A frees exactly this line once, in this session, within "
-                   f"{RELEASE_SECONDS // 60} minutes of the answer; a changed line needs a new card (DECISIONS.md "
+                   f"{RELEASE_SECONDS // 60} minutes of its first answer; a changed line needs a new card (DECISIONS.md "
                    "D111, D119).") if door is None else \
             (f" The line touches {_RELEASE_DOORS[door][0]}, an own door of the owner: no card frees it. Say so on the "
              "card; the owner runs the line themselves (DECISIONS.md D119).")
@@ -18582,11 +18582,13 @@ def _autonomy_release(answer: "Outcome", command: str | None, environ, now: floa
     release = next((r for r in fitting if _release_free(r, used, consumed, now)), None)
     if release is None or (take and not _release_take(release, environ, now)):
         return None
+    since = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(release["zeit"]))
     verdict = Verdict("pass", f"proofbundle gate: the owner released this command on the card {release['karte']}, "
                               f"answered at {release['antwort']}. The release frees exactly the command whose words "
                               f"as written have the sha256 {sha}, once, in this session, within "
-                              f"{RELEASE_SECONDS // 60} minutes of the answer; its use stands in the plugin data "
-                              "before the call runs (DECISIONS.md D111, D119).", "released_by_owner")
+                              f"{RELEASE_SECONDS // 60} minutes of the earliest answer the gate has read for this "
+                              f"card, line and session, {since}; its use stands in the plugin data before the call "
+                              "runs (DECISIONS.md D111, D119).", "released_by_owner")
     new = Outcome("pass", verdict.text(), list(answer.verdicts) + [verdict], None, step=answer.step)
     new.release = {"freigabe": release, "ohne": answer, "genutzt": take}
     record = getattr(answer, "autonomy", None) or {}

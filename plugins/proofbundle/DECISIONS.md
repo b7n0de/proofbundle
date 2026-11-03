@@ -5849,15 +5849,21 @@ under the lock under which the answers are noted, so no second hook decides betw
 the note of its answer (the third line of the reading of 586d245c: a hook paused after its read let a second hook
 release a later copy); a hook that cannot take the lock within LOCK_SECONDS releases nothing. _release_take holds
 the same lock before the lock of the uses, so a held release is not used while another hook notes an earlier answer
-it has read (the fourth pre-run); no path takes the two locks the other way round. A write that fails
-loses what that call read, as a copy the gate never read is lost. Where a later copy can arise: the writer at the farmer
+it has read (the fourth pre-run); no path takes the two locks the other way round. The pass names the earliest
+answer its window runs from, beside the answer of the copy it read (line 3 of the reading of 93fa78d9). Limit, named,
+the one of D119 above: where the pilot reads the call as a GitHub write, the signer service signs ALLOW for the held
+release before _release_take writes the use; where _release_take then refuses, because another hook noted an earlier
+answer in between or the use cannot be written, the call does not run and the release is spent on the service's side
+without its call. Coupling that signature to the check of the record follows the plugin 0.4.0, under the owner's scope
+freeze of 2026-11-03. A write that fails loses what that call read, as a copy the gate never read is lost. Where a later copy can arise: the writer at the farmer
 (scripts/b7_klickfreigabe_schreiber.py of 2bedone, pull request 2454, not landed) writes one file per card and line,
 once, and refuses a second click under the same name; a later copy needs the first file gone (a cleared folder; the
 gate reads at most MAX_RELEASE_FILES) and a new click, or a file that something other than the writer leaves under
 another name. Limit, named: the gate sees only the copies that lie in the folder when it decides; a copy it never read,
 written and taken away before any call reached the gate, is unknown to it, and only the writer, which reads every click
 of the decision board, knows each first answer for sure. Measured: tests/test_plugin_release_window_first_answer_d119.py,
-9 of 12 cases red at 8bb289c8 and the three controls green there, end to end through the hook and the signer service
+of its first 12 cases 9 red at 8bb289c8 and the three controls green there, each later case red at the head before its
+fix, end to end through the hook and the signer service
 with a data directory of its own (A2) included.
 
 ## D120. The own doors the gate held nowhere are house rule H5, a deny no card opens (O49-1, 2026-10-24)
