@@ -28,9 +28,9 @@ build
         "hooks" field and no dependency in its two host manifests or its marketplace entry (none is a member main
         writes there), exactly one MCP server, proofbundle, in .mcp.json and in the Codex manifest, and the tool set
         of that server;
-      - in the split layout, the Guard's profile: hooks/hooks.json and the gate program present, both hosts' hook
-        registrations in the form main c9ab65b1 writes (HOOK_EVENTS), every program a hook of either host starts
-        present in the Guard's root, no skills/ folder, no MCP server registered, and its copy of
+      - in the split layout, the Guard's profile: hooks/hooks.json and the gate program present, the hook
+        registration of each host the one main c9ab65b1 writes (HOOK_REGISTRATIONS), every program they start
+        (HOOK_PROGRAMS) present in the Guard's root, no skills/ folder, no MCP server registered, and its copy of
         the server byte-equal to the verifier's;
       - every archived entry: a regular file (0644 or 0755); a symbolic link or a gitlink stops the build.
     Then it writes into OUTDIR, which must be absent or empty, exactly three files:
@@ -149,47 +149,143 @@ MANIFEST_MEMBERS = {
     ("proofbundle-guard", "/.codex-plugin/plugin.json"): frozenset({"description", "hooks", "keywords", "name",
                                                                     "version"}),
 }
-#: The hook commands of the Guard, word for word as main c9ab65b1 writes them, for each host its own: @ROOT@ stands for
-#: the host's root variable (Claude Code ${CLAUDE_PLUGIN_ROOT}, Codex ${PLUGIN_ROOT}) and @PROGRAM@ for the path of the
-#: program inside the plugin; the bare start of a program is one form more. A hook command is held whole to one of
-#: them (hook_programs). The readings of 2bcbf9f3 to ae0b16e4 found, one after the other, text joined to the quoted
-#: path, an escaped blank, a leading command substitution, a rest the shell rejects and a failing input redirection,
-#: each of which a reading of only the start let pass; a whole command can hide nothing else.
-CLAUDE_ROOT, CODEX_ROOT = "CLAUDE_PLUGIN_ROOT", "PLUGIN_ROOT"
-_BLOCKED = "{ echo 'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }"
-HOOK_TEMPLATES = {
-    CLAUDE_ROOT: (
-        'python3 -I "${@ROOT@}/@PROGRAM@"',
-        'python3 -I "${@ROOT@}/@PROGRAM@" --autonomous || ' + _BLOCKED,
-        'python3 -I "${@ROOT@}/@PROGRAM@" || true',
-        'python3 -I "${@ROOT@}/@PROGRAM@" stop || { echo \'proofbundle done check: the check could not run, so the '
-        "session does not end' >&2; exit 2; }",
-        'out=$(python3 -I "${@ROOT@}/@PROGRAM@" task-completed) || { echo \'proofbundle done check: the check could '
-        "not run, so the task stays open' >&2; exit 2; }; if [ -n \"$out\" ]; then printf '%s\\n' \"$out\" >&2; exit 2; fi",
-        'python3 -I "${@ROOT@}/@PROGRAM@" session-start || printf \'%s\\n\' \'{"systemMessage": "proofbundle done check: '
-        "the hand-over could not run, so an open blocker was not handed on; the done check at Stop is unchanged "
-        "(D127).\"}'",
-    ),
-    CODEX_ROOT: (
-        'python3 -I "${@ROOT@}/@PROGRAM@"',
-        'python3 -I "${@ROOT@}/@PROGRAM@" --host codex || ' + _BLOCKED,
-        'python3 -I "${@ROOT@}/@PROGRAM@" stop --host codex || { echo \'proofbundle done check: the check could not '
-        "run, so the session goes on' >&2; exit 2; }",
-    ),
-}
-_HOOK_PATH = r"([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*)"
-HOOK_START = {root: tuple(re.compile(re.escape(t).replace("@ROOT@", root).replace("@PROGRAM@", _HOOK_PATH))
-                          for t in templates) for root, templates in HOOK_TEMPLATES.items()}
-#: The form of a hook registration as main c9ab65b1 writes it: the events the Guard registers for, for each host its
-#: own, each a list of groups holding hooks and at most a matcher, each hook of type command with a command and at most
-#: a timeout. hooks/hooks.json holds the events under hooks next to a description; the Codex manifest holds them under
-#: hooks.hooks (hook_commands).
-HOOK_EVENTS = {
-    CLAUDE_ROOT: frozenset({"PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop", "TaskCompleted", "SessionStart"}),
-    CODEX_ROOT: frozenset({"PreToolUse", "Stop"}),
-}
-HOOK_GROUP_MEMBERS = frozenset({"hooks", "matcher"})
-HOOK_MEMBERS = frozenset({"command", "timeout", "type"})
+#: The hook registrations of the Guard, for each host its own, exactly as main c9ab65b1 writes them (the same at
+#: d406a35b): the member hooks of hooks/hooks.json for Claude Code and of the Codex manifest, read with git show. A
+#: registration is compared whole, as the server registrations are (MCP_REGISTRATIONS). The readings of 2bcbf9f3 to
+#: 25e49d71 found, one after the other, a gap in each form that held a registration only in part: text joined to the
+#: quoted path, an escaped blank, a command substitution, a rest the shell rejects, a failing redirection, a command
+#: outside the registration form and a host whose registration was empty while the other host started a program; a
+#: form held only in part also let a blocking command be swapped for its "|| true" form. A registration equal to main's
+#: leaves none of them. A change of the Guard's hooks lands here with the change that makes it, and the test module
+#: holds this constant to the files of the tree it is in.
+HOOK_REGISTRATIONS = {'/hooks/hooks.json': {'PreToolUse': [{'matcher': 'Bash',
+                                       'hooks': [{'type': 'command',
+                                                  'command': 'python3 -I '
+                                                             '"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py" '
+                                                             "--autonomous || { echo 'proofbundle gate: the gate "
+                                                             "could not run, so the call is blocked' >&2; exit 2; "
+                                                             '}',
+                                                  'timeout': 120}]},
+                                      {'matcher': '^mcp__.+__(create_pull_request|create_merge_request|create_release|push_files|create_or_update_file|merge_pull_request)$',
+                                       'hooks': [{'type': 'command',
+                                                  'command': 'python3 -I '
+                                                             '"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py" '
+                                                             "--autonomous || { echo 'proofbundle gate: the gate "
+                                                             "could not run, so the call is blocked' >&2; exit 2; "
+                                                             '}',
+                                                  'timeout': 120}]},
+                                      {'matcher': '^(Write|Edit|MultiEdit|NotebookEdit)$',
+                                       'hooks': [{'type': 'command',
+                                                  'command': 'python3 -I '
+                                                             '"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py" '
+                                                             "--autonomous || { echo 'proofbundle gate: the gate "
+                                                             "could not run, so the call is blocked' >&2; exit 2; "
+                                                             '}',
+                                                  'timeout': 120}]},
+                                      {'matcher': '^(Read|Grep)$',
+                                       'hooks': [{'type': 'command',
+                                                  'command': 'python3 -I '
+                                                             '"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_secrets.py" '
+                                                             "--autonomous || { echo 'proofbundle gate: the gate "
+                                                             "could not run, so the call is blocked' >&2; exit 2; "
+                                                             '}',
+                                                  'timeout': 120}]}],
+                       'PostToolUse': [{'matcher': 'Bash',
+                                        'hooks': [{'type': 'command',
+                                                   'command': 'python3 -I '
+                                                              '"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_answered.py" '
+                                                              '|| true',
+                                                   'timeout': 30}]},
+                                       {'matcher': '^mcp__.+__(create_pull_request|create_merge_request|create_release|push_files|create_or_update_file|merge_pull_request)$',
+                                        'hooks': [{'type': 'command',
+                                                   'command': 'python3 -I '
+                                                              '"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_answered.py" '
+                                                              '|| true',
+                                                   'timeout': 30}]},
+                                       {'matcher': '^(Write|Edit|MultiEdit|NotebookEdit)$',
+                                        'hooks': [{'type': 'command',
+                                                   'command': 'python3 -I '
+                                                              '"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_answered.py" '
+                                                              '|| true',
+                                                   'timeout': 30}]}],
+                       'PostToolUseFailure': [{'matcher': 'Bash',
+                                               'hooks': [{'type': 'command',
+                                                          'command': 'python3 -I '
+                                                                     '"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_answered.py" '
+                                                                     '|| true',
+                                                          'timeout': 30}]},
+                                              {'matcher': '^mcp__.+__(create_pull_request|create_merge_request|create_release|push_files|create_or_update_file|merge_pull_request)$',
+                                               'hooks': [{'type': 'command',
+                                                          'command': 'python3 -I '
+                                                                     '"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_answered.py" '
+                                                                     '|| true',
+                                                          'timeout': 30}]},
+                                              {'matcher': '^(Write|Edit|MultiEdit|NotebookEdit)$',
+                                               'hooks': [{'type': 'command',
+                                                          'command': 'python3 -I '
+                                                                     '"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_answered.py" '
+                                                                     '|| true',
+                                                          'timeout': 30}]}],
+                       'Stop': [{'hooks': [{'type': 'command',
+                                            'command': 'python3 -I '
+                                                       '"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py" stop || '
+                                                       "{ echo 'proofbundle done check: the check could not run, "
+                                                       "so the session does not end' >&2; exit 2; }",
+                                            'timeout': 120}]}],
+                       'TaskCompleted': [{'hooks': [{'type': 'command',
+                                                     'command': 'out=$(python3 -I '
+                                                                '"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py" '
+                                                                "task-completed) || { echo 'proofbundle done "
+                                                                'check: the check could not run, so the task stays '
+                                                                'open\' >&2; exit 2; }; if [ -n "$out" ]; then '
+                                                                'printf \'%s\\n\' "$out" >&2; exit 2; fi',
+                                                     'timeout': 120}]}],
+                       'SessionStart': [{'hooks': [{'type': 'command',
+                                                    'command': 'python3 -I '
+                                                               '"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py" '
+                                                               "session-start || printf '%s\\n' "
+                                                               '\'{"systemMessage": "proofbundle done check: the '
+                                                               'hand-over could not run, so an open blocker was '
+                                                               'not handed on; the done check at Stop is unchanged '
+                                                               '(D127)."}\'',
+                                                    'timeout': 120}]}]},
+ '/.codex-plugin/plugin.json': {'hooks': {'PreToolUse': [{'matcher': 'Bash',
+                                                          'hooks': [{'type': 'command',
+                                                                     'command': 'python3 -I '
+                                                                                '"${PLUGIN_ROOT}/hooks/proofbundle_gate.py" '
+                                                                                '--host codex || { echo '
+                                                                                "'proofbundle gate: the gate could "
+                                                                                "not run, so the call is blocked' "
+                                                                                '>&2; exit 2; }',
+                                                                     'timeout': 120}]},
+                                                         {'matcher': '^mcp__.+__(create_pull_request|create_merge_request|create_release|push_files|create_or_update_file|merge_pull_request)$',
+                                                          'hooks': [{'type': 'command',
+                                                                     'command': 'python3 -I '
+                                                                                '"${PLUGIN_ROOT}/hooks/proofbundle_gate.py" '
+                                                                                '--host codex || { echo '
+                                                                                "'proofbundle gate: the gate could "
+                                                                                "not run, so the call is blocked' "
+                                                                                '>&2; exit 2; }',
+                                                                     'timeout': 120}]},
+                                                         {'matcher': '^(apply_patch|Write|Edit|MultiEdit|NotebookEdit)$',
+                                                          'hooks': [{'type': 'command',
+                                                                     'command': 'python3 -I '
+                                                                                '"${PLUGIN_ROOT}/hooks/proofbundle_gate.py" '
+                                                                                '--host codex || { echo '
+                                                                                "'proofbundle gate: the gate could "
+                                                                                "not run, so the call is blocked' "
+                                                                                '>&2; exit 2; }',
+                                                                     'timeout': 120}]}],
+                                          'Stop': [{'hooks': [{'type': 'command',
+                                                               'command': 'python3 -I '
+                                                                          '"${PLUGIN_ROOT}/hooks/proofbundle_gate.py" '
+                                                                          'stop --host codex || { echo '
+                                                                          "'proofbundle done check: the check "
+                                                                          "could not run, so the session goes on' "
+                                                                          '>&2; exit 2; }',
+                                                               'timeout': 120}]}]}}}
+#: The programs the registrations start, each named once through the host's root variable.
+HOOK_PROGRAMS = ('hooks/proofbundle_answered.py', 'hooks/proofbundle_gate.py', 'hooks/proofbundle_secrets.py')
 
 #: Every required version place ("version") and pin place ("pin"), by layout. Kinds:
 #:   json_version   the "version" member of a JSON file
@@ -688,51 +784,6 @@ def check_marketplaces(repo: Path, commit: str, layout: dict) -> list[str]:
     return lines
 
 
-def hook_programs(command: object, root: str) -> list[str] | None:
-    """The path of the program a hook command starts, as a list of one, or None where the command is no string, is
-    not one of its host's HOOK_TEMPLATES as a whole, names a plugin root more than once, or names a path with a "."
-    or ".." segment."""
-    if not isinstance(command, str):
-        return None
-    m = next((m for m in (pattern.fullmatch(command) for pattern in HOOK_START[root]) if m), None)
-    if m is None or command.count("PLUGIN_ROOT") != 1:
-        return None
-    path = m.group(1)
-    if any(part in (".", "..") for part in path.split("/")):
-        return None
-    return [path]
-
-
-def hook_commands(events: object, root: str, where: str) -> list[object]:
-    """The commands of a hook registration of the host of ROOT, read only where the form of HOOK_EVENTS,
-    HOOK_GROUP_MEMBERS and HOOK_MEMBERS puts them; a command of any type is returned, so one that is no string is
-    refused by hook_programs. Gathering every member named command at any depth counted a command written directly under
-    an event, which no host loads as a hook, as a started program (the Codex pre-run of the reading of f2f6007b), so
-    any other form stops the build."""
-    def wrong(detail: str) -> CheckFailed:
-        return CheckFailed(f"{where}: a hook registration not in the form main c9ab65b1 writes ({detail})")
-
-    if not isinstance(events, dict):
-        raise wrong("the events are no object")
-    if set(events) - HOOK_EVENTS[root]:
-        raise wrong(f"events {sorted(set(events) - HOOK_EVENTS[root])} the Guard does not register for this host")
-    commands = []
-    for event, groups in events.items():
-        if not isinstance(groups, list):
-            raise wrong(f"{event} is no list of groups")
-        for group in groups:
-            if not isinstance(group, dict) or set(group) - HOOK_GROUP_MEMBERS or not isinstance(group.get("hooks"), list) \
-                    or not isinstance(group.get("matcher", ""), str):
-                raise wrong(f"a group of {event} is not hooks and at most a matcher string")
-            for hook in group["hooks"]:
-                if not isinstance(hook, dict) or set(hook) - HOOK_MEMBERS or hook.get("type") != "command" \
-                        or "command" not in hook or ("timeout" in hook and not (
-                            type(hook["timeout"]) is int and hook["timeout"] > 0)):
-                    raise wrong(f"a hook of {event} is not of type command with a command and at most a timeout")
-                commands.append(hook["command"])
-    return commands
-
-
 def server_tools(repo: Path, commit: str, path: str) -> list[str]:
     """The keys of the top-level TOOLS table of an MCP server, read with ast, in the order written."""
     source = python_text(blob_text(repo, commit, path), path)
@@ -795,33 +846,17 @@ def check_guard_profile(repo: Path, commit: str, layout: dict) -> list[str]:
             raise CheckFailed(f"{path}: required in the Guard as a regular file, found {entry}")
     # The Guard registers its Claude Code hooks in hooks/hooks.json alone, as at main c9ab65b1: a hooks field in its
     # Claude Code manifest or in its house marketplace entry is no member main writes there, so check_marketplaces
-    # stops the build at it (MANIFEST_MEMBERS, ENTRY_MEMBERS); the Codex manifest's hooks are read below.
-    # hooks/hooks.json as main c9ab65b1 writes it, a description and the events under hooks
-    hooks_data = _only_members(json_blob(repo, commit, hooks_file), frozenset({"description", "hooks"}), hooks_file)
-    registered = hooks_data.get("hooks", {})
-    if not isinstance(registered, dict):
-        raise CheckFailed(f"{hooks_file}: hooks is not an object")
-    commands = [(c, CLAUDE_ROOT) for c in hook_commands(registered, CLAUDE_ROOT, hooks_file)]
-    codex = root + "/.codex-plugin/plugin.json"
-    if tree_entry(repo, commit, codex) is not None:
-        codex_hooks = json_blob(repo, commit, codex).get("hooks", {})
-        if not isinstance(codex_hooks, dict):
-            raise CheckFailed(f"{codex}: hooks is not an object the generator reads")
-        # the Codex manifest holds the events under hooks.hooks, as main c9ab65b1 writes it
-        if set(codex_hooks) - {"hooks"}:
-            raise CheckFailed(f"{codex}: a hook registration not in the form main c9ab65b1 writes (members "
-                              f"{sorted(set(codex_hooks) - {'hooks'})} next to the events under hooks.hooks)")
-        commands += [(c, CODEX_ROOT) for c in hook_commands(codex_hooks.get("hooks", {}), CODEX_ROOT, codex)]
-    started = set()
-    for command, host_root in commands:
-        found = hook_programs(command, host_root)
-        if found is None:
-            raise CheckFailed(f"{root}: the hook command {command!r} names no program of the Guard in a form the "
-                              "generator reads")
-        started.update(found)
-    programs = sorted(started)
-    if not programs:
-        raise CheckFailed(f"{root}: no hook of either host starts a program of the Guard")
+    # stops the build at it (MANIFEST_MEMBERS, ENTRY_MEMBERS). The registration of each host is the one main writes
+    # (HOOK_REGISTRATIONS), so a host without its hooks, a hook in another form or at another event, and a blocking
+    # command swapped for one that lets the call through all stop the build; hooks/hooks.json holds besides only a
+    # description.
+    _only_members(json_blob(repo, commit, hooks_file), frozenset({"description", "hooks"}), hooks_file)
+    for rel, expected in HOOK_REGISTRATIONS.items():
+        path = root + rel
+        data = json_blob(repo, commit, path) if tree_entry(repo, commit, path) is not None else None
+        if not isinstance(data, dict) or data.get("hooks") != expected:
+            raise CheckFailed(f"{path}: the hook registration is not the one main c9ab65b1 writes (HOOK_REGISTRATIONS)")
+    programs = list(HOOK_PROGRAMS)
     for program in programs:
         entry = tree_entry(repo, commit, f"{root}/{program}")
         if entry is None or entry[1] != "blob" or entry[0] not in ("100644", "100755"):

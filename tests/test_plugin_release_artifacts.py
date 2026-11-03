@@ -119,13 +119,25 @@ MCP_CODEX = {"proofbundle": {"command": "uv", "args": ["run", "--quiet", "--no-c
                                                       "server/proofbundle_mcp.py"], "cwd": ".",
                              "env": {"PROOFBUNDLE_PLUGIN_HOST": "codex"}}}
 MCP = MCP_CODEX
-CLAUDE_HOOKS = json.dumps({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [
-    {"type": "command", "command": 'python3 -I "${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py"'}]}]}}, indent=2)
-#: The form the Guard's Codex manifest writes since pull request 472: the host's plugin root, ${PLUGIN_ROOT}, in quotes,
-#: and the events under a member hooks of the manifest's hooks, as main c9ab65b1 writes it.
-CODEX_HOOKS = {"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [
-    {"type": "command", "command": 'python3 -I "${PLUGIN_ROOT}/hooks/proofbundle_gate.py" --host codex || { echo '
-                                   "'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }"}]}]}}
+def _tree_hooks(rel: str):
+    """The member hooks of a file of the Guard in this tree, or None where the tree lacks it (the module is skipped
+    there with the generator)."""
+    try:
+        return json.loads((REPO / G / rel).read_text(encoding="utf-8"))["hooks"]
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+#: The Guard's hook registrations of this tree, read from its own files and not from the generator, for each host its
+#: own: hooks/hooks.json for Claude Code, the Codex manifest with the events under hooks.hooks. The fixture carries them
+#: unchanged, so the split fixture registers what the tree registers, and test_n6r holds the generator's constant to
+#: the same files.
+TREE_CLAUDE_HOOKS = _tree_hooks("hooks/hooks.json")
+TREE_CODEX_HOOKS = _tree_hooks(".codex-plugin/plugin.json")
+CLAUDE_HOOKS = json.dumps({"hooks": TREE_CLAUDE_HOOKS}, indent=2)
+CODEX_HOOKS = TREE_CODEX_HOOKS
+#: What the build reports when a registration differs from main's.
+REG = "the hook registration is not the one main c9ab65b1 writes"
 CATALOG = ("# Plugins\n\n| Host | What it does | Plugin | Version | Maturity |\n|---|---|---|---|---|\n"
            "| Claude Code | fixture | [proofbundle](proofbundle/README.md) | 0.4.0 | Experimental |\n"
            "| Codex | fixture | [proofbundle](proofbundle/README.md) | 0.4.0 | Experimental |\n")
@@ -163,6 +175,8 @@ def split_files(pin: str = PIN) -> dict[str, str]:
         G + "/server/proofbundle_mcp.py": server(pin),
         G + "/hooks/hooks.json": CLAUDE_HOOKS + "\n",
         G + "/hooks/proofbundle_gate.py": gate(pin),
+        G + "/hooks/proofbundle_answered.py": "# fixture program\n",
+        G + "/hooks/proofbundle_secrets.py": "# fixture program\n",
     }
 
 
@@ -708,22 +722,22 @@ class HouseMarketplace(Base):
 
 
 class GuardProfile(Base):
-    """The Guard: its hooks start programs it holds, it adds no skill and no MCP server, and its server is the
-    verifier's."""
+    """The Guard: each host's hook registration is main's, the programs it starts are present, it adds no skill and
+    no MCP server, and its server is the verifier's."""
 
     def test_n6_hook_starting_a_program_the_guard_lacks_is_refused(self):
-        self.split_refused(lambda f: f.__setitem__(G + "/hooks/hooks.json", CLAUDE_HOOKS.replace(
-            "proofbundle_gate.py", "proofbundle_gone.py") + "\n"), "which the Guard does not hold")
+        """The registration as main writes it, and one of the programs it starts missing from the Guard."""
+        self.split_refused(lambda f: f.pop(G + "/hooks/proofbundle_secrets.py"), "which the Guard does not hold")
 
     def test_n6b_hook_starting_a_nested_program_the_guard_lacks_is_refused(self):
         """The Codex pre-run of the reading of 99bdcf27: the pattern read a program directly under hooks/ only, so a
         hook that started hooks/sub/missing.py passed while another hook named the gate."""
         self.split_refused(lambda f: f.__setitem__(G + "/hooks/hooks.json", CLAUDE_HOOKS.replace(
-            "hooks/proofbundle_gate.py", "hooks/sub/missing.py") + "\n"), "which the Guard does not hold")
+            "hooks/proofbundle_gate.py", "hooks/sub/missing.py") + "\n"), REG)
 
     def test_n6c_hook_starting_a_shell_program_the_guard_lacks_is_refused(self):
         self.split_refused(lambda f: f.__setitem__(G + "/hooks/hooks.json", CLAUDE_HOOKS.replace(
-            "hooks/proofbundle_gate.py", "hooks/missing.sh") + "\n"), "which the Guard does not hold")
+            "hooks/proofbundle_gate.py", "hooks/missing.sh") + "\n"), REG)
 
     def test_n6d_codex_hook_starting_a_program_the_guard_lacks_is_refused(self):
         """The neighbour found while reading the finding: the Guard's Codex manifest writes ${PLUGIN_ROOT}, which the
@@ -731,13 +745,13 @@ class GuardProfile(Base):
         gone = json.loads(json.dumps(CODEX_HOOKS).replace("proofbundle_gate.py", "proofbundle_gone.py"))
         self.split_refused(lambda f: f.__setitem__(G + "/.codex-plugin/plugin.json",
                                                    manifest("proofbundle-guard", hooks=gone)),
-                           "which the Guard does not hold")
+                           REG)
 
     def test_n6e_hook_command_naming_no_program_in_a_form_the_generator_reads_is_refused(self):
         """A command whose started program the generator cannot read is refused, not passed over."""
         self.split_refused(lambda f: f.__setitem__(G + "/hooks/hooks.json", CLAUDE_HOOKS.replace(
             'python3 -I \\"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py\\"', "bash -c 'python3 hooks/x.py'")
-            + "\n"), "in a form the generator reads")
+            + "\n"), REG)
 
     def test_n6g_hook_program_joined_with_more_text_into_one_shell_word_is_refused(self):
         """The Codex pre-run of the reading of 2bcbf9f3: the pattern found the quoted path inside a longer shell word,
@@ -754,7 +768,7 @@ class GuardProfile(Base):
                     self.tmp.mkdir()
                     self.out = self.tmp / "out"
                     self.split_refused(lambda f: f.__setitem__(G + "/hooks/hooks.json", changed + "\n"),
-                                       "in a form the generator reads")
+                                       REG)
         finally:
             self.tmp, self.out = base, base / "out"
 
@@ -763,7 +777,7 @@ class GuardProfile(Base):
         self.assertNotEqual(joined, CODEX_HOOKS)
         self.split_refused(lambda f: f.__setitem__(G + "/.codex-plugin/plugin.json",
                                                    manifest("proofbundle-guard", hooks=joined)),
-                           "in a form the generator reads")
+                           REG)
 
     def test_n6i_hook_program_joined_through_an_escaped_blank_is_refused(self):
         """The Codex pre-run of the reading of 03958484: an escaped blank joins text to the quoted path, so
@@ -786,7 +800,7 @@ class GuardProfile(Base):
                 self.assertEqual(proc.returncode, 1, text(proc))
                 self.assertFalse(out.exists() and any(out.iterdir()), "a refused build wrote artifacts")
                 failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
-                self.assertTrue(failed and "in a form the generator reads" in failed[0], failed)
+                self.assertTrue(failed and REG in failed[0], failed)
 
     def test_n6k_hook_program_joined_after_a_command_substitution_is_refused(self):
         """The Codex pre-run of the reading of af7c414d: shlex splits $(printf x) from the quoted path that follows it,
@@ -815,7 +829,7 @@ class GuardProfile(Base):
                 self.assertEqual(proc.returncode, 1, text(proc))
                 self.assertFalse(out.exists() and any(out.iterdir()), "a refused build wrote artifacts")
                 failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
-                self.assertTrue(failed and "in a form the generator reads" in failed[0], failed)
+                self.assertTrue(failed and REG in failed[0], failed)
 
     def test_n6l_guard_hooks_outside_hooks_json_are_refused(self):
         """The Codex pre-run of the reading of e92b63a5: hooks in the Guard's Claude Code manifest were not read, so one
@@ -834,7 +848,7 @@ class GuardProfile(Base):
                                                     "description": "fixture", "hooks": missing}]}, indent=2) + "\n",
                             "entry proofbundle-guard: members ['hooks'] outside"),
             "codex path": (G + "/.codex-plugin/plugin.json", manifest("proofbundle-guard", hooks="hooks/other.json"),
-                           "hooks is not an object"),
+                           REG),
         }
         for name, (path, content, reason) in cases.items():
             with self.subTest(name=name):
@@ -873,7 +887,7 @@ class GuardProfile(Base):
                 proc = build(repo, commit, out)
                 self.assertEqual(proc.returncode, 1, text(proc))
                 failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
-                self.assertTrue(failed and "in a form the generator reads" in failed[0], failed)
+                self.assertTrue(failed and REG in failed[0], failed)
 
     def test_n6n_a_hook_command_the_shell_does_not_parse_is_refused(self):
         """The Codex pre-run of the reading of 459d8f7e: a valid start followed by a rest the shell rejects passed,
@@ -891,31 +905,21 @@ class GuardProfile(Base):
                 proc = build(repo, commit, out)
                 self.assertEqual(proc.returncode, 1, text(proc))
                 failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
-                # since the reading of ae0b16e4 a command is held to the Guard's templates, so these are no form
-                self.assertTrue(failed and "in a form the generator reads" in failed[0], failed)
+                # since the reading of 25e49d71 a registration is held to main's as a whole
+                self.assertTrue(failed and REG in failed[0], failed)
 
-    def test_n6j_control_the_command_forms_the_guard_writes_build(self):
-        """The five command forms of the Guard's hooks/hooks.json at main c9ab65b1, word for word."""
-        gate = '"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py"'
-        forms = [
-            f"python3 -I {gate} --autonomous || {{ echo 'proofbundle gate: the gate could not run, so the call is "
-            "blocked' >&2; exit 2; }",
-            f"python3 -I {gate} || true",
-            f"python3 -I {gate} stop || {{ echo 'proofbundle done check: the check could not run, so the session "
-            "does not end' >&2; exit 2; }",
-            f"out=$(python3 -I {gate} task-completed) || {{ echo 'proofbundle done check: the check could not run, "
-            "so the task stays open' >&2; exit 2; }; if [ -n \"$out\" ]; then printf '%s\\n' \"$out\" >&2; exit 2; fi",
-            f"python3 -I {gate} session-start || printf '%s\\n' '{{\"systemMessage\": \"proofbundle done check: the "
-            "hand-over could not run, so an open blocker was not handed on; the done check at Stop is unchanged "
-            "(D127).\"}'",
-        ]
-        hooks = {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": c} for c in forms]}]}
+    def test_n6j_control_the_registration_of_main_in_another_spelling_builds(self):
+        """The registration is compared by value, as JSON reads it: the registrations of main with sorted keys and
+        other indentation build, and the report names the three programs they start."""
         files = split_files()
-        files[G + "/hooks/hooks.json"] = json.dumps({"hooks": hooks}) + "\n"
+        files[G + "/hooks/hooks.json"] = json.dumps({"hooks": TREE_CLAUDE_HOOKS}, indent=4, sort_keys=True) + "\n"
+        files[G + "/.codex-plugin/plugin.json"] = json.dumps(
+            {"version": VERSION, "hooks": TREE_CODEX_HOOKS, "name": "proofbundle-guard"}, sort_keys=True) + "\n"
         repo, commit = make_repo(self.tmp, files)
         proc = build(repo, commit, self.out)
         self.assertBuilt(proc)
-        self.assertIn("(1: hooks/proofbundle_gate.py)", text(proc))
+        self.assertIn("(3: hooks/proofbundle_answered.py hooks/proofbundle_gate.py hooks/proofbundle_secrets.py)",
+                      text(proc))
 
     def test_n6o_a_hook_command_with_a_redirection_is_refused(self):
         """The Codex pre-run of the reading of ae0b16e4: a valid start and a rest that parses still started nothing
@@ -923,13 +927,14 @@ class GuardProfile(Base):
         command = 'python3 -I "${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py" < /missing-input'
         hooks = {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": command}]}]}
         self.split_refused(lambda f: f.__setitem__(G + "/hooks/hooks.json", json.dumps({"hooks": hooks}) + "\n"),
-                           "in a form the generator reads")
+                           REG)
 
     def test_n6f_control_the_hook_forms_of_both_hosts_build(self):
         repo, commit = make_repo(self.tmp, split_files())
         proc = build(repo, commit, self.out)
         self.assertBuilt(proc)
-        self.assertIn("(1: hooks/proofbundle_gate.py)", text(proc))
+        self.assertIn("(3: hooks/proofbundle_answered.py hooks/proofbundle_gate.py hooks/proofbundle_secrets.py)",
+                      text(proc))
 
     def test_n6p_a_command_outside_the_registration_form_is_refused(self):
         """The Codex pre-run of the reading of f2f6007b: the commands were gathered from every member named command at any
@@ -966,8 +971,78 @@ class GuardProfile(Base):
                 self.assertEqual(proc.returncode, 1, text(proc))
                 self.assertFalse(out.exists() and any(out.iterdir()), "a refused build wrote artifacts")
                 failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
-                self.assertTrue(failed and "a hook registration not in the form main c9ab65b1 writes" in failed[0],
+                self.assertTrue(failed and REG in failed[0],
                                 failed)
+
+    def test_n6q_a_host_without_its_registration_or_with_a_swapped_form_is_refused(self):
+        """The Codex pre-run of the reading of 25e49d71: the programs of both hosts were joined and only that union had
+        to be non-empty, so a host whose registration was empty or missing passed while the other host started a
+        program. The neighbor in the same form: any command form of a host was taken at any place, so the blocking
+        form of a PreToolUse hook could be swapped for one that lets the call through. Each host's registration is now
+        main's as a whole."""
+        def claude_swapped():
+            data = json.loads(CLAUDE_HOOKS)
+            hook = data["hooks"]["PreToolUse"][0]["hooks"][0]
+            self.assertIn("--autonomous || {", hook["command"])
+            hook["command"] = 'python3 -I "${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py" || true'
+            return json.dumps(data, indent=2) + "\n"
+
+        def codex_swapped():
+            data = json.loads(json.dumps(CODEX_HOOKS))
+            hook = data["hooks"]["PreToolUse"][0]["hooks"][0]
+            self.assertIn("--host codex || {", hook["command"])
+            hook["command"] = 'python3 -I "${PLUGIN_ROOT}/hooks/proofbundle_gate.py"'
+            return manifest("proofbundle-guard", hooks=data)
+
+        cases = {
+            "claude empty": (G + "/hooks/hooks.json", lambda: '{"hooks": {}}\n'),
+            "codex empty": (G + "/.codex-plugin/plugin.json", lambda: manifest("proofbundle-guard", hooks={"hooks": {}})),
+            "codex without hooks": (G + "/.codex-plugin/plugin.json", lambda: manifest("proofbundle-guard")),
+            "claude blocking form swapped for || true": (G + "/hooks/hooks.json", claude_swapped),
+            "codex blocking form swapped for the bare start": (G + "/.codex-plugin/plugin.json", codex_swapped),
+        }
+        for name, (rel, content) in cases.items():
+            with self.subTest(name=name):
+                files = split_files()
+                files[rel] = content()
+                sub = self.tmp / name.replace(" ", "_").replace("|", "")
+                sub.mkdir()
+                repo, commit = make_repo(sub, files)
+                out = sub / "out"
+                proc = build(repo, commit, out)
+                self.assertEqual(proc.returncode, 1, text(proc))
+                self.assertFalse(out.exists() and any(out.iterdir()), "a refused build wrote artifacts")
+                failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
+                self.assertTrue(failed and REG in failed[0], failed)
+
+    def test_n6r_the_registration_constant_is_the_one_of_this_tree(self):
+        """The oracle of HOOK_REGISTRATIONS is the Guard's files of this tree, read here without the generator: the
+        constant equals them, and HOOK_PROGRAMS is the set of programs their commands name, each once, through the
+        root variable of its host. A change of the Guard's hooks without its change of the constant fails here."""
+        import importlib.util
+        import re
+
+        spec = importlib.util.spec_from_file_location("plugin_release_artifacts_under_test", GEN)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertIsNotNone(TREE_CLAUDE_HOOKS, "hooks/hooks.json of the Guard is not in this tree")
+        self.assertIsNotNone(TREE_CODEX_HOOKS, "the Guard's Codex manifest names no hooks in this tree")
+        self.assertEqual(module.HOOK_REGISTRATIONS, {"/hooks/hooks.json": TREE_CLAUDE_HOOKS,
+                                                     "/.codex-plugin/plugin.json": TREE_CODEX_HOOKS})
+
+        def commands(value):
+            if isinstance(value, dict):
+                return [v for k, v in value.items() if k == "command"] + \
+                    [c for k, v in value.items() if k != "command" for c in commands(v)]
+            return [c for v in value for c in commands(v)] if isinstance(value, list) else []
+
+        named = set()
+        for registration, variable in ((TREE_CLAUDE_HOOKS, "CLAUDE_PLUGIN_ROOT"), (TREE_CODEX_HOOKS, "PLUGIN_ROOT")):
+            for command in commands(registration):
+                found = re.findall(r'"\$\{(CLAUDE_PLUGIN_ROOT|PLUGIN_ROOT)\}/([^"]+)"', command)
+                self.assertEqual([v for v, _ in found], [variable], command)
+                named.add(found[0][1])
+        self.assertEqual(sorted(module.HOOK_PROGRAMS), sorted(named))
 
     def test_n7_guard_registering_an_mcp_server_is_refused(self):
         self.split_refused(lambda f: f.__setitem__(G + "/.mcp.json", json.dumps({"mcpServers": MCP}) + "\n"),
