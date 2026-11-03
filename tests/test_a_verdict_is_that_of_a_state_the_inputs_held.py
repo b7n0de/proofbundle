@@ -825,9 +825,11 @@ class CorrelatedChangesGiveTheVerdictOfOneState(_Registriert):
 
 # ── 4. ABA, targeted, up to the public verdict ─────────────────────────────────────────────────────────────────────
 
-def _aba_messen() -> dict:
+def _aba_messen(versatz: int = 0) -> dict:
     """The ABA measurement of `ABAIsMeasuredUpToThePublicVerdict` in the interpreter that calls it: the verdict of the
-    never-held state, the verdicts of the held states, how many steps found their moment, and the verdict."""
+    never-held state, the verdicts of the held states, how many steps found their moment, and the verdict. With
+    ``versatz`` the callback allocates that many objects after each collection, which moves every later collection
+    start (`TheABACaseFindsItsMomentsWhereverTheCollectorStarts`)."""
     gut_text = base64.b64encode(_WURZEL).decode()
     schlecht_text = base64.b64encode(b"\x00" * 32).decode()
     anchors.register_anchor_type(_ANKERTYP, lambda proof, root, *, frozen, now: {"ok": True, "warn": False})
@@ -849,8 +851,11 @@ def _aba_messen() -> dict:
                 (sammeln_2, y, [(x, schlecht_text), (y, gut_text)]),
                 (sammeln_2, x, [(y, schlecht_text), (x, gut_text)])]
     stand = {"i": 0}
+    halde: list = []
 
     def cb(phase, info):
+        if phase == "stop" and versatz:
+            halde.append([[] for _ in range(versatz)])
         if phase != "start" or stand["i"] >= len(schritte):
             return
         rahmen = sys._getframe(1)
@@ -867,11 +872,11 @@ def _aba_messen() -> dict:
             "von": len(schritte), "aus": str(aus)}
 
 
-def _in_frischem_interpreter(funktion: str) -> dict:
-    """``funktion()`` of this module in an interpreter of its own, nothing of the suite run before it; its dict read
-    back as JSON."""
+def _in_frischem_interpreter(funktion: str, *argumente: int) -> dict:
+    """``funktion(*argumente)`` of this module in an interpreter of its own, nothing of the suite run before it; its dict
+    read back as JSON."""
     code = (f"import json, sys; sys.path[:0] = [{str(REPO / 'tests')!r}]; import {Path(__file__).stem} as m; "
-            f"print(json.dumps(m.{funktion}()))")
+            f"print(json.dumps(m.{funktion}(*{argumente!r})))")
     lauf = subprocess.run([sys.executable, "-I", "-c", code], cwd=REPO, capture_output=True, text=True, timeout=300,
                           check=False)
     if lauf.returncode != 0:
@@ -996,3 +1001,19 @@ class TheABACaseIsMeasuredWhateverRanBeforeIt(unittest.TestCase):
                                    _DAVOR, knoten], cwd=REPO, env=env, capture_output=True, text=True, timeout=300,
                                   check=False)
         self.assertEqual(lauf.returncode, 0, (lauf.stdout + lauf.stderr)[-3000:])
+
+
+class TheABACaseFindsItsMomentsWhereverTheCollectorStarts(unittest.TestCase):
+    """CI of pull request 474 at ad42ad9b, test (3.13, 1) and test (3.14, 1): the ABA case, measured in an interpreter of
+    its own, reported "1 of 3 steps found their moment". Where a collection starts depends on how many objects were
+    allocated since the last one, and that moves with the version, with modules compiled afresh and with what the
+    callback itself allocates. Here the callback allocates 0 to 7 objects after each collection, which moves every later
+    collection start, and for each of them every step must find its moment."""
+
+    def test_every_step_finds_its_moment_for_each_shift_of_the_collection_starts(self) -> None:
+        ohne = []
+        for versatz in range(8):
+            m = _in_frischem_interpreter("_aba_messen", versatz)
+            if m["schritte"] < m["von"]:
+                ohne.append(f"shift {versatz}: {m['schritte']} of {m['von']}")
+        self.assertEqual(ohne, [], "shifts of the collection starts at which a step found no moment")
