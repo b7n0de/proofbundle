@@ -199,3 +199,27 @@ def test_an_earlier_answer_of_a_known_identity_is_kept_where_new_identities_pass
     record = json.loads((data / gate.RELEASES_FIRST).read_text(encoding="utf-8"))
     ident = gate._release_identity(f"{d111.CARD}:{gate.command_sha256(COMMAND)}:{SESSION}")
     assert record["erste"] == {ident: _stamp(first)}
+
+
+@pytest.mark.parametrize("take", [True, False], ids=["the use written before the pass", "the release held"])
+def test_an_earlier_answer_is_kept_in_a_compact_record_the_reader_takes_at_its_bound(env, monkeypatch, take):
+    """The second pre-run of the reading: the reader takes a record without the spaces json.dumps writes by default, and
+    the writer wrote with them, so rewriting a record the reader took could pass the bound with no new identity at all,
+    and the earlier answer was dropped. The writer now writes the compact form, which is no longer than any form the
+    reader takes. RED at 122ade04: the later copy let the call run after the end of the first window."""
+    first = float(int(time.time())) - 20 * 60
+    later = first + 10 * 60
+    data = pathlib.Path(os.environ["CLAUDE_PLUGIN_DATA"])
+    ident = gate._release_identity(f"{d111.CARD}:{gate.command_sha256(COMMAND)}:{SESSION}")
+    erste = {ident: _stamp(later), **{f"{i:032x}": _stamp(later) for i in range(1, 40)}}
+    compact = json.dumps({"schema": gate.RELEASES_FIRST_SCHEMA, "erste": erste}, separators=(",", ":"))
+    (data / gate.RELEASES_FIRST).write_text(compact, encoding="utf-8")
+    monkeypatch.setattr(gate, "MAX_RELEASES_USED_BYTES", len(compact.encode("utf-8")) + 5)
+    assert len(json.dumps({"schema": gate.RELEASES_FIRST_SCHEMA, "erste": erste}).encode("utf-8")) > \
+        gate.MAX_RELEASES_USED_BYTES, "the default form of the same record passes the bound"
+    early = _copy(env, "a.json", first)
+    assert not _passes(OTHER, first + 60)
+    early.unlink()
+    _copy(env, "b.json", later)
+    assert not _passes(COMMAND, first + 20 * 60, take=take)
+    assert json.loads((data / gate.RELEASES_FIRST).read_text(encoding="utf-8"))["erste"][ident] == _stamp(first)

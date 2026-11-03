@@ -5841,8 +5841,11 @@ later. _release_take reads the record again under its lock. A record that does n
 releases nothing, a write past MAX_RELEASES_USED_BYTES included. Where the record cannot take an identity it does not
 hold yet, the gate still writes an earlier answer of an identity it holds, since the time has one width and takes no
 byte more; the first form wrote nothing then, so a later copy of a known identity opened its window again once the
-earlier copy was gone (the pre-run of the reading of the main-in, 2026-11-03). A write that fails loses what that call
-read, as a copy the gate never read is lost. Where a later copy can arise: the writer at the farmer
+earlier copy was gone (the pre-run of the reading of the main-in, 2026-11-03). The record is written in its compact
+form, which no form the reader takes undercuts, so rewriting a record the reader took never passes the bound either
+(the second pre-run: the default spaces of json.dumps made a compact record of 522062 bytes 540064 bytes long). The
+record of the uses keeps the default form; there a write past the bound only refuses the release. A write that fails
+loses what that call read, as a copy the gate never read is lost. Where a later copy can arise: the writer at the farmer
 (scripts/b7_klickfreigabe_schreiber.py of 2bedone, pull request 2454, not landed) writes one file per card and line,
 once, and refuses a second click under the same name; a later copy needs the first file gone (a cleared folder; the
 gate reads at most MAX_RELEASE_FILES) and a new click, or a file that something other than the writer leaves under

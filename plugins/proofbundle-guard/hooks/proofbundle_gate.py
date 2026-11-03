@@ -18436,9 +18436,12 @@ def _releases_first(directory: str) -> dict:
 
 
 def _releases_first_text(first: dict) -> str:
-    """The record of first answers as _releases_first reads it."""
+    """The record of first answers as _releases_first reads it, in its compact form: no form the reader takes is shorter
+    (an identity and a time each have one width, and the reader takes no key twice), so rewriting a record it took with
+    an earlier answer of a known identity never passes MAX_RELEASES_USED_BYTES (the second pre-run of the reading)."""
     return json.dumps({"schema": RELEASES_FIRST_SCHEMA, "erste": {
-        identity: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(seconds)) for identity, seconds in first.items()}})
+        identity: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(seconds)) for identity, seconds in first.items()}},
+        separators=(",", ":"))
 
 
 def _release_first_note(directory: str, releases: list[dict]) -> dict | None:
