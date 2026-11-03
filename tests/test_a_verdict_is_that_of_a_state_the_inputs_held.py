@@ -847,24 +847,46 @@ def _aba_messen(versatz: int = 0) -> dict:
 
     sammeln_1, sammeln_2, lies = (canonical._lesen_einmal.__code__, canonical._gleich_gelesen.__code__,
                                   canonical._lies.__code__)
-    schritte = [(sammeln_1, x, [(y, schlecht_text), (x, gut_text)]),
-                (sammeln_2, y, [(x, schlecht_text), (y, gut_text)]),
-                (sammeln_2, x, [(y, schlecht_text), (x, gut_text)])]
+    schritte = [[(y, schlecht_text), (x, gut_text)],   # first collect, after the pairs of Y, before those of X
+                [(x, schlecht_text), (y, gut_text)],   # second collect, before the pairs of Y
+                [(y, schlecht_text), (x, gut_text)]]   # second collect, after the pairs of Y, before those of X
     stand = {"i": 0}
     halde: list = []
+
+    def im_fenster(rahmen) -> bool:
+        """Whether a collection that starts in ``rahmen`` lies in the window of the next step. Judged by what the frames
+        hold (the record of the first collect, the value being read, whether its pairs are taken), never by an offset of
+        the bytecode, so a step finds its moment wherever in its window a collection starts. A point where that cannot
+        be told (the collect's own frame between reading X and recording it) is outside every window."""
+        i = stand["i"]
+        sammeln = sammeln_1 if i == 0 else sammeln_2
+        lokal = rahmen.f_locals
+        if rahmen.f_code is lies:
+            if rahmen.f_back is None or rahmen.f_back.f_code is not sammeln:
+                return False
+            wert, genommen = lokal.get("wert"), "paare" in lokal
+            if i == 1:
+                return wert is liste or (wert is y and not genommen)
+            return (wert is y and genommen) or (wert is x and not genommen)
+        gelesen = lokal.get("gelesen")
+        if rahmen.f_code is not sammeln or type(gelesen) is not dict or id(liste) not in gelesen:
+            return False
+        wert = lokal.get("wert")
+        if i == 0:
+            return id(y) in gelesen and id(x) not in gelesen and wert is not x
+        if i == 1:
+            reihe = list(gelesen)
+            return "wert" not in lokal or (id(wert) in gelesen and reihe.index(id(wert)) < reihe.index(id(y)))
+        satz = lokal.get("satz")   # the list read before Y gives a "list" record, Y a "dict" one
+        return wert is y and type(satz) is tuple and satz[:1] == ("dict",)
 
     def cb(phase, info):
         if phase == "stop" and versatz:
             halde.append([[] for _ in range(versatz)])
         if phase != "start" or stand["i"] >= len(schritte):
             return
-        rahmen = sys._getframe(1)
-        if rahmen.f_code is not lies or rahmen.f_back is None:
-            return
-        sammeln, ziel, aenderungen = schritte[stand["i"]]
-        lokal = rahmen.f_locals
-        if rahmen.f_back.f_code is sammeln and lokal.get("wert") is ziel and "paare" not in lokal:
-            for eintrag, text in aenderungen:
+        if im_fenster(sys._getframe(1)):
+            for eintrag, text in schritte[stand["i"]]:
                 eintrag["canonicalRoot"] = text
             stand["i"] += 1
     aus = _mit_gc(cb, lambda: urteil(liste))
@@ -874,11 +896,15 @@ def _aba_messen(versatz: int = 0) -> dict:
 
 def _in_frischem_interpreter(funktion: str, *argumente: int) -> dict:
     """``funktion(*argumente)`` of this module in an interpreter of its own, nothing of the suite run before it; its dict
-    read back as JSON."""
+    read back as JSON. ``-I`` ignores the environment, so the interpreter's own handling of bytecode is handed on as
+    switches: a caller that compiles every module afresh has a child that does too."""
     code = (f"import json, sys; sys.path[:0] = [{str(REPO / 'tests')!r}]; import {Path(__file__).stem} as m; "
             f"print(json.dumps(m.{funktion}(*{argumente!r})))")
-    lauf = subprocess.run([sys.executable, "-I", "-c", code], cwd=REPO, capture_output=True, text=True, timeout=300,
-                          check=False)
+    schalter = ["-B"] if sys.dont_write_bytecode else []
+    if sys.pycache_prefix:
+        schalter += ["-X", f"pycache_prefix={sys.pycache_prefix}"]
+    lauf = subprocess.run([sys.executable, "-I", *schalter, "-c", code], cwd=REPO, capture_output=True, text=True,
+                          timeout=300, check=False)
     if lauf.returncode != 0:
         raise AssertionError((lauf.stdout + lauf.stderr)[-3000:])
     return json.loads(lauf.stdout.strip().splitlines()[-1])
@@ -890,14 +916,16 @@ class ABAIsMeasuredUpToThePublicVerdict(_Registriert):
     the copy (good, good) is never held.
 
     The reading at the call reads Y before X in each collect (`canonical._lesen_einmal` takes them from a stack, and
-    `_gleich_gelesen` reads in the same order). The caller's gc callback looks at the frame the collector started in:
-    when `canonical._lies` is about to read X in the first collect (its pairs not yet taken), it makes Y bad and then X
-    good; when `_lies` is about to read Y in the second collect, X bad and then Y good; when it is about to read X in
-    the second collect, Y bad and then X good. Each value is the same object each time, so each collect reads the same
-    objects, the first one Y good and X good, which the list never held together. A step that never found its moment
-    is reported as not measured, never as held. The measurement runs in an interpreter of its own: whether a collection
-    starts in the frame of `canonical._lies` depends on what ran before it in the process (pull request 473, under
-    CPython 3.14, `TheABACaseIsMeasuredWhateverRanBeforeIt`)."""
+    `_gleich_gelesen` reads in the same order). The caller's gc callback looks at the frames the collector started in:
+    when a collection starts in the first collect after it took the pairs of Y and before it took those of X, it makes
+    Y bad and then X good; when one starts in the second collect before it took the pairs of Y, X bad and then Y good;
+    when one starts in the second collect after the pairs of Y and before those of X, Y bad and then X good. Each value
+    is the same object each time, so each collect reads the same objects, the first one Y good and X good, which the
+    list never held together. Each window is judged by what the frames hold, so a step finds its moment wherever in
+    its window a collection starts (`TheABACaseFindsItsMomentsWhereverTheCollectorStarts`; until then a step waited for
+    a collection at the one call that takes the pairs). A step that never found its moment is reported as not measured,
+    never as held. The measurement runs in an interpreter of its own: what ran before it in the process moved the
+    collection starts (pull request 473, under CPython 3.14, `TheABACaseIsMeasuredWhateverRanBeforeIt`)."""
 
     def test_aba_reaches_the_public_verdict_only_where_the_limit_is_named(self) -> None:
         m = _in_frischem_interpreter("_aba_messen")
