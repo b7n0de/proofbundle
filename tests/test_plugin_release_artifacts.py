@@ -112,7 +112,13 @@ def marketplace(name: str, entries: list[tuple[str, str]]) -> str:
                       indent=2) + "\n"
 
 
-MCP = {"proofbundle": {"command": "uv", "args": ["run", "--script", "server/proofbundle_mcp.py"]}}
+#: The registrations of the verifier's server as main c9ab65b1 writes them, for each host its own.
+MCP_CLAUDE = {"proofbundle": {"command": "uv", "args": ["run", "--quiet", "--no-config", "--script",
+                                                       "${CLAUDE_PLUGIN_ROOT}/server/proofbundle_mcp.py"]}}
+MCP_CODEX = {"proofbundle": {"command": "uv", "args": ["run", "--quiet", "--no-config", "--script",
+                                                      "server/proofbundle_mcp.py"], "cwd": ".",
+                             "env": {"PROOFBUNDLE_PLUGIN_HOST": "codex"}}}
+MCP = MCP_CODEX
 CLAUDE_HOOKS = json.dumps({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [
     {"type": "command", "command": 'python3 -I "${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py"'}]}]}}, indent=2)
 #: The form the Guard's Codex manifest writes since pull request 472: the host's plugin root, ${PLUGIN_ROOT}, in quotes.
@@ -145,8 +151,8 @@ def split_files(pin: str = PIN) -> dict[str, str]:
         ".claude-plugin/marketplace.json": marketplace("proofbundle", [("proofbundle", "./" + V)]),
         "plugins/README.md": CATALOG,
         V + "/.claude-plugin/plugin.json": manifest("proofbundle"),
-        V + "/.codex-plugin/plugin.json": manifest("proofbundle", mcpServers=MCP),
-        V + "/.mcp.json": json.dumps({"mcpServers": MCP}, indent=2) + "\n",
+        V + "/.codex-plugin/plugin.json": manifest("proofbundle", mcpServers=MCP_CODEX),
+        V + "/.mcp.json": json.dumps({"mcpServers": MCP_CLAUDE}, indent=2) + "\n",
         V + "/server/proofbundle_mcp.py": server(pin),
         V + "/skills/verify/SKILL.md": "fixture skill\n",
         HOUSE: marketplace("proofbundle-house", [("proofbundle-guard", "./")]),
@@ -700,6 +706,31 @@ class GuardProfile(Base):
                 failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
                 self.assertTrue(failed and reason in failed[0], failed)
 
+    def test_n6m_a_hook_with_the_plugin_root_of_the_other_host_is_refused(self):
+        """Line 3 of the reading of 830dc0f9: both root variables were taken for both hosts, while Claude Code sets
+        ${CLAUDE_PLUGIN_ROOT} and Codex ${PLUGIN_ROOT}; a Codex hook naming the other host's variable starts nothing
+        there. hooks/hooks.json now starts its programs through ${CLAUDE_PLUGIN_ROOT}, the Codex manifest through
+        ${PLUGIN_ROOT}."""
+        swapped = {
+            "codex with the claude root": (G + "/.codex-plugin/plugin.json", manifest(
+                "proofbundle-guard", hooks=json.loads(json.dumps(CODEX_HOOKS).replace("${PLUGIN_ROOT}",
+                                                                                      "${CLAUDE_PLUGIN_ROOT}")))),
+            "claude with the codex root": (G + "/hooks/hooks.json",
+                                           CLAUDE_HOOKS.replace("${CLAUDE_PLUGIN_ROOT}", "${PLUGIN_ROOT}") + "\n"),
+        }
+        for name, (rel, content) in swapped.items():
+            with self.subTest(name=name):
+                files = split_files()
+                files[rel] = content
+                sub = self.tmp / name.replace(" ", "_")
+                sub.mkdir()
+                repo, commit = make_repo(sub, files)
+                out = sub / "out"
+                proc = build(repo, commit, out)
+                self.assertEqual(proc.returncode, 1, text(proc))
+                failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
+                self.assertTrue(failed and "in a form the generator reads" in failed[0], failed)
+
     def test_n6j_control_the_command_forms_the_guard_writes_build(self):
         """The forms of the Guard's hooks at main c9ab65b1: an or-list with a group, a command substitution assigned to a
         variable with an if, and a single-quoted JSON text after the program."""
@@ -740,6 +771,33 @@ class GuardProfile(Base):
 class VerifierServer(Base):
     """The public verifier declares exactly one MCP server, and that server lists the stated tools."""
 
+    def test_n10b_a_registration_that_starts_another_program_is_refused(self):
+        """Line 3 of the reading of 830dc0f9: the check compared the names of the registered MCP servers alone, so a
+        registration named proofbundle could start another program than the server whose tools it read. Each host's
+        registration now has to be the one main c9ab65b1 writes, and the verifier's Claude Code manifest registers no
+        server of its own."""
+        other_claude = json.loads(json.dumps(MCP_CLAUDE).replace("server/proofbundle_mcp.py", "server/other.py"))
+        other_codex = json.loads(json.dumps(MCP_CODEX).replace("server/proofbundle_mcp.py", "server/other.py"))
+        cases = {
+            "mcp json": (V + "/.mcp.json", json.dumps({"mcpServers": other_claude}) + "\n", ".mcp.json"),
+            "codex manifest": (V + "/.codex-plugin/plugin.json", manifest("proofbundle", mcpServers=other_codex),
+                               ".codex-plugin/plugin.json"),
+            "claude manifest": (V + "/.claude-plugin/plugin.json", manifest("proofbundle", mcpServers=MCP_CLAUDE),
+                                ".claude-plugin/plugin.json"),
+        }
+        for name, (rel, content, reason) in cases.items():
+            with self.subTest(name=name):
+                files = split_files()
+                files[rel] = content
+                sub = self.tmp / name.replace(" ", "_")
+                sub.mkdir()
+                repo, commit = make_repo(sub, files)
+                out = sub / "out"
+                proc = build(repo, commit, out)
+                self.assertEqual(proc.returncode, 1, text(proc))
+                failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
+                self.assertTrue(failed and reason in failed[0], failed)
+
     def test_n10_other_tool_set_is_refused(self):
         def mutate(files):
             changed = server(tools=TOOL_NAMES[:-1])
@@ -748,7 +806,8 @@ class VerifierServer(Base):
         self.split_refused(mutate, "tools")
 
     def test_n11_verifier_without_its_mcp_declaration_is_refused(self):
-        self.split_refused(lambda f: f.pop(V + "/.mcp.json"), "MCP servers []")
+        # the registration is compared whole since the reading of 830dc0f9, so a missing file reads as None
+        self.split_refused(lambda f: f.pop(V + "/.mcp.json"), "MCP servers None")
 
 
 class DriverChecks(Base):

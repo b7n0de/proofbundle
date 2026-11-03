@@ -119,6 +119,14 @@ G = "plugins/proofbundle-guard"
 HOUSE_MARKETPLACE = G + "/.claude-plugin/marketplace.json"
 #: The tools the public verifier's MCP server lists, the keys of its TOOLS table, read with ast. The Guard registers no
 #: MCP server; its copy of the server, which only the gate starts, must be byte-equal to the verifier's.
+#: The registrations of the verifier's MCP server, for each host its own, as main c9ab65b1 writes them.
+MCP_REGISTRATIONS = {
+    "/.mcp.json": {"proofbundle": {"command": "uv", "args": [
+        "run", "--quiet", "--no-config", "--script", "${CLAUDE_PLUGIN_ROOT}/server/proofbundle_mcp.py"]}},
+    "/.codex-plugin/plugin.json": {"proofbundle": {"command": "uv", "args": [
+        "run", "--quiet", "--no-config", "--script", "server/proofbundle_mcp.py"], "cwd": ".",
+        "env": {"PROOFBUNDLE_PLUGIN_HOST": "codex"}}},
+}
 VERIFIER_TOOLS = ("emit_receipt", "gate_selftest_check", "gate_selftest_prepare", "gate_status", "inspect_receipt",
                   "receipt_template", "verify_receipt")
 #: The two forms in which a hook command of the Guard starts its program, as the Guard writes them at main c9ab65b1,
@@ -128,8 +136,17 @@ VERIFIER_TOOLS = ("emit_receipt", "gate_selftest_check", "gate_selftest_prepare"
 #: the command and a blank or an end follows it, no text can be joined to it, and the plugin root may be named once
 #: only. Every other form stops the build (check_guard_profile): it is held to the forms allowed, not to a list of forms
 #: it must not have, which the readings of 2bcbf9f3, 03958484 and af7c414d each found one more of.
-_HOOK_PATH = r'"\$\{(?:CLAUDE_PLUGIN_ROOT|PLUGIN_ROOT)\}/([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*)"'
-HOOK_START = re.compile(r"python3 -I " + _HOOK_PATH + r"(?= |$)|out=\$\(python3 -I " + _HOOK_PATH + r"(?=[ )])")
+#: Each host its own root variable (line 3 of the reading of 830dc0f9: a Codex hook naming ${CLAUDE_PLUGIN_ROOT} was
+#: taken, while Codex sets ${PLUGIN_ROOT}): hooks/hooks.json starts through the first, the Codex manifest the second.
+CLAUDE_ROOT, CODEX_ROOT = "CLAUDE_PLUGIN_ROOT", "PLUGIN_ROOT"
+
+
+def _hook_start(root: str) -> re.Pattern:
+    path = r'"\$\{' + root + r'\}/([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*)"'
+    return re.compile(r"python3 -I " + path + r"(?= |$)|out=\$\(python3 -I " + path + r"(?=[ )])")
+
+
+HOOK_START = {CLAUDE_ROOT: _hook_start(CLAUDE_ROOT), CODEX_ROOT: _hook_start(CODEX_ROOT)}
 
 #: Every required version place ("version") and pin place ("pin"), by layout. Kinds:
 #:   json_version   the "version" member of a JSON file
@@ -585,13 +602,13 @@ def check_marketplaces(repo: Path, commit: str, layout: dict, version: str) -> l
     return lines
 
 
-def hook_programs(command: object) -> list[str] | None:
+def hook_programs(command: object, root: str) -> list[str] | None:
     """The path of the program a hook command starts, as a list of one, or None where the command is no string, does
     not begin with one of the two forms of HOOK_START, names a plugin root more than once, or names a path with a "."
     or ".." segment."""
     if not isinstance(command, str):
         return None
-    m = HOOK_START.match(command)
+    m = HOOK_START[root].match(command)
     if m is None or command.count("PLUGIN_ROOT") != 1:
         return None
     path = m.group(1) or m.group(2)
@@ -663,10 +680,17 @@ def check_public_profile(repo: Path, commit: str, layout: dict) -> list[str]:
             if any((d if isinstance(d, str) else d.get("name", "")).split("@")[0] == "proofbundle-guard"
                    for d in deps if isinstance(d, (str, dict))):
                 raise CheckFailed(f"{MARKETPLACE}: the public verifier's entry depends on proofbundle-guard")
-    for rel in ("/.mcp.json", "/.codex-plugin/plugin.json"):
-        servers = mcp_servers(repo, commit, root + rel)
-        if servers != ["proofbundle"]:
-            raise CheckFailed(f"{root}{rel}: MCP servers {servers}, expected exactly ['proofbundle']")
+    # each host's registration of the verifier's server as main c9ab65b1 writes it, and none in the Claude Code
+    # manifest (line 3 of the reading of 830dc0f9: the names alone let a registration named proofbundle start
+    # another program than the server whose tools are read below)
+    for rel, expected in MCP_REGISTRATIONS.items():
+        servers = json_blob(repo, commit, root + rel).get("mcpServers") if tree_entry(repo, commit, root + rel) \
+            else None
+        if servers != expected:
+            raise CheckFailed(f"{root}{rel}: MCP servers {servers!r}, expected exactly {expected!r}")
+    if "mcpServers" in json_blob(repo, commit, root + "/.claude-plugin/plugin.json"):
+        raise CheckFailed(f"{root}/.claude-plugin/plugin.json: an mcpServers field in the public verifier's Claude "
+                          "Code manifest; its server is registered in .mcp.json")
     tools = server_tools(repo, commit, root + "/server/proofbundle_mcp.py")
     if sorted(tools) != sorted(VERIFIER_TOOLS) or len(set(tools)) != len(tools):
         raise CheckFailed(f"{root}/server/proofbundle_mcp.py: tools {sorted(tools)}, expected {sorted(VERIFIER_TOOLS)}")
@@ -697,16 +721,16 @@ def check_guard_profile(repo: Path, commit: str, layout: dict) -> list[str]:
     registered = json_blob(repo, commit, hooks_file).get("hooks", {})
     if not isinstance(registered, dict):
         raise CheckFailed(f"{hooks_file}: hooks is not an object")
-    commands = _hook_commands(registered)
+    commands = [(c, CLAUDE_ROOT) for c in _hook_commands(registered)]
     codex = root + "/.codex-plugin/plugin.json"
     if tree_entry(repo, commit, codex) is not None:
         codex_hooks = json_blob(repo, commit, codex).get("hooks", {})
         if not isinstance(codex_hooks, dict):
             raise CheckFailed(f"{codex}: hooks is not an object the generator reads")
-        commands += _hook_commands(codex_hooks)
+        commands += [(c, CODEX_ROOT) for c in _hook_commands(codex_hooks)]
     started = set()
-    for command in commands:
-        found = hook_programs(command)
+    for command, host_root in commands:
+        found = hook_programs(command, host_root)
         if found is None:
             raise CheckFailed(f"{root}: the hook command {command!r} names no program of the Guard in a form the "
                               "generator reads")
