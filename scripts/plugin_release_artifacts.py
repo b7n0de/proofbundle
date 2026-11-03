@@ -118,10 +118,12 @@ HOUSE_MARKETPLACE = G + "/.claude-plugin/marketplace.json"
 VERIFIER_TOOLS = ("emit_receipt", "gate_selftest_check", "gate_selftest_prepare", "gate_status", "inspect_receipt",
                   "receipt_template", "verify_receipt")
 #: A program of the plugin that a hook command starts, as both hosts write it: the host's plugin root in braces, Claude
-#: Code's ${CLAUDE_PLUGIN_ROOT} or Codex's ${PLUGIN_ROOT}, and the path inside the plugin, all in double quotes. Every
-#: mention of a plugin root in a command must be such a start, and a command without one is refused (check_guard_profile):
-#: a form the generator does not read is no program it has checked.
-HOOK_PROGRAM = re.compile(r'"\$\{(?:CLAUDE_PLUGIN_ROOT|PLUGIN_ROOT)\}/([^"$`\\]+)"')
+#: Code's ${CLAUDE_PLUGIN_ROOT} or Codex's ${PLUGIN_ROOT}, and the path inside the plugin, all in double quotes and as a
+#: whole shell word: before it the start of the command, a blank or "(", after it the end, a blank or one of ; | & ),
+#: so no text joined to the quotes changes the program the shell starts. Every mention of a plugin root in a command must
+#: be such a start, and a command without one is refused (check_guard_profile): a form the generator does not read is no
+#: program it has checked.
+HOOK_PROGRAM = re.compile(r'(?<![^\s(])"\$\{(?:CLAUDE_PLUGIN_ROOT|PLUGIN_ROOT)\}/([^"$`\\]+)"(?![^\s;|&)])')
 HOOK_ROOT = re.compile(r"(?:CLAUDE_)?PLUGIN_ROOT")
 
 #: Every required version place ("version") and pin place ("pin"), by layout. Kinds:

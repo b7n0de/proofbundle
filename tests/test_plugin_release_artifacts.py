@@ -394,6 +394,32 @@ class GuardProfile(Base):
             'python3 -I \\"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py\\"', "bash -c 'python3 hooks/x.py'")
             + "\n"), "in a form the generator reads")
 
+    def test_n6g_hook_program_joined_with_more_text_into_one_shell_word_is_refused(self):
+        """The Codex pre-run of the reading of 2bcbf9f3: the pattern found the quoted path inside a longer shell word,
+        so "${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py".missing passed with the gate present while the shell
+        starts hooks/proofbundle_gate.py.missing. The quoted path has to be a whole word, before and after."""
+        base = self.tmp
+        try:
+            for i, (before, after) in enumerate((('proofbundle_gate.py\\"', 'proofbundle_gate.py\\".missing'),
+                                                 ('\\"${CLAUDE_PLUGIN_ROOT}', 'x\\"${CLAUDE_PLUGIN_ROOT}'))):
+                with self.subTest(after=after):
+                    changed = CLAUDE_HOOKS.replace(before, after)
+                    self.assertNotEqual(changed, CLAUDE_HOOKS)
+                    self.tmp = base / f"case{i}"
+                    self.tmp.mkdir()
+                    self.out = self.tmp / "out"
+                    self.split_refused(lambda f: f.__setitem__(G + "/hooks/hooks.json", changed + "\n"),
+                                       "in a form the generator reads")
+        finally:
+            self.tmp, self.out = base, base / "out"
+
+    def test_n6h_codex_hook_program_joined_with_more_text_is_refused(self):
+        joined = json.loads(json.dumps(CODEX_HOOKS).replace('proofbundle_gate.py\\"', 'proofbundle_gate.py\\".missing'))
+        self.assertNotEqual(joined, CODEX_HOOKS)
+        self.split_refused(lambda f: f.__setitem__(G + "/.codex-plugin/plugin.json",
+                                                   manifest("proofbundle-guard", hooks=joined)),
+                           "in a form the generator reads")
+
     def test_n6f_control_the_hook_forms_of_both_hosts_build(self):
         repo, commit = make_repo(self.tmp, split_files())
         proc = build(repo, commit, self.out)
