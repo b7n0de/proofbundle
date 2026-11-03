@@ -436,6 +436,10 @@ def block_pin(content: str, where: str) -> str:
         pins.append(exact.group(1))
     if len(pins) != 1:
         raise CheckFailed(f"{where}: {len(pins)} proofbundle dependencies, expected exactly 1")
+    # the pin alone, as every script block the generator reads lists it at main c9ab65b1: another entry, a dependency
+    # on proofbundle-guard among them, was passed over (line 3 of the reading of e05c0c9f)
+    if len(deps) != 1:
+        raise CheckFailed(f"{where}: {len(deps) - 1} dependencies besides the proofbundle pin, expected none")
     return pins[0]
 
 

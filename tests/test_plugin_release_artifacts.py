@@ -243,7 +243,8 @@ class CombinedCounterprobes(Base):
         files[V + "/server/proofbundle_mcp.py"] = server(
             pin_line=f'# dependencies = ["proofbundle=={OLD_PIN}", "typing-extensions"]')
         repo, commit = make_repo(self.tmp, files)
-        self.assertRefused(build(repo, commit, self.out, layout="combined"), f"says {OLD_PIN}")
+        # since the reading of e05c0c9f a block lists the pin alone, so the second entry stops the build first
+        self.assertRefused(build(repo, commit, self.out, layout="combined"), "besides the proofbundle pin")
 
     def test_c3_gate_pins_removed_is_refused(self):
         files = combined_files()
@@ -498,6 +499,17 @@ class SplitChecks(Base):
                 self.assertFalse(out.exists() and any(out.iterdir()), "a refused build wrote artifacts")
                 failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
                 self.assertTrue(failed and "plugins/README.md" in failed[0], failed)
+
+    def test_s1l_a_script_block_with_a_dependency_besides_the_pin_is_refused(self):
+        """Line 3 of the reading of e05c0c9f: a script block was read for its one proofbundle pin and every other
+        entry passed over, so a server could depend on proofbundle-guard. Every script block the generator reads lists
+        the pin alone at main c9ab65b1, so any other entry stops the build."""
+        line = '# dependencies = ["proofbundle==6.4.0", "proofbundle-guard==0.4.0"]'
+        files = split_files()
+        for root in (V, G):
+            files[root + "/server/proofbundle_mcp.py"] = server(pin_line=line)
+        repo, commit = make_repo(self.tmp, files)
+        self.assertRefused(build(repo, commit, self.out), "besides the proofbundle pin")
 
     def test_s2_missing_guard_gate_pin_is_refused(self):
         self.split_refused(lambda f: f.__setitem__(G + "/hooks/proofbundle_gate.py", gate(constant=False)),
