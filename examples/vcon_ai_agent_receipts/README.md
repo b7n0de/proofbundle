@@ -35,7 +35,7 @@ all signatures cover, the RFC 8785 serialization of that vCon; `vcon.signed.json
 ## Check it offline
 
 ```
-pip install "proofbundle==6.4.0"
+pip install "proofbundle>=6.4.0"
 cd examples/vcon_ai_agent_receipts
 python check_example.py out
 python check_example.py out --signed vcon.signed-rs256.json
