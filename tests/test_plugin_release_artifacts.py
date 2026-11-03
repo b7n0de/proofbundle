@@ -121,10 +121,11 @@ MCP_CODEX = {"proofbundle": {"command": "uv", "args": ["run", "--quiet", "--no-c
 MCP = MCP_CODEX
 CLAUDE_HOOKS = json.dumps({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [
     {"type": "command", "command": 'python3 -I "${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py"'}]}]}}, indent=2)
-#: The form the Guard's Codex manifest writes since pull request 472: the host's plugin root, ${PLUGIN_ROOT}, in quotes.
-CODEX_HOOKS = {"PreToolUse": [{"matcher": "Bash", "hooks": [
+#: The form the Guard's Codex manifest writes since pull request 472: the host's plugin root, ${PLUGIN_ROOT}, in quotes,
+#: and the events under a member hooks of the manifest's hooks, as main c9ab65b1 writes it.
+CODEX_HOOKS = {"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [
     {"type": "command", "command": 'python3 -I "${PLUGIN_ROOT}/hooks/proofbundle_gate.py" --host codex || { echo '
-                                   "'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }"}]}]}
+                                   "'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }"}]}]}}
 CATALOG = ("# Plugins\n\n| Host | What it does | Plugin | Version | Maturity |\n|---|---|---|---|---|\n"
            "| Claude Code | fixture | [proofbundle](proofbundle/README.md) | 0.4.0 | Experimental |\n"
            "| Codex | fixture | [proofbundle](proofbundle/README.md) | 0.4.0 | Experimental |\n")
@@ -776,7 +777,7 @@ class GuardProfile(Base):
                 if host == "claude":
                     files[G + "/hooks/hooks.json"] = json.dumps({"hooks": hooks}) + "\n"
                 else:
-                    files[G + "/.codex-plugin/plugin.json"] = manifest("proofbundle-guard", hooks=hooks)
+                    files[G + "/.codex-plugin/plugin.json"] = manifest("proofbundle-guard", hooks={"hooks": hooks})
                 sub = self.tmp / host
                 sub.mkdir()
                 repo, commit = make_repo(sub, files)
@@ -803,7 +804,7 @@ class GuardProfile(Base):
                 hooks = {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": command}]}]}
                 files = split_files()
                 if "codex" in name:
-                    files[G + "/.codex-plugin/plugin.json"] = manifest("proofbundle-guard", hooks=hooks)
+                    files[G + "/.codex-plugin/plugin.json"] = manifest("proofbundle-guard", hooks={"hooks": hooks})
                 else:
                     files[G + "/hooks/hooks.json"] = json.dumps({"hooks": hooks}) + "\n"
                 sub = self.tmp / name.replace(" ", "_")
@@ -929,6 +930,44 @@ class GuardProfile(Base):
         proc = build(repo, commit, self.out)
         self.assertBuilt(proc)
         self.assertIn("(1: hooks/proofbundle_gate.py)", text(proc))
+
+    def test_n6p_a_command_outside_the_registration_form_is_refused(self):
+        """The Codex pre-run of the reading of f2f6007b: the commands were gathered from every member named command at any
+        depth, so a command written directly under an event, which no host loads as a hook, counted as a started
+        program. A registration is held to the form main c9ab65b1 writes for each host: under hooks the events the
+        Guard registers for, each a list of groups with hooks and at most a matcher, each hook of type command with a
+        command and at most a timeout; the Codex manifest holds the events under hooks.hooks."""
+        gate_claude = 'python3 -I "${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py"'
+        gate_codex = json.loads(json.dumps(CODEX_HOOKS))["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+        cases = {
+            "claude command under an event": ("claude", {"PreToolUse": {"command": gate_claude}}),
+            "claude command in a group": ("claude", {"PreToolUse": [{"matcher": "Bash", "command": gate_claude,
+                                                                      "hooks": []}]}),
+            "claude hook of another type": ("claude", {"PreToolUse": [{"matcher": "Bash", "hooks": [
+                {"type": "prompt", "command": gate_claude}]}]}),
+            "claude event the guard does not register": ("claude", {"NeverFires": [{"hooks": [
+                {"type": "command", "command": gate_claude}]}]}),
+            "codex events without the hooks member": ("codex", json.loads(json.dumps(CODEX_HOOKS))["hooks"]),
+            "codex event of the other host": ("codex", {"hooks": {"SessionStart": [{"hooks": [
+                {"type": "command", "command": gate_codex}]}]}}),
+        }
+        for name, (host, hooks) in cases.items():
+            with self.subTest(name=name):
+                files = split_files()
+                if host == "claude":
+                    files[G + "/hooks/hooks.json"] = json.dumps({"hooks": hooks}) + "\n"
+                else:
+                    files[G + "/.codex-plugin/plugin.json"] = manifest("proofbundle-guard", hooks=hooks)
+                sub = self.tmp / name.replace(" ", "_")
+                sub.mkdir()
+                repo, commit = make_repo(sub, files)
+                out = sub / "out"
+                proc = build(repo, commit, out)
+                self.assertEqual(proc.returncode, 1, text(proc))
+                self.assertFalse(out.exists() and any(out.iterdir()), "a refused build wrote artifacts")
+                failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
+                self.assertTrue(failed and "a hook registration not in the form main c9ab65b1 writes" in failed[0],
+                                failed)
 
     def test_n7_guard_registering_an_mcp_server_is_refused(self):
         self.split_refused(lambda f: f.__setitem__(G + "/.mcp.json", json.dumps({"mcpServers": MCP}) + "\n"),

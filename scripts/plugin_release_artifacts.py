@@ -28,8 +28,9 @@ build
         "hooks" field and no dependency in its two host manifests or its marketplace entry (none is a member main
         writes there), exactly one MCP server, proofbundle, in .mcp.json and in the Codex manifest, and the tool set
         of that server;
-      - in the split layout, the Guard's profile: hooks/hooks.json and the gate program present, every program a hook
-        of either host starts present in the Guard's root, no skills/ folder, no MCP server registered, and its copy of
+      - in the split layout, the Guard's profile: hooks/hooks.json and the gate program present, both hosts' hook
+        registrations in the form main c9ab65b1 writes (HOOK_EVENTS), every program a hook of either host starts
+        present in the Guard's root, no skills/ folder, no MCP server registered, and its copy of
         the server byte-equal to the verifier's;
       - every archived entry: a regular file (0644 or 0755); a symbolic link or a gitlink stops the build.
     Then it writes into OUTDIR, which must be absent or empty, exactly three files:
@@ -179,6 +180,16 @@ HOOK_TEMPLATES = {
 _HOOK_PATH = r"([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*)"
 HOOK_START = {root: tuple(re.compile(re.escape(t).replace("@ROOT@", root).replace("@PROGRAM@", _HOOK_PATH))
                           for t in templates) for root, templates in HOOK_TEMPLATES.items()}
+#: The form of a hook registration as main c9ab65b1 writes it: the events the Guard registers for, for each host its
+#: own, each a list of groups holding hooks and at most a matcher, each hook of type command with a command and at most
+#: a timeout. hooks/hooks.json holds the events under hooks next to a description; the Codex manifest holds them under
+#: hooks.hooks (hook_commands).
+HOOK_EVENTS = {
+    CLAUDE_ROOT: frozenset({"PreToolUse", "PostToolUse", "PostToolUseFailure", "Stop", "TaskCompleted", "SessionStart"}),
+    CODEX_ROOT: frozenset({"PreToolUse", "Stop"}),
+}
+HOOK_GROUP_MEMBERS = frozenset({"hooks", "matcher"})
+HOOK_MEMBERS = frozenset({"command", "timeout", "type"})
 
 #: Every required version place ("version") and pin place ("pin"), by layout. Kinds:
 #:   json_version   the "version" member of a JSON file
@@ -692,15 +703,34 @@ def hook_programs(command: object, root: str) -> list[str] | None:
     return [path]
 
 
-def _hook_commands(value: object) -> list[object]:
-    """The values of every "command" member of a hook structure, of any type, so a command that is no string is
-    refused rather than passed over."""
-    if isinstance(value, dict):
-        return [v for k, v in value.items() if k == "command"] + \
-            [c for k, v in value.items() if k != "command" for c in _hook_commands(v)]
-    if isinstance(value, list):
-        return [c for v in value for c in _hook_commands(v)]
-    return []
+def hook_commands(events: object, root: str, where: str) -> list[object]:
+    """The commands of a hook registration of the host of ROOT, read only where the form of HOOK_EVENTS,
+    HOOK_GROUP_MEMBERS and HOOK_MEMBERS puts them; a command of any type is returned, so one that is no string is
+    refused by hook_programs. Gathering every member named command at any depth counted a command written directly under
+    an event, which no host loads as a hook, as a started program (the Codex pre-run of the reading of f2f6007b), so
+    any other form stops the build."""
+    def wrong(detail: str) -> CheckFailed:
+        return CheckFailed(f"{where}: a hook registration not in the form main c9ab65b1 writes ({detail})")
+
+    if not isinstance(events, dict):
+        raise wrong("the events are no object")
+    if set(events) - HOOK_EVENTS[root]:
+        raise wrong(f"events {sorted(set(events) - HOOK_EVENTS[root])} the Guard does not register for this host")
+    commands = []
+    for event, groups in events.items():
+        if not isinstance(groups, list):
+            raise wrong(f"{event} is no list of groups")
+        for group in groups:
+            if not isinstance(group, dict) or set(group) - HOOK_GROUP_MEMBERS or not isinstance(group.get("hooks"), list) \
+                    or not isinstance(group.get("matcher", ""), str):
+                raise wrong(f"a group of {event} is not hooks and at most a matcher string")
+            for hook in group["hooks"]:
+                if not isinstance(hook, dict) or set(hook) - HOOK_MEMBERS or hook.get("type") != "command" \
+                        or "command" not in hook or ("timeout" in hook and not (
+                            type(hook["timeout"]) is int and hook["timeout"] > 0)):
+                    raise wrong(f"a hook of {event} is not of type command with a command and at most a timeout")
+                commands.append(hook["command"])
+    return commands
 
 
 def server_tools(repo: Path, commit: str, path: str) -> list[str]:
@@ -766,16 +796,22 @@ def check_guard_profile(repo: Path, commit: str, layout: dict) -> list[str]:
     # The Guard registers its Claude Code hooks in hooks/hooks.json alone, as at main c9ab65b1: a hooks field in its
     # Claude Code manifest or in its house marketplace entry is no member main writes there, so check_marketplaces
     # stops the build at it (MANIFEST_MEMBERS, ENTRY_MEMBERS); the Codex manifest's hooks are read below.
-    registered =json_blob(repo, commit, hooks_file).get("hooks", {})
+    # hooks/hooks.json as main c9ab65b1 writes it, a description and the events under hooks
+    hooks_data = _only_members(json_blob(repo, commit, hooks_file), frozenset({"description", "hooks"}), hooks_file)
+    registered = hooks_data.get("hooks", {})
     if not isinstance(registered, dict):
         raise CheckFailed(f"{hooks_file}: hooks is not an object")
-    commands = [(c, CLAUDE_ROOT) for c in _hook_commands(registered)]
+    commands = [(c, CLAUDE_ROOT) for c in hook_commands(registered, CLAUDE_ROOT, hooks_file)]
     codex = root + "/.codex-plugin/plugin.json"
     if tree_entry(repo, commit, codex) is not None:
         codex_hooks = json_blob(repo, commit, codex).get("hooks", {})
         if not isinstance(codex_hooks, dict):
             raise CheckFailed(f"{codex}: hooks is not an object the generator reads")
-        commands += [(c, CODEX_ROOT) for c in _hook_commands(codex_hooks)]
+        # the Codex manifest holds the events under hooks.hooks, as main c9ab65b1 writes it
+        if set(codex_hooks) - {"hooks"}:
+            raise CheckFailed(f"{codex}: a hook registration not in the form main c9ab65b1 writes (members "
+                              f"{sorted(set(codex_hooks) - {'hooks'})} next to the events under hooks.hooks)")
+        commands += [(c, CODEX_ROOT) for c in hook_commands(codex_hooks.get("hooks", {}), CODEX_ROOT, codex)]
     started = set()
     for command, host_root in commands:
         found = hook_programs(command, host_root)
