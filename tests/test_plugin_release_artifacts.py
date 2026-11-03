@@ -279,6 +279,45 @@ class SplitChecks(Base):
             '"name": "proofbundle-house"', '"name": "proofbundle",\n  "name": "proofbundle-house"')
         self.split_refused(lambda f: f.__setitem__(HOUSE, twice), "duplicate member")
 
+    def test_s1d_a_read_name_changed_after_its_assignment_is_refused(self):
+        """The Codex pre-run of the reading of e92b63a5: a constant read with ast was taken from its top-level
+        assignment alone, so SERVER_VERSION += ".unexpected" passed. Every name the generator reads must be bound once,
+        by that assignment, and otherwise only read; the TOOLS table may only be looked up or read by items, keys,
+        values or get."""
+        changes = {
+            "augmented": ("/server/proofbundle_mcp.py", 'SERVER_VERSION += ".unexpected"\n', "SERVER_VERSION"),
+            "global in a function": ("/server/proofbundle_mcp.py",
+                                     'def f():\n    global SERVER_VERSION\n    SERVER_VERSION = "0.4.1"\n',
+                                     "SERVER_VERSION"),
+            "table item written": ("/server/proofbundle_mcp.py", 'TOOLS["extra"] = (None, {})\n', "TOOLS"),
+            "table updated": ("/server/proofbundle_mcp.py", 'TOOLS.update(extra=(None, {}))\n', "TOOLS"),
+            "table bound again": ("/server/proofbundle_mcp.py", 'ALIAS = TOOLS\n', "TOOLS"),
+        }
+        for name, (rel, line, reason) in changes.items():
+            with self.subTest(name=name):
+                files = split_files()
+                for root in (V, G):
+                    files[root + rel] += line
+                sub = self.tmp / name.replace(" ", "_")
+                sub.mkdir()
+                repo, commit = make_repo(sub, files)
+                out = sub / "out"
+                proc = build(repo, commit, out)
+                self.assertEqual(proc.returncode, 1, text(proc))
+                self.assertFalse(out.exists() and any(out.iterdir()), "a refused build wrote artifacts")
+                failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
+                self.assertTrue(failed and reason in failed[0] and "otherwise than read" in failed[0], failed)
+
+    def test_s1e_control_the_reads_the_server_writes_build(self):
+        """The uses of the TOOLS table in the server at main c9ab65b1: a lookup, a membership test and items()."""
+        reads = ("def call(name):\n    if name not in TOOLS:\n        return None\n    return TOOLS[name]\n\n\n"
+                 "def listing():\n    return [n for n, _ in TOOLS.items()]\n")
+        files = split_files()
+        for root in (V, G):
+            files[root + "/server/proofbundle_mcp.py"] += reads
+        repo, commit = make_repo(self.tmp, files)
+        self.assertBuilt(build(repo, commit, self.out))
+
     def test_s2_missing_guard_gate_pin_is_refused(self):
         self.split_refused(lambda f: f.__setitem__(G + "/hooks/proofbundle_gate.py", gate(constant=False)),
                            "PINNED_PROOFBUNDLE")
@@ -471,6 +510,38 @@ class GuardProfile(Base):
                 self.assertFalse(out.exists() and any(out.iterdir()), "a refused build wrote artifacts")
                 failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
                 self.assertTrue(failed and "in a form the generator reads" in failed[0], failed)
+
+    def test_n6l_guard_hooks_outside_hooks_json_are_refused(self):
+        """The Codex pre-run of the reading of e92b63a5: hooks in the Guard's Claude Code manifest were not read, so one
+        there could start a program the Guard lacks. The Guard writes its Claude Code hooks in hooks/hooks.json alone,
+        so a hooks field in its Claude Code manifest or in its house marketplace entry stops the build, and the Codex
+        manifest's hooks have to be an object the generator reads."""
+        missing = {"PreToolUse": [{"matcher": "Bash", "hooks": [
+            {"type": "command", "command": 'python3 -I "${CLAUDE_PLUGIN_ROOT}/hooks/missing.py"'}]}]}
+        cases = {
+            "claude manifest": (G + "/.claude-plugin/plugin.json", manifest("proofbundle-guard", hooks=missing),
+                                "a hooks field in the Guard's Claude Code manifest"),
+            "house entry": (HOUSE, json.dumps({"name": "proofbundle-house", "owner": {"name": "fixture"},
+                                               "description": "fixture", "plugins": [
+                                                   {"name": "proofbundle-guard", "source": "./",
+                                                    "description": "fixture", "hooks": missing}]}, indent=2) + "\n",
+                            "a hooks field in the house marketplace entry"),
+            "codex path": (G + "/.codex-plugin/plugin.json", manifest("proofbundle-guard", hooks="hooks/other.json"),
+                           "hooks is not an object"),
+        }
+        for name, (path, content, reason) in cases.items():
+            with self.subTest(name=name):
+                files = split_files()
+                files[path] = content
+                sub = self.tmp / name.replace(" ", "_")
+                sub.mkdir()
+                repo, commit = make_repo(sub, files)
+                out = sub / "out"
+                proc = build(repo, commit, out)
+                self.assertEqual(proc.returncode, 1, text(proc))
+                self.assertFalse(out.exists() and any(out.iterdir()), "a refused build wrote artifacts")
+                failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
+                self.assertTrue(failed and reason in failed[0], failed)
 
     def test_n6j_control_the_command_forms_the_guard_writes_build(self):
         """The forms of the Guard's hooks at main c9ab65b1: an or-list with a group, a command substitution assigned to a

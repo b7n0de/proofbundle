@@ -288,11 +288,57 @@ def ls_tree(repo: Path, commit: str, paths: list[str]) -> list[tuple[str, str, s
 
 # --- reading places -----------------------------------------------------------------------------------------------
 
-def _assignments(source: str, path: str) -> dict[str, list[ast.expr]]:
+#: How a module may use a name the generator reads with ast (py_constant, server_tools): bound once, by its top-level
+#: assignment, and otherwise only read, as every such name is at main c9ab65b1. A string cannot change after that. The
+#: TOOLS table is a dict, so besides that it may only be looked up (TOOLS[key], key in TOOLS) or read by one of
+#: TABLE_READS; any other use, an item written or deleted, another method, the table handed on or bound to another
+#: name, stops the build. Code that changes a module's globals by name at run time (globals(), setattr on the module)
+#: is not read; the generator reads what the source writes.
+TABLE_READS = ("items", "keys", "values", "get")
+
+
+def _parse(source: str, path: str) -> ast.Module:
     try:
-        tree = ast.parse(source, filename=path)
+        return ast.parse(source, filename=path)
     except SyntaxError as exc:
         raise CheckFailed(f"{path}: not parseable as Python ({exc.msg}, line {exc.lineno})") from exc
+
+
+def _only_read(tree: ast.Module, name: str, path: str, table: bool = False) -> None:
+    parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+    bound = []
+    for node in ast.walk(tree):
+        other = None
+        if isinstance(node, ast.Name) and node.id == name:
+            parent = parents.get(node)
+            if not isinstance(node.ctx, ast.Load):
+                bound.append(node)
+                top = isinstance(parent, (ast.Assign, ast.AnnAssign)) and parents.get(parent) is tree and \
+                    (node in getattr(parent, "targets", []) or getattr(parent, "target", None) is node)
+                other = None if top else node.lineno
+            elif table and not (
+                    (isinstance(parent, ast.Subscript) and parent.value is node and isinstance(parent.ctx, ast.Load))
+                    or (isinstance(parent, ast.Compare) and node in parent.comparators
+                        and all(isinstance(op, (ast.In, ast.NotIn)) for op in parent.ops))
+                    or (isinstance(parent, ast.Attribute) and parent.attr in TABLE_READS
+                        and isinstance(parents.get(parent), ast.Call) and parents[parent].func is parent)):
+                other = node.lineno
+        elif isinstance(node, (ast.Global, ast.Nonlocal)) and name in node.names:
+            other = node.lineno
+        elif isinstance(node, ast.alias) and (node.asname or node.name.split(".")[0]) == name:
+            other = getattr(node, "lineno", 0)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == name:
+            other = node.lineno
+        elif isinstance(node, ast.ExceptHandler) and node.name == name:
+            other = node.lineno
+        if other is not None:
+            raise CheckFailed(f"{path}: {name} is used otherwise than read after its assignment (line {other})")
+    if len(bound) != 1:
+        raise CheckFailed(f"{path}: {name} is bound {len(bound)} times, used otherwise than read after its assignment")
+
+
+def _assignments(source: str, path: str) -> dict[str, list[ast.expr]]:
+    tree = _parse(source, path)
     found: dict[str, list[ast.expr]] = {}
     for node in tree.body:
         targets = node.targets if isinstance(node, ast.Assign) else [node.target] if isinstance(node, ast.AnnAssign) else []
@@ -309,6 +355,7 @@ def py_constant(source: str, path: str, name: str) -> str:
     value = values[0]
     if not (isinstance(value, ast.Constant) and isinstance(value.value, str)):
         raise CheckFailed(f"{path}: {name} is not a plain string")
+    _only_read(_parse(source, path), name, path)
     return value.value
 
 
@@ -464,9 +511,11 @@ def _hook_commands(value: object) -> list[object]:
 
 def server_tools(repo: Path, commit: str, path: str) -> list[str]:
     """The keys of the top-level TOOLS table of an MCP server, read with ast, in the order written."""
-    tables = _assignments(blob_text(repo, commit, path), path).get("TOOLS", [])
+    source = blob_text(repo, commit, path)
+    tables = _assignments(source, path).get("TOOLS", [])
     if len(tables) != 1 or not isinstance(tables[0], ast.Dict):
         raise CheckFailed(f"{path}: {len(tables)} top-level TOOLS tables, expected one dict literal")
+    _only_read(_parse(source, path), "TOOLS", path, table=True)
     keys = []
     for key in tables[0].keys:
         if not (isinstance(key, ast.Constant) and isinstance(key.value, str)):
@@ -533,10 +582,26 @@ def check_guard_profile(repo: Path, commit: str, layout: dict) -> list[str]:
         entry = tree_entry(repo, commit, path)
         if entry is None or entry[1] != "blob" or entry[0] not in ("100644", "100755"):
             raise CheckFailed(f"{path}: required in the Guard as a regular file, found {entry}")
-    commands = _hook_commands(json_blob(repo, commit, hooks_file).get("hooks", {}))
+    # The Guard registers its Claude Code hooks in hooks/hooks.json alone, as at main c9ab65b1: a hooks field in its
+    # Claude Code manifest or in its house marketplace entry would add hooks no check here reads, so it stops the build.
+    if "hooks" in json_blob(repo, commit, root + "/.claude-plugin/plugin.json"):
+        raise CheckFailed(f"{root}/.claude-plugin/plugin.json: a hooks field in the Guard's Claude Code manifest; the "
+                          "Guard registers its Claude Code hooks in hooks/hooks.json")
+    for market, spec in layout["marketplaces"].items():
+        if layout["roots"].get("proofbundle-guard") == root and "proofbundle-guard" in spec["entries"]:
+            for entry in json_blob(repo, commit, market).get("plugins", []):
+                if isinstance(entry, dict) and entry.get("name") == "proofbundle-guard" and "hooks" in entry:
+                    raise CheckFailed(f"{market}: a hooks field in the house marketplace entry of proofbundle-guard")
+    registered = json_blob(repo, commit, hooks_file).get("hooks", {})
+    if not isinstance(registered, dict):
+        raise CheckFailed(f"{hooks_file}: hooks is not an object")
+    commands = _hook_commands(registered)
     codex = root + "/.codex-plugin/plugin.json"
     if tree_entry(repo, commit, codex) is not None:
-        commands += _hook_commands(json_blob(repo, commit, codex).get("hooks", {}))
+        codex_hooks = json_blob(repo, commit, codex).get("hooks", {})
+        if not isinstance(codex_hooks, dict):
+            raise CheckFailed(f"{codex}: hooks is not an object the generator reads")
+        commands += _hook_commands(codex_hooks)
     started = set()
     for command in commands:
         found = hook_programs(command)
