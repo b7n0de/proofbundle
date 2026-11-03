@@ -363,7 +363,10 @@ def check_receipts(rep, v, a, gate):
         agent = parties[tool["party"]]
         rep.need(agent.get("uuid") == pred["agent"]["id"] and "agent_meta" in agent, "R2", where,
                  "agent.id %r is not the party of the tool call" % pred["agent"]["id"])
-        action = vp.jcs(tool["input"]) if a.action_bytes == "jcs" else None
+        principal = pred.get("principal", {}).get("id")
+        people = [p for p in parties if p.get("type") == "person" and p.get("uuid") == principal]
+        rep.need(len(people) == 1, "R2", where, "principal.id %r is not the uuid of one person in the vCon" % principal)
+        action =vp.jcs(tool["input"]) if a.action_bytes == "jcs" else None
         if action is not None:
             rep.need(vp.sha256(action) == pred["proposedAction"]["parametersDigest"]["sha256"], "R2", where,
                      "SHA-256 of the RFC 8785 form of events[%d].input is not parametersDigest" % j,
@@ -376,6 +379,9 @@ def check_receipts(rep, v, a, gate):
         cands = [f for f, (fb, fv) in approvals.items() if isinstance(fv, dict)
                  and fv.get("actionDigest", {}).get("sha256") == digest
                  and fv.get("session") == sessions[k]["agent_session_id"]]
+        named = [s for s in pred.get("inputSnapshot", []) if s.get("name") == "approval record"]
+        rep.need(cands or not named, "R3", where, "inputSnapshot names an approval record, but no approval record "
+                 "in the vCon fits the action and the session")
         case = "approval" if cands else "declined"
         rep.ok("R3", where, "Case %s, chosen from the vCon (%d matching approval records)" % (
             "1" if cands else "2", len(cands)))
