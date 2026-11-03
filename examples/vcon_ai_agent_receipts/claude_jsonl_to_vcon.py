@@ -195,7 +195,8 @@ def convert(lines, user_id="user", user_name="user", agent_id="agent", agent_nam
             ev["parent_id"] = pid
         events.append(ev)
 
-    disallowed = set()
+    # every disallowed operation is known before any Event Object is written, whatever the order of the lines
+    disallowed = {cid for cid, (pd, _res, _t) in decisions.items() if policy_decision_value(pd) == "disallowed"}
     for e in entries:
         kind = e["type"]
         msg = e.get("message") if isinstance(e.get("message"), dict) else {}
@@ -251,7 +252,6 @@ def convert(lines, user_id="user", user_name="user", agent_id="agent", agent_nam
                     if verdict == "permission-required":
                         sent = result_time
                 if verdict == "disallowed":
-                    disallowed.add(blk["id"])
                     skipped["arguments of a disallowed operation (tool-invocation-00 6.1.1)"] += 1
                     continue
                 events.append({"type": "tool-invocation", **dict(common, time=sent), "operation_id": op, "attempt": 1,

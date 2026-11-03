@@ -198,6 +198,12 @@ CASES = [
     ("F31", "a tool-invocation of the denied merge in a second session", "C2", m_f31, None),
     ("F32", "the tool-invocation and the tool-result of the approved push name the person as party", "R2",
      lambda v: [ev(v, OP1, typ).update({"party": 0}) for typ in ("tool-invocation", "tool-result")], None),
+    ("F33", "every event of both operations is attempt 2, no attempt 1 (5.1, 6.1.3)", "V4",
+     lambda v: [e.update({"attempt": 2}) for e in v["events"] if "operation_id" in e], None),
+    ("F34", "the tool-result of the push has encoding 7 (6.1.10)", "V4",
+     lambda v: ev(v, OP1, "tool-result").update({"encoding": 7}), None),
+    ("F35", "the tool-result of the push keeps encoding without body and mediatype (6.1.10)", "V4",
+     lambda v: [ev(v, OP1, "tool-result").pop(k) for k in ("body", "mediatype")], None),
 ]
 PROPOSAL_CASES = [
     ("F27", "proposal: each policy-decision references the receipt of the other decision", "E1", None, p_f27),

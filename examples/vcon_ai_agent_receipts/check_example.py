@@ -102,6 +102,24 @@ def attempt_ok(v):
     return isinstance(v, int) and not isinstance(v, bool) and v >= 1
 
 
+def content_form_ok(e):
+    """Event content in one of the forms of vCon core file_content_type (tool-invocation-00 6.1.10): none; inline with
+    encoding json (any body) or none or base64url (a string body), with mediatype; external url and content_hash;
+    or redacted, content_hash alone."""
+    keys = set(e) & CONTENT
+    if not keys or keys == {"mediatype"}:
+        return not keys
+    if "body" in e or "encoding" in e:
+        if "url" in e or "content_hash" in e or "mediatype" not in e or "body" not in e:
+            return False
+        if e.get("encoding") == "json":
+            return True
+        return e.get("encoding") in ("none", "base64url") and isinstance(e["body"], str)
+    if "url" in e:
+        return isinstance(e["url"], str) and "content_hash" in e
+    return "content_hash" in e
+
+
 def check_ti_event(rep, where, e, n_att, extra=()):
     """The parameters of tool-invocation-00 6.1.1 to 6.1.11 for one of its Event Object types (Tables 3 to 5)."""
     typ = e["type"]
@@ -132,11 +150,8 @@ def check_ti_event(rep, where, e, n_att, extra=()):
         if typ == "tool-invocation":
             rep.need(isinstance(e.get("server"), str) and e["server"] != "" and isinstance(e.get("tool"), str)
                      and e["tool"] != "", "V4", where, "server or tool missing in a tool-invocation (6.1.8, 6.1.9)")
-        if "body" in e:
-            rep.need("encoding" in e and "url" not in e and "mediatype" in e, "V4", where,
-                     "inline content without encoding or mediatype, or with url (6.1.10)")
-        if "url" in e:
-            rep.need("content_hash" in e, "V4", where, "url without content_hash (6.1.10)")
+        rep.need(content_form_ok(e), "V4", where, "content is not inline (encoding, body, mediatype), external "
+                 "(url, content_hash) or redacted (content_hash) as in vCon core (6.1.10)")
         for k in as_list(e.get("attachment", [])):
             rep.need(index(k, n_att), "V4", where, "attachment index %r invalid (6.1.11)" % (k,))
     server = e.get("server")
@@ -303,6 +318,11 @@ def check_structure(rep, v):
             per = [e.get("attempt") for e in events if e.get("type") == typ and e.get("operation_id") == o]
             rep.need(len(per) == len(set(per)), "V4", "operation %s" % o,
                      "more than one %s for the same attempt (6.1.2)" % typ)
+        # the first attempt is 1, each later one is one more (5.1, 6.1.3); the example records every attempt
+        seen_attempts = sorted({e.get("attempt") for e in events if e.get("type") in TI_TYPES
+                                and e.get("operation_id") == o and attempt_ok(e.get("attempt"))})
+        rep.need(seen_attempts == list(range(1, len(seen_attempts) + 1)), "V4", "operation %s" % o,
+                 "attempts %s do not start at 1 and go up by one (5.1, 6.1.3)" % seen_attempts)
     rep.ok("V4", "vCon", "%d parties, %d sessions, %d dialog, %d events, %d attachments" % (
         len(parties), len(sessions), len(dialog), len(events), len(att)))
 
@@ -608,6 +628,10 @@ def check_proposal(rep, d, rel, v, found, att, external):
         rep.need(sha512 == [vp.b64u(hashlib.sha512(x["bytes"]).digest())], "E1", w,
                  "content_hash is not the sha512 of the receipt of operation %s" % e["operation_id"],
                  "references the receipt %s by sha512" % x["pred"]["decisionId"])
+        for t in as_list(ref["content_hash"]):
+            if t.startswith("sha256-"):
+                rep.need(t[7:] == vp.b64u(hashlib.sha256(x["bytes"]).digest()), "E1", w,
+                         "the sha256 token is not the sha256 of the receipt of operation %s" % e["operation_id"])
         if "url" in ref:
             rep.need(ref["url"] == att[x["attachment"]].get("url"), "E1", w, "url is not the url of the receipt")
     named = {e.get("operation_id") for e in pv["events"] if e.get("type") == "policy-decision"

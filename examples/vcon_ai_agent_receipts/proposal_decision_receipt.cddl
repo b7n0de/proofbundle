@@ -13,8 +13,9 @@
 ; Not enforced by this CDDL:
 ; - content_hash covers the exact bytes of the referenced record, and
 ;   carries a sha512 token as vCon core requires for external content.
-; - The record names the same operation_id and attempt as the event
-;   that carries this parameter.
+; - The record names the operation by the operation_id of the event
+;   that carries this parameter; the attempt is the attempt of that
+;   policy-decision.
 $$event-policy-decision-ext //= (
     decision_receipt: decision_receipt_type
   )
