@@ -84,6 +84,7 @@ import io
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tarfile
@@ -117,14 +118,14 @@ HOUSE_MARKETPLACE = G + "/.claude-plugin/marketplace.json"
 #: MCP server; its copy of the server, which only the gate starts, must be byte-equal to the verifier's.
 VERIFIER_TOOLS = ("emit_receipt", "gate_selftest_check", "gate_selftest_prepare", "gate_status", "inspect_receipt",
                   "receipt_template", "verify_receipt")
-#: A program of the plugin that a hook command starts, as both hosts write it: the host's plugin root in braces, Claude
-#: Code's ${CLAUDE_PLUGIN_ROOT} or Codex's ${PLUGIN_ROOT}, and the path inside the plugin, all in double quotes and as a
-#: whole shell word: before it the start of the command, a blank or "(", after it the end, a blank or one of ; | & ),
-#: so no text joined to the quotes changes the program the shell starts. Every mention of a plugin root in a command must
-#: be such a start, and a command without one is refused (check_guard_profile): a form the generator does not read is no
-#: program it has checked.
-HOOK_PROGRAM = re.compile(r'(?<![^\s(])"\$\{(?:CLAUDE_PLUGIN_ROOT|PLUGIN_ROOT)\}/([^"$`\\]+)"(?![^\s;|&)])')
-HOOK_ROOT = re.compile(r"(?:CLAUDE_)?PLUGIN_ROOT")
+#: A program of the plugin that a hook command starts, as both hosts write it: a shell word that is exactly the host's
+#: plugin root in braces, Claude Code's ${CLAUDE_PLUGIN_ROOT} or Codex's ${PLUGIN_ROOT}, and a path inside the plugin,
+#: written in double quotes (hook_programs). The command is split into words as a POSIX shell splits it (shlex), so no
+#: text joined to the quotes, directly or through an escaped blank, is read as the program. Every word that names a
+#: plugin root must be such a start, and a command without one is refused (check_guard_profile): a form the generator
+#: does not read is no program it has checked.
+HOOK_ROOTS = ("${CLAUDE_PLUGIN_ROOT}/", "${PLUGIN_ROOT}/")
+HOOK_PATH = re.compile(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*")
 
 #: Every required version place ("version") and pin place ("pin"), by layout. Kinds:
 #:   json_version   the "version" member of a JSON file
@@ -435,6 +436,31 @@ def check_marketplaces(repo: Path, commit: str, layout: dict, version: str) -> l
     return lines
 
 
+def hook_programs(command: object) -> list[str] | None:
+    """The paths of the programs a hook command starts, in its order, or None where the command is no string, does not
+    split into shell words, names a plugin root in a word that is not exactly a root and a path inside the plugin
+    written in double quotes, or starts no program."""
+    if not isinstance(command, str):
+        return None
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        words = list(lexer)
+    except ValueError:
+        return None
+    found = []
+    for word in words:
+        if "PLUGIN_ROOT" not in word:
+            continue
+        root = next((r for r in HOOK_ROOTS if word.startswith(r)), None)
+        path = word[len(root):] if root else ""
+        if root is None or not HOOK_PATH.fullmatch(path) or any(part in (".", "..") for part in path.split("/")) \
+                or f'"{word}"' not in command:
+            return None
+        found.append(path)
+    return found or None
+
+
 def _hook_commands(value: object) -> list[object]:
     """The values of every "command" member of a hook structure, of any type, so a command that is no string is
     refused rather than passed over."""
@@ -523,9 +549,8 @@ def check_guard_profile(repo: Path, commit: str, layout: dict) -> list[str]:
         commands += _hook_commands(json_blob(repo, commit, codex).get("hooks", {}))
     started = set()
     for command in commands:
-        found = HOOK_PROGRAM.findall(command) if isinstance(command, str) else []
-        if not found or len(found) != len(HOOK_ROOT.findall(command)) or \
-                any(part in ("", ".", "..") for program in found for part in program.split("/")):
+        found = hook_programs(command)
+        if found is None:
             raise CheckFailed(f"{root}: the hook command {command!r} names no program of the Guard in a form the "
                               "generator reads")
         started.update(found)

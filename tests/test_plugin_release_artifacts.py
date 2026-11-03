@@ -420,6 +420,47 @@ class GuardProfile(Base):
                                                    manifest("proofbundle-guard", hooks=joined)),
                            "in a form the generator reads")
 
+    def test_n6i_hook_program_joined_through_an_escaped_blank_is_refused(self):
+        """The Codex pre-run of the reading of 03958484: an escaped blank joins text to the quoted path, so
+        x\\ "${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py" passed while the shell starts "x <root>/hooks/...". The
+        command is now read as the shell splits it into words, in both hosts' forms."""
+        for host, root in (("claude", "CLAUDE_PLUGIN_ROOT"), ("codex", "PLUGIN_ROOT")):
+            with self.subTest(host=host):
+                command = 'python3 -I x\\ "${%s}/hooks/proofbundle_gate.py"' % root
+                hooks = {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": command}]}]}
+                files = split_files()
+                if host == "claude":
+                    files[G + "/hooks/hooks.json"] = json.dumps({"hooks": hooks}) + "\n"
+                else:
+                    files[G + "/.codex-plugin/plugin.json"] = manifest("proofbundle-guard", hooks=hooks)
+                sub = self.tmp / host
+                sub.mkdir()
+                repo, commit = make_repo(sub, files)
+                out = sub / "out"
+                proc = build(repo, commit, out)
+                self.assertEqual(proc.returncode, 1, text(proc))
+                self.assertFalse(out.exists() and any(out.iterdir()), "a refused build wrote artifacts")
+                failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
+                self.assertTrue(failed and "in a form the generator reads" in failed[0], failed)
+
+    def test_n6j_control_the_command_forms_the_guard_writes_build(self):
+        """The forms of the Guard's hooks at main c9ab65b1: an or-list with a group, a command substitution assigned to a
+        variable with an if, and a single-quoted JSON text after the program."""
+        forms = [
+            'python3 -I "${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py" --autonomous || { echo \'x\' >&2; exit 2; }',
+            'out=$(python3 -I "${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py" task-completed) || { echo \'x\' >&2; '
+            'exit 2; }; if [ -n "$out" ]; then printf \'%s\\n\' "$out" >&2; exit 2; fi',
+            'python3 -I "${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py" session-start || printf \'%s\\n\' '
+            '\'{"systemMessage": "x (D127)."}\'',
+        ]
+        hooks = {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": c} for c in forms]}]}
+        files = split_files()
+        files[G + "/hooks/hooks.json"] = json.dumps({"hooks": hooks}) + "\n"
+        repo, commit = make_repo(self.tmp, files)
+        proc = build(repo, commit, self.out)
+        self.assertBuilt(proc)
+        self.assertIn("(1: hooks/proofbundle_gate.py)", text(proc))
+
     def test_n6f_control_the_hook_forms_of_both_hosts_build(self):
         repo, commit = make_repo(self.tmp, split_files())
         proc = build(repo, commit, self.out)
