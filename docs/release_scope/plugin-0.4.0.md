@@ -100,6 +100,7 @@ change of a place, a count, an entry or the tool set lands in the generator toge
 | plugins/proofbundle-guard | `hooks/proofbundle_gate.py`, `PINNED_PROOFBUNDLE` | top-level constant | 1 | 6.4.0 |
 | plugins/proofbundle-guard | `hooks/proofbundle_gate.py`, script metadata inside `_SIGN_TOOL` | PEP 723 block in a string constant | 1 | proofbundle==6.4.0 |
 | plugins/proofbundle-guard | `hooks/proofbundle_gate.py`, script metadata inside `_KEY_TOOL` | PEP 723 block in a string constant | 1 | proofbundle==6.4.0 |
+| repository | `plugins/README.md`, the rows of Claude Code and Codex | version cell of a catalog row | 2 | 0.4.0 |
 
 The marketplaces and profiles it checks in the same run:
 
@@ -119,7 +120,7 @@ reads it in, has to be that name at that place, written once, as the only target
 looked up or read by `items`, `keys`, `values` or `get`. The Python files it reads that way have LF line ends and no BOM or encoding declaration, as at
 main c9ab65b1; a CR, a BOM or such a declaration in one of them stops the build.
 
-The plugin catalog plugins/README.md copies the manifests' version in its text. It is not in the archive and is checked
-by reading.
+The plugin catalog plugins/README.md copies the manifests' version in its rows for Claude Code and Codex. It is not in
+the archive; the generator reads both rows and their version cell as one more version place, with the count 2.
 
 Assisted by little helpers.

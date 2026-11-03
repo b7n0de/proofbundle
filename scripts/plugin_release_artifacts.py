@@ -159,6 +159,9 @@ INVENTORIES: dict[str, dict] = {
             ("pin", "py_constant", G + "/hooks/proofbundle_gate.py", "PINNED_PROOFBUNDLE", 1),
             ("pin", "const_block", G + "/hooks/proofbundle_gate.py", "_SIGN_TOOL", 1),
             ("pin", "const_block", G + "/hooks/proofbundle_gate.py", "_KEY_TOOL", 1),
+            # the plugin catalog copies the version in its rows of both hosts (line 3 of the reading of dfef187a: the
+            # scope file says it is checked, and only the combined layout read it)
+            ("version", "catalog_rows", "plugins/README.md", None, 2),
         ],
     },
     "combined": {

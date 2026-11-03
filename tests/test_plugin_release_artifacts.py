@@ -406,6 +406,13 @@ class SplitChecks(Base):
                 failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
                 self.assertTrue(failed and "encoding" in failed[0], failed)
 
+    def test_s1j_a_catalog_row_with_another_version_is_refused_in_the_split_layout(self):
+        """Line 3 of the reading of dfef187a: the scope file says the catalog plugins/README.md is checked, while the
+        split layout's places held no catalog row; only the combined layout read it. The split layout now reads its two
+        rows too."""
+        self.split_refused(lambda f: f.__setitem__("plugins/README.md", CATALOG.replace("| 0.4.0 |", "| 0.3.0 |")),
+                           "plugins/README.md")
+
     def test_s2_missing_guard_gate_pin_is_refused(self):
         self.split_refused(lambda f: f.__setitem__(G + "/hooks/proofbundle_gate.py", gate(constant=False)),
                            "PINNED_PROOFBUNDLE")
