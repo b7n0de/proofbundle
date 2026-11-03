@@ -837,10 +837,11 @@ def _im_fenster(rahmen: Any, i: int, x: Any, y: Any, liste: Any) -> bool:
     with the entries ``x`` and ``y`` (`_aba_messen`). Judged by what the frames hold (the record of the first collect,
     the value being read, whether its pairs are taken), never by an offset of the bytecode, so a step finds its moment
     wherever in its window a collection starts. A point where that cannot be told is outside every window: the
-    collect's own frame between reading X and recording it, and every frame of `canonical._lies` that reads the entry
-    of the step itself, where the reading may have begun to take its pairs (inside the call that takes them, or after
-    it and before they are bound, `NoWindowIsOpenWhereTheReadingHasTakenItsEntry`). A frame of `_lies` counts only
-    where it reads the entry before, with its pairs bound."""
+    collect's own frame while it reads the entry of the step itself, before or after `_lies` returned its record (until
+    that record is bound, ``satz`` still holds the one read before), and every frame of `canonical._lies` that reads
+    that entry, where the reading may have begun to take its pairs (inside the call that takes them, or after it and
+    before they are bound, `NoWindowIsOpenWhereTheReadingHasTakenItsEntry`). A frame of `_lies` counts only where it
+    reads the entry before, with its pairs bound."""
     sammeln = _SAMMELN_1 if i == 0 else _SAMMELN_2
     lokal = rahmen.f_locals
     if rahmen.f_code is _LIES:
@@ -856,11 +857,12 @@ def _im_fenster(rahmen: Any, i: int, x: Any, y: Any, liste: Any) -> bool:
     wert = lokal.get("wert")
     if i == 0:
         return id(y) in gelesen and id(x) not in gelesen and wert is not x
-    satz = lokal.get("satz")   # the list read before Y gives a "list" record, Y a "dict" one
     if i == 1:
         reihe = list(gelesen)
-        return ("wert" not in lokal or (id(wert) in gelesen and reihe.index(id(wert)) < reihe.index(id(y)))
-                or (wert is y and type(satz) is tuple and satz[:1] == ("list",)))
+        return "wert" not in lokal or (id(wert) in gelesen and reihe.index(id(wert)) < reihe.index(id(y)))
+    # Y's own "dict" record in satz shows that its pairs are taken; the "list" record before it shows nothing, since it
+    # is still there after `_lies` returned Y's record and before it is bound
+    satz = lokal.get("satz")
     return wert is y and type(satz) is tuple and satz[:1] == ("dict",)
 
 
