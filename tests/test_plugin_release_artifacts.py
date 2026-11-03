@@ -413,6 +413,33 @@ class SplitChecks(Base):
         self.split_refused(lambda f: f.__setitem__("plugins/README.md", CATALOG.replace("| 0.4.0 |", "| 0.3.0 |")),
                            "plugins/README.md")
 
+    def test_s1k_a_catalog_without_one_row_per_host_is_refused(self):
+        """The Codex pre-run of the reading of 149788f8: the catalog check counted matches, so two rows for Claude Code
+        and a Codex row with a version the pattern does not read passed. Every row whose first cell names a host has to
+        have the catalog form, and each host has exactly one."""
+        head = "# Plugins\n\n| Host | What it does | Plugin | Version | Maturity |\n|---|---|---|---|---|\n"
+        claude = "| Claude Code | fixture | [proofbundle](proofbundle/README.md) | 0.4.0 | Experimental |\n"
+        codex = "| Codex | fixture | [proofbundle](proofbundle/README.md) | 0.4.0 | Experimental |\n"
+        cases = {
+            "claude twice, codex unread": head + claude + claude
+            + "| Codex | fixture | [proofbundle](proofbundle/README.md) | 0.3.0-beta | Experimental |\n",
+            "codex missing": head + claude,
+            "codex twice": head + claude + codex + codex,
+        }
+        for name, catalog in cases.items():
+            with self.subTest(name=name):
+                files = split_files()
+                files["plugins/README.md"] = catalog
+                sub = self.tmp / name.replace(" ", "_").replace(",", "")
+                sub.mkdir()
+                repo, commit = make_repo(sub, files)
+                out = sub / "out"
+                proc = build(repo, commit, out)
+                self.assertEqual(proc.returncode, 1, text(proc))
+                self.assertFalse(out.exists() and any(out.iterdir()), "a refused build wrote artifacts")
+                failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
+                self.assertTrue(failed and "plugins/README.md" in failed[0], failed)
+
     def test_s2_missing_guard_gate_pin_is_refused(self):
         self.split_refused(lambda f: f.__setitem__(G + "/hooks/proofbundle_gate.py", gate(constant=False)),
                            "PINNED_PROOFBUNDLE")

@@ -109,6 +109,8 @@ PEP723 = re.compile(r"(?m)^# /// (?P<type>[a-zA-Z0-9-]+)$\s(?P<content>(^#(| .*)
 REQUIREMENT = re.compile(r"^\s*(?P<name>[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)\s*(?P<extras>\[[^\]]*\])?\s*"
                          r"(?P<rest>.*)$")
 CATALOG_ROW = re.compile(r"^\| (Claude Code|Codex) \|.*\| (\d+\.\d+\.\d+) \|[^|]*\|$", re.M)
+CATALOG_HOST_NAMES = ("Claude Code", "Codex")
+CATALOG_HOSTS = tuple(f"| {host} |" for host in CATALOG_HOST_NAMES)
 REVIEW_NAME = re.compile(r"(?i)(\.pem|\.key|\.p12|\.pfx|\.pub|id_rsa|id_ed25519|secret|credential|token|password|"
                          r"\.env$|\.netrc$)")
 
@@ -455,10 +457,17 @@ def read_place(repo: Path, commit: str, kind: str, path: str, name: str | None, 
             raise CheckFailed(f"{path}: {len(blocks)} script metadata blocks in {name}, expected 1")
         return [block_pin(blocks[0], f"{path} {name}")]
     if kind == "catalog_rows":
-        rows = CATALOG_ROW.findall(text)
-        if len(rows) != count:
-            raise CheckFailed(f"{path}: {len(rows)} catalog rows with a version, expected {count}")
-        return [v for _, v in rows]
+        # Every row whose first cell names a host has the catalog form, and each host has exactly one: counting
+        # matches let two rows of one host stand for both and passed over a row the pattern does not read (the Codex
+        # pre-run of the reading of 149788f8).
+        hosts = [line for line in text.split("\n") if line.startswith(CATALOG_HOSTS)]
+        rows = [CATALOG_ROW.fullmatch(line) for line in hosts]
+        if not all(rows):
+            raise CheckFailed(f"{path}: a catalog row of a host without a version cell in the catalog form")
+        names = sorted(m.group(1) for m in rows)
+        if len(rows) != count or names != sorted(CATALOG_HOST_NAMES):
+            raise CheckFailed(f"{path}: catalog rows of {names}, expected one each of {sorted(CATALOG_HOST_NAMES)}")
+        return [m.group(2) for m in rows]
     raise NotMeasurable(f"unknown place kind {kind}")
 
 
