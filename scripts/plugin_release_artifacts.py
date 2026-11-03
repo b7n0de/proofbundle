@@ -421,7 +421,12 @@ PEP263 = re.compile(r"^[ \t\f]*#.*?coding[:=][ \t]*([-\w.]+)")
 
 
 def _cells(line: str) -> list[str]:
-    return [cell.strip() for cell in line.strip().strip("|").split("|")]
+    """The cells of a table row, with exactly one outer pipe removed on each side, so an empty edge cell stays a cell
+    (the Codex pre-run of the reading of 92b47349: stripping every outer pipe dropped them)."""
+    row = line.strip()
+    row = row[1:] if row.startswith("|") else row
+    row = row[:-1] if row.endswith("|") else row
+    return [cell.strip() for cell in row.split("|")]
 
 
 def catalog_versions(text: str, path: str, count: int) -> list[str]:
