@@ -9,16 +9,31 @@ and agent_review carried a private copy. Owner choice A on card OA-7eda3d6d7b: f
 
 THE RULE is the one `intoto._is_rfc3339` already applies: month 01 to 12, a day that exists in that month and
 year, hour to 23, minute to 59, second to 60 (RFC 3339 5.6 and 5.7 allow a leap second).
+
+THE RUST VERIFIER IS A NEIGHBOUR OF THE SAME CLASS (Codex finding P1 on pull request 477, commit 32d173e4):
+`is_rfc3339_z` in tools/pb_verify_rs checked the form alone, so a relationship edge with declaredAt
+`2026-13-15T09:05:00Z` passed Rust and failed Python, the same bytes with two verdicts against the parity rule of
+AGENTS.md. Rust now applies the same calendar rule, and the last two tests below run one signed receipt per value
+through both verifiers.
 """
+import base64
 import copy
+import hashlib
 import json
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 from proofbundle import _schema_shapes as shapes
 from proofbundle import decision
+
+try:
+    import _pb_verify_rs  # tests/_pb_verify_rs.py, the one way to the binary
+except ModuleNotFoundError:  # `python -m unittest tests.<module>` puts the root on sys.path
+    from tests import _pb_verify_rs
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -106,3 +121,56 @@ def test_no_module_keeps_a_private_copy_of_the_time_form():
         if form.search(p.read_text(encoding="utf-8")):
             copies.append(str(p.relative_to(REPO)))
     assert copies == [], copies
+
+
+def _signed_with_declared_at(declared_at):
+    """A signed decision receipt whose one relationship edge carries this declaredAt, built past the package's own
+    checks as tests/test_declared_at_takes_only_ascii_digits.py builds it, because the emitter refuses the edge."""
+    from proofbundle import dsse  # noqa: PLC0415
+    from proofbundle.decision import (  # noqa: PLC0415
+        DECISION_RECEIPT_PREDICATE_TYPE,
+        INTOTO_STATEMENT_PAYLOAD_TYPE,
+        STATEMENT_TYPE,
+        _rfc8785_bytes,
+    )
+    from proofbundle.emit import generate_signer  # noqa: PLC0415
+    signer = generate_signer()
+    pred = json.loads((REPO / "examples" / "decision_receipt_deny.json").read_text(encoding="utf-8"))
+    pred["relationships"] = [{"relation": "supersedes",
+                              "targetReceiptDigest": {"digestAlgorithm": "jcs-sha256-v1", "digest": "b" * 64},
+                              "declaredAt": declared_at}]
+    statement = {"_type": STATEMENT_TYPE,
+                 "subject": [{"name": f"decision:{pred['decisionId']}",
+                              "digest": {"sha256": hashlib.sha256(_rfc8785_bytes(pred)).hexdigest()}}],
+                 "predicateType": DECISION_RECEIPT_PREDICATE_TYPE, "predicate": pred}
+    env = dsse.sign_envelope(_rfc8785_bytes(statement), signer, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+    return env, base64.b64encode(signer.public_key().public_bytes_raw()).decode("ascii")
+
+
+def _both_verifiers(tmp_path, declared_at):
+    rust = _pb_verify_rs.binary_or_skip()
+    env, pub = _signed_with_declared_at(declared_at)
+    path = tmp_path / "receipt.json"
+    path.write_text(json.dumps(env), encoding="utf-8")
+    py = subprocess.run([sys.executable, "-c", "import sys; sys.path.insert(0, %r); from proofbundle.cli import main; "
+                         "sys.exit(main(sys.argv[1:]))" % str(REPO / "src"), "decision", "verify", str(path),
+                         "--pub", pub], capture_output=True, text=True, timeout=120)
+    rs = subprocess.run([str(rust), "verify-relation", str(path), pub],  # noqa: S603
+                        capture_output=True, text=True, timeout=120)
+    return py, rs
+
+
+@pytest.mark.parametrize("value", REFUSED)
+def test_both_verifiers_refuse_an_impossible_declared_at_with_the_same_exit_code(tmp_path, value):
+    py, rs = _both_verifiers(tmp_path, value)
+    assert rs.returncode == 2, rs.stdout + rs.stderr
+    assert "edge.declaredAt must be RFC3339 Z" in rs.stdout + rs.stderr
+    assert py.returncode == rs.returncode, py.stdout + py.stderr
+    assert "declaredAt must be RFC3339" in py.stdout + py.stderr
+
+
+@pytest.mark.parametrize("value", ACCEPTED)
+def test_both_verifiers_accept_a_real_declared_at(tmp_path, value):
+    py, rs = _both_verifiers(tmp_path, value)
+    assert rs.returncode == 0, rs.stdout + rs.stderr
+    assert py.returncode == 0, py.stdout + py.stderr
