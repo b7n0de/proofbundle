@@ -1250,15 +1250,22 @@ class SignatureChain(Base):
 class TagObject(Base):
     """T1: fixed bytes and an expected object id before the approval."""
 
-    def test_t2_an_optional_output_inside_the_output_folder_or_on_another_is_refused(self):
+    def test_t2_an_optional_output_inside_the_folder_on_another_or_existing_is_refused(self):
         """The Codex pre-run of the reading of 8682d4b4: --tag-out and --inventory-out were written after the three
         artifacts and not held apart from them, so --tag-out on the archive's path replaced it while the report named
-        the archive's size and SHA-256 and said result OK. The driver writes both outside the output folder; each now
-        has to lie outside it and apart from the other, after links are followed, before anything is written."""
+        the archive's size and SHA-256 and said result OK. The driver writes both outside the output folder, as new
+        files; each now has to lie outside it, apart from the other after links are followed, and not exist before,
+        as a file or a link, so no hard link can make two paths one file. All of it before anything is written."""
         repo, commit = make_repo(self.tmp, split_files())
         archive = f"proofbundle-plugin-{VERSION}.tar"
         link = self.tmp / "into_the_archive"
         os.symlink(self.tmp / "o" / "link" / archive, link)
+        # the pre-run of the reading of a0688801: resolve() follows links but sees no hard link, so two paths outside
+        # the folder named one file and the inventory replaced the tag; a path the build writes may not exist before
+        existing = self.tmp / "existing.tag"
+        existing.write_bytes(b"placeholder")
+        (self.tmp / "t1.tag").write_bytes(b"placeholder")
+        os.link(self.tmp / "t1.tag", self.tmp / "inventory.txt")
         cases = {
             "tag on the archive": lambda out: ("--tag-out", str(out / archive)),
             "inventory on SHA256SUMS": lambda out: ("--inventory-out", str(out / "SHA256SUMS")),
@@ -1266,6 +1273,9 @@ class TagObject(Base):
             "both on one path": lambda out: ("--tag-out", str(self.tmp / "same"), "--inventory-out",
                                              str(self.tmp / "same")),
             "link": lambda out: ("--tag-out", str(link)),
+            "existing file": lambda out: ("--tag-out", str(existing)),
+            "hard link": lambda out: ("--tag-out", str(self.tmp / "t1.tag"), "--inventory-out",
+                                      str(self.tmp / "inventory.txt")),
         }
         for name, extra in cases.items():
             with self.subTest(name=name):
@@ -1274,7 +1284,9 @@ class TagObject(Base):
                 self.assertEqual(proc.returncode, 2, text(proc))
                 self.assertFalse(out.exists() and any(out.iterdir()), "a refused build wrote artifacts")
                 self.assertFalse((self.tmp / "same").exists())
-                self.assertIn("lie outside the output folder and apart", proc.stderr.decode())
+                self.assertEqual((self.tmp / "t1.tag").read_bytes(), b"placeholder")
+                self.assertEqual(existing.read_bytes(), b"placeholder")
+                self.assertIn("lie outside the output folder, apart and new", proc.stderr.decode())
 
     def test_t1_tag_object_is_accepted_and_matches_git_tag(self):
         repo, commit = make_repo(self.tmp, split_files())

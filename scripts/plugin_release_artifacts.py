@@ -39,8 +39,8 @@ build
       SHA256SUMS                            A3, two lines derived from A2 and its own hash
     --tag-out writes the raw bytes of the annotated tag object T1, which `git mktag` accepts unchanged.
     --inventory-out writes one line per archived file: mode, size, sha256, path, and a review mark for names that
-    look like key or credential material. Both lie outside OUT_DIR and apart, after links are followed; any other
-    path stops the build before anything is written.
+    look like key or credential material. Both lie outside OUT_DIR, apart after links are followed, and do not exist
+    before; any other path stops the build before anything is written, and every file is created new.
     The report on stdout names every place read, every check, each artifact with size and SHA-256, the bytes to sign,
     and T1 with its message hash and expected object id. Two runs on the same commit give the same bytes and report.
 
@@ -933,17 +933,28 @@ def git_object_id(kind: str, data: bytes, algo: str) -> str:
     return h.hexdigest()
 
 
+def _write_new(path: Path, data: bytes) -> None:
+    """Write DATA to PATH as a new file; an existing path, a link among them, raises instead of being replaced."""
+    with open(path, "xb") as handle:
+        handle.write(data)
+
+
 def cmd_build(args: argparse.Namespace) -> int:
     repo, out = Path(args.repo), Path(args.out)
     if out.exists() and any(out.iterdir()):
         raise NotMeasurable(f"the output folder is not empty: {out.name}")
-    # every path a build writes is its own: --tag-out and --inventory-out lie outside the output folder and apart, after
-    # links are followed, as the driver writes them (the Codex pre-run of the reading of 8682d4b4: --tag-out on the
-    # archive's path replaced it while the report named the archive and said result OK)
+    # every path a build writes is its own and new: --tag-out and --inventory-out lie outside the output folder, apart
+    # after links are followed, and do not exist before, as a file or a link, as the driver writes them. The Codex
+    # pre-run of the reading of 8682d4b4 found --tag-out on the archive's path, which replaced the archive while the
+    # report said result OK, and the one of a0688801 two paths outside the folder joined by a hard link, which
+    # resolve() does not see; a file that does not exist yet has no other name. Every file is written with an
+    # exclusive create (_write_new).
     folder = out.resolve()
-    extra = [Path(p).resolve() for p in (args.tag_out, args.inventory_out) if p]
-    if any(p == folder or folder in p.parents for p in extra) or len(set(extra)) != len(extra):
-        raise NotMeasurable("--tag-out and --inventory-out lie outside the output folder and apart")
+    given = [Path(p) for p in (args.tag_out, args.inventory_out) if p]
+    extra = [p.resolve() for p in given]
+    if any(p == folder or folder in p.parents for p in extra) or len(set(extra)) != len(extra) \
+            or any(p.exists() or p.is_symlink() for p in given):
+        raise NotMeasurable("--tag-out and --inventory-out lie outside the output folder, apart and new")
     if not SEMVER.fullmatch(args.version) or not SEMVER.fullmatch(args.expect_pin):
         raise NotMeasurable("--version and --expect-pin take X.Y.Z")
     layout = INVENTORIES[args.layout]
@@ -1031,16 +1042,16 @@ def cmd_build(args: argparse.Namespace) -> int:
     out.mkdir(parents=True, exist_ok=True)
     artifacts = ((a1_name, a1), (a2_name, a2), ("SHA256SUMS", a3))
     for name, data in artifacts:
-        (out / name).write_bytes(data)
+        _write_new(out / name, data)
     if args.tag_out:
-        Path(args.tag_out).write_bytes(t1)
+        _write_new(Path(args.tag_out), t1)
     if args.inventory_out:
         inv = []
         for mode, kind, oid, path in entries:
             data = git(repo, "cat-file", "blob", oid)
             mark = " REVIEW" if REVIEW_NAME.search(path) else ""
             inv.append(f"{mode} {len(data)} {sha256(data)} {path}{mark}\n")
-        Path(args.inventory_out).write_text("".join(inv), encoding="ascii")
+        _write_new(Path(args.inventory_out), "".join(inv).encode("ascii"))
     review = [e[3] for e in entries if REVIEW_NAME.search(e[3])]
     say(f"review_names {len(review)}" + ("" if not review else " " + " ".join(review)))
     for name, data in artifacts:
