@@ -447,6 +447,11 @@ class SplitChecks(Base):
             # border to a split on pipes, so the version column moved
             "escaped pipes": head + "| Claude Code | fixture | proofbundle \\| 0.4.0 | 0.3.0 |\n"
             + "| Codex | fixture | proofbundle \\| 0.4.0 | 0.3.0 |\n",
+            # Markdown shows no table inside an HTML comment or a code block, so a catalog there is no catalog
+            "table in a comment": "# Plugins\n\n<!--\n\n" + head[len("# Plugins\n\n"):] + claude + codex + "\n-->\n",
+            "table in a fence": "# Plugins\n\n```\n\n" + head[len("# Plugins\n\n"):] + claude + codex + "\n```\n",
+            "table indented": "# Plugins\n\n" + "".join("    " + x + "\n" for x in (head[len("# Plugins\n\n"):]
+                                                                              + claude + codex).splitlines()),
         }
         for name, catalog in cases.items():
             with self.subTest(name=name):

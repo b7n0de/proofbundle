@@ -439,10 +439,18 @@ def catalog_versions(text: str, path: str, count: int) -> list[str]:
     pattern counting matches, a row written with other blanks, a later number of a row with one cell more and a row
     without its outer pipes; the table is now held to its form as a whole."""
     lines = text.split("\n")
+    # Markdown shows no table inside an HTML comment, a fenced or an indented code block; the catalog at main
+    # c9ab65b1 has none of them and a blank line before its head, so any of them stops the build rather than letting
+    # a table that is not shown stand for the catalog
+    if "<!--" in text or any(line.lstrip().startswith(("```", "~~~")) or line.startswith(("    ", "\t"))
+                             for line in lines):
+        raise CheckFailed(f"{path}: an HTML comment or a code block in the catalog; the house writes it without either")
     heads = [i for i, line in enumerate(lines) if "|" in line and _cells(line)[0].casefold() == "host"]
     if len(heads) != 1:
         raise CheckFailed(f"{path}: {len(heads)} catalog heads with a first cell Host, expected 1")
     start = heads[0]
+    if start > 0 and lines[start - 1].strip():
+        raise CheckFailed(f"{path}: the catalog head does not follow a blank line")
     end = next((i for i in range(start, len(lines)) if not lines[i].strip()), len(lines))
     table = lines[start:end]
     head = _cells(table[0])

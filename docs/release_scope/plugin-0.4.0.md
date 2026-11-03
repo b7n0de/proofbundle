@@ -125,6 +125,7 @@ the archive; the generator reads their version cells as one more version place, 
 to the first blank line, every line of it starts and ends with a pipe and holds no backslash, the delimiter row is one --- per column of the head, the head names the
 Version column, and every
 row after the delimiter is the row of a host with as many cells as the head and a version X.Y.Z in that column; each
-host has exactly one row, and no line outside the table names a host in its first cell.
+host has exactly one row, and no line outside the table names a host in its first cell. The catalog holds no HTML
+comment and no code block, and a blank line comes before its head.
 
 Assisted by little helpers.
