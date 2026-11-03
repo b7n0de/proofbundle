@@ -110,7 +110,7 @@ REQUIREMENT = re.compile(r"^\s*(?P<name>[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9]
                          r"(?P<rest>.*)$")
 CATALOG_ROW = re.compile(r"^\| (Claude Code|Codex) \|.*\| (\d+\.\d+\.\d+) \|[^|]*\|$", re.M)
 CATALOG_HOST_NAMES = ("Claude Code", "Codex")
-CATALOG_HOSTS = tuple(f"| {host} |" for host in CATALOG_HOST_NAMES)
+CATALOG_HOST_KEYS = {host.casefold() for host in CATALOG_HOST_NAMES}
 REVIEW_NAME = re.compile(r"(?i)(\.pem|\.key|\.p12|\.pfx|\.pub|id_rsa|id_ed25519|secret|credential|token|password|"
                          r"\.env$|\.netrc$)")
 
@@ -460,7 +460,10 @@ def read_place(repo: Path, commit: str, kind: str, path: str, name: str | None, 
         # Every row whose first cell names a host has the catalog form, and each host has exactly one: counting
         # matches let two rows of one host stand for both and passed over a row the pattern does not read (the Codex
         # pre-run of the reading of 149788f8).
-        hosts = [line for line in text.split("\n") if line.startswith(CATALOG_HOSTS)]
+        # the first cell as Markdown reads it, without its blanks and in any case (the Codex pre-run of the reading of
+        # c2ff7601: |Codex | is a row of that host too)
+        hosts = [line for line in text.split("\n") if line.lstrip().startswith("|")
+                 and line.strip().strip("|").split("|")[0].strip().casefold() in CATALOG_HOST_KEYS]
         rows = [CATALOG_ROW.fullmatch(line) for line in hosts]
         if not all(rows):
             raise CheckFailed(f"{path}: a catalog row of a host without a version cell in the catalog form")

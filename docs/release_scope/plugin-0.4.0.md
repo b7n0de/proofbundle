@@ -121,7 +121,7 @@ looked up or read by `items`, `keys`, `values` or `get`. The Python files it rea
 main c9ab65b1; a CR, a BOM or such a declaration in one of them stops the build.
 
 The plugin catalog plugins/README.md copies the manifests' version in its rows for Claude Code and Codex. It is not in
-the archive; the generator reads their version cells as one more version place, with the count 2: every row whose first cell
-names a host has the catalog form, and each host has exactly one.
+the archive; the generator reads their version cells as one more version place, with the count 2: every table row whose first
+cell names a host, read without its blanks and in any case, has the catalog form, and each host has exactly one.
 
 Assisted by little helpers.

@@ -425,6 +425,11 @@ class SplitChecks(Base):
             + "| Codex | fixture | [proofbundle](proofbundle/README.md) | 0.3.0-beta | Experimental |\n",
             "codex missing": head + claude,
             "codex twice": head + claude + codex + codex,
+            # the Codex pre-run of the reading of c2ff7601: a host row with other blanks or another case of its first
+            # cell is a row of that host too
+            "codex without blank": head + claude + codex + "|Codex | fixture | proofbundle | 0.3.0 | Experimental |\n",
+            "codex with more blanks": head + claude + codex + "|   Codex   | fixture | proofbundle | 0.3.0 | x |\n",
+            "codex in lower case": head + claude + codex + "| codex | fixture | proofbundle | 0.3.0 | x |\n",
         }
         for name, catalog in cases.items():
             with self.subTest(name=name):
