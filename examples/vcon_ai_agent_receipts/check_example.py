@@ -346,6 +346,18 @@ def check_structure(rep, v):
                                 and e.get("operation_id") == o and attempt_ok(e.get("attempt"))})
         rep.need(seen_attempts == list(range(1, len(seen_attempts) + 1)), "V4", "operation %s" % o,
                  "attempts %s do not start at 1 and go up by one (5.1, 6.1.3)" % seen_attempts)
+        # every event of an operation names the same party, the agent and not a person (6.1)
+        named = {e.get("party") for e in events if e.get("type") in TI_TYPES and e.get("operation_id") == o}
+        rep.need(len(named) == 1 and all(index(n, len(parties)) and parties[n].get("type") != "person" for n in named),
+                 "V4", "operation %s" % o, "its events name parties %s, not one agent party (6.1)" % sorted(
+                     named, key=str))
+        # a decision for one operation precedes the attempt it names (4.1, 6.1.3)
+        for d in [e for e in events if e.get("type") == "policy-decision" and e.get("operation_id") == o]:
+            for j, e in enumerate(events):
+                if e.get("type") == "tool-invocation" and e.get("operation_id") == o and \
+                        e.get("attempt") == d.get("attempt"):
+                    rep.need(vp.when(d["time"]) <= vp.when(e["time"]), "V4", "events[%d]" % j, "tool-invocation of "
+                             "operation %s at %s comes before its policy-decision %s (4.1)" % (o, e["time"], d["time"]))
         # the example records every attempt: a response belongs to an invocation of the same attempt (5.1, 6.1.3)
         sent = {e.get("attempt") for e in events if e.get("type") == "tool-invocation" and e.get("operation_id") == o}
         for j, e in enumerate(events):
@@ -682,6 +694,12 @@ def check_set(rep, v, found, approvals):
                      "parametersDigest of the receipt)" % ", ".join(hits),
                      "no JSON value or JSON text in the vCon has the digest of the denied arguments")
     rep.ok("C2", "set", "no tool event and no exact copy of the arguments of an operation after its DENY or REFUSE")
+    # every decision for one operation in this example is named by a receipt, so none escapes R2 to R5
+    named = {x["op"] for x in found}
+    for j, e in enumerate(events):
+        if e.get("type") == "policy-decision" and e.get("policy_life") == "once":
+            rep.need(e.get("operation_id") in named, "C3", "events[%d]" % j, "policy-decision of operation %s is named "
+                     "by no receipt" % e.get("operation_id"))
     cited = {x["approval"] for x in found if x["approval"] is not None}
     for f in sorted(approvals):
         rep.need(f in cited, "C3", "attachments[%d] (approval record)" % f, "no receipt in the vCon cites it")

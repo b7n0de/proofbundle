@@ -221,7 +221,7 @@ def convert(lines, user_id="user", user_name="user", agent_id="agent", agent_nam
         kind = e["type"]
         msg = e.get("message") if isinstance(e.get("message"), dict) else {}
         if kind == "system":
-            data = {k: e[k] for k in ("level", "content") if isinstance(e.get(k), str)}
+            data = {k: e[k] for k in ("level", "content") if isinstance(e.get(k), str) and not repeats_denied(e[k])}
             agent_event(e, 0, "system-event", event_type=e.get("subtype") if isinstance(e.get("subtype"), str)
                         else "system", **({"data": data} if data else {}))
             continue
@@ -324,6 +324,25 @@ def convert(lines, user_id="user", user_name="user", agent_id="agent", agent_nam
         "parties": [{"name": user_name, "type": "person", "uuid": user_id},
                     {"name": agent_name, "type": "bot", "uuid": agent_id, "agent_meta": meta}],
         "sessions": [session], "dialog": dialog, "events": events})
+    # the last guard on every path: no value of the output may still hold the arguments of a disallowed operation
+    def strings(x):
+        if isinstance(x, str):
+            yield x
+        elif isinstance(x, dict):
+            for y in x.values():
+                yield from strings(y)
+        elif isinstance(x, list):
+            for y in x:
+                yield from strings(y)
+    for path, part in (("dialog", dialog), ("events", events)):
+        for s in strings(part):
+            if repeats_denied(s):
+                raise ValueError("the %s of the vCon would hold the arguments of a disallowed operation" % path)
+    for part in (dialog, events):
+        for x in part:
+            for y in (x.get("body"), x.get("content")) if isinstance(x, dict) else ():
+                if isinstance(y, (dict, list)) and y in denied_inputs:
+                    raise ValueError("the vCon would hold the arguments of a disallowed operation as JSON content")
     report = {"session_id": sid, "lines_converted": len(entries), "dialog": len(dialog), "events": len(events),
               "events_by_type": dict(sorted(collections.Counter(x["type"] for x in events).items())),
               "operations": dict(sorted((op, cid) for cid, op in operations.items())),

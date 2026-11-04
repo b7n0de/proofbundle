@@ -106,6 +106,17 @@ def m_f21(v):
     v["events"] = [e for e in v["events"] if not (e.get("operation_id") == OP1 and e["type"] != "policy-decision")]
 
 
+def m_extra_read(v, call_id, decision, sent, party):
+    op = mk.operation(v["sessions"][0]["agent_session_id"], call_id)
+    v["events"] += [
+        {"type": "policy-decision", "time": "2026-10-15T09:05:04.000Z", "sessions": 0, "party": 1,
+         "decision": decision, "operation": "tool-invocation", "policy_life": "once", "operation_id": op,
+         "attempt": 1, "server": "!host", "tool": "Read"},
+        {"type": "tool-invocation", "time": sent, "sessions": 0, "party": party, "operation_id": op, "attempt": 1,
+         "server": "!host", "tool": "Read", "mediatype": "application/json", "encoding": "json",
+         "body": {"file_path": "/work/widgets/README.md"}}]
+
+
 def m_f42(v):
     v["events"] += [
         {"type": "policy-decision", "time": "2026-10-15T09:05:04.000Z", "sessions": 0, "party": 1,
@@ -228,7 +239,7 @@ CASES = [
     ("F30", "the tool-invocation and the tool-result of the approved push are attempt 2, the decision attempt 1",
      "R2", lambda v: [ev(v, OP1, typ).update({"attempt": 2}) for typ in ("tool-invocation", "tool-result")], None),
     ("F31", "a tool-invocation of the denied merge in a second session (Section 4)", "V4", m_f31, None),
-    ("F32", "the tool-invocation and the tool-result of the approved push name the person as party", "R2",
+    ("F32", "the tool-invocation and the tool-result of the approved push name the person as party (6.1)", "V4",
      lambda v: [ev(v, OP1, typ).update({"party": 0}) for typ in ("tool-invocation", "tool-result")], None),
     ("F33", "every event of both operations is attempt 2, no attempt 1 (5.1, 6.1.3)", "V4",
      lambda v: [e.update({"attempt": 2}) for e in v["events"] if "operation_id" in e], None),
@@ -252,6 +263,12 @@ CASES = [
      "V4", m_f42, None),
     ("F43", "the tool-result of the push is attempt 2, with no tool-invocation of attempt 2", "V4",
      lambda v: ev(v, OP1, "tool-result").update({"attempt": 2, "time": "2026-10-15T09:06:00.000Z"}), None),
+    ("F44", "an operation that no receipt names, invoked before its policy-decision (4.1)", "V4",
+     lambda v: m_extra_read(v, "toolu_read_early", "permission-required", "2026-10-15T09:05:03.000Z", 1), None),
+    ("F45", "an operation that no receipt names, permission-required and invoked without an approval", "C3",
+     lambda v: m_extra_read(v, "toolu_read_unapproved", "permission-required", "2026-10-15T09:05:05.000Z", 1), None),
+    ("F46", "an operation that no receipt names, whose tool-invocation names the person", "V4",
+     lambda v: m_extra_read(v, "toolu_read_person", "allowed", "2026-10-15T09:05:05.000Z", 0), None),
     ("F38", "a standing policy-decision whose tool is not a string (6.1.9)", "V4",
      lambda v: v["events"].append({"type": "policy-decision", "time": "2026-10-15T09:05:11Z", "sessions": 0,
                                    "party": 1, "decision": "allowed", "policy_life": "standing",
