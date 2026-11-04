@@ -146,6 +146,13 @@ def m_f56(v):
     v["dialog"][4].update(inner)
 
 
+def m_f58(v):
+    e = ev(v, OP1, "tool-result")
+    for k in ("body", "encoding"):
+        e.pop(k)
+    e.update({"url": "https://results.example/push.txt", "content_hash": []})
+
+
 def m_f42(v):
     v["events"] += [
         {"type": "policy-decision", "time": "2026-10-15T09:05:04.000Z", "sessions": 0, "party": 1,
@@ -333,6 +340,11 @@ CASES = [
     ("F55", "the arguments of the denied merge in a base64url body nested in another base64url body", "C2",
      m_f55, None),
     ("F56", "a dialog body nesting base64url content nine layers deep, past the decoding limit", "C2", m_f56, None),
+    ("F57", "the tool-result of the push has encoding base64url and a body that is not base64url", "V4",
+     lambda v: ev(v, OP1, "tool-result").update({"encoding": "base64url", "body": "%"}), None),
+    ("F58", "the tool-result of the push refers to external content with an empty content_hash", "V4", m_f58, None),
+    ("F59", "the tool-result of the push comes before its tool-invocation (5)", "V4",
+     lambda v: ev(v, OP1, "tool-result").update({"time": "2026-10-15T09:00:07.000Z"}), None),
     ("F38", "a standing policy-decision whose tool is not a string (6.1.9)", "V4",
      lambda v: v["events"].append({"type": "policy-decision", "time": "2026-10-15T09:05:11Z", "sessions": 0,
                                    "party": 1, "decision": "allowed", "policy_life": "standing",

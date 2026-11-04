@@ -25,7 +25,7 @@ proofbundle (https://proofbundle.dev).
 | `claude_jsonl_to_vcon.py` | Converts one transcript into an unsigned vCon with the tool-invocation extension. Standard library only; its docstring lists the mapping and what it does not carry. |
 | `make_example.py` | The producer. Runs the converter, adds the gate, the approval record and the receipts, signs the vCon and writes `out/`. Deterministic, because the test keys are derived from public labels. |
 | `check_example.py` | The offline check of `out/` (or of any folder with the same files). |
-| `measure_cases.py` | Builds 58 failure cases and four passing variants from the example and runs the check twice on each. |
+| `measure_cases.py` | Builds 61 failure cases and four passing variants from the example and runs the check twice on each. |
 | `cases.md` | The output of `measure_cases.py`. |
 | `vcon_profile.py` | Helpers shared by the scripts, for strict JSON, RFC 8785, a small deterministic CBOR codec, COSE_Sign1, JWS with EdDSA and RS256, and the RSA test key derived from its label. |
 | `proposal_decision_receipt.cddl` | Our proposal, one parameter for the `$$event-policy-decision-ext` socket of tool-invocation-00. Not part of any draft. |
@@ -141,7 +141,8 @@ The example had to pick one reading at each of these places; `cases.md` holds a 
 - Tool arguments are JSON objects: the converter refuses other input of a tool_use, and the check refuses a
   tool-invocation whose JSON content is not an object, so a copy of denied arguments is always a JSON object.
 - Every attempt of an operation has the arguments its receipt names, and event content has the types of the core
-  CDDL (a media type, content_hash tokens).
+  CDDL (a media type, a body that decodes in its encoding, a non-empty content_hash with a sha512 token); the
+  bytes of external tool content are not fetched. Every result of an attempt comes at or after its tool-invocation.
 - The check refuses a vCon in which a JSON value with the SHA-256 of a denied operation's arguments appears
   anywhere: as a value, as JSON text, inside other text, in an object key, or in a body in the base64url encoding of
   vCon core, decoded as UTF-8, UTF-16 or UTF-32 and searched again, up to eight nested layers, deeper nesting refused.

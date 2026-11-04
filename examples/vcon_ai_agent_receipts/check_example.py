@@ -114,14 +114,24 @@ def content_form_ok(e):
         return not keys
     if "mediatype" in e and not (isinstance(e["mediatype"], str) and MEDIA_RX.fullmatch(e["mediatype"])):
         return False
-    if "content_hash" in e and not all(isinstance(t, str) and HASH_RX.fullmatch(t) for t in as_list(e["content_hash"])):
-        return False
+    if "content_hash" in e:
+        tokens = as_list(e["content_hash"])
+        # a non-empty list of well-formed tokens with a sha512 one, as vCon core requires for referenced content
+        if not tokens or not all(isinstance(t, str) and HASH_RX.fullmatch(t) for t in tokens) or not any(
+                t.startswith("sha512-") for t in tokens):
+            return False
     if "body" in e or "encoding" in e:
         if "url" in e or "content_hash" in e or "mediatype" not in e or "body" not in e:
             return False
         if e.get("encoding") == "json":
             return True
-        return e.get("encoding") in ("none", "base64url") and isinstance(e["body"], str)
+        if e.get("encoding") == "base64url":
+            try:
+                vp.b64u_dec(e["body"])
+            except ValueError:
+                return False
+            return True
+        return e.get("encoding") == "none" and isinstance(e["body"], str)
     if "url" in e:
         return isinstance(e["url"], str) and "content_hash" in e
     return "content_hash" in e
@@ -353,11 +363,14 @@ def check_structure(rep, v):
                     rep.need(vp.when(d["time"]) <= vp.when(e["time"]), "V4", "events[%d]" % j, "tool-invocation of "
                              "operation %s at %s comes before its policy-decision %s (4.1)" % (o, e["time"], d["time"]))
         # the example records every attempt: a response belongs to an invocation of the same attempt (5.1, 6.1.3)
-        sent = {e.get("attempt") for e in events if e.get("type") == "tool-invocation" and e.get("operation_id") == o}
+        sent = {e.get("attempt"): e for e in events if e.get("type") == "tool-invocation" and e.get("operation_id") == o}
         for j, e in enumerate(events):
             if e.get("type") in TOOL_TYPES - {"tool-invocation"} and e.get("operation_id") == o:
                 rep.need(e.get("attempt") in sent, "V4", "events[%d]" % j, "%s of attempt %r of operation %s has no "
                          "tool-invocation of that attempt" % (e["type"], e.get("attempt"), o))
+                rep.need(vp.when(e["time"]) >= vp.when(sent[e["attempt"]]["time"]), "V4", "events[%d]" % j,
+                         "%s of attempt %r of operation %s at %s comes before its tool-invocation %s (5)" % (
+                             e["type"], e["attempt"], o, e["time"], sent[e["attempt"]]["time"]))
         # a disallowed operation is not performed (Section 4), with or without a receipt that names it
         if any(e.get("type") == "policy-decision" and e.get("operation_id") == o and e.get("decision") == "disallowed"
                for e in events):
