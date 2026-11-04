@@ -153,6 +153,15 @@ def m_f58(v):
     e.update({"url": "https://results.example/push.txt", "content_hash": []})
 
 
+def m_f60(v):
+    s = copy.deepcopy(v["sessions"][0])
+    s.update({"agent_session_id": "5e551011-0000-4000-8000-000000000009", "dialog": []})
+    v["sessions"].append(s)
+    extra = copy.deepcopy(ev(v, OP2, "policy-decision"))
+    extra.update({"sessions": 1, "attempt": 2})
+    v["events"].append(extra)
+
+
 def m_f42(v):
     v["events"] += [
         {"type": "policy-decision", "time": "2026-10-15T09:05:04.000Z", "sessions": 0, "party": 1,
@@ -345,6 +354,7 @@ CASES = [
     ("F58", "the tool-result of the push refers to external content with an empty content_hash", "V4", m_f58, None),
     ("F59", "the tool-result of the push comes before its tool-invocation (5)", "V4",
      lambda v: ev(v, OP1, "tool-result").update({"time": "2026-10-15T09:00:07.000Z"}), None),
+    ("F60", "a second policy-decision of the denied merge, attempt 2, in a second session", "R2", m_f60, None),
     ("F38", "a standing policy-decision whose tool is not a string (6.1.9)", "V4",
      lambda v: v["events"].append({"type": "policy-decision", "time": "2026-10-15T09:05:11Z", "sessions": 0,
                                    "party": 1, "decision": "allowed", "policy_life": "standing",

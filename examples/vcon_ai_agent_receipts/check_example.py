@@ -620,9 +620,10 @@ def check_receipts(rep, v, a, gate):
         results = [e for e in events if e.get("type") in RESULT_TYPES and e.get("operation_id") == op
                    and e.get("attempt") == pd.get("attempt") and k in as_list(e.get("sessions", []))]
         for j, e in enumerate(events):
-            if e.get("type") in TOOL_TYPES and e.get("operation_id") == op:
+            if e.get("type") in TI_TYPES and e.get("operation_id") == op:
                 rep.need(k in as_list(e.get("sessions", [])), "R2", where, "events[%d] %s of operation %s is not in the "
                          "session %d of the receipt" % (j, e["type"], op, k))
+            if e.get("type") in TOOL_TYPES and e.get("operation_id") == op:
                 rep.need(e.get("party") == pd.get("party"), "R2", where, "events[%d] %s of operation %s names party %r, "
                          "not the agent %r of its policy-decision (6.1)" % (j, e["type"], op, e.get("party"),
                                                                            pd.get("party")))
