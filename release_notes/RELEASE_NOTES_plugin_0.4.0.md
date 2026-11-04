@@ -22,6 +22,15 @@ The verifier pin is proofbundle==6.4.0 in the verifier and in the Guard. Initial
 
 A Guard installed from its house marketplace is read from that checkout in place. It follows the checkout, not a version number, so a house machine compares its checkout with this release's commit when that correspondence matters.
 
+## The Guard's decision receipts
+
+Two corrections of the Guard's decision receipts are in this release, decision D135 of the plugin.
+
+- Trace context. A decision receipt of Level 1 carries `traceContext` with `traceId` equal to the `session_id` and `parentId` equal to the `tool_use_id` of the hook event it decides, so a receipt can be matched to its session and to its tool call. An id the event lacks, or names in another form, is not copied, and the receipt names that in notChecked. A receipt of the pre-push hook carries no trace, since git hands that hook no session and no tool call.
+- Merge digest. For a merge of a pull request, `parametersDigest` is the SHA-256 of bytes that bind the repository, the pull request number, the head commit and the merge method, instead of the SHA-256 of empty bytes. A merge call that names no head commit or no merge method is recorded without a digest.
+
+The key signer signs a receipt that carries `traceContext` only from this version on. An operator who updates the Guard updates its key signer with it; until then an owner's release that needs the signed ALLOW stays unused. Receipts written before this release verify as before.
+
 ## What the release signature covers
 
 The assets are:

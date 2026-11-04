@@ -33,20 +33,23 @@ commit and checks these rows against the landed changes; this file does not name
 | PR466 | 466, landed as `8bb289c8` | the record of the owner releases used reads only its own fields, keeps every dropped identity as a digest, writes a use only within its window and chooses a release by the same predicate it writes it by | `fix/d119-release-record-full-refuses` |
 | PR469 | 469, landed as `c1c123c3` | the verifier pin `proofbundle==6.4.0` in the gate and in the MCP server, with the texts that name it | `build/plugin-pin-6.4.0` |
 | PR472 | 472, landed as `a466f4d6` | the Guard becomes the plugin proofbundle-guard in plugins/proofbundle-guard with its own house marketplace and its own copy of the server; proofbundle registers no hook; the public marketplace lists proofbundle alone; the server reads the gate's log from the Guard's data directory | `build/plugin-guard-apart-d134` |
-| PR468 | 468 | a copy of an owner's release with a later answer does not extend the window of its identity | `fix/release-window-binds-to-the-first-answer` |
-| RP1 | the pull request that adds this file | the release tools `scripts/plugin_release_artifacts.py` and `scripts/plugin_release_run_probe.sh` with their counterprobes in `tests/test_plugin_release_artifacts.py`, the release notes `release_notes/RELEASE_NOTES_plugin_0.4.0.md`, this scope file and its pinned state in `tests/test_release_scope_title_gate.py`, and the decision in `MANIFEST.in` and `tests/test_sdist_ohne_signierwerkzeug.py` that the sdist does not ship the two tools | `build/plugin-release-plan-0.4.0` |
+| PR468 | 468, landed as `d406a35b` | a copy of an owner's release with a later answer does not extend the window of its identity | `fix/release-window-binds-to-the-first-answer` |
+| RP1 | 478, landed as `ab681dfe` | the release tools `scripts/plugin_release_artifacts.py` and `scripts/plugin_release_run_probe.sh` with their counterprobes in `tests/test_plugin_release_artifacts.py`, the release notes `release_notes/RELEASE_NOTES_plugin_0.4.0.md`, this scope file and its pinned state in `tests/test_release_scope_title_gate.py`, and the decision in `MANIFEST.in` and `tests/test_sdist_ohne_signierwerkzeug.py` that the sdist does not ship the two tools | `build/plugin-release-plan-0.4.0` |
+| GR1 | the pull request that adds this row | a decision receipt of Level 1 names its session and its tool call in `traceContext`, and the receipt of a merge binds the repository, the pull request, the head commit and the merge method in its `parametersDigest` instead of the digest of empty bytes (D135) | `feat/guard-040-tracecontext-merge-digest` |
 
 Two corrections of the Guard's decision receipts are in this release as well. The owner chose on 2026-11-03 to take
-them into 0.4.0. They land in one pull request before the release commit; it has no number yet and is open point 5,
-item GR1. That pull request adds its own row to the table above, with its number, its change and its branch. What
+them into 0.4.0. They land in one pull request before the release commit, the one that adds row GR1 to the table above
+with its change and its branch. What
 changes for users:
 
-- Trace context. A decision receipt of the Guard carries `traceContext` with `traceId` equal to the `session_id` and
-  `parentId` equal to the `tool_use_id` of the hook event it decides, so a receipt can be matched to its session and
-  to its tool call.
+- Trace context. A decision receipt of Level 1 of the Guard carries `traceContext` with `traceId` equal to the
+  `session_id` and `parentId` equal to the `tool_use_id` of the hook event it decides, so a receipt can be matched to
+  its session and to its tool call. An id the event lacks, or names in another form, is not copied; a receipt of the
+  pre-push hook carries no trace.
 - Merge digest. For a merge of a pull request, `parametersDigest` is the SHA-256 of bytes that bind the repository,
   the pull request number, the head commit and the merge method, instead of the SHA-256 of empty bytes, so the
-  receipt binds what is merged.
+  receipt binds what is merged. A merge call that names no head commit or no merge method is recorded without a
+  digest.
 
 Acceptance records are separate from the rows. Before the release they show Claude Code M1 for the verifier and for
 the house Guard at the release commit, the measured reinstall of an earlier 0.4.0 that carried the Guard's hooks, the
@@ -76,10 +79,9 @@ Out means that an item is not part of the plugin release; it does not prove abse
 3. The README section "Release 0.4.0 verification and migration", which the release notes link, is written after the
    measured reinstall of an earlier 0.4.0, with the exact commands of that run.
 4. The acceptance records above are not yet passed. Runs under Codex stay NOT MEASURED for this release.
-5. GR1, the pull request with the trace context and the merge digest of the Guard's receipts, is not open yet and has
-   no number. It lands before the release commit and adds its row to In; until it has landed, no commit is the
-   release commit. How a merge is recorded whose call does not name its head commit is decided with that pull
-   request. The release notes name both corrections once they have landed.
+5. GR1, the pull request with the trace context and the merge digest of the Guard's receipts, adds its row to In
+   and the section on the Guard's decision receipts to the release notes. Until it has landed, no commit is the
+   release commit. A merge whose call names no head commit or no merge method is recorded without a digest (D135).
 
 ## Version and pin places
 
