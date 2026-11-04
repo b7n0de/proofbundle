@@ -126,16 +126,18 @@ def _content(value):
 SAFE_INTEGER = 2 ** 53 - 1
 
 
-def json_key(value):
-    """A key that is equal for two JSON values exactly when their RFC 8785 forms are equal, the form the digests of
-    this example are taken over. Python's == takes True for 1 and False for 0, so a denied {"x": true} would match a
-    later {"x": 1}; here true and 1 stay apart, while 1 and 1.0, or 0 and -0.0, are one number, as in RFC 8785. A
-    value RFC 8785 does not serialize (an integer beyond 2**53 - 1, NaN, an infinity) is equal only to the same value
-    of the same type. The key is a flat text built without recursion, so neither building it nor comparing or hashing
-    it ends the conversion on a deeply nested value that json can parse. Its tokens: n, t, f, d<the double in hex>,
-    i<an integer outside RFC 8785>, x<NaN or an infinity>, s<the string as JSON>, [..] and {..} with the members
-    sorted."""
-    done, todo = [], [(value, False)]
+def _h(token: str) -> str:
+    return hashlib.sha256(token.encode("ascii")).hexdigest()
+
+
+def json_keys(value):
+    """The json_key of `value` and the set of the json_keys of every JSON object in it, in one pass.
+
+    Each node gets a SHA-256 over a canonical token of its own, a container over the keys of its children, so every
+    node is hashed once and the work is linear in the size of the value. The tokens: n, t, f, d<the double in hex>,
+    i<an integer outside RFC 8785>, x<NaN or an infinity>, s<the string as ASCII JSON>, [..] and {..} with the members
+    sorted. Built without recursion, so a deeply nested value that json can parse does not end the conversion here."""
+    objects, done, todo = set(), [], [(value, False)]
     while todo:
         v, children_done = todo.pop()
         if children_done:
@@ -143,26 +145,37 @@ def json_key(value):
             parts = done[len(done) - n:] if n else []
             del done[len(done) - n:]
             if isinstance(v, list):
-                done.append("[" + ",".join(parts) + "]")
+                k = _h("[" + ",".join(parts) + "]")
             else:
-                done.append("{" + ",".join(sorted(json.dumps(k) + ":" + p for k, p in zip(v, parts))) + "}")
+                k = _h("{" + ",".join(sorted(json.dumps(m) + ":" + p for m, p in zip(v, parts))) + "}")
+                objects.add(k)
+            done.append(k)
         elif isinstance(v, (list, dict)):
             todo.append((v, True))
             todo.extend((x, False) for x in reversed(v if isinstance(v, list) else list(v.values())))
         elif v is None:
-            done.append("n")
+            done.append(_h("n"))
         elif isinstance(v, bool):
-            done.append("t" if v else "f")
+            done.append(_h("t" if v else "f"))
         elif isinstance(v, int):
-            done.append("d" + float(v).hex() if abs(v) <= SAFE_INTEGER else "i%d" % v)
+            done.append(_h("d" + float(v).hex() if abs(v) <= SAFE_INTEGER else "i%d" % v))
         elif isinstance(v, float):
             # -0.0 is 0 in RFC 8785
-            done.append("d" + (v if v else 0.0).hex() if math.isfinite(v) else "x" + repr(v))
+            done.append(_h("d" + (v if v else 0.0).hex() if math.isfinite(v) else "x" + repr(v)))
         elif isinstance(v, str):
-            done.append("s" + json.dumps(v))
+            done.append(_h("s" + json.dumps(v)))
         else:
             raise TypeError("not a JSON value: %s" % type(v).__name__)
-    return done[0]
+    return done[0], objects
+
+
+def json_key(value):
+    """A key that is equal for two JSON values exactly when their RFC 8785 forms are equal, the form the digests of
+    this example are taken over, up to a collision of SHA-256 as in those digests. Python's == takes True for 1 and
+    False for 0, so a denied {"x": true} would match a later {"x": 1}; here true and 1 stay apart, while 1 and 1.0, or
+    0 and -0.0, are one number, as in RFC 8785. A value RFC 8785 does not serialize (an integer beyond 2**53 - 1, NaN,
+    an infinity) is equal only to the same value of the same type."""
+    return json_keys(value)[0]
 
 
 def convert(lines, user_id="user", user_name="user", agent_id="agent", agent_name="coding agent",
@@ -390,14 +403,9 @@ def convert(lines, user_id="user", user_name="user", agent_id="agent", agent_nam
     for s in strings(vcon):
         if repeats_denied(s):
             raise ValueError("the vCon would hold the arguments of a disallowed operation in a text")
-    def nodes(x):
-        if isinstance(x, (dict, list)):
-            yield x
-            for y in (x.values() if isinstance(x, dict) else x):
-                yield from nodes(y)
-    for node in nodes(vcon):
-        if isinstance(node, dict) and json_key(node) in denied_keys:
-            raise ValueError("the vCon would hold the arguments of a disallowed operation as a JSON value")
+    # every JSON object of the vCon, keyed in one pass (json_keys), against the keys of the denied arguments
+    if json_keys(vcon)[1] & denied_keys:
+        raise ValueError("the vCon would hold the arguments of a disallowed operation as a JSON value")
     report = {"session_id": sid, "lines_converted": len(entries), "dialog": len(dialog), "events": len(events),
               "events_by_type": dict(sorted(collections.Counter(x["type"] for x in events).items())),
               "operations": dict(sorted((op, cid) for cid, op in operations.items())),

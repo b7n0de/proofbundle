@@ -16,6 +16,7 @@ import itertools
 import json
 import pathlib
 import unittest
+from unittest import mock
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 EXAMPLE = REPO / "examples" / "vcon_ai_agent_receipts"
@@ -101,6 +102,27 @@ class TheConverterComparesDeniedArgumentsByJsonType(unittest.TestCase):
         bodies = [e["body"] for e in vcon["events"] if e["type"] == "tool-invocation"]
         self.assertEqual(bodies, [{"x": 1}])
         self.assertIs(type(bodies[0]["x"]), int)
+
+    def test_the_last_guard_keys_each_object_of_the_vcon_once(self):
+        """A reading of fdd0de98 (Z4, P2): the guard rebuilt the key for every nested object over its whole subtree,
+        so the work grew with the square of the depth. Counted instead of timed: the strings the key encodes during
+        one conversion with an allowed call 400 objects deep. At fdd0de98 they are about 80000, in one pass a few
+        hundred."""
+        inner = {"payload": "z" * 1000}
+        for _ in range(400):
+            inner = {"a": inner}
+        calls = []
+        real = json.dumps
+
+        def counting(*a, **k):
+            calls.append(1)
+            return real(*a, **k)
+
+        with mock.patch.object(self.c.json, "dumps", counting):
+            vcon, _ = self.c.convert(_session({"x": True}, _tool_use(3, "toolu_allowed", inner),
+                                              _tool_result(4, "toolu_allowed", "accept")))
+        self.assertEqual(len([e for e in vcon["events"] if e["type"] == "tool-invocation"]), 1)
+        self.assertLess(len(calls), 5000, "the key of the vCon objects was built %d string by string" % len(calls))
 
     def test_an_allowed_call_with_the_same_arguments_as_1_0_is_still_refused(self):
         with self.assertRaisesRegex(ValueError, "as a JSON value"):
