@@ -626,6 +626,18 @@ class SplitChecks(Base):
                 failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
                 self.assertTrue(failed and "not the two members main c9ab65b1 writes" in failed[0], failed)
 
+    def test_s1r_the_tool_table_in_a_chained_membership_test_is_refused(self):
+        """The Codex pre-run of the reading of ff630949: a chain of membership tests was read as a lookup in the tool
+        table, while in "x" in TOOLS in holder the table is also the left operand of the second test and so handed to
+        the holder's __contains__, which can empty it. The servers at main c9ab65b1 read the table in one membership
+        test with one operator, and a test is now held to that: the table is its only comparator."""
+        files = split_files()
+        for root in (V, G):
+            rel = root + "/server/proofbundle_mcp.py"
+            files[rel] = files[rel] + '_SEEN = "receipt_template" in TOOLS in ()\n'
+        repo, commit = make_repo(self.tmp, files)
+        self.assertRefused(build(repo, commit, self.out), "TOOLS is used otherwise than read after its assignment")
+
     def test_s2_missing_guard_gate_pin_is_refused(self):
         self.split_refused(lambda f: f.__setitem__(G + "/hooks/proofbundle_gate.py", gate(constant=False)),
                            "PINNED_PROOFBUNDLE")

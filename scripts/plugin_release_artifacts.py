@@ -513,8 +513,11 @@ def _only_read(source: str, name: str, path: str, table: bool = False) -> None:
             continue
         parent = parents.get(node)
         if not ((isinstance(parent, ast.Subscript) and parent.value is node and isinstance(parent.ctx, ast.Load))
-                or (isinstance(parent, ast.Compare) and node in parent.comparators
-                    and all(isinstance(op, (ast.In, ast.NotIn)) for op in parent.ops))
+                # one membership test with the table as its only comparator, as the servers write it at main
+                # c9ab65b1: in a chain the table is also the left operand of the next test and is handed to its
+                # __contains__ (the Codex pre-run of the reading of ff630949)
+                or (isinstance(parent, ast.Compare) and parent.comparators == [node] and len(parent.ops) == 1
+                    and isinstance(parent.ops[0], (ast.In, ast.NotIn)))
                 or (isinstance(parent, ast.Attribute) and parent.attr in TABLE_READS
                     and isinstance(parents.get(parent), ast.Call) and parents[parent].func is parent)):
             raise CheckFailed(f"{path}: {name} is used otherwise than read after its assignment (line {node.lineno})")
