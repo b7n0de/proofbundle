@@ -10,7 +10,7 @@ Version 0.4.0 was already available from the public marketplace on main before t
 
 The version remains 0.4.0. A version display or routine marketplace refresh alone does not establish that the installed files changed. The procedure checks source identity, retained data and the absence of the old Guard hooks after a new session. Publishing this release does not revoke earlier installed copies. The number of outside installations is not known.
 
-Codex has not reached M1 for this release. Its unmeasured runtime and lifecycle cases are not covered by the measured Claude Code procedure.
+Codex has not reached M1 for this release. Its unmeasured runtime and lifecycle cases are not covered by the measured Claude Code procedure, and the migration under Codex is NOT MEASURED.
 
 ## Acceptance and limits
 
@@ -57,5 +57,7 @@ Confirm the owner-key binding through a previously trusted copy or another authe
 The release statement identifies the fixed commit and archive. The default installation commands continue to follow main, which can change. The signature does not establish which source revision or cached files a host loaded, even if they also report 0.4.0. Compare installed source identity and content with the archive when that correspondence matters.
 
 The statement does not authenticate separately downloaded verifier distributions, host software, local configuration or GitHub's automatically generated source archives. The annotated plugin tag itself is unsigned; the detached signature is over the release statement.
+
+[proofbundle.dev](https://proofbundle.dev)
 
 Assisted by little helpers.

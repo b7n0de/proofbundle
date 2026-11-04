@@ -36,6 +36,7 @@ commit and checks these rows against the landed changes; this file does not name
 | PR468 | 468, landed as `d406a35b` | a copy of an owner's release with a later answer does not extend the window of its identity | `fix/release-window-binds-to-the-first-answer` |
 | RP1 | 478, landed as `ab681dfe` | the release tools `scripts/plugin_release_artifacts.py` and `scripts/plugin_release_run_probe.sh` with their counterprobes in `tests/test_plugin_release_artifacts.py`, the release notes `release_notes/RELEASE_NOTES_plugin_0.4.0.md`, this scope file and its pinned state in `tests/test_release_scope_title_gate.py`, and the decision in `MANIFEST.in` and `tests/test_sdist_ohne_signierwerkzeug.py` that the sdist does not ship the two tools | `build/plugin-release-plan-0.4.0` |
 | GR1 | the pull request that adds this row | a decision receipt of Level 1 names its session and its tool call in `traceContext`, and the receipt of a merge binds the repository, the pull request, the head commit and the merge method in its `parametersDigest` instead of the digest of empty bytes (D135) | `feat/guard-040-tracecontext-merge-digest` |
+| MG3 | the pull request that adds this row | the README section "Release 0.4.0 verification and migration": the measured Claude Code commands that replace an earlier 0.4.0 with its data kept, and the verification of the release assets; the release notes say that the migration under Codex is NOT MEASURED | `docs/plugin-0.4.0-verification-and-migration` |
 
 Two corrections of the Guard's decision receipts are in this release as well. The owner chose on 2026-11-03 to take
 them into 0.4.0. They land in one pull request before the release commit, the one that adds row GR1 to the table above
@@ -76,8 +77,9 @@ Out means that an item is not part of the plugin release; it does not prove abse
    as d406a35b before this file, has its row in In, and the acceptance at the release commit measures it.
 2. A change to plugins/, .claude-plugin/ or LICENSE that lands between this file's pull request and the release commit
    needs its own row, and the generator's inventory below is read again at the release commit.
-3. The README section "Release 0.4.0 verification and migration", which the release notes link, is written after the
-   measured reinstall of an earlier 0.4.0, with the exact commands of that run.
+3. The README section "Release 0.4.0 verification and migration", which the release notes link, carries the exact
+   commands of the reinstall of an earlier 0.4.0 measured before it landed, in row MG3. The same commands are measured
+   again at the release commit, and a difference stops the release.
 4. The acceptance records above are not yet passed. Runs under Codex stay NOT MEASURED for this release.
 5. GR1, the pull request with the trace context and the merge digest of the Guard's receipts, adds its row to In
    and the section on the Guard's decision receipts to the release notes. Until it has landed, no commit is the

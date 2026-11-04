@@ -602,6 +602,65 @@ claude plugin install proofbundle-guard@proofbundle-house
 A Claude Code session with both plugins installed this way is NOT MEASURED; one with both loaded with `--plugin-dir`
 ran at an earlier state of the split (D134).
 
+## Release 0.4.0 verification and migration
+
+This section belongs to the plugin release `proofbundle--v0.4.0`. It replaces an earlier 0.4.0 under Claude Code and
+verifies the release assets.
+
+### Replace an earlier 0.4.0 under Claude Code
+
+Version 0.4.0 was available from the public marketplace before this release, also in an earlier form in which this
+plugin carried the Guard's hooks. The version number did not change, so `claude plugin update proofbundle@proofbundle`
+reports that 0.4.0 is already the latest version and keeps the installed copy, its hooks included. These three
+commands replace it:
+
+```sh
+claude plugin marketplace update proofbundle
+claude plugin uninstall --keep-data proofbundle@proofbundle
+claude plugin install proofbundle@proofbundle
+```
+
+Then start a new session.
+
+- Measured with Claude Code 2.1.318 on Linux, in the user scope, on a copy of a configuration that had installed the
+  earlier form. Each command exited 0. Afterwards the installed commit was the one main had at that time, every
+  installed file was byte-equal to `plugins/proofbundle` in the archive the release tools built for that commit, and
+  `claude plugin details proofbundle@proofbundle` listed `Hooks (0)` and the MCP server `proofbundle`.
+- `--keep-data` keeps the plugin's data directory, `~/.claude/plugins/data/proofbundle-proofbundle/`, where
+  `emit_receipt` keeps its default signing key (see Keys). Without it, `uninstall` deletes that directory; both were
+  measured. The marketplace and the enabled setting stay as they were.
+- The installed commit is the `gitCommitSha` of `proofbundle@proofbundle` in `~/.claude/plugins/installed_plugins.json`.
+  Compare it, and the installed files, with the commit and the archive the release statement names when that
+  correspondence matters; the commands follow main, which can move on after the release.
+- The migration under Codex is NOT MEASURED.
+
+### Verify the release assets
+
+The release has four assets, `proofbundle-plugin-0.4.0.tar`, `proofbundle-plugin-0.4.0.release.json`, `SHA256SUMS`
+and `proofbundle-plugin-0.4.0.release.json.sig`. The signature covers the exact bytes of the release statement, and
+the statement binds the archive. Take the owner's public key from a channel you already trust; a key printed next to
+the assets is not by itself a trust anchor. Put the four assets into one folder, here `assets`, then:
+
+```sh
+git clone https://github.com/b7n0de/proofbundle.git
+git -C proofbundle show proofbundle--v0.4.0:scripts/plugin_release_artifacts.py > plugin_release_artifacts.py
+python3 -m venv venv
+venv/bin/python -m pip install proofbundle
+venv/bin/python -I plugin_release_artifacts.py verify --assets assets --public-key <owner key> --repo proofbundle
+```
+
+It needs Python 3.11 or later. It prints one line per check, for the signature over the exact statement bytes, the
+statement's form and values, the archive's size and SHA-256, `SHA256SUMS` rebuilt byte for byte, and with `--repo` that
+the tag is annotated and names the statement's commit. It ends with `result OK` and exit 0. Exit 1 names the check
+that failed, exit 2 means the check could not run. Checking `SHA256SUMS` alone does not verify a signature.
+
+Measured on Linux with Python 3.11.15 and proofbundle 6.4.0 from PyPI, the verifier pin of this release, with a
+temporary key, over the assets the release tools built at a candidate commit, and with a local clone holding the tag
+object they wrote. With and without `--repo` the run ended with `result OK`, and another key and an added line in
+`SHA256SUMS` each ended with exit 1 and the failed check named.
+
+The project's site is [proofbundle.dev](https://proofbundle.dev).
+
 ## Try it from a checkout
 
 ```sh
