@@ -1176,6 +1176,27 @@ class VerifierServer(Base):
 class DriverChecks(Base):
     """The probe driver enforces the statuses it records, and two of its runs give the same bytes."""
 
+    def test_d0_an_output_folder_inside_the_repository_is_refused(self):
+        """Line 3 of the reading of 7684a47c: generator and driver say they write nothing into the clone they read, and
+        an output folder inside it was accepted. Every path either writes now lies outside the clone, its working tree,
+        its git folder and the common git folder of a worktree, before anything is written; the refusal of the driver
+        comes before any build, so it is measured on every interpreter."""
+        repo, commit = make_repo(self.tmp, split_files())
+        cases = {
+            "generator out": lambda: build(repo, commit, repo / "release-output"),
+            "generator tag in the git folder": lambda: build(repo, commit, self.tmp / "o1",
+                                                             extra=("--tag-out", str(repo / ".git" / "t1.tag"))),
+            "driver out": lambda: drive(repo, commit, repo / "release-output", PIN, OLD_PIN, "split"),
+        }
+        for name, call in cases.items():
+            with self.subTest(name=name):
+                proc = call()
+                self.assertEqual(proc.returncode, 2, text(proc))
+                self.assertFalse((repo / "release-output").exists() or (repo / ".git" / "t1.tag").exists())
+                self.assertFalse((self.tmp / "o1").exists())
+                self.assertEqual(git(repo, "status", "--porcelain", "--ignored"), "")
+                self.assertIn("outside the repository read", proc.stderr.decode())
+
     def test_d1_failing_positive_builds_fail_the_driver(self):
         files = split_files()
         files[V + "/.codex-plugin/plugin.json"] = json.dumps(

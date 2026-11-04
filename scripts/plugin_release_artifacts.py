@@ -961,6 +961,17 @@ def git_object_id(kind: str, data: bytes, algo: str) -> str:
     return h.hexdigest()
 
 
+def _repository_folders(repo: Path) -> list[Path]:
+    """The folders that make up the clone read: the path given, its git folder, the common git folder of a worktree and,
+    outside a bare repository, the top of its working tree, each resolved."""
+    folders = [repo.resolve()]
+    for flag in ("--absolute-git-dir", "--git-common-dir"):
+        folders.append(Path(git(repo, "rev-parse", "--path-format=absolute", flag).decode().strip()).resolve())
+    if git(repo, "rev-parse", "--is-bare-repository").decode().strip() == "false":
+        folders.append(Path(git(repo, "rev-parse", "--show-toplevel").decode().strip()).resolve())
+    return folders
+
+
 def _write_new(path: Path, data: bytes) -> None:
     """Write DATA to PATH as a new file; an existing path, a link among them, raises instead of being replaced."""
     with open(path, "xb") as handle:
@@ -984,6 +995,11 @@ def cmd_build(args: argparse.Namespace) -> int:
             or any(p.exists() or p.is_symlink() or not p.parent.is_dir() for p in given):
         raise NotMeasurable("--tag-out and --inventory-out lie outside the output folder, apart and new, each in a "
                             "folder that exists")
+    # nothing is written into the clone read, as this file says (line 3 of the reading of 7684a47c: an output folder
+    # inside it was accepted): every path a build writes lies outside each folder of the clone
+    clone = _repository_folders(repo)
+    if any(p == d or d in p.parents for p in [folder, *extra] for d in clone):
+        raise NotMeasurable("the output folder, --tag-out and --inventory-out lie outside the repository read")
     if not SEMVER.fullmatch(args.version) or not SEMVER.fullmatch(args.expect_pin):
         raise NotMeasurable("--version and --expect-pin take X.Y.Z")
     layout = INVENTORIES[args.layout]

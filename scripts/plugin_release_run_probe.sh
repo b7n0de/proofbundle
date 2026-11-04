@@ -37,6 +37,17 @@ for v in repo commit out version pin wrong; do
   [ -n "${!v}" ] || { echo "missing --${v/pin/expect-pin}" >&2; exit 2; }
 done
 [ "$pin" != "$wrong" ] || { echo "--wrong-pin must differ from --expect-pin" >&2; exit 2; }
+# Nothing is written into the clone read (line 3 of the reading of 7684a47c: an output folder inside it was accepted):
+# the output folder lies outside the path given, its git folder, the common git folder of a worktree and the top of its
+# working tree, checked before anything is written.
+o=$(realpath -m -- "$out")
+for d in "$repo" "$(git -C "$repo" rev-parse --path-format=absolute --absolute-git-dir 2>/dev/null)" \
+         "$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" \
+         "$(git -C "$repo" rev-parse --show-toplevel 2>/dev/null)"; do
+  [ -n "$d" ] || continue
+  d=$(realpath -m -- "$d")
+  case "$o/" in "$d"/*) echo "the output folder lies outside the repository read; $out does not" >&2; exit 2 ;; esac
+done
 mkdir -p "$out"
 [ -z "$(ls -A "$out")" ] || { echo "output folder not empty" >&2; exit 2; }
 work=$(mktemp -d)
