@@ -1209,6 +1209,22 @@ class DriverChecks(Base):
                 self.assertEqual(git(repo, "status", "--porcelain", "--ignored"), "")
                 self.assertIn("outside the repository read", proc.stderr.decode())
 
+    def test_d4_a_relative_output_folder_gives_the_same_run(self):
+        """The Codex review of pull request 478 at b3e3d2eb: the third build runs in a subshell with working directory /,
+        and its report path was taken from a relative --out there, so a valid run ended with exit 1. The driver now
+        resolves the output folder once, before anything is written, and every step writes under that path."""
+        repo, commit = make_repo(self.tmp, split_files())
+        work = self.tmp / "cwd"
+        work.mkdir()
+        cmd = ["bash", str(DRIVER), "--repo", str(repo), "--commit", commit, "--out", "relative-output", "--version",
+               VERSION, "--expect-pin", PIN, "--wrong-pin", OLD_PIN, "--layout", "split"]
+        proc = subprocess.run(cmd, env=plugin_env(), cwd=work, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                              check=False)
+        self.assertEqual(proc.returncode, 0, text(proc))
+        self.assertTrue((work / "relative-output" / "run3_report.txt").is_file())
+        self.assertIn("run3 build exit (second clone, working directory /) 0 (expected 0) ok",
+                      (work / "relative-output" / "determinism.txt").read_text(encoding="utf-8"))
+
     def test_d1_failing_positive_builds_fail_the_driver(self):
         files = split_files()
         files[V + "/.codex-plugin/plugin.json"] = json.dumps(

@@ -51,6 +51,9 @@ for d in "$repo" "$(git -C "$repo" rev-parse --path-format=absolute --absolute-g
     case "$p/" in "$d"/*) echo "the output and work folders lie outside the repository read; $p does not" >&2; exit 2 ;; esac
   done
 done
+# the output folder as one absolute path, since the third build writes its report from a subshell with working
+# directory / (the Codex review of pull request 478 at b3e3d2eb: a relative --out ended a valid run with exit 1)
+out=$(realpath -m -- "$out")
 mkdir -p "$out"
 [ -z "$(ls -A "$out")" ] || { echo "output folder not empty" >&2; exit 2; }
 work=$(mktemp -d -p "$tmpbase")
