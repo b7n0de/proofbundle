@@ -212,6 +212,13 @@ def drive(repo, commit, out, expect_pin, wrong_pin, layout):
     return run(cmd, env=plugin_env())
 
 
+def drive_with(repo, commit, out, extra_env):
+    """The driver with the environment of drive() and EXTRA_ENV on top, for the variables the driver itself reads."""
+    cmd = ["bash", str(DRIVER), "--repo", str(repo), "--commit", commit, "--out", str(out), "--version", VERSION,
+           "--expect-pin", PIN, "--wrong-pin", OLD_PIN, "--layout", "split"]
+    return run(cmd, env={**plugin_env(), **extra_env})
+
+
 def text(proc) -> str:
     return proc.stdout.decode() + proc.stderr.decode()
 
@@ -1187,13 +1194,18 @@ class DriverChecks(Base):
             "generator tag in the git folder": lambda: build(repo, commit, self.tmp / "o1",
                                                              extra=("--tag-out", str(repo / ".git" / "t1.tag"))),
             "driver out": lambda: drive(repo, commit, repo / "release-output", PIN, OLD_PIN, "split"),
+            # the pre-run of the reading of e175a692: mktemp follows TMPDIR, so the driver's work folder, its second
+            # clone among it, could lie in the clone read; the folder it works in is checked as its output folder is
+            "driver work in the clone": lambda: drive_with(repo, commit, self.tmp / "o2", {"TMPDIR": str(repo)}),
+            "driver work in the git folder": lambda: drive_with(repo, commit, self.tmp / "o3",
+                                                                {"TMPDIR": str(repo / ".git")}),
         }
         for name, call in cases.items():
             with self.subTest(name=name):
                 proc = call()
                 self.assertEqual(proc.returncode, 2, text(proc))
                 self.assertFalse((repo / "release-output").exists() or (repo / ".git" / "t1.tag").exists())
-                self.assertFalse((self.tmp / "o1").exists())
+                self.assertFalse(any((self.tmp / o).exists() for o in ("o1", "o2", "o3")))
                 self.assertEqual(git(repo, "status", "--porcelain", "--ignored"), "")
                 self.assertIn("outside the repository read", proc.stderr.decode())
 
