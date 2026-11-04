@@ -118,7 +118,7 @@ A JSON file the generator reads that names a member twice stops the build, so a 
 where it is written once. A change of the Guard's hooks lands in the generator together with the change that makes it. The Guard registers its Claude Code hooks in `hooks/hooks.json` alone, so a hooks field in its Claude Code
 manifest or in its house marketplace entry stops the build as a member main does not write there, and the hooks of its Codex manifest are the ones main writes.
 For a constant or the tool table read with ast, every mention of its name as a Python token, in the NFKC form Python
-reads it in, has to be that name at that place, written once, as the only target of its top-level assignment, and otherwise read; the tool table may besides be
+reads it in, has to be that name at that place, written once, as the only target of its top-level assignment, and otherwise read, and in the syntax tree the name appears as a plain name alone, also inside an f-string; the tool table may besides be
 looked up, tested for a key in one membership test of which it is the only comparator, or read by `items`, `keys`, `values` or `get`. The Python files it reads that way have LF line ends and no BOM or encoding declaration, as at
 main c9ab65b1; a CR, a BOM or such a declaration in one of them stops the build.
 

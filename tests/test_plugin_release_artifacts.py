@@ -638,6 +638,32 @@ class SplitChecks(Base):
         repo, commit = make_repo(self.tmp, files)
         self.assertRefused(build(repo, commit, self.out), "TOOLS is used otherwise than read after its assignment")
 
+    def test_s1s_a_read_name_bound_inside_an_f_string_is_refused(self):
+        """The Codex pre-run of the reading of e93e4064: before Python 3.12 tokenize reads an f-string as one token, so a
+        lambda parameter named like the read name inside it is no NAME token, and in the AST it is an ast.arg, no
+        ast.Name; both checks passed it. At main c9ab65b1, d406a35b and b55d736d every read name appears in the AST as
+        an ast.Name alone, and any other mention now stops the build, under every Python; an f-string that only reads
+        the name still builds."""
+        bound = '_SEEN = f"{(lambda SERVER_VERSION: SERVER_VERSION)(' + "'9.9.9'" + ')}"\n'
+        read = '_SHOWN = f"v{SERVER_VERSION}"\n'
+        for name, line, refused in (("bound", bound, True), ("read", read, False)):
+            with self.subTest(name=name):
+                files = split_files()
+                for root in (V, G):
+                    files[root + "/server/proofbundle_mcp.py"] = files[root + "/server/proofbundle_mcp.py"] + line
+                sub = self.tmp / name
+                sub.mkdir()
+                repo, commit = make_repo(sub, files)
+                out = sub / "out"
+                proc = build(repo, commit, out)
+                if not refused:
+                    self.assertEqual(proc.returncode, 0, text(proc))
+                    continue
+                self.assertEqual(proc.returncode, 1, text(proc))
+                self.assertFalse(out.exists() and any(out.iterdir()), "a refused build wrote artifacts")
+                failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
+                self.assertTrue(failed and "SERVER_VERSION is used otherwise than read" in failed[0], failed)
+
     def test_s2_missing_guard_gate_pin_is_refused(self):
         self.split_refused(lambda f: f.__setitem__(G + "/hooks/proofbundle_gate.py", gate(constant=False)),
                            "PINNED_PROOFBUNDLE")

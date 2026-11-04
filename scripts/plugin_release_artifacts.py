@@ -499,6 +499,18 @@ def _only_read(source: str, name: str, path: str, table: bool = False) -> None:
     stray = sorted(_name_tokens(source, name, path) - {(n.lineno, n.col_offset) for n in names})
     if stray:
         raise CheckFailed(f"{path}: {name} is used otherwise than read after its assignment (line {stray[0][0]})")
+    # the name appears in the AST as an ast.Name alone, as at main c9ab65b1, d406a35b and b55d736d: before Python 3.12
+    # tokenize reads an f-string as one token, so a lambda parameter of that name inside one was no NAME token and, as
+    # an ast.arg, no ast.Name either (the Codex pre-run of the reading of e93e4064). Any identifier field of another
+    # node naming it stops the build, whatever the form of the binding.
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Name, ast.Constant)):
+            continue
+        for value in ast.iter_fields(node):
+            if any(isinstance(v, str) and unicodedata.normalize("NFKC", v) == name
+                   for v in (value[1] if isinstance(value[1], list) else [value[1]])):
+                raise CheckFailed(f"{path}: {name} is used otherwise than read after its assignment, as "
+                                  f"{type(node).__name__}.{value[0]} (line {getattr(node, 'lineno', 0)})")
     written = [n for n in names if not isinstance(n.ctx, ast.Load)]
     top = len(written) == 1 and isinstance(parents.get(written[0]), (ast.Assign, ast.AnnAssign)) and \
         parents.get(parents[written[0]]) is tree and \
