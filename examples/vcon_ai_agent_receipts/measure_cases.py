@@ -117,6 +117,12 @@ def m_extra_read(v, call_id, decision, sent, party):
          "body": {"file_path": "/work/widgets/README.md"}}]
 
 
+def m_f47(v):
+    extra = copy.deepcopy(ev(v, OP1, "tool-invocation"))
+    extra.update({"attempt": 2, "time": "2026-10-15T09:00:10.000Z", "body": dict(FORCE)})
+    v["events"].append(extra)
+
+
 def m_f42(v):
     v["events"] += [
         {"type": "policy-decision", "time": "2026-10-15T09:05:04.000Z", "sessions": 0, "party": 1,
@@ -150,12 +156,19 @@ def m_f31(v):
 
 
 def m_f19(v):
-    ev(v, OP1, "policy-decision")["operation_id"] = mk.operation(v["sessions"][0]["agent_session_id"], "toolu_other")
+    other = mk.operation(v["sessions"][0]["agent_session_id"], "toolu_other")
+    for e in v["events"]:
+        if e.get("operation_id") == OP1:
+            e["operation_id"] = other
 
 
 def m_f22(v):
+    other = mk.operation(v["sessions"][0]["agent_session_id"], "toolu_other")
     for typ in ("tool-invocation", "tool-result"):
-        ev(v, OP1, typ)["operation_id"] = mk.operation(v["sessions"][0]["agent_session_id"], "toolu_other")
+        ev(v, OP1, typ)["operation_id"] = other
+    pd = copy.deepcopy(ev(v, OP1, "policy-decision"))
+    pd["operation_id"] = other
+    v["events"].append(pd)
 
 
 def p_f27(fs):
@@ -163,6 +176,14 @@ def p_f27(fs):
     pds = [e for e in d["events"] if e.get("type") == "policy-decision"]
     pds[0][mk.PROPOSAL_PARAMETER]["content_hash"], pds[1][mk.PROPOSAL_PARAMETER]["content_hash"] = (
         pds[1][mk.PROPOSAL_PARAMETER]["content_hash"], pds[0][mk.PROPOSAL_PARAMETER]["content_hash"])
+    fs[PROPOSAL] = vp.pretty(d)
+
+
+def p_f49(fs):
+    d = json.loads(fs[PROPOSAL])
+    pd = [e for e in d["events"] if e.get("type") == "policy-decision"][1]
+    pd[mk.PROPOSAL_PARAMETER]["mediatype"] = json.dumps({"command": "gh pr merge 7 --repo acme/widgets --merge",
+                                                        "description": "Merge pull request 7"})
     fs[PROPOSAL] = vp.pretty(d)
 
 
@@ -259,8 +280,8 @@ CASES = [
     ("F41", "the arguments of the denied merge as JSON inside other text in a dialog body", "C2",
      lambda v: v["dialog"][4].update({"body": "Proposed arguments: " + json.dumps({
          "command": "gh pr merge 7 --repo acme/widgets --merge", "description": "Merge pull request 7"})}), None),
-    ("F42", "a standing policy-decision disallowed for Read, then an invocation of Read without its own decision (4.1)",
-     "V4", m_f42, None),
+    ("F42", "a standing policy-decision disallowed for Read, then an invocation of Read; standing decisions are not in "
+     "this profile", "V4", m_f42, None),
     ("F43", "the tool-result of the push is attempt 2, with no tool-invocation of attempt 2", "V4",
      lambda v: ev(v, OP1, "tool-result").update({"attempt": 2, "time": "2026-10-15T09:06:00.000Z"}), None),
     ("F44", "an operation that no receipt names, invoked before its policy-decision (4.1)", "V4",
@@ -269,6 +290,9 @@ CASES = [
      lambda v: m_extra_read(v, "toolu_read_unapproved", "permission-required", "2026-10-15T09:05:05.000Z", 1), None),
     ("F46", "an operation that no receipt names, whose tool-invocation names the person", "V4",
      lambda v: m_extra_read(v, "toolu_read_person", "allowed", "2026-10-15T09:05:05.000Z", 0), None),
+    ("F47", "a second attempt of the approved push with other arguments", "R2", m_f47, None),
+    ("F48", "the tool-result of the push has mediatype 7 (6.1.10)", "V4",
+     lambda v: ev(v, OP1, "tool-result").update({"mediatype": 7}), None),
     ("F38", "a standing policy-decision whose tool is not a string (6.1.9)", "V4",
      lambda v: v["events"].append({"type": "policy-decision", "time": "2026-10-15T09:05:11Z", "sessions": 0,
                                    "party": 1, "decision": "allowed", "policy_life": "standing",
@@ -276,6 +300,7 @@ CASES = [
 ]
 PROPOSAL_CASES = [
     ("F27", "proposal: each policy-decision references the receipt of the other decision", "E1", None, p_f27),
+    ("F49", "proposal: the mediatype of the DENY reference holds the denied arguments", "E1", None, p_f49),
 ]
 RS256_CASES = [
     ("F05R", "as F05, the vCon signed again in the RS256 form", "Z2", m_f05, None),

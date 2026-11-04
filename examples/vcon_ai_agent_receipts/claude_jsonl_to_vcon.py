@@ -338,11 +338,14 @@ def convert(lines, user_id="user", user_name="user", agent_id="agent", agent_nam
         for s in strings(part):
             if repeats_denied(s):
                 raise ValueError("the %s of the vCon would hold the arguments of a disallowed operation" % path)
-    for part in (dialog, events):
-        for x in part:
-            for y in (x.get("body"), x.get("content")) if isinstance(x, dict) else ():
-                if isinstance(y, (dict, list)) and y in denied_inputs:
-                    raise ValueError("the vCon would hold the arguments of a disallowed operation as JSON content")
+    def nodes(x):
+        if isinstance(x, (dict, list)):
+            yield x
+            for y in (x.values() if isinstance(x, dict) else x):
+                yield from nodes(y)
+    for node in nodes([dialog, events]):
+        if node in denied_inputs:
+            raise ValueError("the vCon would hold the arguments of a disallowed operation as a JSON value")
     report = {"session_id": sid, "lines_converted": len(entries), "dialog": len(dialog), "events": len(events),
               "events_by_type": dict(sorted(collections.Counter(x["type"] for x in events).items())),
               "operations": dict(sorted((op, cid) for cid, op in operations.items())),

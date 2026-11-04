@@ -65,6 +65,9 @@ CONTENT = {"mediatype", "encoding", "body", "url", "content_hash"}
 PD_PARAMS = COMMON | {"decision", "policy_life", "reason", "operation", "operation_id", "attempt", "server", "tool"}
 TOOL_PARAMS = COMMON | {"operation_id", "attempt"} | CONTENT | {"attachment"}
 PROPOSAL_PARAMETER = "decision_receipt"
+#: media_type_value_type and content_hash_value_type of the core CDDL
+MEDIA_RX = re.compile(r"[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+(;.*)?")
+HASH_RX = re.compile(r"[a-z0-9]+-[A-Za-z0-9_-]+")
 RECEIPT, APPROVAL = "decision receipt", "approval record"
 
 
@@ -109,6 +112,10 @@ def content_form_ok(e):
     keys = set(e) & CONTENT
     if not keys or keys == {"mediatype"}:
         return not keys
+    if "mediatype" in e and not (isinstance(e["mediatype"], str) and MEDIA_RX.fullmatch(e["mediatype"])):
+        return False
+    if "content_hash" in e and not all(isinstance(t, str) and HASH_RX.fullmatch(t) for t in as_list(e["content_hash"])):
+        return False
     if "body" in e or "encoding" in e:
         if "url" in e or "content_hash" in e or "mediatype" not in e or "body" not in e:
             return False
@@ -118,27 +125,6 @@ def content_form_ok(e):
     if "url" in e:
         return isinstance(e["url"], str) and "content_hash" in e
     return "content_hash" in e
-
-
-def check_standing(rep, events):
-    """Section 4 and 4.1: an invocation without a policy-decision of its own is governed by the standing decision in
-    effect, the latest one before it for its server and tool (or for all tools of the server); a disallowed one stops
-    it. Which of a tool's and a server's standing decisions applies when both are in effect is open in the draft
-    (TODO in 4.1); this check takes the later one."""
-    standing = [e for e in events if e.get("type") == "policy-decision" and e.get("policy_life") == "standing"
-                and e.get("operation") == "tool-invocation"]
-    own = {e.get("operation_id") for e in events if e.get("type") == "policy-decision" and e.get("policy_life") == "once"}
-    for j, e in enumerate(events):
-        if e.get("type") != "tool-invocation" or e.get("operation_id") in own:
-            continue
-        t = vp.when(e["time"])
-        in_effect = [s for s in standing if s.get("server") == e.get("server") and s.get("tool", e.get("tool")) ==
-                     e.get("tool") and vp.when(s["time"]) <= t]
-        if in_effect:
-            latest = max(in_effect, key=lambda s: vp.when(s["time"]))
-            rep.need(latest.get("decision") != "disallowed", "V4", "events[%d]" % j, "tool-invocation of %s %s at %s "
-                     "while a standing policy-decision disallowed of %s is in effect (4.1)" % (
-                         e.get("server"), e.get("tool"), e["time"], latest["time"]))
 
 
 def check_ti_event(rep, where, e, n_att, extra=()):
@@ -159,6 +145,8 @@ def check_ti_event(rep, where, e, n_att, extra=()):
             if e["operation"] == "tool-invocation":
                 rep.need(isinstance(e.get("tool"), str) and e["tool"], "V4", where, "tool missing (6.1.9)")
         else:
+            rep.fail("V4", where, "a standing policy-decision is not part of this example's profile: the example has "
+                     "none, and how standing decisions for a tool and for all tools of a server combine is open (4.1)")
             rep.need("operation_id" not in e and "attempt" not in e, "V4", where,
                      "operation_id or attempt in a standing policy-decision (6.1.2, 6.1.3)")
         if "tool" in e:
@@ -346,6 +334,10 @@ def check_structure(rep, v):
                                 and e.get("operation_id") == o and attempt_ok(e.get("attempt"))})
         rep.need(seen_attempts == list(range(1, len(seen_attempts) + 1)), "V4", "operation %s" % o,
                  "attempts %s do not start at 1 and go up by one (5.1, 6.1.3)" % seen_attempts)
+        # the example records a decision for every operation, each named by a receipt (C3)
+        rep.need(any(e.get("type") == "policy-decision" and e.get("policy_life") == "once" and e.get("operation_id") == o
+                     for e in events), "V4", "operation %s" % o, "has no policy-decision of its own; this example "
+                 "records one for every operation")
         # every event of an operation names the same party, the agent and not a person (6.1)
         named = {e.get("party") for e in events if e.get("type") in TI_TYPES and e.get("operation_id") == o}
         rep.need(len(named) == 1 and all(index(n, len(parties)) and parties[n].get("type") != "person" for n in named),
@@ -370,7 +362,6 @@ def check_structure(rep, v):
             done = [j for j, e in enumerate(events) if e.get("type") in TOOL_TYPES and e.get("operation_id") == o]
             rep.need(not done, "V4", "operation %s" % o, "disallowed, but events %s are tool events of it "
                      "(Section 4)" % done)
-    check_standing(rep, events)
     rep.ok("V4", "vCon", "%d parties, %d sessions, %d dialog, %d events, %d attachments" % (
         len(parties), len(sessions), len(dialog), len(events), len(att)))
 
@@ -603,6 +594,10 @@ def check_receipts(rep, v, a, gate):
             rep.ok("R4b", where, "approvedAt <= every tool-invocation of the operation <= validUntil")
         if tool is not None:
             for j, e in enumerate(events):
+                if e.get("type") == "tool-invocation" and e.get("operation_id") == op and action is not None:
+                    rep.need(e.get("encoding") == "json" and "body" in e and vp.sha256(vp.jcs(e["body"])) ==
+                             pred["proposedAction"]["parametersDigest"]["sha256"], "R2", where, "events[%d], attempt "
+                             "%r of operation %s, has other arguments than the decision" % (j, e.get("attempt"), op))
                 if e.get("type") == "tool-invocation" and e.get("operation_id") == op:
                     rep.need(vp.when(pd["time"]) <= vp.when(pred["decidedAt"]) <= vp.when(e["time"]), "R2", where,
                              "events[%d], attempt %r of operation %s, at %s comes before its policy-decision %s or "
@@ -736,9 +731,9 @@ def check_proposal(rep, d, rel, v, found, att, external):
         ref = e[PROPOSAL_PARAMETER]
         rep.need(isinstance(ref, dict) and not set(ref) - {"url", "content_hash", "mediatype"} and "content_hash" in ref,
                  "E1", w, "%s is not an object of url, content_hash and mediatype" % PROPOSAL_PARAMETER)
-        rep.need(isinstance(ref.get("mediatype", ""), str) and all(
-            isinstance(t, str) and re.fullmatch(r"[a-z0-9]+-[A-Za-z0-9_-]+", t) for t in as_list(ref["content_hash"])),
-            "E1", w, "mediatype is not a string, or a content_hash token is malformed")
+        rep.need((("mediatype" not in ref) or (isinstance(ref["mediatype"], str) and MEDIA_RX.fullmatch(ref["mediatype"])))
+                 and all(isinstance(t, str) and HASH_RX.fullmatch(t) for t in as_list(ref["content_hash"])),
+                 "E1", w, "mediatype is not a media type, or a content_hash token is malformed")
         x = by_op.get(e.get("operation_id"))
         rep.need(x is not None, "E1", w, "no receipt names operation %s" % e.get("operation_id"))
         sha512 = [t[7:] for t in as_list(ref["content_hash"]) if isinstance(t, str) and t.startswith("sha512-")]
@@ -751,6 +746,12 @@ def check_proposal(rep, d, rel, v, found, att, external):
                          "the sha256 token is not the sha256 of the receipt of operation %s" % e["operation_id"])
         if "url" in ref:
             rep.need(ref["url"] == att[x["attachment"]].get("url"), "E1", w, "url is not the url of the receipt")
+    for x in found:
+        if x["pred"]["decision"]["verdict"] in ("DENY", "REFUSE"):
+            denied = x["pred"]["proposedAction"]["parametersDigest"]["sha256"]
+            hits = [path for path, value in candidates(pv) if denied in digests_of(value)]
+            rep.need(not hits, "E1", where, "%s holds the arguments of the denied operation %s" % (", ".join(hits),
+                                                                                                x["op"]))
     named = {e.get("operation_id") for e in pv["events"] if e.get("type") == "policy-decision"
              and PROPOSAL_PARAMETER in e}
     rep.need(named == set(by_op), "E1", where, "not every receipt is referenced from its policy-decision")
