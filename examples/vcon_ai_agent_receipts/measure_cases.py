@@ -123,6 +123,13 @@ def m_f47(v):
     v["events"].append(extra)
 
 
+def m_f51(v):
+    s = copy.deepcopy(v["sessions"][0])
+    s.update({"agent_session_id": "5e551011-0000-4000-8000-000000000009", "dialog": []})
+    v["sessions"].append(s)
+    ev(v, OP1, "tool-result").update({"sessions": 1, "time": "2026-10-15T09:06:00.000Z"})
+
+
 def m_f42(v):
     v["events"] += [
         {"type": "policy-decision", "time": "2026-10-15T09:05:04.000Z", "sessions": 0, "party": 1,
@@ -293,6 +300,11 @@ CASES = [
     ("F47", "a second attempt of the approved push with other arguments", "R2", m_f47, None),
     ("F48", "the tool-result of the push has mediatype 7 (6.1.10)", "V4",
      lambda v: ev(v, OP1, "tool-result").update({"mediatype": 7}), None),
+    ("F50", "the arguments of the denied merge as JSON text in an object key", "C2",
+     lambda v: [e for e in v["events"] if e["type"] == "system-event"][0]["data"].update({json.dumps({
+         "command": "gh pr merge 7 --repo acme/widgets --merge", "description": "Merge pull request 7"}): "copy"}),
+     None),
+    ("F51", "the tool-result of the push stands in a second session", "R2", m_f51, None),
     ("F38", "a standing policy-decision whose tool is not a string (6.1.9)", "V4",
      lambda v: v["events"].append({"type": "policy-decision", "time": "2026-10-15T09:05:11Z", "sessions": 0,
                                    "party": 1, "decision": "allowed", "policy_life": "standing",

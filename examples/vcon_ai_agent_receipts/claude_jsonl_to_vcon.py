@@ -329,21 +329,21 @@ def convert(lines, user_id="user", user_name="user", agent_id="agent", agent_nam
         if isinstance(x, str):
             yield x
         elif isinstance(x, dict):
-            for y in x.values():
+            for k, y in x.items():
+                yield k
                 yield from strings(y)
         elif isinstance(x, list):
             for y in x:
                 yield from strings(y)
-    for path, part in (("dialog", dialog), ("events", events)):
-        for s in strings(part):
-            if repeats_denied(s):
-                raise ValueError("the %s of the vCon would hold the arguments of a disallowed operation" % path)
+    for s in strings(vcon):
+        if repeats_denied(s):
+            raise ValueError("the vCon would hold the arguments of a disallowed operation in a text")
     def nodes(x):
         if isinstance(x, (dict, list)):
             yield x
             for y in (x.values() if isinstance(x, dict) else x):
                 yield from nodes(y)
-    for node in nodes([dialog, events]):
+    for node in nodes(vcon):
         if node in denied_inputs:
             raise ValueError("the vCon would hold the arguments of a disallowed operation as a JSON value")
     report = {"session_id": sid, "lines_converted": len(entries), "dialog": len(dialog), "events": len(events),

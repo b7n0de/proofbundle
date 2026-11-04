@@ -606,6 +606,8 @@ def check_receipts(rep, v, a, gate):
                    and e.get("attempt") == pd.get("attempt") and k in as_list(e.get("sessions", []))]
         for j, e in enumerate(events):
             if e.get("type") in TOOL_TYPES and e.get("operation_id") == op:
+                rep.need(k in as_list(e.get("sessions", [])), "R2", where, "events[%d] %s of operation %s is not in the "
+                         "session %d of the receipt" % (j, e["type"], op, k))
                 rep.need(e.get("party") == pd.get("party"), "R2", where, "events[%d] %s of operation %s names party %r, "
                          "not the agent %r of its policy-decision (6.1)" % (j, e["type"], op, e.get("party"),
                                                                            pd.get("party")))
@@ -621,6 +623,7 @@ def walk(value, path):
     yield path, value
     if isinstance(value, dict):
         for k, x in value.items():
+            yield "%s key %r" % (path, k[:40]), k
             yield from walk(x, "%s.%s" % (path, k))
     elif isinstance(value, list):
         for i, x in enumerate(value):
