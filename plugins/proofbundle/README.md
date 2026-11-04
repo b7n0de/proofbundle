@@ -639,14 +639,15 @@ Then start a new session.
 The release has four assets, `proofbundle-plugin-0.4.0.tar`, `proofbundle-plugin-0.4.0.release.json`, `SHA256SUMS`
 and `proofbundle-plugin-0.4.0.release.json.sig`. The signature covers the exact bytes of the release statement, and
 the statement binds the archive. Take the owner's public key from a channel you already trust; a key printed next to
-the assets is not by itself a trust anchor. Put the four assets into one folder, here `assets`, then:
+the assets is not by itself a trust anchor. Set `OWNER_PUBLIC_KEY` to that key, the standard base64 of its 32 raw
+bytes, put the four assets into one folder, here `assets`, then:
 
 ```sh
 git clone https://github.com/b7n0de/proofbundle.git
 git -C proofbundle show proofbundle--v0.4.0:scripts/plugin_release_artifacts.py > plugin_release_artifacts.py
 python3 -m venv venv
 venv/bin/python -m pip install proofbundle
-venv/bin/python -I plugin_release_artifacts.py verify --assets assets --public-key <owner key> --repo proofbundle
+venv/bin/python -I plugin_release_artifacts.py verify --assets assets --public-key "$OWNER_PUBLIC_KEY" --repo proofbundle
 ```
 
 It needs Python 3.11 or later. It prints one line per check, for the signature over the exact statement bytes, the
