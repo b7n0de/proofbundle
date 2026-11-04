@@ -14,7 +14,7 @@ Codex has not reached M1 for this release. Its unmeasured runtime and lifecycle 
 
 ## Acceptance and limits
 
-The release required Claude Code M1 for the verifier and for the Guard's house profile before publication, including real-host and lifecycle evidence at the selected release commit. Known limits and unmeasured cases remain identified in the implementation-gap record.
+Claude Code M1 for the verifier and the Guard's house profile is a release requirement. M1 is the acceptance defined in the [test plan](https://github.com/b7n0de/proofbundle/blob/proofbundle--v0.4.0/plugins/proofbundle/m0/TEST_PLAN.md); it includes real-host operation and lifecycle checks at the selected release commit, not just a passing test harness. The [implementation-gap record](https://github.com/b7n0de/proofbundle/blob/proofbundle--v0.4.0/plugins/proofbundle/m0/IMPLEMENTATION_GAP.md) retains failures and unmeasured cases. In particular, its V-CC-2 entry reports an earlier real-host failure to load the verifier's MCP server. A fresh, recorded M1 acceptance at the release commit must address that failure before publication; this release note is not itself evidence that M1 has passed.
 
 Verification reports the pinned core verifier's result. A valid signature proves authorship under a trusted key and integrity of the signed bytes; it does not establish that recorded claims are true. An absent, disabled or untrusted Guard provides no protection.
 
@@ -26,10 +26,10 @@ A Guard installed from its house marketplace is read from that checkout in place
 
 Two corrections of the Guard's decision receipts are in this release, decision D135 of the plugin.
 
-- Trace context. A decision receipt of Level 1 carries `traceContext` with `traceId` equal to the `session_id` and `parentId` equal to the `tool_use_id` of the hook event it decides, so a receipt can be matched to its session and to its tool call. An id the event lacks, or names in another form, is not copied, and the receipt names that in notChecked. A receipt of the pre-push hook carries no trace, since git hands that hook no session and no tool call.
-- Merge digest. For a merge of a pull request, `parametersDigest` is the SHA-256 of bytes that bind the repository, the pull request number, the head commit and the merge method, instead of the SHA-256 of empty bytes. A merge call that names no head commit or no merge method is recorded without a digest.
+- Trace context. A Level 1 receipt records the Guard's decision on a tool call, including a Bash call or a supported MCP write. When the hook event supplies `session_id` or `tool_use_id` in the accepted form, the receipt copies them into `traceContext.traceId` or `traceContext.parentId`, respectively; missing or unusable IDs are identified in `notChecked`. The separate Level 2 git pre-push hook has no Claude session or tool-call IDs and its own receipt carries no trace. A `git push` invoked through Bash can have a Level 1 receipt with trace context even though the pre-push receipt has none.
+- Merge digest. For a GitHub merge call with a specified head commit and merge method, `parametersDigest` is the SHA-256 of the RFC 8785 form of the requested `github.merge` operation, including the lowercased repository, pull request number, head commit and merge method, plus the commit title and message where supplied. The digest records what the call requested, not what the host actually merged. A GitHub MCP server that ignores `expectedHeadSha` can merge a different head. Without a specified head commit or merge method the receipt carries no such digest.
 
-The key signer signs a receipt that carries `traceContext` only from this version on. An operator who updates the Guard updates its key signer with it; until then an owner's release that needs the signed ALLOW stays unused. Receipts written before this release verify as before.
+The key signer accepts receipts carrying `traceContext` only from this version on. Its program is `plugins/proofbundle/pilot/key_signer.py`, not part of the `proofbundle-guard` plugin. Updating the Guard alone does not update the copy running under the key account. An operator using that pilot must separately replace the key account's copy with the matching version, as described in `plugins/proofbundle/pilot/RUNBOOK.md` (step 2). Until then an owner's release that requires the signed ALLOW stays unused. Receipts written before this release verify as before.
 
 ## What the release signature covers
 
