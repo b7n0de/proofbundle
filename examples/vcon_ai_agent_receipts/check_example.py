@@ -69,6 +69,8 @@ PROPOSAL_PARAMETER = "decision_receipt"
 MEDIA_RX = re.compile(r"[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+(;.*)?")
 HASH_RX = re.compile(r"[a-z0-9]+-[A-Za-z0-9_-]+")
 RECEIPT, APPROVAL = "decision receipt", "approval record"
+#: The one answer this synthetic example accepts as a grant; permission events are not defined yet (Section 7).
+APPROVAL_TEXT = "Approved."
 
 
 class Stop(Exception):
@@ -587,6 +589,10 @@ def check_receipts(rep, v, a, gate):
             rep.need(rec.get("approver") == who.get("uuid"), "R4a", where,
                      "approver %r is not the party of the answer (%r)" % (rec.get("approver"), who.get("uuid")))
             rep.need(who.get("type") == "person", "R4a", where, "answer not from a person")
+            rep.need(d.get("mediatype") == "text/plain" and d.get("encoding") == "none" and
+                     d.get("body") == APPROVAL_TEXT, "R4a", where, "the answer the approval record names is not the "
+                     "person's text/plain answer %r; its identifier, party, session and time alone do not establish that "
+                     "permission was granted" % APPROVAL_TEXT)
             rep.need(rec.get("session") == sessions[k]["agent_session_id"], "R4a", where, "session differs")
             rep.need(vp.when(rec["approvedAt"]) == send_time(d), "R4a", where,
                      "approvedAt %s is not the send time of the answer %s" % (rec["approvedAt"], vp.iso(send_time(d))),

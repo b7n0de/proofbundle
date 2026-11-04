@@ -64,7 +64,7 @@ def m_f04(v):
 
 
 def m_f05(v):
-    v["dialog"][2]["body"] = "Approved. You may also force push."
+    v["dialog"][0]["body"] = "Please push the topic branch to origin, and force it."
 
 
 def m_f07(v):
@@ -355,6 +355,8 @@ CASES = [
     ("F59", "the tool-result of the push comes before its tool-invocation (5)", "V4",
      lambda v: ev(v, OP1, "tool-result").update({"time": "2026-10-15T09:00:07.000Z"}), None),
     ("F60", "a second policy-decision of the denied merge, attempt 2, in a second session", "R2", m_f60, None),
+    ("F61", "the answer the approval record names says Denied. Do not push.", "R4a",
+     lambda v: v["dialog"][2].update({"body": "Denied. Do not push."}), None),
     ("F38", "a standing policy-decision whose tool is not a string (6.1.9)", "V4",
      lambda v: v["events"].append({"type": "policy-decision", "time": "2026-10-15T09:05:11Z", "sessions": 0,
                                    "party": 1, "decision": "allowed", "policy_life": "standing",

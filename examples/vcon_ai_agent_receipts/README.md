@@ -25,7 +25,7 @@ proofbundle (https://proofbundle.dev).
 | `claude_jsonl_to_vcon.py` | Converts one transcript into an unsigned vCon with the tool-invocation extension. Standard library only; its docstring lists the mapping and what it does not carry. |
 | `make_example.py` | The producer. Runs the converter, adds the gate, the approval record and the receipts, signs the vCon and writes `out/`. Deterministic, because the test keys are derived from public labels. |
 | `check_example.py` | The offline check of `out/` (or of any folder with the same files). |
-| `measure_cases.py` | Builds 62 failure cases and four passing variants from the example and runs the check twice on each. |
+| `measure_cases.py` | Builds 63 failure cases and four passing variants from the example and runs the check twice on each. |
 | `cases.md` | The output of `measure_cases.py`. |
 | `vcon_profile.py` | Helpers shared by the scripts, for strict JSON, RFC 8785, a small deterministic CBOR codec, COSE_Sign1, JWS with EdDSA and RS256, and the RSA test key derived from its label. |
 | `proposal_decision_receipt.cddl` | Our proposal, one parameter for the `$$event-policy-decision-ext` socket of tool-invocation-00. Not part of any draft. |
@@ -158,6 +158,9 @@ The example had to pick one reading at each of these places; `cases.md` holds a 
   Appendix D allow.
 - A `content_hash` must carry a `sha512` token.
 - `approvedAt` is the time the answer was sent, its `start` plus its `duration`.
+- For this synthetic example, an approval record is accepted only if its referenced Dialog Object is the person's
+  text/plain answer with encoding `none` and body `Approved.`. Matching the answer's identifier, party, session, and
+  send time alone does not establish that permission was granted.
 - `trace-format` is "ietf-vac-v3.0" for a vCon payload, with content type "application/vcon".
 - The JWS form is shown with EdDSA, whose test key derives from a label like the others, and with RS256,
   which vCon core recommends.
