@@ -602,6 +602,87 @@ claude plugin install proofbundle-guard@proofbundle-house
 A Claude Code session with both plugins installed this way is NOT MEASURED; one with both loaded with `--plugin-dir`
 ran at an earlier state of the split (D134).
 
+## Release 0.4.0 verification and migration
+
+This section belongs to the plugin release `proofbundle--v0.4.0`. It replaces an earlier 0.4.0 under Claude Code and
+verifies the release assets.
+
+### Replace an earlier 0.4.0 under Claude Code
+
+Version 0.4.0 was available from the public marketplace before this release, also in an earlier form in which this
+plugin carried the Guard's hooks. In the measured Claude Code 2.1.318 run, `claude plugin update proofbundle@proofbundle`
+reported that 0.4.0 was already the latest version and kept the earlier files with their hooks. A routine update
+therefore must not be taken as evidence of replacement. These three commands were used for the measured reinstall:
+
+```sh
+claude plugin marketplace update proofbundle
+claude plugin uninstall --keep-data proofbundle@proofbundle
+claude plugin install proofbundle@proofbundle
+```
+
+Then start a new session.
+
+- Measured with Claude Code 2.1.318 on Linux, in the user scope, on a copy of a configuration that had installed the
+  earlier form. Each command exited 0. Afterwards the installed commit was the one main had at that time, every
+  installed file was byte-equal to `plugins/proofbundle` in the archive the release tools built for that commit, and
+  `claude plugin details proofbundle@proofbundle` listed `Hooks (0)` and the MCP server `proofbundle`.
+- `--keep-data` keeps the plugin's data directory, `~/.claude/plugins/data/proofbundle-proofbundle/`, where
+  `emit_receipt` keeps its default signing key (see Keys). Without it, `uninstall` deletes that directory; both were
+  measured. The marketplace and the enabled setting stay as they were.
+- The installed commit is the `gitCommitSha` of `proofbundle@proofbundle` in `~/.claude/plugins/installed_plugins.json`.
+  Compare it, and the installed files, with the commit and the archive the release statement names when that
+  correspondence matters; the commands follow main, which can move on after the release.
+- The migration under Codex is NOT MEASURED.
+
+### Verify the release assets
+
+The release has four assets, `proofbundle-plugin-0.4.0.tar`, `proofbundle-plugin-0.4.0.release.json`, `SHA256SUMS`
+and `proofbundle-plugin-0.4.0.release.json.sig`. The signature covers the exact bytes of the release statement, and
+the statement binds the archive. Take the owner's public key from a channel you already trust; a key printed next to
+the assets is not by itself a trust anchor.
+
+The verification program also needs a trusted source. The plugin tag is annotated but unsigned. Do not execute a script taken from that tag as if the tag authenticated it. Set `TRUSTED_VERIFIER_COMMIT` to the full 40-character Git commit ID of a revision whose `scripts/plugin_release_artifacts.py` you have independently reviewed or authenticated, not merely to a value copied from this release or its tag. If no such trusted revision is available, this procedure alone cannot establish independent verification. Set `OWNER_PUBLIC_KEY` to the owner's public key from a separately trusted channel (standard base64 of 32 raw bytes). Put the four assets in a folder called `assets` in your current directory. Run the entire block below in a POSIX-compatible shell, Bash or zsh. It runs in a subshell, stops on a failed step, and creates a fresh temporary clone and environment each time; a second run in the same directory does not reuse the first.
+
+```sh
+(
+  set -eu
+  : "${TRUSTED_VERIFIER_COMMIT:?Set a full independently trusted verifier commit SHA}"
+  : "${OWNER_PUBLIC_KEY:?Set an independently trusted owner public key}"
+  printf '%s\n' "$TRUSTED_VERIFIER_COMMIT" | LC_ALL=C grep -Eq '^[0-9a-f]{40}$' || { echo 'Expected a lowercase commit ID, not a branch or tag' >&2; exit 2; }
+  test "${#TRUSTED_VERIFIER_COMMIT}" -eq 40 || { echo 'Expected the full 40-character commit ID' >&2; exit 2; }
+  test -d assets
+  work="$(mktemp -d)"
+  trap 'rm -rf "$work"' EXIT
+  git clone https://github.com/b7n0de/proofbundle.git "$work/proofbundle"
+  git -C "$work/proofbundle" show "${TRUSTED_VERIFIER_COMMIT}:scripts/plugin_release_artifacts.py" > "$work/verifier.py.new"
+  mv "$work/verifier.py.new" "$work/verifier.py"
+  python3 -m venv "$work/venv"
+  "$work/venv/bin/python" -m pip install proofbundle
+  if "$work/venv/bin/python" -I "$work/verifier.py" verify --assets "$PWD/assets" --public-key "$OWNER_PUBLIC_KEY" --repo "$work/proofbundle" > "$work/result.txt"; then
+    cat "$work/result.txt"
+    test "$(tail -n 1 "$work/result.txt")" = 'result OK'
+  else
+    rc=$?
+    cat "$work/result.txt"
+    exit "$rc"
+  fi
+)
+```
+
+The `verify` command needs Python 3.10 or later; it was independently exercised with Python 3.10.20 and 3.11.18. The separate `build` command needs Python 3.11 or later. The verifier reports the raw public-key SHA-256 as `public_key_raw_sha256`; compare that value with a fingerprint you trust independently of these release assets. The value printed in the release notes is not, on its own, proof of ownership. The verifier checks the signature over the exact statement bytes, the statement's form and values, the archive's size and SHA-256, and `SHA256SUMS` byte for byte. With `--repo` it also checks that the locally fetched tag is annotated and names the statement's commit. This is a consistency check, not authentication of the unsigned tag. `verify` does not rebuild the archive from the named source commit or compare the `commit_tree` and `plugin_tree` fields with that repository; source-to-archive correspondence requires a separate rebuild and byte comparison. The verification succeeds only if the final line is `result OK` and the exit status is 0. Exit 1 indicates a failed check; exit 2 means a check could not be completed. Checking `SHA256SUMS` alone does not verify a signature.
+
+Measured on Linux with Python 3.11.15 and proofbundle 6.4.0 from PyPI, the verifier pin of this release, with a
+temporary key, over the assets the release tools built at a candidate commit, and with a local clone holding the tag
+object they wrote. With and without `--repo` the run ended with `result OK`, and another key and an added line in
+`SHA256SUMS` each ended with exit 1 and the failed check named.
+
+The `pip install proofbundle` command above is unpinned and can install a later version than the one measured.
+Only 6.4.0 was measured for this verification path. To reproduce that run, use a separately trusted installation of
+6.4.0 and record the package version. The signed statement's `verifier_pin` identifies the plugins' runtime
+dependency; it does not pin the package installed for this separate verification command.
+
+The project's site is [proofbundle.dev](https://proofbundle.dev).
+
 ## Try it from a checkout
 
 ```sh

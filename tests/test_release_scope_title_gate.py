@@ -1186,7 +1186,8 @@ def test_die_grenze_ein_zufallstreffer_des_stamms_irrt_zu_nicht_messbar(tmp_path
 #: plugin-0.4.0.md scopes the plugin release, which comes before 6.5.0. Its name is no package version, so the gate
 #: never takes it for the release being built; measured with this reader on main c9ab65b1 with the file and the row of
 #: pull request 468 added: state measured, 13 branches, no rider, 13 lines, 13 rows examined; with the row GR1 added
-#: on main ab681dfe: state measured, 14 branches, no rider, 14 lines, 14 rows examined.
+#: on main ab681dfe: state measured, 14 branches, no rider, 14 lines, 14 rows examined; with the row MG3 added on main
+#: 26d625c1: state measured, 15 branches, no rider, 15 lines, 15 rows examined.
 _ZUSTAND_DER_ECHTEN = {"3.7.1.md": "kein einziger Zweig", "4.0.0.md": "kein einziger Zweig",
                        "5.0.0.md": "kein einziger Zweig", "6.0.0.md": "kein einziger Zweig",
                        "6.1.0.md": "gemessen", "6.2.0.md": "gemessen", "6.2.1.md": "gemessen",
