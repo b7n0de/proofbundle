@@ -131,22 +131,38 @@ def json_key(value):
     this example are taken over. Python's == takes True for 1 and False for 0, so a denied {"x": true} would match a
     later {"x": 1}; here true and 1 stay apart, while 1 and 1.0, or 0 and -0.0, are one number, as in RFC 8785. A
     value RFC 8785 does not serialize (an integer beyond 2**53 - 1, NaN, an infinity) is equal only to the same value
-    of the same type."""
-    if value is None:
-        return ("null",)
-    if isinstance(value, bool):
-        return ("boolean", value)
-    if isinstance(value, int):
-        return ("number", float(value)) if abs(value) <= SAFE_INTEGER else ("integer", value)
-    if isinstance(value, float):
-        return ("number", value) if math.isfinite(value) else ("float", repr(value))
-    if isinstance(value, str):
-        return ("string", value)
-    if isinstance(value, list):
-        return ("array", tuple(json_key(x) for x in value))
-    if isinstance(value, dict):
-        return ("object", frozenset((k, json_key(x)) for k, x in value.items()))
-    raise TypeError("not a JSON value: %s" % type(value).__name__)
+    of the same type. The key is a flat text built without recursion, so neither building it nor comparing or hashing
+    it ends the conversion on a deeply nested value that json can parse. Its tokens: n, t, f, d<the double in hex>,
+    i<an integer outside RFC 8785>, x<NaN or an infinity>, s<the string as JSON>, [..] and {..} with the members
+    sorted."""
+    done, todo = [], [(value, False)]
+    while todo:
+        v, children_done = todo.pop()
+        if children_done:
+            n = len(v)
+            parts = done[len(done) - n:] if n else []
+            del done[len(done) - n:]
+            if isinstance(v, list):
+                done.append("[" + ",".join(parts) + "]")
+            else:
+                done.append("{" + ",".join(sorted(json.dumps(k) + ":" + p for k, p in zip(v, parts))) + "}")
+        elif isinstance(v, (list, dict)):
+            todo.append((v, True))
+            todo.extend((x, False) for x in reversed(v if isinstance(v, list) else list(v.values())))
+        elif v is None:
+            done.append("n")
+        elif isinstance(v, bool):
+            done.append("t" if v else "f")
+        elif isinstance(v, int):
+            done.append("d" + float(v).hex() if abs(v) <= SAFE_INTEGER else "i%d" % v)
+        elif isinstance(v, float):
+            # -0.0 is 0 in RFC 8785
+            done.append("d" + (v if v else 0.0).hex() if math.isfinite(v) else "x" + repr(v))
+        elif isinstance(v, str):
+            done.append("s" + json.dumps(v))
+        else:
+            raise TypeError("not a JSON value: %s" % type(v).__name__)
+    return done[0]
 
 
 def convert(lines, user_id="user", user_name="user", agent_id="agent", agent_name="coding agent",
@@ -245,7 +261,9 @@ def convert(lines, user_id="user", user_name="user", agent_id="agent", agent_nam
         for i, c in enumerate(text):
             if c in "{[":
                 try:
-                    if json_key(dec.raw_decode(text, i)[0]) in denied_keys:
+                    # the denied arguments are JSON objects (see the first pass), so only an object can be a copy
+                    found = dec.raw_decode(text, i)[0]
+                    if isinstance(found, dict) and json_key(found) in denied_keys:
                         return True
                 except ValueError:
                     pass
@@ -378,7 +396,7 @@ def convert(lines, user_id="user", user_name="user", agent_id="agent", agent_nam
             for y in (x.values() if isinstance(x, dict) else x):
                 yield from nodes(y)
     for node in nodes(vcon):
-        if json_key(node) in denied_keys:
+        if isinstance(node, dict) and json_key(node) in denied_keys:
             raise ValueError("the vCon would hold the arguments of a disallowed operation as a JSON value")
     report = {"session_id": sid, "lines_converted": len(entries), "dialog": len(dialog), "events": len(events),
               "events_by_type": dict(sorted(collections.Counter(x["type"] for x in events).items())),

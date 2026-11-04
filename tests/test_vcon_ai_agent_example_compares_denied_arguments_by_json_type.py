@@ -86,6 +86,13 @@ class TheConverterComparesDeniedArgumentsByJsonType(unittest.TestCase):
                                           _line(3, "assistant", [{"type": "text", "text": 'again {"x": true}'}])))
         self.assertEqual(self._texts(vcon), [])
 
+    def test_a_deeply_nested_json_text_does_not_end_the_conversion(self):
+        """The old `in` stopped at the first member that differed; the key must not end the conversion either, here
+        on a text whose JSON json itself can still parse."""
+        deep = '{"a": ' * 600 + "1" + "}" * 600
+        vcon, _ = self.c.convert(_session({"x": True}, _line(3, "assistant", [{"type": "text", "text": deep}])))
+        self.assertIn(deep, self._texts(vcon))
+
     # the last guard over every JSON node of the vCon
 
     def test_an_allowed_call_with_1_after_a_denied_true_is_not_refused(self):
@@ -129,6 +136,17 @@ class JsonKeyIsEqualityOfTheRfc8785Form(unittest.TestCase):
     def test_the_case_of_the_finding_is_apart(self):
         self.assertNotEqual(self.key({"x": True}), self.key({"x": 1}))
         self.assertTrue({"x": True} == {"x": 1}, "precondition: Python's == takes True for 1")
+
+    def test_the_key_of_a_deep_value_needs_no_recursion(self):
+        """3000 levels, three times the recursion limit: building, comparing and hashing the key must not recurse.
+        A key of nested tuples failed here even when built without recursion, because Python compares tuples level
+        by level."""
+        deep, same = [], []
+        for _ in range(3000):
+            deep, same = [deep, 1], [same, 1.0]
+        self.assertEqual(self.key(deep), self.key(same))
+        self.assertEqual(len({self.key(deep), self.key(same)}), 1)
+        self.assertNotEqual(self.key(deep), self.key([[deep, 1], 1]))
 
     def test_a_value_outside_rfc8785_is_equal_only_to_itself(self):
         big = 2 ** 60
