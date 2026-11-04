@@ -312,6 +312,8 @@ CASES = [
      lambda v: v["dialog"][4].update({"mediatype": "application/json", "encoding": "base64url", "body": vp.b64u(
          json.dumps({"command": "gh pr merge 7 --repo acme/widgets --merge",
                      "description": "Merge pull request 7"}).encode("utf-16"))}), None),
+    ("F54", "the approved push has no tool-result", "R5",
+     lambda v: v["events"].remove(ev(v, OP1, "tool-result")), None),
     ("F38", "a standing policy-decision whose tool is not a string (6.1.9)", "V4",
      lambda v: v["events"].append({"type": "policy-decision", "time": "2026-10-15T09:05:11Z", "sessions": 0,
                                    "party": 1, "decision": "allowed", "policy_life": "standing",

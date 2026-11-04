@@ -613,6 +613,9 @@ def check_receipts(rep, v, a, gate):
                 rep.need(e.get("party") == pd.get("party"), "R2", where, "events[%d] %s of operation %s names party %r, "
                          "not the agent %r of its policy-decision (6.1)" % (j, e["type"], op, e.get("party"),
                                                                            pd.get("party")))
+        # the example is complete: an invoked operation has a terminal result of the attempt its decision precedes
+        rep.need(tool is None or results, "R5", where, "the invoked operation %s has no terminal result for the attempt "
+                 "named by its policy-decision; result-time verification cannot be performed" % op)
         T = vp.iso(min(vp.when(e["time"]) for e in results)) if results else pred["decidedAt"]
         full_check(rep, "R5", where + ", T " + T, b, a, T, case, action, ap_b)
         found.append({"pred": pred, "root": root, "case": case, "approval": f, "op": op, "session": k, "bytes": b,

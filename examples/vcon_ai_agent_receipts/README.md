@@ -25,7 +25,7 @@ proofbundle (https://proofbundle.dev).
 | `claude_jsonl_to_vcon.py` | Converts one transcript into an unsigned vCon with the tool-invocation extension. Standard library only; its docstring lists the mapping and what it does not carry. |
 | `make_example.py` | The producer. Runs the converter, adds the gate, the approval record and the receipts, signs the vCon and writes `out/`. Deterministic, because the test keys are derived from public labels. |
 | `check_example.py` | The offline check of `out/` (or of any folder with the same files). |
-| `measure_cases.py` | Builds 55 failure cases and four passing variants from the example and runs the check twice on each. |
+| `measure_cases.py` | Builds 56 failure cases and four passing variants from the example and runs the check twice on each. |
 | `cases.md` | The output of `measure_cases.py`. |
 | `vcon_profile.py` | Helpers shared by the scripts, for strict JSON, RFC 8785, a small deterministic CBOR codec, COSE_Sign1, JWS with EdDSA and RS256, and the RSA test key derived from its label. |
 | `proposal_decision_receipt.cddl` | Our proposal, one parameter for the `$$event-policy-decision-ext` socket of tool-invocation-00. Not part of any draft. |
@@ -69,7 +69,7 @@ does not trust an unpinned supplied key. Each decision receipt is also verified 
 | `proposedAction.parametersDigest` | SHA-256 of the RFC 8785 serialization of the tool-invocation's JSON content; for a disallowed operation the arguments are not in the vCon (tool-invocation-00 6.1.1), and the digest stands in the receipt alone |
 | `agent.id`, `principal.id` | `uuid` of the party of the policy-decision, the agent, and of the person |
 | approval record `approvalId`, `approver`, `session`, `approvedAt` | `entry_id`, contributing party, session and time of the person's answer in the dialog |
-| verification time | time of the first tool-result, tool-failure, tool-error or tool-denied of the attempt its policy-decision precedes; a response without a tool-invocation of its attempt is refused |
+| verification time | time of the first tool-result, tool-failure, tool-error or tool-denied of the attempt its policy-decision precedes; an invoked operation without one, and a response without a tool-invocation of its attempt, are refused |
 
 A receipt is an Attachment Object, inline (`encoding` json) or referenced by `url` and `content_hash`. The
 `content_hash` carries a SHA-512 token over the receipt file, as vCon core requires, and a SHA-256 token over
