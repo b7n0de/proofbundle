@@ -401,6 +401,7 @@ _COMMAND_GROUPS = (
         ("verify-enclave", "verify a TEE Attestation Result bound to a receipt  (experimental)"),
         ("verify-trace", "verify a TRACE v0.2 Trust Record against your keys"),
         ("verify-sigstore", "verify a GitHub or npm Sigstore attestation offline  (proposed)"),
+        ("scitt-ccf", "verify a SCITT statement or a CCF consistency receipt  (experimental)"),
         ("policy", "inspect a trust policy: explain its pins, lint for vacuousness"),
     )),
     ("Emit and commit", (
@@ -3368,6 +3369,194 @@ def _cmd_policy_instantiate(args: argparse.Namespace) -> int:
     return 0
 
 
+# ── scitt-ccf (EXPERIMENTAL, the [scitt] extra): the scitt-ccf/v1 reader of ADR 0009 on the command line ──────────
+#: The exit code of each status `scitt_ccf.verify_transparent_statement` can return, in the four classes of
+#: verify-trace and verify-sigstore: 0 every check of the profile held, 1 the evidence does not verify against what
+#: the caller gave, 2 the input is not readable under the profile or the [scitt] extra is missing, 3 sound evidence for
+#: which the caller supplied no matching trust. tests/test_cli_scitt_ccf.py holds this table equal to the library's
+#: set of statuses, so a status the library adds cannot reach the command line without an exit code.
+_SCITT_STATEMENT_EXIT = {
+    "confirmed": 0,
+    "outside_profile": 1, "unbound": 1, "statement_signature_invalid": 1, "root_mismatch": 1,
+    "signature_invalid": 1, "receipt_not_bound": 1,
+    "malformed": 2, "no_lib": 2,
+    "needs_rp_trust": 3,
+}
+#: The same for `scitt_ccf.verify_consistency_receipt`. confirmed_without_tree_sizes is exit 0: every check of
+#: Figure 9 held, and 0 < m < n was not asked for (no --older-size and --newer-size), as `verify` exits 0 without
+#: --policy and says NOT_EVALUATED. The output names it, in TREE-SIZES and in the JSON status.
+_SCITT_CONSISTENCY_EXIT = {
+    "confirmed": 0, "confirmed_without_tree_sizes": 0,
+    "outside_profile": 1, "consistency_proof_missing": 1, "consistency_payload_attached": 1,
+    "consistency_newer_roots_differ": 1, "consistency_tree_sizes_invalid": 1, "consistency_newer_size_mismatch": 1,
+    "consistency_anchor_not_canonical": 1, "consistency_older_root_mismatch": 1, "consistency_issuer_mismatch": 1,
+    "signature_invalid": 1,
+    "malformed": 2, "no_lib": 2,
+    "needs_rp_trust": 3,
+}
+
+
+def _scitt_hex32(flag: str, value: str) -> bytes:
+    """A SHA-256 value given as 64 hex digits; the white space around it is stripped, none is taken inside.
+
+    `bytes.fromhex` skips ASCII white space between the byte pairs (the class `_parse_header_spec` closed for
+    `--bitcoin-header`), so the digits are matched first and only then decoded."""
+    import re  # noqa: PLC0415
+    text = value.strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", text):
+        raise ValueError(f"{flag} must be 64 hex digits (a SHA-256 value), got {value!r}")
+    return bytes.fromhex(text)
+
+
+def _scitt_read(path, flag: str) -> bytes:
+    """An input file as wire bytes, through the stat guard and the input_bytes cap of every verify input."""
+    try:
+        with _open_input(path, binary=True) as handle:
+            return _read_capped_bytes(handle)
+    except OSError as exc:
+        raise ValueError(f"{flag} {path!r}: cannot read ({exc})") from exc
+
+
+def _scitt_trust(args: argparse.Namespace, *, statement_keys: bool) -> tuple:
+    """The relying party's trust for scitt-ccf/v1, from the options only, never from the evidence.
+
+    Returns ``(rp_trust, counts)``. --issuer names the service, compared as an exact string with the CWT iss of its
+    receipts; --service-keys is that service's COSE_KeySet as served by /.well-known/scitt-keys. A key set without a
+    key the reader verifies with, and a statement key that is not an EC P-256, EC P-384 or RSA SubjectPublicKeyInfo
+    in DER, are refused here (exit 2): the library would read either as absent trust, and the verdict would say
+    needs_rp_trust about material the caller did give."""
+    from . import scitt_ccf as S  # noqa: PLC0415
+    if not args.issuer:
+        raise ValueError("--issuer must name the service whose receipts you trust (the CWT iss of its receipts); "
+                         "an empty issuer matches nothing")
+    raw = _scitt_read(args.service_keys, "--service-keys")
+    try:
+        keys = S.load_cose_keyset(raw)
+    except S.ScittFormatError as exc:
+        raise ValueError(f"--service-keys {args.service_keys!r} is not a COSE_KeySet: {exc}") from None
+    if not keys:
+        raise ValueError(f"--service-keys {args.service_keys!r} holds no EC2 key on P-256 or P-384, the keys "
+                         "scitt-ccf/v1 verifies a receipt with")
+    trust: dict = {"scitt_ccf_services": {args.issuer: keys}}
+    counts = {"service_keys": len(keys)}
+    if statement_keys:
+        paths = args.statement_key or []
+        if len(paths) > S.MAX_TRUSTED_KEYS:
+            raise ValueError(f"more than {S.MAX_TRUSTED_KEYS} --statement-key options; the reader takes at most "
+                             f"{S.MAX_TRUSTED_KEYS} and would ignore the rest")
+        spkis = []
+        for path in paths:
+            spki = _scitt_read(path, "--statement-key")
+            usable, ignored = S._normalize_keys([spki])
+            if not usable:
+                why = ignored[0].split(": ", 1)[-1] if ignored else "not a key"
+                raise ValueError(f"--statement-key {path!r}: {why}")
+            spkis.append(spki)
+        trust["scitt_statement_keys"] = spkis
+        counts["statement_keys"] = len(spkis)
+    return trust, counts
+
+
+def _scitt_refused(args: argparse.Namespace, command: str, status: str, detail: str) -> int:
+    """Exit 2 before any verdict: an input or trust option that cannot be used, or the [scitt] extra missing."""
+    if args.json:
+        print(json.dumps({"command": command, "ok": False, "exit": 2, "status": status, "error": detail}))
+    else:
+        _err(detail)
+    return 2
+
+
+def _scitt_end(code: int) -> str:
+    return f"=> {'OK' if code == 0 else 'FAILED'} (exit {code})"
+
+
+def _cmd_scitt_verify_statement(args: argparse.Namespace) -> int:
+    from . import scitt_ccf as S  # noqa: PLC0415
+    command = "scitt-ccf verify-statement"
+    try:
+        expected = _scitt_hex32("--expected-digest", args.expected_digest)
+        trust, counts = _scitt_trust(args, statement_keys=True)
+        statement = _scitt_read(args.statement, "statement")
+    except S.ScittUnavailable as exc:
+        return _scitt_refused(args, command, "no_lib", f"{exc} (install proofbundle[scitt])")
+    except (ProofBundleError, ValueError) as exc:
+        return _scitt_refused(args, command, "input_refused", str(exc))
+    check = S.verify_transparent_statement(statement, canonical_root=expected, rp_trust=trust)
+    code = _SCITT_STATEMENT_EXIT.get(check.status, 2)
+    if args.json:
+        print(json.dumps({"command": command, "ok": code == 0, "exit": code,
+                          "trust": {"issuer": args.issuer, **counts}, **check.to_dict()}, indent=2))
+        return code
+    print(f"STATUS: {_safe_line(check.status)}")
+    print(f"READABLE: {'yes' if check.readable else 'no'}")
+    valid = {True: "valid", False: "invalid", None: "not checked"}[check.statement_signature_valid]
+    print(f"STATEMENT: {_safe_line(check.statement_status)} (signature {valid})")
+    for rc in check.receipts:
+        sig = {True: "valid", False: "invalid", None: "not checked"}[rc.signature_valid]
+        print(f"RECEIPT {rc.index}: {_safe_line(rc.status)} (issuer {_safe_line(str(rc.issuer))}, "
+              f"txid {_safe_line(str(rc.ccf_txid))}, signature {sig})")
+        if rc.detail:
+            print(f"    {_safe_line(rc.detail)}")
+    print(f"PROFILE: {S.PROFILE} {'satisfied' if check.profile_satisfied else 'not satisfied'}")
+    if check.detail:
+        print(f"DETAIL: {_safe_line(check.detail)}")
+    for item in check.ignored_trust:
+        print(f"IGNORED TRUST: {_safe_line(str(item))}")
+    print(_scitt_end(code))
+    if code == 0:
+        print("\nThe statement carries the digest you gave, it is signed by a statement key you gave, and a receipt "
+              "of the service you named binds it under that service's key. It does not prove that the content is "
+              "true, and the receipt's time is the service's statement, not a trusted time.")
+    return code
+
+
+def _cmd_scitt_verify_consistency(args: argparse.Namespace) -> int:
+    from . import scitt_ccf as S  # noqa: PLC0415
+    command = "scitt-ccf verify-consistency"
+    try:
+        older_root = _scitt_hex32("--older-root", args.older_root)
+        older_issuer = args.older_issuer if args.older_issuer is not None else args.issuer
+        if not older_issuer:
+            raise ValueError("--older-issuer must name the service whose receipt verified --older-root; an empty "
+                             "issuer matches nothing")
+        trust, counts = _scitt_trust(args, statement_keys=False)
+        receipt = _scitt_read(args.receipt, "receipt")
+    except S.ScittUnavailable as exc:
+        return _scitt_refused(args, command, "no_lib", f"{exc} (install proofbundle[scitt])")
+    except (ProofBundleError, ValueError) as exc:
+        return _scitt_refused(args, command, "input_refused", str(exc))
+    check = S.verify_consistency_receipt(receipt, older_root=older_root, older_issuer=older_issuer, rp_trust=trust,
+                                         older_size=args.older_size, newer_size=args.newer_size)
+    code = _SCITT_CONSISTENCY_EXIT.get(check.status, 2)
+    if args.json:
+        print(json.dumps({"command": command, "ok": code == 0, "exit": code,
+                          "trust": {"issuer": args.issuer, "older_issuer": older_issuer, **counts},
+                          **check.to_dict()}, indent=2))
+        return code
+    print(f"STATUS: {_safe_line(check.status)}")
+    print(f"READABLE: {'yes' if check.readable else 'no'}")
+    sig = {True: "valid", False: "invalid", None: "not checked"}[check.signature_valid]
+    print(f"SIGNATURE: {sig}")
+    older = {True: "recomputed by a proof", False: "not recomputed", None: "not reached"}[check.older_root_matches]
+    print(f"OLDER-ROOT: {older}")
+    if check.newer_root is not None:
+        print(f"NEWER-ROOT: {check.newer_root.hex()}")
+    if check.status == S.CONFIRMED:
+        print(f"TREE-SIZES: checked, m={check.older_size} n={check.newer_size} (given by you)")
+    elif check.status == S.CONFIRMED_WITHOUT_TREE_SIZES:
+        print("TREE-SIZES: NOT_CHECKED (give --older-size and --newer-size, from a source you trust independently "
+              "of this receipt, to check 0 < m < n)")
+    print(f"ISSUER: {_safe_line(str(check.issuer))}")
+    if check.detail:
+        print(f"DETAIL: {_safe_line(check.detail)}")
+    print(_scitt_end(code))
+    if code == 0:
+        print("\nAt least one proof recomputes the older root you gave, every proof computes the same newer root, "
+              "and the service you named signed that newer root under its key. It says nothing about the "
+              "statements in either tree, and the tree sizes come only from you.")
+    return code
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="proofbundle",
@@ -3659,6 +3848,69 @@ def build_parser() -> argparse.ArgumentParser:
                                  help="trusted transparency logs whose entries must verify, 0 to 8 (default 1)")
     verify_sigstore.add_argument("--json", action="store_true", help="machine readable output")
     verify_sigstore.set_defaults(func=_cmd_verify_sigstore)
+
+    # ── scitt-ccf (EXPERIMENTAL, the [scitt] extra): ADR 0009, draft-ietf-scitt-receipts-ccf-profile-06 ──
+    scitt = sub.add_parser(
+        "scitt-ccf",
+        help="[EXPERIMENTAL] verify a SCITT Transparent Statement with CCF receipts, or a CCF consistency receipt, "
+             "under scitt-ccf/v1, offline and against trust you supply (needs the [scitt] extra)")
+    scsub = scitt.add_subparsers(dest="scitt_command", required=True)
+    _scitt_epilog = (
+        "Exit codes:\n"
+        "  0  every check of the profile held{zero}\n"
+        "  1  the evidence does not verify against what you gave (a signature, a root, the digest or\n"
+        "     the binding, or evidence outside scitt-ccf/v1)\n"
+        "  2  unreadable input under the profile, an option or trust file that cannot be used, or\n"
+        "     the [scitt] extra is not installed\n"
+        "  3  sound evidence, but none of the trust you gave matches it (needs_rp_trust)\n"
+        "Trust comes only from the options: the issuer, the service's COSE_KeySet{statement}. A kid,\n"
+        "a key or a certificate inside the evidence is never trust, and nothing is fetched.")
+    sc_st = scsub.add_parser(
+        "verify-statement",
+        help="verify a Transparent Statement (a hash envelope with its CCF receipts) against the digest you hold",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=_scitt_epilog.format(
+            zero="",
+            statement=", the statement signer's\nSubjectPublicKeyInfo and the digest"))
+    sc_st.add_argument("statement", help="path to the Transparent Statement (COSE_Sign1, tag 18)")
+    sc_st.add_argument("--expected-digest", dest="expected_digest", required=True, metavar="HEX",
+                       help="the SHA-256 digest the statement's hash envelope must carry (64 hex digits): the "
+                            "digest of the artifact you hold")
+    sc_st.add_argument("--issuer", required=True,
+                       help="the service whose receipts you trust, compared exactly with the CWT iss of a receipt")
+    sc_st.add_argument("--service-keys", dest="service_keys", required=True, metavar="FILE",
+                       help="that service's keys as a COSE_KeySet in CBOR, as served by /.well-known/scitt-keys")
+    sc_st.add_argument("--statement-key", dest="statement_key", action="append", required=True, metavar="FILE",
+                       help="a key of the statement signer as a DER SubjectPublicKeyInfo (EC P-256, EC P-384 or "
+                            "RSA); repeatable. The statement's protected x5chain selects among these keys")
+    sc_st.add_argument("--json", action="store_true", help="machine readable output")
+    sc_st.set_defaults(func=_cmd_scitt_verify_statement)
+
+    sc_co = scsub.add_parser(
+        "verify-consistency",
+        help="verify a CCF consistency receipt against an older root you have already verified",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=_scitt_epilog.format(
+            zero=";\n     without --older-size and --newer-size the status is\n"
+                 "     confirmed_without_tree_sizes and 0 < m < n is not checked",
+            statement=" and the older root"))
+    sc_co.add_argument("receipt", help="path to the consistency receipt (COSE_Sign1, tag 18, detached payload)")
+    sc_co.add_argument("--older-root", dest="older_root", required=True, metavar="HEX",
+                       help="a root you have already verified, for instance the Merkle root of a confirmed "
+                            "inclusion receipt (64 hex digits)")
+    sc_co.add_argument("--issuer", required=True,
+                       help="the service whose receipts you trust, compared exactly with the CWT iss of the receipt")
+    sc_co.add_argument("--service-keys", dest="service_keys", required=True, metavar="FILE",
+                       help="that service's keys as a COSE_KeySet in CBOR, as served by /.well-known/scitt-keys")
+    sc_co.add_argument("--older-issuer", dest="older_issuer", default=None,
+                       help="the issuer of the receipt that verified --older-root (default: --issuer); a "
+                            "consistency receipt of another service is refused")
+    sc_co.add_argument("--older-size", dest="older_size", type=int, default=None, metavar="M",
+                       help="the tree size of the older root, from a source you trust independently of the receipt")
+    sc_co.add_argument("--newer-size", dest="newer_size", type=int, default=None, metavar="N",
+                       help="the tree size of the newer root, likewise; with --older-size, 0 < m < n is checked")
+    sc_co.add_argument("--json", action="store_true", help="machine readable output")
+    sc_co.set_defaults(func=_cmd_scitt_verify_consistency)
 
     demo = sub.add_parser(
         "demo",

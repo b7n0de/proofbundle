@@ -755,6 +755,8 @@ _ERLAUBTE_WAHRHEITSLESUNGEN = {
     ("_cmd_svr", "policy_sha256"): "emit side: content the producer writes, no restriction a verifier relies on",
     ("_cmd_intoto", "evaluator"): ("an empty --evaluator is refused with exit 2 before the signer is resolved, and any "
                                    "other value that is no URI is refused by the v0.2 exporter (exit 2)"),
+    ("_scitt_trust", "issuer"): ("an empty --issuer is refused with exit 2 before any file is read; any other value is "
+                                 "compared exactly, unstripped, with the CWT iss of a receipt"),
 }
 
 
