@@ -639,7 +639,17 @@ def candidates(v):
         yield path, value
         if isinstance(value, dict) and value.get("encoding") == "base64url" and isinstance(value.get("body"), str):
             try:
-                yield path + ".body (base64url decoded)", vp.b64u_dec(value["body"]).decode("utf-8")
+                raw = vp.b64u_dec(value["body"])
+            except ValueError:
+                continue
+            for name, codec in (("utf-8", "utf-8"), ("utf-16", "utf-16"), ("utf-32", "utf-32")):
+                try:
+                    yield path + ".body (base64url, %s)" % name, raw.decode(codec)
+                except UnicodeDecodeError:
+                    pass
+            try:
+                # json.loads reads JSON bytes in UTF-8, UTF-16 and UTF-32 (RFC 8259 8.1); walk what it holds
+                yield from walk(json.loads(raw), path + ".body (base64url, JSON)")
             except (ValueError, UnicodeDecodeError):
                 pass
 

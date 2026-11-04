@@ -308,6 +308,10 @@ CASES = [
     ("F52", "the arguments of the push tool-invocation are a JSON string, not an object", "V4",
      lambda v: ev(v, OP1, "tool-invocation").update({"body": "git push origin refs/heads/topic:refs/heads/topic"}),
      None),
+    ("F53", "the arguments of the denied merge as UTF-16 JSON in a base64url dialog body", "C2",
+     lambda v: v["dialog"][4].update({"mediatype": "application/json", "encoding": "base64url", "body": vp.b64u(
+         json.dumps({"command": "gh pr merge 7 --repo acme/widgets --merge",
+                     "description": "Merge pull request 7"}).encode("utf-16"))}), None),
     ("F38", "a standing policy-decision whose tool is not a string (6.1.9)", "V4",
      lambda v: v["events"].append({"type": "policy-decision", "time": "2026-10-15T09:05:11Z", "sessions": 0,
                                    "party": 1, "decision": "allowed", "policy_life": "standing",
