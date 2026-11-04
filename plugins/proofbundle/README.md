@@ -610,9 +610,9 @@ verifies the release assets.
 ### Replace an earlier 0.4.0 under Claude Code
 
 Version 0.4.0 was available from the public marketplace before this release, also in an earlier form in which this
-plugin carried the Guard's hooks. The version number did not change, so `claude plugin update proofbundle@proofbundle`
-reports that 0.4.0 is already the latest version and keeps the installed copy, its hooks included. These three
-commands replace it:
+plugin carried the Guard's hooks. In the measured Claude Code 2.1.318 run, `claude plugin update proofbundle@proofbundle`
+reported that 0.4.0 was already the latest version and kept the earlier files with their hooks. A routine update
+therefore must not be taken as evidence of replacement. These three commands were used for the measured reinstall:
 
 ```sh
 claude plugin marketplace update proofbundle
@@ -639,12 +639,17 @@ Then start a new session.
 The release has four assets, `proofbundle-plugin-0.4.0.tar`, `proofbundle-plugin-0.4.0.release.json`, `SHA256SUMS`
 and `proofbundle-plugin-0.4.0.release.json.sig`. The signature covers the exact bytes of the release statement, and
 the statement binds the archive. Take the owner's public key from a channel you already trust; a key printed next to
-the assets is not by itself a trust anchor. Set `OWNER_PUBLIC_KEY` to that key, the standard base64 of its 32 raw
-bytes, put the four assets into one folder, here `assets`, then:
+the assets is not by itself a trust anchor.
+
+The verification program also needs a trusted source. The plugin tag is annotated but unsigned. Fetching a Python
+program from that tag and running it before checking the assets would not authenticate the program itself. Set
+`TRUSTED_VERIFIER_COMMIT` to a source commit whose `scripts/plugin_release_artifacts.py` you have independently
+reviewed or authenticated. Set `OWNER_PUBLIC_KEY` to the previously trusted key, in standard base64 form for its 32
+raw bytes, and put the four assets in one folder, here `assets`. Then:
 
 ```sh
 git clone https://github.com/b7n0de/proofbundle.git
-git -C proofbundle show proofbundle--v0.4.0:scripts/plugin_release_artifacts.py > plugin_release_artifacts.py
+git -C proofbundle show "${TRUSTED_VERIFIER_COMMIT:?Set an independently trusted verifier commit}:scripts/plugin_release_artifacts.py" > plugin_release_artifacts.py
 python3 -m venv venv
 venv/bin/python -m pip install proofbundle
 venv/bin/python -I plugin_release_artifacts.py verify --assets assets --public-key "$OWNER_PUBLIC_KEY" --repo proofbundle
@@ -659,6 +664,11 @@ Measured on Linux with Python 3.11.15 and proofbundle 6.4.0 from PyPI, the verif
 temporary key, over the assets the release tools built at a candidate commit, and with a local clone holding the tag
 object they wrote. With and without `--repo` the run ended with `result OK`, and another key and an added line in
 `SHA256SUMS` each ended with exit 1 and the failed check named.
+
+The `pip install proofbundle` command above is unpinned and can install a later version than the one measured.
+Only 6.4.0 was measured for this verification path. To reproduce that run, use a separately trusted installation of
+6.4.0 and record the package version. The signed statement's `verifier_pin` identifies the plugins' runtime
+dependency; it does not pin the package installed for this separate verification command.
 
 The project's site is [proofbundle.dev](https://proofbundle.dev).
 
