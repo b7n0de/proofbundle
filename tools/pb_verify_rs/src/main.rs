@@ -1539,14 +1539,47 @@ fn is_rfc3339_z(s: &str) -> bool {
         return false;
     }
     // position 19 is either 'Z' (len 20) or '.' followed by >=1 digit then 'Z'.
-    if b.len() == 20 {
-        return b[19] == b'Z';
-    }
-    if b[19] != b'.' {
+    let form = if b.len() == 20 {
+        b[19] == b'Z'
+    } else {
+        let frac = &b[20..b.len() - 1];
+        b[19] == b'.' && !frac.is_empty() && frac.iter().all(|c| c.is_ascii_digit())
+    };
+    form && is_calendar_instant(b)
+}
+
+/// Mirror of `_schema_shapes._is_calendar_instant`: a value of the rfc3339z FORM names a real
+/// instant, month 01 to 12, a day that exists in that month and year, hour to 23, minute to 59 and
+/// second to 60 (RFC 3339 5.6 and 5.7). Measured 2026-11-03: `2026-13-15T09:05:00Z` passed here
+/// while Python refused it, the same bytes with two verdicts. The caller has checked the form, so
+/// positions 0..19 hold ASCII digits and separators.
+fn is_calendar_instant(b: &[u8]) -> bool {
+    let num = |from: usize, to: usize| {
+        b[from..to]
+            .iter()
+            .fold(0u32, |n, c| n * 10 + u32::from(c - b'0'))
+    };
+    let (year, month, day) = (num(0, 4), num(5, 7), num(8, 10));
+    let (hour, minute, second) = (num(11, 13), num(14, 16), num(17, 19));
+    if !(1..=12).contains(&month) {
         return false;
     }
-    let frac = &b[20..b.len() - 1];
-    !frac.is_empty() && frac.iter().all(|c| c.is_ascii_digit())
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let days = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    (1..=days[(month - 1) as usize]).contains(&day) && hour <= 23 && minute <= 59 && second <= 60
 }
 
 fn validate_edge_digest(obj: &serde_json::Value, errors: &mut Vec<String>) {
@@ -4263,6 +4296,37 @@ mod tests {
         let v =
             wert(r#"{"a":1,"b":[1,2,3],"c":{"d":"text"}}"#).expect("sauberes Dokument abgewiesen");
         assert_eq!(v["a"], serde_json::json!(1));
+    }
+
+    #[test]
+    fn ein_zeitfeld_nennt_einen_echten_kalendermoment() {
+        // Codex-Fund P1 an PR 477: die Form allein nahm Monat 13 an, Python wies ihn ab. Dieselben
+        // Werte wie REFUSED und ACCEPTED in tests/test_time_fields_read_the_calendar.py.
+        for v in [
+            "2026-13-15T09:05:00Z",
+            "2026-00-10T00:00:00Z",
+            "2026-10-32T09:05:00Z",
+            "2026-01-00T00:00:00Z",
+            "2026-02-29T00:00:00Z",
+            "2100-02-29T00:00:00Z",
+            "2026-02-30T00:00:00Z",
+            "2026-04-31T00:00:00Z",
+            "2026-10-15T24:00:00Z",
+            "2026-10-15T09:60:00Z",
+            "2026-10-15T09:05:61Z",
+            "2026-13-15T09:05:00.5Z",
+        ] {
+            assert!(!is_rfc3339_z(v), "{v} angenommen");
+        }
+        for v in [
+            "2026-10-15T09:05:00Z",
+            "2024-02-29T00:00:00Z",
+            "2000-02-29T00:00:00Z",
+            "2026-12-31T23:59:60Z",
+            "2026-10-15T09:05:00.123456Z",
+        ] {
+            assert!(is_rfc3339_z(v), "{v} abgewiesen");
+        }
     }
 
     #[test]

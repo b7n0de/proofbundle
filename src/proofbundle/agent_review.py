@@ -97,7 +97,13 @@ _SELFREF_SHORT = re.compile(r"\[[0-9a-f]{12}\]\(")
 #: both checks; RFC 3339 and the schemas' ECMA-262 `\d` mean 0-9 only. A bug fix in v0.1, v0.2 and
 #: v0.3 alike, all three read these two constants; the exception to the version rule is in the
 #: CHANGELOG, with the measurement that no receipt or vector in this repository is affected.
-_RFC3339_Z = re.compile(r"\A[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z\Z")
+#:
+#: A REAL CALENDAR INSTANT TOO (owner choice A on card OA-7eda3d6d7b, 2026-11-03): the time check reads
+#: `_schema_shapes.RFC3339_Z`, the FORM plus month, day, hour, minute and second ranges, like every other
+#: predicate, instead of a private copy of the form. The same kind of bug fix in v0.1, v0.2 and v0.3, with
+#: the same measurement: no receipt or vector in this repository holds a time value of the form that is not
+#: a real instant (the 36 such values in the tree are test inputs and script examples).
+from ._schema_shapes import RFC3339_Z as _RFC3339_Z  # noqa: E402
 _SHA256_HEX = re.compile(r"\A[0-9a-f]{64}\Z")
 _GIT_SHA = re.compile(r"\A[0-9a-f]{40}\Z")
 _SEMVER_0_1_X = re.compile(r"\A0\.1\.[0-9]+\Z")
