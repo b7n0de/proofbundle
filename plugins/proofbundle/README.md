@@ -648,9 +648,7 @@ The verification program also needs a trusted source. The plugin tag is annotate
   set -eu
   : "${TRUSTED_VERIFIER_COMMIT:?Set a full independently trusted verifier commit SHA}"
   : "${OWNER_PUBLIC_KEY:?Set an independently trusted owner public key}"
-  case "$TRUSTED_VERIFIER_COMMIT" in
-    *[!0-9a-f]* | '') echo 'Expected a lowercase commit ID, not a branch or tag' >&2; exit 2 ;;
-  esac
+  printf '%s\n' "$TRUSTED_VERIFIER_COMMIT" | LC_ALL=C grep -Eq '^[0-9a-f]{40}$' || { echo 'Expected a lowercase commit ID, not a branch or tag' >&2; exit 2; }
   test "${#TRUSTED_VERIFIER_COMMIT}" -eq 40 || { echo 'Expected the full 40-character commit ID' >&2; exit 2; }
   test -d assets
   work="$(mktemp -d)"
