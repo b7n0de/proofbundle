@@ -274,7 +274,8 @@ def check_structure(rep, v):
         except ValueError as e:
             rep.fail("V4", where, str(e))
     ext = v.get("extensions", [])
-    rep.need(isinstance(ext, list) and "ai_agent" in ext, "V4", "extensions", "ai_agent not in extensions")
+    rep.need(isinstance(ext, list) and all(name in ext for name in ("ai_agent", "tool-invocation")),
+             "V4", "extensions", "both ai_agent and tool-invocation must be declared in extensions")
     for c in v.get("critical", []):
         rep.need(c in ext and c == "ai_agent", "V4", "critical", "unsupported critical extension %r" % c)
     parties, sessions = v.get("parties", []), v.get("sessions", [])

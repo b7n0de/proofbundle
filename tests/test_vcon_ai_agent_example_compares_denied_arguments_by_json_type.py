@@ -8,6 +8,11 @@ in which an allowed call carried `{"x": 1}`. Both places now compare `json_key` 
 the RFC 8785 forms are equal, the form the digests of the example and `check_example.py` use: true is not 1, and 1 is
 1.0. The cases below fail at 1e32dd75 and pass with the fix; the oracle test holds `json_key` against `rfc8785`
 itself.
+
+The last class holds `check_example.py` to the extensions the example uses (external review of 4b9cef80, C1): the vCon
+carries Event Objects of tool-invocation and of the AI agent extension, and vCon core -05 4.1.3 requires every
+extension a vCon uses to be named in `extensions`. At 4b9cef80 the checker asked for ai_agent alone, so a vCon that
+named only ai_agent passed V4.
 """
 from __future__ import annotations
 
@@ -175,6 +180,50 @@ class JsonKeyIsEqualityOfTheRfc8785Form(unittest.TestCase):
         self.assertEqual(self.key({"x": big}), self.key({"x": big}))
         self.assertNotEqual(self.key({"x": big}), self.key({"x": float(big)}))
         self.assertNotEqual(self.key({"x": big}), self.key({"x": big + 1}))
+
+
+def _checker():
+    spec = importlib.util.spec_from_file_location("check_example_under_test", EXAMPLE / "check_example.py")
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m
+
+
+class TheCheckerNeedsBothExtensionsTheExampleUses(unittest.TestCase):
+
+    def setUp(self):
+        if not (EXAMPLE / "check_example.py").is_file():
+            self.skipTest("examples/vcon_ai_agent_receipts/check_example.py is not in this tree")
+        try:
+            import cryptography  # noqa: F401, PLC0415
+        except ImportError:
+            self.skipTest("cryptography is not installed")
+        self.ce = _checker()
+        self.vcon = json.loads((EXAMPLE / "out" / "vcon.payload.json").read_text(encoding="utf-8"))
+
+    def _first_failure(self, extensions):
+        v = json.loads(json.dumps(self.vcon))
+        v["extensions"] = extensions
+        rep = self.ce.Report()
+        try:
+            self.ce.check_structure(rep, v)
+        except self.ce.Stop:
+            pass
+        return rep.first
+
+    def test_the_example_names_both_and_its_structure_passes(self):
+        self.assertEqual(sorted(self.vcon["extensions"]), ["ai_agent", "tool-invocation"])
+        self.assertIsNone(self._first_failure(list(self.vcon["extensions"])))
+
+    def test_extensions_with_ai_agent_alone_fail_v4(self):
+        first = self._first_failure(["ai_agent"])
+        self.assertIsNotNone(first, "a vCon with tool-invocation events that names only ai_agent passed V4")
+        self.assertEqual((first["id"], first["where"]), ("V4", "extensions"))
+
+    def test_extensions_with_tool_invocation_alone_fail_v4(self):
+        first = self._first_failure(["tool-invocation"])
+        self.assertIsNotNone(first)
+        self.assertEqual((first["id"], first["where"]), ("V4", "extensions"))
 
 
 if __name__ == "__main__":
