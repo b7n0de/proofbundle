@@ -53,7 +53,8 @@ subagents, meta lines, image and document blocks, lines that are not JSON, a too
 a tool result whose tool_use is not in the transcript, a permissionDecision of another value, the
 arguments and the tool result of a disallowed operation, whose text is the host's refusal, and a text or
 thinking block that holds, whole or inside other text, a JSON value equal to the arguments of a disallowed
-operation (a paraphrase is not recognised). Review the output before you publish it; a
+operation (a paraphrase is not recognised). Equal means equal in the RFC 8785 form that the digests of this
+example are taken over (json_key): true is not 1, and 1 is 1.0. Review the output before you publish it; a
 transcript can hold anything that was typed or read.
 """
 from __future__ import annotations
@@ -63,6 +64,7 @@ import collections
 import datetime
 import hashlib
 import json
+import math
 import pathlib
 import re
 import sys
@@ -118,6 +120,33 @@ def _content(value):
     if isinstance(value, str):
         return {"mediatype": "text/plain", "encoding": "none", "body": value}
     return {"mediatype": "application/json", "encoding": "json", "body": value}
+
+
+#: The largest integer magnitude that RFC 8785 serializes (an I-JSON number, RFC 7493 2.2).
+SAFE_INTEGER = 2 ** 53 - 1
+
+
+def json_key(value):
+    """A key that is equal for two JSON values exactly when their RFC 8785 forms are equal, the form the digests of
+    this example are taken over. Python's == takes True for 1 and False for 0, so a denied {"x": true} would match a
+    later {"x": 1}; here true and 1 stay apart, while 1 and 1.0, or 0 and -0.0, are one number, as in RFC 8785. A
+    value RFC 8785 does not serialize (an integer beyond 2**53 - 1, NaN, an infinity) is equal only to the same value
+    of the same type."""
+    if value is None:
+        return ("null",)
+    if isinstance(value, bool):
+        return ("boolean", value)
+    if isinstance(value, int):
+        return ("number", float(value)) if abs(value) <= SAFE_INTEGER else ("integer", value)
+    if isinstance(value, float):
+        return ("number", value) if math.isfinite(value) else ("float", repr(value))
+    if isinstance(value, str):
+        return ("string", value)
+    if isinstance(value, list):
+        return ("array", tuple(json_key(x) for x in value))
+    if isinstance(value, dict):
+        return ("object", frozenset((k, json_key(x)) for k, x in value.items()))
+    raise TypeError("not a JSON value: %s" % type(value).__name__)
 
 
 def convert(lines, user_id="user", user_name="user", agent_id="agent", agent_name="coding agent",
@@ -204,6 +233,8 @@ def convert(lines, user_id="user", user_name="user", agent_id="agent", agent_nam
     # every disallowed operation is known before any Event Object is written, whatever the order of the lines
     disallowed = {cid for cid, (pd, _res, _t) in decisions.items() if policy_decision_value(pd) == "disallowed"}
     denied_inputs = [inputs[cid] for cid in sorted(disallowed) if cid in inputs]
+    # compared by JSON type (json_key), not by Python ==, which takes True for 1
+    denied_keys = {json_key(x) for x in denied_inputs}
 
     def repeats_denied(text):
         """A text that holds, whole or inside surrounding text, a JSON value equal to the arguments of a disallowed
@@ -214,7 +245,7 @@ def convert(lines, user_id="user", user_name="user", agent_id="agent", agent_nam
         for i, c in enumerate(text):
             if c in "{[":
                 try:
-                    if dec.raw_decode(text, i)[0] in denied_inputs:
+                    if json_key(dec.raw_decode(text, i)[0]) in denied_keys:
                         return True
                 except ValueError:
                     pass
@@ -347,7 +378,7 @@ def convert(lines, user_id="user", user_name="user", agent_id="agent", agent_nam
             for y in (x.values() if isinstance(x, dict) else x):
                 yield from nodes(y)
     for node in nodes(vcon):
-        if node in denied_inputs:
+        if json_key(node) in denied_keys:
             raise ValueError("the vCon would hold the arguments of a disallowed operation as a JSON value")
     report = {"session_id": sid, "lines_converted": len(entries), "dialog": len(dialog), "events": len(events),
               "events_by_type": dict(sorted(collections.Counter(x["type"] for x in events).items())),
