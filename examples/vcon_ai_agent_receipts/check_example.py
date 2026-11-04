@@ -635,26 +635,38 @@ def walk(value, path):
             yield from walk(x, "%s[%d]" % (path, i))
 
 
-def candidates(v):
-    """Every JSON value of the vCon with its path, and the decoded bytes of each base64url body as text, so an encoded
-    copy is seen as well as a plain one."""
-    for path, value in walk(v, "vCon"):
-        yield path, value
+#: How many base64url layers the search for denied arguments decodes; content nested deeper is refused.
+DECODE_DEPTH = 8
+
+
+class TooDeep(Exception):
+    pass
+
+
+def candidates(v, path="vCon", depth=0):
+    """Every JSON value under `v` with its path, and, for each body in the base64url encoding of vCon core, its decoded
+    bytes as UTF-8, UTF-16 and UTF-32 text and as JSON, searched again, so an encoded or nested copy is seen as well
+    as a plain one. Other representations (hex, compression, an encoding of the producer's own) are not decoded."""
+    for p, value in walk(v, path):
+        yield p, value
         if isinstance(value, dict) and value.get("encoding") == "base64url" and isinstance(value.get("body"), str):
+            if depth >= DECODE_DEPTH:
+                raise TooDeep(p)
             try:
                 raw = vp.b64u_dec(value["body"])
             except ValueError:
                 continue
-            for name, codec in (("utf-8", "utf-8"), ("utf-16", "utf-16"), ("utf-32", "utf-32")):
+            for name in ("utf-8", "utf-16", "utf-32"):
                 try:
-                    yield path + ".body (base64url, %s)" % name, raw.decode(codec)
+                    yield p + ".body (base64url, %s)" % name, raw.decode(name)
                 except UnicodeDecodeError:
                     pass
             try:
-                # json.loads reads JSON bytes in UTF-8, UTF-16 and UTF-32 (RFC 8259 8.1); walk what it holds
-                yield from walk(json.loads(raw), path + ".body (base64url, JSON)")
+                # json.loads reads JSON bytes in UTF-8, UTF-16 and UTF-32 (RFC 8259 8.1)
+                inner = json.loads(raw)
             except (ValueError, UnicodeDecodeError):
-                pass
+                continue
+            yield from candidates(inner, p + ".body (base64url, JSON)", depth + 1)
 
 
 def embedded(text):
@@ -702,7 +714,11 @@ def check_set(rep, v, found, approvals):
             # an exact copy of the denied arguments, as a JSON value or as JSON text, anywhere in the vCon
             # (tool-invocation-00 6.1.1); a paraphrase is not detectable from a digest
             denied = x["pred"]["proposedAction"]["parametersDigest"]["sha256"]
-            hits = [path for path, value in candidates(v) if denied in digests_of(value)]
+            try:
+                hits = [path for path, value in candidates(v) if denied in digests_of(value)]
+            except TooDeep as deep:
+                rep.fail("C2", where, "%s nests base64url content deeper than %d layers, which the search for denied "
+                         "arguments does not decode" % (deep, DECODE_DEPTH))
             rep.need(not hits, "C2", where, "%s holds the arguments of the denied operation (their SHA-256 is the "
                      "parametersDigest of the receipt)" % ", ".join(hits),
                      "no JSON value or JSON text in the vCon has the digest of the denied arguments")
@@ -767,7 +783,10 @@ def check_proposal(rep, d, rel, v, found, att, external):
     for x in found:
         if x["pred"]["decision"]["verdict"] in ("DENY", "REFUSE"):
             denied = x["pred"]["proposedAction"]["parametersDigest"]["sha256"]
-            hits = [path for path, value in candidates(pv) if denied in digests_of(value)]
+            try:
+                hits = [path for path, value in candidates(pv) if denied in digests_of(value)]
+            except TooDeep as deep:
+                rep.fail("E1", where, "%s nests base64url content deeper than %d layers" % (deep, DECODE_DEPTH))
             rep.need(not hits, "E1", where, "%s holds the arguments of the denied operation %s" % (", ".join(hits),
                                                                                                 x["op"]))
     named = {e.get("operation_id") for e in pv["events"] if e.get("type") == "policy-decision"

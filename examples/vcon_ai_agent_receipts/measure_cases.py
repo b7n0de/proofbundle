@@ -130,6 +130,22 @@ def m_f51(v):
     ev(v, OP1, "tool-result").update({"sessions": 1, "time": "2026-10-15T09:06:00.000Z"})
 
 
+def m_f55(v):
+    def enc(x):
+        return vp.b64u(json.dumps(x).encode("utf-8"))
+    inner = {"mediatype": "application/json", "encoding": "base64url", "body": enc({
+        "command": "gh pr merge 7 --repo acme/widgets --merge", "description": "Merge pull request 7"})}
+    v["dialog"][4].update({"mediatype": "application/json", "encoding": "base64url", "body": enc(inner)})
+
+
+def m_f56(v):
+    inner = {"note": "nothing denied here"}
+    for _ in range(9):
+        inner = {"mediatype": "application/json", "encoding": "base64url",
+                 "body": vp.b64u(json.dumps(inner).encode("utf-8"))}
+    v["dialog"][4].update(inner)
+
+
 def m_f42(v):
     v["events"] += [
         {"type": "policy-decision", "time": "2026-10-15T09:05:04.000Z", "sessions": 0, "party": 1,
@@ -314,6 +330,9 @@ CASES = [
                      "description": "Merge pull request 7"}).encode("utf-16"))}), None),
     ("F54", "the approved push has no tool-result", "R5",
      lambda v: v["events"].remove(ev(v, OP1, "tool-result")), None),
+    ("F55", "the arguments of the denied merge in a base64url body nested in another base64url body", "C2",
+     m_f55, None),
+    ("F56", "a dialog body nesting base64url content nine layers deep, past the decoding limit", "C2", m_f56, None),
     ("F38", "a standing policy-decision whose tool is not a string (6.1.9)", "V4",
      lambda v: v["events"].append({"type": "policy-decision", "time": "2026-10-15T09:05:11Z", "sessions": 0,
                                    "party": 1, "decision": "allowed", "policy_life": "standing",
