@@ -172,6 +172,9 @@ def convert(lines, user_id="user", user_name="user", agent_id="agent", agent_nam
                     raise ValueError("tool_use id %r repeated, operation_id would not be unique" % blk["id"])
                 operations[blk["id"]] = operation_id(sid, blk["id"])
                 inputs[blk["id"]] = blk.get("input", {})
+                if not isinstance(inputs[blk["id"]], dict):
+                    raise ValueError("tool_use %r has arguments that are not a JSON object; this example profile "
+                                     "takes objects only" % blk["id"])
         result_blocks = [b for b in blocks if isinstance(b, dict) and b.get("type") == "tool_result"]
         if isinstance(e.get("permissionDecision"), dict):
             if len(result_blocks) > 1:

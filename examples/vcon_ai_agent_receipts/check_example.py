@@ -161,6 +161,8 @@ def check_ti_event(rep, where, e, n_att, extra=()):
         if typ == "tool-invocation":
             rep.need(isinstance(e.get("server"), str) and e["server"] != "" and isinstance(e.get("tool"), str)
                      and e["tool"] != "", "V4", where, "server or tool missing in a tool-invocation (6.1.8, 6.1.9)")
+            rep.need(e.get("encoding") != "json" or isinstance(e.get("body"), dict), "V4", where,
+                     "the arguments of a tool-invocation are not a JSON object; this example profile takes objects only")
         rep.need(content_form_ok(e), "V4", where, "content is not inline (encoding, body, mediatype), external "
                  "(url, content_hash) or redacted (content_hash) as in vCon core (6.1.10)")
         for k in as_list(e.get("attachment", [])):
