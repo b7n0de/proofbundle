@@ -12,9 +12,9 @@ What it checks needs none of that, only the bytes it is handed:
 1. the request is `{"schema": KEY_SIGN_REQUEST, "statement": <base64>}`, and the statement is ASCII, at most
    MAX_STATEMENT_BYTES, JSON without a repeated key, and in the canonical form the gate writes (sorted keys, no
    spaces), byte for byte;
-2. it is an in-toto Statement v1 of decision-receipt/v0.1 with exactly the fields the gate writes, its one subject is
-   `decision:<decisionId>` with the sha256 of the canonical predicate, and the decision's maker is the gate of its
-   configuration;
+2. it is an in-toto Statement v1 of decision-receipt/v0.1 with exactly the fields the gate writes, traceContext only
+   in the gate's form (D135), its one subject is `decision:<decisionId>` with the sha256 of the canonical predicate,
+   and the decision's maker is the gate of its configuration;
 3. decidedAt lies within `window_seconds` before now (and at most CLOCK_SKEW_SECONDS after it).
 
 Then it signs the DSSE PAE of the statement and writes the 64-byte signature in base64 on stdout; else it signs
@@ -78,6 +78,12 @@ STATEMENT_KEYS = frozenset({"_type", "subject", "predicateType", "predicate"})
 PREDICATE_KEYS = frozenset({"schemaVersion", "decisionId", "decisionType", "decidedAt", "decisionMaker", "agent",
                             "principal", "proposedAction", "inputSnapshot", "policyBoundary", "evidenceRefs",
                             "decision", "notChecked", "decisionChangeConditions", "privacy", "validity"})
+#: D135: the one field the gate writes only where the hook event names the call, traceContext: an object of traceId and
+#: parentId or of one of them, each an id in the form of the gate's _PILOT_TRACE_ID. Any other value is no statement of
+#: the gate.
+OPTIONAL_PREDICATE_KEYS = frozenset({"traceContext"})
+TRACE_KEYS = frozenset({"traceId", "parentId"})
+_TRACE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z", re.ASCII)
 _DECISION_ID = re.compile(r"a-[0-9a-f]{32}#[1-9][0-9]{0,5}\Z", re.ASCII)
 _INSTANT = re.compile(r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d{6})Z\Z", re.ASCII)
 _HEX_KEY = re.compile(r"[0-9a-f]{64}\Z", re.ASCII)
@@ -167,6 +173,12 @@ def _instant_ns(text: object) -> int:
     return (calendar.timegm((year, month, day, hour, minute, second)) * 1_000_000 + micro) * 1000
 
 
+def _trace_form(trace: object) -> bool:
+    """D135: whether a traceContext is one the gate writes, a non-empty object of TRACE_KEYS whose values are ids."""
+    return isinstance(trace, dict) and bool(trace) and set(trace) <= TRACE_KEYS and \
+        all(isinstance(value, str) and _TRACE_ID.fullmatch(value) for value in trace.values())
+
+
 def judge(config: dict, request: object, now_ns: int, note: dict) -> bytes:
     """The statement the key signer signs; Refused where it signs nothing. `note` gathers what the journal names."""
     if not (isinstance(request, dict) and set(request) == {"schema", "statement"}
@@ -187,9 +199,11 @@ def judge(config: dict, request: object, now_ns: int, note: dict) -> bytes:
         raise Refused("statement_not_canonical")
     if not (isinstance(statement, dict) and set(statement) == STATEMENT_KEYS and statement["_type"] == STATEMENT_TYPE
             and statement["predicateType"] == DECISION_RECEIPT_TYPE and isinstance(statement["predicate"], dict)
-            and set(statement["predicate"]) == PREDICATE_KEYS):
+            and PREDICATE_KEYS <= set(statement["predicate"]) <= PREDICATE_KEYS | OPTIONAL_PREDICATE_KEYS):
         raise Refused("statement_type")
     predicate = statement["predicate"]
+    if "traceContext" in predicate and not _trace_form(predicate["traceContext"]):
+        raise Refused("statement_type")
     decision_id = predicate["decisionId"]
     if not (isinstance(decision_id, str) and _DECISION_ID.fullmatch(decision_id)):
         raise Refused("statement_malformed")

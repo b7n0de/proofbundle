@@ -106,11 +106,14 @@ class ThePilotContract(unittest.TestCase):
     def test_an_effect_matching_several_proposals_is_matched_to_none(self) -> None:
         """Codex thread 4220774964: the API effect carries no proposal identifier, so an effect matching an allowed and
         a refused proposal with the same bytes could be assigned to either, and the choice decided M6 and criterion 1.
-        It is matched to none, M1 is unknown for each, and it counts under M6 when one of them was refused."""
+        It is matched to none, M1 is unknown for each, and it counts under M6 when one of them was refused. Since
+        DECISIONS.md D135 a merge, whose stored bytes the API does not show, equals an action in its surface alone, so
+        the class names that equality as well."""
         text = " ".join(_text().split())
         massnahmen = text[text.index("## 5. Measures"):text.index("## 6. Exit criteria")]
-        self.assertIn("An effect that equals, in surface and bytes, actions of different verdicts is the mismatch class "
-                      "`ambiguous effect`: M1 is `ambiguous` for each of them", massnahmen)
+        self.assertIn("An effect that equals, in surface and bytes or as a merge in its surface alone, actions of "
+                      "different verdicts is the mismatch class `ambiguous effect`: M1 is `ambiguous` for each of them",
+                      massnahmen)
         self.assertIn("it counts under M6 when any of them was refused", massnahmen)
 
     def test_the_witness_was_authorized_before_the_write(self) -> None:
