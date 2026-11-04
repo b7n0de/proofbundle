@@ -84,7 +84,7 @@ Out means that an item is not part of the plugin release; it does not prove abse
 ## Version and pin places
 
 `scripts/plugin_release_artifacts.py` reads each place below on its own, with its count, in the split layout. Script
-dependency metadata is read only from a block whose every line is a comment, in the file or in the script of the constant, is parsed as TOML and lists the pin alone, written proofbundle==X.Y.Z; constants and the server's tool table are read with ast, never executed. A
+dependency metadata is read only from a block whose every line is a comment, in the file or in the script of the constant, is parsed as TOML and holds the two members main writes, `requires-python` ">=3.10" and `dependencies` with the pin alone, written proofbundle==X.Y.Z; constants and the server's tool table are read with ast, never executed. A
 change of a place, a count, an entry or the tool set lands in the generator together with the change that makes it.
 
 | Root | Place | Kind | Count | Expected |

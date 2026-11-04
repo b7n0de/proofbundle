@@ -17,8 +17,8 @@ build
         the layout as a nonempty tree;
       - every required version place and every required pin place of the layout's inventory (INVENTORIES below), with
         its exact count; script dependency metadata is read only from a block whose every line is a comment (PEP
-        723), is parsed as TOML, and each block must list exactly one dependency, proofbundle pinned with == to the
-        expected version; source constants are read with ast, never executed;
+        723), is parsed as TOML, and each block holds requires-python ">=3.10" and exactly one dependency, proofbundle
+        pinned with == to the expected version, nothing else; source constants are read with ast, never executed;
       - every marketplace of the layout: exactly the layout's entries, each source resolving from the folder that
         holds the marketplace to a root of the archive whose manifest carries the same name, and the marketplace,
         each entry and each host manifest of its roots holding only the members main c9ab65b1 writes there
@@ -565,6 +565,12 @@ def script_blocks(text: str, where: str) -> list[str]:
     return blocks
 
 
+#: The members of every script block the generator reads, as main writes them, and the one value of requires-python;
+#: the value of dependencies is the pin alone in the form proofbundle==X.Y.Z (block_pin).
+SCRIPT_BLOCK_MEMBERS = frozenset({"requires-python", "dependencies"})
+SCRIPT_REQUIRES_PYTHON = ">=3.10"
+
+
 def block_pin(content: str, where: str) -> str:
     if tomllib is None:
         raise NotMeasurable("reading script dependency metadata needs tomllib, Python 3.11 or later")
@@ -572,6 +578,12 @@ def block_pin(content: str, where: str) -> str:
         data = tomllib.loads(content)
     except tomllib.TOMLDecodeError as exc:
         raise CheckFailed(f"{where}: script metadata is not TOML ({exc})") from exc
+    # the block as main c9ab65b1, d406a35b and b55d736d write every one the generator reads: requires-python ">=3.10"
+    # and the dependencies list, nothing else (line 3 of the reading of 0356bb2b: a [tool.uv] table with
+    # override-dependencies passed next to the pin it overrides)
+    if set(data) != SCRIPT_BLOCK_MEMBERS or data["requires-python"] != SCRIPT_REQUIRES_PYTHON:
+        raise CheckFailed(f"{where}: script metadata {sorted(data)} not the two members main c9ab65b1 writes "
+                          f"(requires-python {SCRIPT_REQUIRES_PYTHON!r} and dependencies)")
     deps = data.get("dependencies", [])
     if not isinstance(deps, list) or not all(isinstance(d, str) for d in deps):
         raise CheckFailed(f"{where}: dependencies is not a list of strings")

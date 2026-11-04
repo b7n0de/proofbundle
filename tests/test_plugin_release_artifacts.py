@@ -590,6 +590,42 @@ class SplitChecks(Base):
         repo, commit = make_repo(self.tmp, files)
         self.assertRefused(build(repo, commit, self.out), "CR line ends")
 
+    def test_s1q_a_script_block_with_a_member_besides_the_two_main_writes_is_refused(self):
+        """Line 3 of the reading of 0356bb2b: only the dependencies list of a block was read, so a [tool.uv] table with
+        override-dependencies = ["proofbundle==6.3.0"] passed next to the pin it overrides. Every block the generator
+        reads at main c9ab65b1, d406a35b and b55d736d is, as TOML, requires-python ">=3.10" and the dependencies list
+        alone; a block is now held to exactly that, with only the version of the pin free, in a file and in a constant."""
+        uv = '# dependencies = ["proofbundle==6.4.0"]\n# [tool.uv]\n# override-dependencies = ["proofbundle==6.3.0"]'
+        cases = {
+            "uv table in the servers": ("server", uv),
+            "uv table in a gate constant": ("gate", uv),
+            "another python in the servers": ("server-python", None),
+        }
+        for name, (where, line) in cases.items():
+            with self.subTest(name=name):
+                files = split_files()
+                if where == "server":
+                    for root in (V, G):
+                        files[root + "/server/proofbundle_mcp.py"] = server(pin_line=line)
+                elif where == "server-python":
+                    for root in (V, G):
+                        files[root + "/server/proofbundle_mcp.py"] = server().replace(
+                            'requires-python = ">=3.10"', 'requires-python = ">=3.8"', 1)
+                else:
+                    rel = G + "/hooks/proofbundle_gate.py"
+                    old = '# dependencies = ["proofbundle==6.4.0"]\n# ///'
+                    self.assertEqual(files[rel].count(old), 2)
+                    files[rel] = files[rel].replace(old, uv + "\n# ///", 1)
+                sub = self.tmp / name.replace(" ", "_")
+                sub.mkdir()
+                repo, commit = make_repo(sub, files)
+                out = sub / "out"
+                proc = build(repo, commit, out)
+                self.assertEqual(proc.returncode, 1, text(proc))
+                self.assertFalse(out.exists() and any(out.iterdir()), "a refused build wrote artifacts")
+                failed = [x for x in proc.stdout.decode().splitlines() if x.startswith("check FAILED")]
+                self.assertTrue(failed and "not the two members main c9ab65b1 writes" in failed[0], failed)
+
     def test_s2_missing_guard_gate_pin_is_refused(self):
         self.split_refused(lambda f: f.__setitem__(G + "/hooks/proofbundle_gate.py", gate(constant=False)),
                            "PINNED_PROOFBUNDLE")
