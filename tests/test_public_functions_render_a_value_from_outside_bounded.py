@@ -613,6 +613,8 @@ _HAND_SEEDS = {
     "proofbundle._plain_value.plain_json": lambda tmp: [(({"a": [1, "x"]},),
                                                          {"what": "the value", "error": BundleFormatError})],
     "proofbundle._plain_value.plain_list": lambda tmp: [(([1, "x"],), {})],
+    # The approval record of Case 1 of Section 3.3 (finding B3), read by decision verify --approval.
+    "proofbundle._approval_record.read_approval_record": lambda tmp: [((b'{"approvalId":"a"}',), {})],
     "proofbundle._statement_payload.statement_type_problem": lambda tmp: [(
         ({"_type": "https://in-toto.io/Statement/v1"},), {})],
     # Public since pull request 379, the subject rule of the one Statement oracle and its emitter side.

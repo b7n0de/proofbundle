@@ -16,15 +16,24 @@ from .errors import ProofBundleError
 
 def read_approval_record(a_bytes: bytes) -> "tuple[Any, str | None]":
     """(the parsed record, None) when ``a_bytes`` are one JSON value in their own RFC 8785 form, else (None, the
-    reason). Never raises: bytes that do not parse, or that the canonicaliser refuses, are a reason, not an error."""
+    reason). Never raises: a value that is no bytes, bytes that do not parse, or that the canonicaliser refuses, are a
+    reason, not an error. The bytes are read once, by what they store (`canonical._bytes_von`)."""
+    from .canonical import _bytes_von  # noqa: PLC0415
+    roh = _bytes_von(a_bytes)
+    if roh is None:
+        return None, "the approval record is not bytes"
     try:
-        wert = loads_strict(a_bytes)
+        wert = loads_strict(roh)
     except (ProofBundleError, ValueError, UnicodeDecodeError, RecursionError):
         return None, "the approval record is not one JSON value"
     from . import canonical  # noqa: PLC0415 - the canonicaliser is a lazy import in every module
+    # Two clauses, as decision._rfc8785_bytes has them: mypy 2.3.0 reads a starred tuple inside the except tuple as no
+    # exception type (measured on this branch, "Exception type must be derived from BaseException").
     try:
-        eigen = canonical.canonicalize_statement(wert) == a_bytes
-    except (canonical.CanonicalizerUnavailable, *canonical.NOT_CANONICALIZABLE):
+        eigen = canonical.canonicalize_statement(wert) == roh
+    except canonical.CanonicalizerUnavailable:
+        eigen = False
+    except canonical.NOT_CANONICALIZABLE:
         eigen = False
     if not eigen:
         return None, "the approval record is not its own RFC 8785 serialization"
