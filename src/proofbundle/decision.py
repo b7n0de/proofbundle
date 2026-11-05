@@ -593,6 +593,9 @@ def _empty_result() -> dict:
         "predicate_type_ok": None, "policy_ok": None, "evidence_bound": None, "audience_ok": None,
         "nonce_ok": None, "freshness_ok": None, "anchors_ok": None, "action_outcome_proven": None,
         "subject_binding": None, "subject_derived_ok": None,
+        # Step 10 of Section 3.2 of draft-gruszka-audit-decision-receipts-07 (finding B1, vector F5): whether the
+        # action bytes the relying party supplied hash to proposedAction.parametersDigest. None when none were given.
+        "action_bytes_ok": None,
         # Finding 01 / Finding 03 (2026-07 verify-layer hardening, additive): a uniform automation-safety
         # verdict (automation_verdict.automation_summary) and a per-digest EvidenceLevel classification
         # (assurance.classify_digest_evidence) computed at the end of verify — never gate anything on
@@ -625,7 +628,7 @@ def _finalize_failclosed(r: dict) -> dict:
     r["automation"] = automation_summary(r, required_checks={
         "crypto": "crypto_ok", "structure": "structure_ok", "policy": "policy_ok",
         "references": ["evidence_bound", "audience_ok", "nonce_ok", "anchors_ok", "subject_derived_ok",
-                       "lineage_ok"],
+                       "lineage_ok", "action_bytes_ok"],
     })
     return r
 
@@ -637,7 +640,8 @@ def verify_decision_receipt_or_raise(envelope: dict, public_key: bytes, *, stric
                                      anchors: list | None = None, rp_trust: dict | None = None,
                                      require_derived_subject: bool = False,
                                      evidence_resolver: Callable[[dict], bool] | None = None,
-                                     related: dict | None = None, now: int | None = None) -> dict:
+                                     related: dict | None = None, now: int | None = None,
+                                     action_bytes: bytes | None = None) -> dict:
     """Explicit-exception variant of :func:`verify_decision_receipt`: raises :class:`BundleFormatError`
     when the payload is not a well-formed in-toto Statement (malformed JSON, duplicate key, bad UTF-8),
     instead of returning a fail-closed verdict. Use :func:`verify_decision_receipt` (never-raise) for
@@ -647,7 +651,7 @@ def verify_decision_receipt_or_raise(envelope: dict, public_key: bytes, *, stric
         envelope, public_key, strict=strict, expected_audience=expected_audience,
         expected_nonce=expected_nonce, policy=policy, anchors=anchors, rp_trust=rp_trust,
         require_derived_subject=require_derived_subject, evidence_resolver=evidence_resolver,
-        related=related, now=now, _raise_on_malformed=True)
+        related=related, now=now, action_bytes=action_bytes, _raise_on_malformed=True)
 
 
 @_ein_stand(aussen={"evidence_resolver": "rueckruf"}, rp_trust=_abbild_stand)
@@ -657,6 +661,7 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
                             rp_trust: dict | None = None, require_derived_subject: bool = False,
                             evidence_resolver: Callable[[dict], bool] | None = None,
                             related: dict | None = None, now: int | None = None,
+                            action_bytes: bytes | None = None,
                             _raise_on_malformed: bool = False) -> dict:
     """Verify a DSSE-signed Decision Receipt. Crypto first, then structure over the EXACT signed bytes (never
     re-serialized). Returns the snake_case structured result; each check independent, non-applicable = None.
@@ -699,6 +704,13 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     `__bool__` says True), does not promote. Never changes `action_outcome_proven` /
     `evidence_bound` (unchanged, additive) or the aggregate `ok`.
 
+    `action_bytes` (finding B1 of 2 November 2026, additive, default None): the bytes of the action the relying
+    party holds. Step 10 of Section 3.2 of draft-gruszka-audit-decision-receipts-07: where they are given, their
+    SHA-256 MUST equal ``proposedAction.parametersDigest.sha256``. `action_bytes_ok` is True when it does, False when
+    it does not, when the receipt carries no such digest, or when the value is no bytes, and None when no action
+    bytes were given. Judged over authenticated bytes only; a False fails `ok`. Before, a good receipt checked
+    against the bytes of another action (vector F5 of the draft) verified with ok True.
+
     `automation` (Finding 01, additive): a uniform `automationVerdict.automation_summary` verdict —
     `automation["safeForAutomation"]` requires `policy_ok IS True` (never merely `is not False`, unlike the
     permissive `ok` aggregate above) — see `automation_verdict.py`."""
@@ -717,6 +729,9 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     schluessel = _bytes_von(public_key)
     if schluessel is None:
         schluessel = public_key
+    # The action bytes are read here as well, once, by what they store (`_bytes_von`): a value that is no bytes
+    # stays None here and is refused at step 10 below, so it never counts as "no action bytes given".
+    _aktion = _bytes_von(action_bytes) if action_bytes is not None else None
     richtlinie = _richtlinie_von(policy)
     # A dict holding a value that is no JSON value has no plain copy. Its refusal, with the loader's own
     # message, is taken HERE, before any caller code runs (verify lane on pull request 312): handing the
@@ -965,6 +980,25 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
                 r["errors"].append(
                     "nonce mismatch or absent validity.nonce — requested replay binding cannot be enforced "
                     "(replay?, fail-closed)")
+        # Step 10 of Section 3.2 of draft-gruszka-audit-decision-receipts-07 (finding B1, vector F5): where the
+        # relying party supplies the action bytes, their SHA-256 MUST equal proposedAction.parametersDigest.sha256.
+        # A receipt that names its parameters by reference only carries no digest the bytes could match, so given
+        # bytes fail it; supplied bytes are a requested binding, never a silent pass (as with --aud/--nonce).
+        if action_bytes is not None:
+            _pd = _as_dict(_as_dict(predicate.get("proposedAction")).get("parametersDigest")).get("sha256")
+            if _aktion is None:
+                r["action_bytes_ok"] = False
+                r["errors"].append("action bytes must be bytes — the requested action binding cannot be "
+                                   "checked (fail-closed)")
+            elif not (isinstance(_pd, str) and _SHA256_HEX.match(_pd)):
+                r["action_bytes_ok"] = False
+                r["errors"].append("action bytes supplied but the receipt carries no proposedAction.parametersDigest "
+                                   "— nothing binds them (step 10, fail-closed)")
+            else:
+                r["action_bytes_ok"] = hashlib.sha256(_aktion).hexdigest() == _pd
+                if not r["action_bytes_ok"]:
+                    r["errors"].append("action bytes do not match proposedAction.parametersDigest (step 10, "
+                                       "fail-closed)")
         # Nachtrag 49 K4-01 (`KRAXO-CLOUD-N49-ZEIT-UND-GUELTIGKEIT-01`, Z309): a declared validity.expiresAt is
         # part of the verdict, judged against ONE evaluation time — the `now` POSIX-seconds parameter when the
         # relying party supplies it, else the wall clock read once here (never an artifact time). An expired or
@@ -1239,7 +1273,8 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         and r["audience_ok"] is not False and r["nonce_ok"] is not False
         and r["freshness_ok"] is not False
         and r["evidence_bound"] is not False and r["anchors_ok"] is not False
-        and r["subject_derived_ok"] is not False and r["lineage_ok"] is not False)
+        and r["subject_derived_ok"] is not False and r["lineage_ok"] is not False
+        and r["action_bytes_ok"] is not False)
 
     # Finding 01 (additive): the STRICTER automation-safety verdict — policy_ok must be True, never merely
     # "not False" — never changes `ok` above.
@@ -1247,7 +1282,7 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     r["automation"] = automation_summary(r, required_checks={
         "crypto": "crypto_ok", "structure": "structure_ok", "policy": "policy_ok",
         "references": ["evidence_bound", "audience_ok", "nonce_ok", "anchors_ok", "subject_derived_ok",
-                       "lineage_ok"],
+                       "lineage_ok", "action_bytes_ok"],
     })
     # Bug-hunt follow-up (3.6.2, P1): mirror the eval-path SIGNER_NOT_PINNED bar (bundle.py:617-619) onto
     # the decision automation surface. automation_summary carries NO signer dimension, so a crypto-valid

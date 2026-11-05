@@ -2668,6 +2668,17 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             _err("cannot use --anchors: the file holds no anchor (JSON null or an empty list); a file named "
                  "with --anchors must hold the anchors to check, and a verify without anchors omits the option")
             return 2
+    # Step 10 of Section 3.2 of draft-gruszka-audit-decision-receipts-07 (finding B1, vector F5): the action bytes
+    # the relying party holds, read as bytes from a regular file. `--action ''` names a file that cannot be read,
+    # never no action; an empty FILE is an action whose bytes are empty and is checked like any other.
+    action_bytes = None
+    if getattr(args, "action", None) is not None:
+        try:
+            with _open_input(args.action, binary=True) as handle:
+                action_bytes = _read_capped_bytes(handle)
+        except (ProofBundleError, OSError, ValueError) as exc:
+            _err(f"cannot read --action: {exc}")
+            return 2
     # Every rule the policy sets is one this command applies (T16, `policy._regelfehler`): the decision section, the
     # relations rules but `reject_retracted`, the shared fields, and beside `--anchors` the anchor trust material.
     if policy is not None:
@@ -2722,7 +2733,7 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
                                          expected_nonce=args.nonce, policy=_politik, anchors=anchors,
                                          rp_trust=rp_trust,
                                          require_derived_subject=args.require_derived_subject,
-                                         related=related or None, now=_eval_now)
+                                         related=related or None, now=_eval_now, action_bytes=action_bytes)
     except (ProofBundleError, OSError, ValueError) as exc:
         _err(exc)
         return 2
@@ -2761,7 +2772,7 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         report = {k: result[k] for k in (
             "ok", "crypto_ok", "structure_ok", "predicate_type_ok", "signer_trusted", "policy_ok",
             "evidence_bound", "audience_ok", "nonce_ok", "freshness_ok", "anchors_ok",
-            "action_outcome_proven", "subject_binding", "subject_derived_ok",
+            "action_outcome_proven", "subject_binding", "subject_derived_ok", "action_bytes_ok",
             # Findings 01/03 (crypto-review X2): the uniform automation verdict + EvidenceLevel ladder are
             # part of the library result; a pipeline doing `... --json | jq .automation.safeForAutomation`
             # must not get null (indistinguishable from a real "not evaluated"). Emit them here too.
@@ -2782,6 +2793,8 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             print(f"AUDIENCE: {'OK' if result['audience_ok'] else 'MISMATCH'}")
         if result["nonce_ok"] is not None:
             print(f"NONCE: {'OK' if result['nonce_ok'] else 'MISMATCH'}")
+        if result.get("action_bytes_ok") is not None:
+            print(f"ACTION: {'OK' if result['action_bytes_ok'] else 'MISMATCH'}")
         if result["anchors_ok"] is not None:
             print(f"ANCHORS: {'OK' if result['anchors_ok'] else 'FAIL'}")
         if result["action_outcome_proven"] is False:
@@ -2823,6 +2836,10 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
     # A supplied anchor that FAILS to verify (broken / root-mismatched / unknown type) is a tamper
     # signal — fail-closed, never a silent exit 0 (fix-review Finding 3). None = no anchor supplied.
     if result["anchors_ok"] is False:
+        return 1
+    # Step 10 of Section 3.2 (finding B1, vector F5): supplied action bytes that do not hash to
+    # proposedAction.parametersDigest are a verification failure of a requested binding — exit 1, never exit 0.
+    if result.get("action_bytes_ok") is False:
         return 1
     # relation/v0.1: a REQUESTED lineage check (edges present or --with-related supplied) that FAILs
     # (cycle, depth, malformed ancestor, attached-but-unverified target) is a tamper/structure signal —
@@ -3839,6 +3856,11 @@ def build_parser() -> argparse.ArgumentParser:
                                "commitment to the predicate (subject_binding.classify_subject) — rejects a "
                                "self-attested/rehung subject_sha256 override. Default off: an "
                                "EXTERNAL_ATTESTED subject is still warned, never silent")
+    d_verify.add_argument("--action", dest="action", default=None, metavar="PATH",
+                          help="the action bytes the relying party holds (a file, read as bytes): their SHA-256 "
+                               "must equal proposedAction.parametersDigest, step 10 of Section 3.2 of "
+                               "draft-gruszka-audit-decision-receipts. A mismatch, or a receipt without that "
+                               "digest, exits 1")
     d_verify.add_argument("--verification-time", dest="verification_time", default=None, metavar="ISO8601",
                           help="Nachtrag 49b: evaluate the receipt AS OF this past instant (ISO-8601 'Z') — it "
                                "pins validity.expiresAt freshness and, with --policy, the policy lifecycle at "
