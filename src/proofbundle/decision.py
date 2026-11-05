@@ -1182,10 +1182,11 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
             from ._approval_record import (approval_identity, read_approval_record,  # noqa: PLC0415
                                            read_consumption_state, read_received_copies)
             _vgruende: list[str] = []
+            _beurteilt = True   # False: Case 1 does not hold, Section 4 applies after a pass only
             if _fall != "approval" or approval_record is None:
                 _vgruende.append("a consumption state is checked under the approval case with its record only")
             elif r["case_ok"] is not True:
-                _vgruende = None   # Case 1 does not hold; Section 4 applies after a pass only
+                _beurteilt = False
             elif _verbrauch is None:
                 _vgruende.append("received copies or a state that is no bytes cannot be checked without the "
                                  "consumption state (item 5)")
@@ -1202,21 +1203,23 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
                         if _kennung in _menge:
                             _vgruende.append(f"approval identity {_kennung} is already consumed in generation {_gen!r} "
                                              "(items 1 and 4)")
-                    _bis = [_mikrosekunden(_a.get("validUntil"))]
+                    _a_d = _a if isinstance(_a, dict) else {}
+                    _bis = [_mikrosekunden(_a_d.get("validUntil"))]
                     if received_copies is not None:
                         _gelesen, _kgrund = read_received_copies(_kopien) if _kopien is not None else (
                             None, "the received copies are no bytes (item 2)")
                         if _kgrund is not None:
                             _vgruende.append(_kgrund)
                         else:
-                            _bis += [_mikrosekunden(k.get("validUntil")) for k in _gelesen
+                            _bis += [_mikrosekunden(k.get("validUntil")) for k in (_gelesen or [])
                                      if approval_identity(k) == _kennung]
-                    if None in _bis or _t_mikro is None:
+                    _grenzen = [b for b in _bis if b is not None]
+                    if len(_grenzen) != len(_bis) or _t_mikro is None:
                         _vgruende.append("a validUntil of the approval or its copies, or T, is not readable (item 2)")
-                    elif not _t_mikro < min(_bis):   # type: ignore[type-var]
+                    elif not _t_mikro < min(_grenzen):
                         _vgruende.append("T is not earlier than the earliest validUntil of the approval identity "
                                          "among the copies received (item 2)")
-            if _vgruende is not None:
+            if _beurteilt:
                 r["consumption_ok"] = not _vgruende
                 r["errors"].extend(f"relying party, Section 4: REFUSE — {g}" for g in _vgruende)
 

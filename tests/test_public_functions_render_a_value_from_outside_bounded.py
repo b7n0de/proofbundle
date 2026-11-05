@@ -622,6 +622,11 @@ _HAND_SEEDS = {
         ({"subject": [{"name": "x", "digest": {"sha256": "a" * 64}}]},), {})],
     "proofbundle._statement_payload.refuse_an_unwritable_subject": lambda tmp: [(
         ({"subject": [{"name": "x", "digest": {"sha256": "a" * 64}}]}, BundleFormatError), {})],
+    # Section 4 (finding B4): the readers of the approval identity, the consumption state and the received copies.
+    "proofbundle._approval_record.approval_identity": lambda tmp: [(({"approvalId": "a", "session": "s",
+                                                                      "actionDigest": {"sha256": "a" * 64}},), {})],
+    "proofbundle._approval_record.read_consumption_state": lambda tmp: [((b'{"current": []}',), {})],
+    "proofbundle._approval_record.read_received_copies": lambda tmp: [((b'[{"approvalId": "a"}]',), {})],
     "proofbundle._verdict.require_eval_claim": lambda tmp: [((_claim_of_the_test_key(),), {"wo": "sweep"})],
     "proofbundle._wire_b64.wire_value": lambda tmp: [(("AAAA",), {})],
     "proofbundle.sdjwt.issuer_key_fingerprint": lambda tmp: [(

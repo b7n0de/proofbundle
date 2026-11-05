@@ -56,8 +56,12 @@ def read_consumption_state(state_bytes: bytes) -> "tuple[dict | None, str | None
     """The consumed identities by generation, or (None, the reason the state is no complete view, item 5). The state
     is a JSON array of identities (the generation "current") or an object of generations, each an array of
     identities. Every entry must be an identity; one that is not makes the whole state unreadable, never skipped."""
+    from .canonical import _bytes_von  # noqa: PLC0415
+    roh = _bytes_von(state_bytes)   # read once, by what it stores; a value that is no bytes is a reason, not an error
+    if roh is None:
+        return None, "the consumption state is not bytes, so it is not a complete view (Section 4 item 5)"
     try:
-        wert = loads_strict(state_bytes)
+        wert = loads_strict(roh)
     except (ProofBundleError, ValueError, UnicodeDecodeError, RecursionError):
         return None, "the consumption state does not parse, so it is not a complete view (Section 4 item 5)"
     generationen = {"current": wert} if isinstance(wert, list) else wert
@@ -79,8 +83,12 @@ def read_consumption_state(state_bytes: bytes) -> "tuple[dict | None, str | None
 
 def read_received_copies(copies_bytes: bytes) -> "tuple[list | None, str | None]":
     """The received approval record copies as a list of objects, or (None, the reason)."""
+    from .canonical import _bytes_von  # noqa: PLC0415
+    roh = _bytes_von(copies_bytes)   # read once, by what it stores; a value that is no bytes is a reason, not an error
+    if roh is None:
+        return None, "the received copies are not bytes (Section 4 item 2)"
     try:
-        wert = loads_strict(copies_bytes)
+        wert = loads_strict(roh)
     except (ProofBundleError, ValueError, UnicodeDecodeError, RecursionError):
         return None, "the received copies do not parse (Section 4 item 2)"
     if not (isinstance(wert, list) and all(isinstance(x, dict) for x in wert)):

@@ -2830,8 +2830,9 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         if result.get("case_ok") is not None:
             print(f"CASE: {'OK' if result['case_ok'] else 'FAIL'} ({_safe_line(str(args.case))})")
         if result.get("consumption_ok") is not None:
-            print("CONSUMPTION: " + ("NOT CONSUMED (in the state given)" if result["consumption_ok"]
-                                     else "REFUSE (Section 4, relying party)"))
+            _verbrauch_zeile = ("NOT CONSUMED (in the state given)" if result["consumption_ok"]
+                                else "REFUSE (Section 4, relying party)")
+            print(f"CONSUMPTION: {_verbrauch_zeile}")
         if result["anchors_ok"] is not None:
             print(f"ANCHORS: {'OK' if result['anchors_ok'] else 'FAIL'}")
         if result["action_outcome_proven"] is False:
