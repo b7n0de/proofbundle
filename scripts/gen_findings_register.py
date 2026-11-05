@@ -956,6 +956,36 @@ FINDINGS = [
              "frontend and build both distributions with the wheel's generator checked. Severity "
              "P3 concerns the remaining local equality-check instructions, not a publishing "
              "workflow. Open"},
+    # Two explicit additions for release 6.5.0.
+    # These entries correspond to the two Register entry references in RESTRISIKO_650.md.
+    # This block is not an exhaustive index of that document or of earlier open findings.
+    # Severity is triage for each stated scope; it is not a tool-measured impact bound.
+    {"id": "EXPIRED-RECEIPT-OUTSIDE-POLICY-EXITS-3-01", "severity": "P3", "status": "open",
+     "note": "Recorded in RESTRISIKO_650.md, section 'An expired receipt with a policy failure "
+             "returns exit 3'. In the measurement on 2026-11-05 at candidate 7c680b2d, "
+             "proofbundle decision verify on vector F3 of Appendix A.5 of "
+             "draft-gruszka-audit-decision-receipts-06, called with --strict and --policy but "
+             "without --verification-time, reported both errors, the expired receipt and the "
+             "decisionMaker.id that the test policy does not bind to the signing key, set "
+             "freshness_ok to false and returned exit 3, with and without --json. A caller that "
+             "branches only on the exit code sees the policy-failure code and must not infer "
+             "that the receipt passed the freshness check. Both codes are non-zero, so neither "
+             "result accepts the receipt. The code keeps exit 3 for this combination on purpose, "
+             "as the Rust verifier does. Severity P3 is a triage of this gap between the "
+             "documentation and the exit code, not a measurement of its effect on every caller. "
+             "Defining and documenting a general precedence rule remains outside 6.5.0"},
+    {"id": "PIN-CASE-RED-FROM-TAG-UNTIL-PIN-COMMIT-01", "severity": "P3", "status": "open",
+     "note": "Recorded in RESTRISIKO_650.md, section 'main fails the plugin pin case from the "
+             "tag until the pin commit'. By the owner choice of 2026-11-05 the plugin keeps "
+             "pinning 6.4.0 until 6.5.0 is on PyPI, and "
+             "tests/test_plugin_pin_is_the_newest_release.py reads the release in preparation "
+             "until the tag. Once the tag v6.5.0 stands, the case reads 6.5.0 as the newest "
+             "release and fails on main, in every checkout that holds the tag, until the commit "
+             "that moves the plugin's pins to 6.5.0 lands. That commit is a pull request of its "
+             "own, outside 6.5.0. A checkout without tags reads the release as in preparation "
+             "and passes with a warning, so it does not show this window. Severity P3 is a "
+             "triage of a known window in which a repository test is red, not of a defect in "
+             "the shipped package. Open by design"},
 ]
 
 
