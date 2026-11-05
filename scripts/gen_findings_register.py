@@ -965,7 +965,7 @@ FINDINGS = [
              "returns exit 3'. In the measurement on 2026-11-05 at an unpublished local candidate "
              "that merged pull request 482 at 28bce567 into main at 43544e21, "
              "proofbundle decision verify on vector F3 of Appendix A.5 of "
-             "draft-gruszka-audit-decision-receipts-06, called with --strict and --policy but "
+             "draft-gruszka-audit-decision-receipts-05, called with --strict and --policy but "
              "without --verification-time, reported both errors, the expired receipt and the "
              "decisionMaker.id that the test policy does not bind to the signing key, set "
              "freshness_ok to false and returned exit 3, with and without --json. A caller that "
