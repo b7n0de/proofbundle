@@ -627,14 +627,12 @@ def _fall_freigabe(p: dict, a_bytes: "bytes | None", t_mikro: "int | None") -> "
         return gruende + ["the approval record bytes must be supplied"]
     if hashlib.sha256(a_bytes).hexdigest() != _as_dict(eintraege[0].get("digest")).get("sha256"):
         return gruende + ["the approval record does not hash to its inputSnapshot digest"]
-    from ._strict_json import loads_strict  # noqa: PLC0415
-    try:
-        a = loads_strict(a_bytes)
-        eigen = _rfc8785_bytes(a) == a_bytes
-    except (ProofBundleError, ValueError, UnicodeDecodeError):
-        return gruende + ["the approval record is not one JSON value in its own RFC 8785 form"]
-    if not eigen:
-        return gruende + ["the approval record is not its own RFC 8785 serialization"]
+    # The record is no in-toto Statement: it is read in its own module, not through a raw JSON reader here, where
+    # every Statement goes through the statement oracle (tests/test_a_statement_says_it_is_an_in_toto_statement.py).
+    from ._approval_record import read_approval_record  # noqa: PLC0415
+    a, grund = read_approval_record(a_bytes)
+    if grund is not None:
+        return gruende + [grund]
     if not isinstance(a, dict):
         return gruende + ["the approval record is not a JSON object"]
     fehlt = [k for k in ("approvalId", "approver", "session", "actionDigest", "approvedAt", "validUntil") if k not in a]
