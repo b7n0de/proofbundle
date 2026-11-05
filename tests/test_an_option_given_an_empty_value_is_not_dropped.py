@@ -146,6 +146,10 @@ class AnEmptyValueDoesNotDropTheRestriction(unittest.TestCase):
             ("decision verify --policy", ["decision", "verify", b.decision, "--pub", b.pub], ["--policy", ""], {2}),
             ("decision verify --anchors", ["decision", "verify", b.decision, "--pub", b.pub], ["--anchors", ""], {2}),
             ("decision verify --action", ["decision", "verify", b.decision, "--pub", b.pub], ["--action", ""], {2}),
+            ("decision verify --case", ["decision", "verify", b.decision, "--pub", b.pub], ["--case", ""], {2}),
+            ("decision verify --approval", ["decision", "verify", b.decision, "--pub", b.pub],
+             ["--case", "approval", "--approval", ""], {2}),
+            ("outcome verify --case", ["outcome", "verify", b.outcome, "--pub", b.pub], ["--case", ""], {2}),
             ("outcome verify --policy", ["outcome", "verify", b.outcome, "--pub", b.pub], ["--policy", ""], {2}),
             ("outcome verify --effect", ["outcome", "verify", b.outcome, "--pub", b.pub], ["--effect", ""], {2}),
             ("outcome verify --decision", ["outcome", "verify", b.outcome, "--pub", b.pub],
@@ -262,6 +266,7 @@ _DATEI_FAELLE = frozenset({
     ("verify", "--policy"), ("verify", "--trusted-checkpoint"), ("verify", "--trusted-tsa-root"),
     ("show-eval", "--eat"), ("decision verify", "--policy"), ("decision verify", "--anchors"),
     ("decision verify", "--trusted-tsa-root"), ("decision verify", "--with-related"), ("decision verify", "--action"),
+    ("decision verify", "--approval"),
     ("outcome verify", "--policy"), ("outcome verify", "--with-related"),
     ("outcome verify", "--effect"), ("outcome verify", "--decision"),
     ("relation-statement verify", "--policy"), ("relation-statement verify", "--with-related"),
@@ -329,6 +334,8 @@ class AFileWhoseContentReadsAsAbsentIsRefused(unittest.TestCase):
             # Step 10 of Section 3.2 (finding B1): without --action no action is checked; every content of the file,
             # the empty one included, is an action whose SHA-256 is compared, so none may end like no option.
             ("decision verify", "--action"): (dv, [], _beobachte),
+            # Section 3.3 (finding B3): every content of an --approval file is a record the approval case checks.
+            ("decision verify", "--approval"): (dv, ["--case", "approval"], _beobachte),
             ("outcome verify", "--policy"): (ov, [], _beobachte),
             ("outcome verify", "--with-related"): (ov, [], _beobachte),
             # Section 3.4 (finding B2): without --effect or --decision nothing of the effect or the bound decision is
