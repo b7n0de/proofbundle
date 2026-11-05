@@ -941,6 +941,13 @@ def _flaechen():
         "approvedAt": "2023-11-14T21:59:00Z", "validUntil": "2023-11-14T22:30:00Z"})
     dec_pred["inputSnapshot"] = list(dec_pred["inputSnapshot"]) + [
         {"name": "approval record", "digest": {"sha256": hashlib.sha256(sweep_freigabe).hexdigest()}}]
+    # Section 4 (finding B4, Owner choice A on OA-616feb8f26): a consumption state that holds another approval identity,
+    # not the one of the sweep's record, and the received copy of that record, so that consumed_state and
+    # received_copies reach the verdict (the base passes; a change of either bytes fails it).
+    sweep_verbrauch = json.dumps({"previous": [{"approvalId": "appr-other", "session": "sess-sweep",
+                                                "actionDigest": dict(dec_pred["proposedAction"]["parametersDigest"])}],
+                                  "current": []}).encode("utf-8")
+    sweep_kopien = json.dumps([json.loads(sweep_freigabe)]).encode("utf-8")
     dec_env = decision.emit_decision_receipt(dec_pred, _T)
     dec_validity = dec_pred.get("validity") or {}
     # Nachtrag 48/48b: the evaluate_decision_policy verdict surface judges this statement under the signer _T;
@@ -1089,7 +1096,8 @@ def _flaechen():
             w(dec_env), w(pub), expected_audience=w((dec_validity.get("audience") or ["x"])[0]),
             expected_nonce=w(dec_validity.get("nonce") or "n"), policy=w(dec_policy_relationen),
             anchors=w(dec_anker), related=w(verwandt), rp_trust=w({}), now=w(1_700_000_000),
-            action_bytes=w(_SWEEP_AKTION), case=w("approval"), approval_record=w(sweep_freigabe))),
+            action_bytes=w(_SWEEP_AKTION), case=w("approval"), approval_record=w(sweep_freigabe),
+            consumed_state=w(sweep_verbrauch), received_copies=w(sweep_kopien))),
         ("outcome.verify_outcome_receipt", lambda w: outcome.verify_outcome_receipt(
             w(out_env), w(pub), expected_decision_ref=w(aus_dec_wurzel), trust_pack=w(tp_pred),
             trust_pack_expected_genesis_digest=w("a" * 64), trust_pack_expected_root_keys=w(dict(tp_keys)),

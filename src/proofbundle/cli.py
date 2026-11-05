@@ -2683,19 +2683,23 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             return 2
     # Section 4 (finding B4, Owner choice A on OA-616feb8f26): the relying party's consumption state and the copies of
     # the approval it received, read as bytes and never written. `--consumed ''` names a file that cannot be read.
+    # Each option is read by its own name, so that the file-option guard (tests/
+    # test_an_option_given_an_empty_value_is_not_dropped.py) and a reader see which option reaches which reader.
     consumed_state = received_copies = None
-    for _opt, _attr in (("--consumed", "consumed"), ("--received", "received")):
-        if getattr(args, _attr, None) is not None:
-            try:
-                with _open_input(getattr(args, _attr), binary=True) as handle:
-                    _gelesen = _read_capped_bytes(handle)
-            except (ProofBundleError, OSError, ValueError) as exc:
-                _err(f"cannot read {_opt}: {exc}")
-                return 2
-            if _attr == "consumed":
-                consumed_state = _gelesen
-            else:
-                received_copies = _gelesen
+    if getattr(args, "consumed", None) is not None:
+        try:
+            with _open_input(args.consumed, binary=True) as handle:
+                consumed_state = _read_capped_bytes(handle)
+        except (ProofBundleError, OSError, ValueError) as exc:
+            _err(f"cannot read --consumed: {exc}")
+            return 2
+    if getattr(args, "received", None) is not None:
+        try:
+            with _open_input(args.received, binary=True) as handle:
+                received_copies = _read_capped_bytes(handle)
+        except (ProofBundleError, OSError, ValueError) as exc:
+            _err(f"cannot read --received: {exc}")
+            return 2
     action_bytes = None
     if getattr(args, "action", None) is not None:
         try:
