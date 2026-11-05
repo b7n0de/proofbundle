@@ -12,6 +12,13 @@ the Guard's, where the gate lives since D134, names that version. A
 later release turns this test red until the pin follows it, so the pin cannot fall behind in silence. A changelog whose
 sections after [Unreleased] are not releases with calendar dates, newest first, or whose newest release is a
 pre-release or lower than a stable release below it, stops the case rather than choose a pin.
+
+One release is read apart: the release in preparation. Between the preparation of a release and its tag the
+plugin on main must not pin a version the package index does not serve yet, since `uv run --script` would find no
+release to install. So where the first section after [Unreleased] is the version of this tree and the clone holds
+no tag v<version>, that section may carry the placeholder date ` - YYYY-MM-DD`, and the pins name the release
+below it. A clone that sees no tag at all, such as a checkout of depth one, cannot tell, reads the same way and says
+so in a warning. Once the tag stands, the section needs its date and the pins name it, as before.
 """
 from __future__ import annotations
 
@@ -20,7 +27,9 @@ import datetime
 import importlib.util
 import pathlib
 import re
+import subprocess
 import sys
+import warnings
 
 import pytest
 from packaging.specifiers import InvalidSpecifier, Specifier
@@ -31,6 +40,9 @@ PLUGIN = ROOT / "plugins" / "proofbundle"
 SERVER = PLUGIN / "server" / "proofbundle_mcp.py"
 GATE = ROOT / "plugins" / "proofbundle-guard" / "hooks" / "proofbundle_gate.py"
 CHANGELOG = ROOT / "CHANGELOG.md"
+#: Read once at import, so a case that points ROOT at a temporary plugin folder still reads this tree.
+PYPROJECT = ROOT / "pyproject.toml"
+REPOSITORY = ROOT
 
 #: The inline script metadata block of PEP 723, by its reference expression; `uv run --script` installs what it names.
 _SCRIPT_BLOCK = re.compile(r"(?m)^# /// (?P<type>[a-zA-Z0-9-]+)$\s(?P<content>(^#(| .*)$\s)+)^# ///$")
@@ -42,6 +54,10 @@ _CLOSING = re.compile(r"(?:^|[ \t]+)#+[ \t]*$")
 _FENCE = re.compile(r" {0,3}(`{3,}|~{3,})")
 _SECTION = re.compile(r"\[([^\]]+)\](.*)")
 _DATED = re.compile(r" - (\d{4})-(\d{2})-(\d{2})(?:\s+\(.*\))?\s*")
+#: The date a release in preparation writes in its heading until its tag.
+_PLACEHOLDER = " - YYYY-MM-DD"
+#: The version line of the [project] table, the version the version gate reads first.
+_PROJECT_VERSION = re.compile(r'(?m)^version = "(\d+\.\d+\.\d+)"$')
 #: A pin of proofbundle as a requirement may write it: the name in any case, extras, blanks around == or ===, and a
 #: version with what PEP 440 may append (a third pre-run of the reading of the pin on main, Codex, P2); no character of
 #: a PEP 508 name stands right before it, so the pin of another package ending in proofbundle is none (a tenth pre-run).
@@ -186,19 +202,26 @@ def _headings(text: str) -> list[str]:
     return found
 
 
-def _newest_release() -> str:
+def _newest_release(prepared: str | None = None) -> str:
     """The first section after [Unreleased]: a stable X.Y.Z with a real calendar date and no higher stable release
     below it. Every level-two heading outside fenced code is a section in brackets, and every section after
     [Unreleased] is a release with a version and a real date (a note in brackets may follow it), newest first: the
     dates do not rise downwards. The history may interleave lines (1.9.2 came out between 2.0.0b2 and 2.0.0b1), so the
     order of the versions alone is not read. A changelog of another structure stops the case rather than choose a
-    pin."""
+    pin. With `prepared`, the first section after [Unreleased] must be that release, with a date or the
+    placeholder, and it is left out: the newest release is the one below it."""
     sections = []
     for heading in _headings(CHANGELOG.read_text(encoding="utf-8")):
         bracketed = _SECTION.fullmatch(heading)
         assert bracketed, f"the level-two section '{heading}' is no section of a version in brackets"
         sections.append(bracketed.groups())
     assert sections and sections[0][0] == "Unreleased", f"CHANGELOG.md does not open with [Unreleased]: {sections[:2]}"
+    if prepared is not None:
+        assert len(sections) > 1 and sections[1][0] == prepared, \
+            f"the release in preparation {prepared} is not the first section after [Unreleased]: {sections[:2]}"
+        assert sections[1][1] == _PLACEHOLDER or _DATED.fullmatch(sections[1][1]), \
+            f"the release {prepared} in preparation names neither a date nor the placeholder{_PLACEHOLDER}"
+        sections = [sections[0], *sections[2:]]
     assert len(sections) > 1, "CHANGELOG.md records no released version"
     dates, versions = [], []
     for name, tail in sections[1:]:
@@ -218,6 +241,45 @@ def _newest_release() -> str:
     higher = [str(v) for v in versions[1:] if not v.is_prerelease and v > versions[0]]
     assert not higher, f"a stable release below {newest} is newer by version, so the order is broken: {higher}"
     return newest
+
+
+def _tree_version() -> str:
+    """The version of this tree, from the one version line of the [project] table in pyproject.toml."""
+    found = _PROJECT_VERSION.findall(PYPROJECT.read_text(encoding="utf-8"))
+    assert len(found) == 1, f"pyproject.toml names {len(found)} project version line(s), and the case reads one"
+    return found[0]
+
+
+def _tags() -> set[str] | None:
+    """The tags this clone holds, or None where it is no git checkout (an unpacked sdist)."""
+    try:
+        listed = subprocess.run(["git", "-C", str(REPOSITORY), "tag", "--list"], capture_output=True, text=True,
+                                check=False, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return set(listed.stdout.split()) if listed.returncode == 0 else None
+
+
+def _pin_target() -> tuple[str, str | None]:
+    """The version the pins must name, with a note where it is not the first section after [Unreleased]. The first
+    section is the release in preparation when it is the version of this tree and the clone holds no tag
+    v<version>; a clone without any tag cannot tell and reads it so too. Every other changelog is read by
+    _newest_release() alone."""
+    sections = [_SECTION.fullmatch(heading) for heading in _headings(CHANGELOG.read_text(encoding="utf-8"))]
+    first = sections[1].group(1) if len(sections) > 1 and sections[1] else None
+    version = _tree_version()
+    if first != version:
+        return _newest_release(), None
+    tags = _tags()
+    if not tags:
+        return _newest_release(prepared=version), (
+            f"this clone sees no tag, so whether {version} is released is not read here; the pins may name the "
+            f"release before it")
+    if f"v{version}" not in tags:
+        return _newest_release(prepared=version), (
+            f"{version} is the release in preparation (no tag v{version} in this clone); the pins name the release "
+            f"before it")
+    return _newest_release(), None
 
 
 def _assigned_strings(source: str, names: tuple[str, ...]) -> dict[str, list[str | None]]:
@@ -666,9 +728,13 @@ def test_the_four_pins_name_one_version():
 
 
 def test_the_pin_is_the_newest_release_the_changelog_records():
-    newest = _newest_release()
+    newest, note = _pin_target()
+    if note:
+        warnings.warn(note, stacklevel=1)
     pins = _pins()
-    assert {version for found in pins.values() for version in found} == {newest}, (newest, pins)
+    assert {version for found in pins.values() for version in found} == {newest}, \
+        (f"the pins name {sorted({v for found in pins.values() for v in found})}, the release they must name is "
+         f"{newest}", pins)
 
 
 def _pinned_versions(text: str) -> list[str]:
@@ -746,7 +812,9 @@ def test_every_pin_the_plugin_writes_names_that_version():
     the pin on main, Codex, P2: a list of endings left `.yml` unread), as written, as a shell passes it on (a
     fourteenth pre-run) and with the escapes of a string literal read (the reading of the pull request at its head).
     The limits of that third view stand at _string_view."""
-    newest = _newest_release()
+    newest, note = _pin_target()
+    if note:
+        warnings.warn(note, stacklevel=1)
     stale = []
     for path in sorted(p for folder in (PLUGIN, GATE.parents[1]) for p in folder.rglob("*")):
         if not path.is_file():
@@ -758,3 +826,57 @@ def test_every_pin_the_plugin_writes_names_that_version():
         found = [pin for view in (text, _shell_view(text), _string_view(text)) for pin in _ANY_PIN.finditer(view)]
         stale += dict.fromkeys(f"{path.relative_to(ROOT)}: {pin.group(0)}" for pin in found if not _names(pin, newest))
     assert not stale, (newest, stale)
+
+
+def _prepared_world(tmp_path, monkeypatch, text: str, tags) -> None:
+    """A changelog of `text`, a tree of version 6.5.0 and a clone holding `tags` (None: no git checkout)."""
+    _changelog(tmp_path, monkeypatch, text)
+    monkeypatch.setattr(sys.modules[__name__], "_tree_version", lambda: "6.5.0")
+    monkeypatch.setattr(sys.modules[__name__], "_tags", lambda: tags)
+
+
+@pytest.mark.parametrize("date", [" - YYYY-MM-DD", " - 2026-11-05"], ids=["the placeholder", "a date"])
+def test_a_release_in_preparation_leaves_the_pins_on_the_release_before_it(tmp_path, monkeypatch, date):
+    """Owner choice of 2026-11-05, 13:06Z: between the preparation of a release and its tag the plugin on main must not
+    pin a version the package index does not serve yet. The version of the tree, first after [Unreleased], with the
+    placeholder or a date, and no tag v6.5.0 in the clone: the pins name 6.4.0, and the case says why. The case before
+    this rule stopped here with "the release 6.5.0 names no date" or asked for pins of 6.5.0."""
+    _prepared_world(tmp_path, monkeypatch, _HEAD + f"## [6.5.0]{date}\n\n## [6.4.0] - 2026-10-27\n", {"v6.4.0"})
+    newest, note = _pin_target()
+    assert newest == "6.4.0" and "in preparation" in note, (newest, note)
+
+
+@pytest.mark.parametrize("tags", [None, set()], ids=["no git checkout", "a clone without tags"])
+def test_a_clone_that_sees_no_tag_reads_the_release_in_preparation_and_says_so(tmp_path, monkeypatch, tags):
+    """A checkout of depth one holds no tag and cannot tell whether 6.5.0 is released; it reads the release as in
+    preparation and names that in its note, so a green case there says what it did not read."""
+    _prepared_world(tmp_path, monkeypatch, _HEAD + "## [6.5.0] - YYYY-MM-DD\n\n## [6.4.0] - 2026-10-27\n", tags)
+    newest, note = _pin_target()
+    assert newest == "6.4.0" and "sees no tag" in note, (newest, note)
+
+
+def test_once_the_tag_stands_the_release_needs_its_date_and_the_pins_name_it(tmp_path, monkeypatch):
+    """With the tag v6.5.0 in the clone the release is the newest one: it needs a date, and the pins name it."""
+    _prepared_world(tmp_path, monkeypatch, _HEAD + "## [6.5.0] - 2026-11-05\n\n## [6.4.0] - 2026-10-27\n",
+                    {"v6.5.0", "v6.4.0"})
+    assert _pin_target() == ("6.5.0", None)
+    _prepared_world(tmp_path, monkeypatch, _HEAD + "## [6.5.0] - YYYY-MM-DD\n\n## [6.4.0] - 2026-10-27\n",
+                    {"v6.5.0", "v6.4.0"})
+    with pytest.raises(AssertionError, match="the release 6.5.0 names no date"):
+        _pin_target()
+
+
+@pytest.mark.parametrize("text, words", [
+    (_HEAD + "## [6.4.0] - YYYY-MM-DD\n\n## [6.3.1] - 2026-10-21\n", "the release 6.4.0 names no date"),
+    (_HEAD + "## [6.5.0] - TBD\n\n## [6.4.0] - 2026-10-27\n", "neither a date nor the placeholder"),
+    (_HEAD + "## [6.5.0] - YYYY-MM-DD\n", "records no released version"),
+    (_HEAD + "## [6.5.0] - YYYY-MM-DD\n\n## [6.4.0] - YYYY-MM-DD\n", "the release 6.4.0 names no date"),
+    ("# Changelog\n\n## [6.5.0] - YYYY-MM-DD\n\n## [6.4.0] - 2026-10-27\n", "Unreleased"),
+], ids=["the placeholder on a release that is not the tree's", "another placeholder", "no release below it",
+        "the placeholder on the release below it", "no Unreleased section above it"])
+def test_the_reading_of_the_release_in_preparation_stays_narrow(tmp_path, monkeypatch, text, words):
+    """Only the first section after [Unreleased], only the version of the tree and only the placeholder ` - YYYY-MM-DD`
+    or a date: every other changelog stops the case as before."""
+    _prepared_world(tmp_path, monkeypatch, text, {"v6.4.0"})
+    with pytest.raises(AssertionError, match=words):
+        _pin_target()

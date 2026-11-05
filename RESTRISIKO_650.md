@@ -16,6 +16,10 @@ By the addendum of 2026-09-08 to the release standard, the full 24-hour fuzz soa
 
 Open. In the measurement of 2026-11-05 at the release candidate, `proofbundle decision verify` on vector F3 of Appendix A.5 of draft-gruszka-audit-decision-receipts, called with `--strict` and `--policy` but without `--verification-time`, so that `validity.expiresAt` lies before the evaluation time, reported both errors, the expired receipt and the `decisionMaker.id` that the policy does not bind to the signing key, and exited 3. Section 7 of `docs/predicates/decision-receipt.md` gives exit 2 for an expired receipt and exit 3 for crypto-OK bytes whose policy is not satisfied, and does not say which code applies when both hold. Both codes are non-zero, so the receipt is not accepted either way; a caller that tells the two codes apart reads such a receipt as a policy failure only. Which code applies, and whether the documentation states the order, remain outside 6.5.0.
 
+### main fails the plugin pin case from the tag until the pin commit
+
+Open by design. By the owner choice of 2026-11-05, the plugin keeps pinning 6.4.0 until 6.5.0 is on PyPI, and the plugin pin case reads the release in preparation so until the tag. Once the tag v6.5.0 stands, the case reads 6.5.0 as the newest release and fails on main, in every checkout that holds the tag, until the commit that moves the plugin's pins to 6.5.0 lands. That commit is a pull request of its own, outside 6.5.0, prepared before the tag and landed directly after the upload to PyPI. A checkout without tags, such as a job of depth one, reads the release as in preparation and passes with a warning, so it does not show this window.
+
 ### Repository tools
 
 - The release workflows pin the build frontend and the build backend through `PIP_CONSTRAINT` and `.github/build-constraints.txt`, unchanged since 6.4.0. Only the setuptools version is read back from the built wheel; the other pins are applied and not read back. The pins name versions, not hashes. The Python interpreter of the build is the newest 3.12 release that `actions/setup-python` selects, and it is not pinned.
