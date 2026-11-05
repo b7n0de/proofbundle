@@ -17,9 +17,7 @@ Field names are lowerCamelCase (ITE-9).
 """
 from __future__ import annotations
 
-import calendar
 import hashlib
-from datetime import datetime
 from typing import Any, Callable
 
 from ._statement_payload import load_statement_strict, refuse_an_unwritable_subject
@@ -620,6 +618,8 @@ def _empty_result() -> dict:
         # executor.id (step 5), the effect bytes (step 6) and the decision receipt the outcome is bound to (steps 4,
         # 5 and 7). Each is None when its input was not given.
         "executor_id_ok": None, "effect_bytes_ok": None, "bound_decision_ok": None,
+        # Case 3 of Section 3.3 (finding B3, vectors F17, F54): None unless case="executed" was chosen.
+        "case_ok": None,
         "warnings": [], "errors": [],
     }
 
@@ -633,26 +633,9 @@ def _finalize_failclosed(r: dict) -> dict:
         "crypto": "crypto_ok", "structure": "structure_ok", "policy": "executor_role_trusted",
         "references": ["decision_bound", "role_separation_ok", "audience_ok", "nonce_ok",
                        "subject_derived_ok", "lineage_ok", "executor_id_ok", "effect_bytes_ok",
-                       "bound_decision_ok"],
+                       "bound_decision_ok", "case_ok"],
     })
     return r
-
-
-def _mikrosekunden(value: Any) -> "int | None":
-    """A timestamp of the draft's form (RFC 3339, UTC with a trailing "Z", a fraction of one to six digits) as
-    microseconds since the epoch, the fraction padded with zeros to six digits: step 7 of Section 3.4 of
-    draft-gruszka-audit-decision-receipts-07 compares times "as if each fraction of a second were padded with zeros
-    to six digits". None for any other value, a fraction of seven or more digits included."""
-    if not (isinstance(value, str) and _RFC3339_Z.match(value)):
-        return None
-    haupt, _, bruch = value[:-1].partition(".")
-    if len(bruch) > 6:
-        return None
-    try:
-        zeit = datetime.strptime(haupt, "%Y-%m-%dT%H:%M:%S")
-    except ValueError:
-        return None
-    return calendar.timegm(zeit.timetuple()) * 1_000_000 + int(bruch.ljust(6, "0") or "0")
 
 
 def _gebundene_entscheidung(predicate: dict, envelope: Any, decision_key: Any,
@@ -667,7 +650,7 @@ def _gebundene_entscheidung(predicate: dict, envelope: Any, decision_key: Any,
         return False, ["a bound decision needs both the decision receipt and its key (Section 3.4, fail-closed)"]
     from . import dsse  # noqa: PLC0415
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415
-    from .decision import DECISION_RECEIPT_PREDICATE_TYPE, verify_decision_receipt  # noqa: PLC0415
+    from .decision import DECISION_RECEIPT_PREDICATE_TYPE, _mikrosekunden, verify_decision_receipt  # noqa: PLC0415
     urteil = verify_decision_receipt(envelope, decision_key, strict=True, require_derived_subject=True)
     if not (urteil.get("crypto_ok") is True and urteil.get("structure_ok") is True
             and urteil.get("predicate_type_ok") is True and urteil.get("subject_derived_ok") is True):
@@ -708,6 +691,23 @@ def _gebundene_entscheidung(predicate: dict, envelope: Any, decision_key: Any,
         gruende.append("performedAt is not within decidedAt <= performedAt < validity.expiresAt of the bound "
                        "decision (step 7)")
     return not gruende, [g + ", fail-closed" for g in gruende]
+
+
+def _entscheidungs_verdict(envelope: Any, decision_key: Any) -> Any:
+    """The decision.verdict of the bound decision receipt, read from the bytes its signature covers under
+    ``decision_key``; None when it does not verify or carries none (Case 3 of Section 3.3)."""
+    if envelope is None or decision_key is None:
+        return None
+    from . import dsse  # noqa: PLC0415
+    from .budget import DEFAULT_BUDGET  # noqa: PLC0415
+    try:
+        echt, body = dsse._verify_and_load(envelope, decision_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+        statement = load_statement_strict(body, budget=DEFAULT_BUDGET)
+    except (ProofBundleError, ValueError, UnicodeDecodeError):
+        return None
+    if not echt or not isinstance(statement, dict):
+        return None
+    return _as_dict(_as_dict(statement.get("predicate")).get("decision")).get("verdict")
 
 
 def _trust_pack_predicate_digest(predicate: Any) -> "str | None":
@@ -778,7 +778,8 @@ def verify_outcome_receipt_or_raise(envelope: dict, public_key: bytes, *, strict
                                     expected_executor_id: str | None = None,
                                     effect_bytes: bytes | None = None,
                                     decision_envelope: dict | None = None,
-                                    decision_public_key: bytes | None = None) -> dict:
+                                    decision_public_key: bytes | None = None,
+                                    case: str | None = None) -> dict:
     """Explicit-exception variant of :func:`verify_outcome_receipt`: raises :class:`BundleFormatError`
     when the payload is not a well-formed in-toto Statement, instead of returning a fail-closed verdict.
     Use :func:`verify_outcome_receipt` (never-raise) for untrusted input (PB-2026-0717-07). The explicit
@@ -793,7 +794,7 @@ def verify_outcome_receipt_or_raise(envelope: dict, public_key: bytes, *, strict
         evidence_resolver=evidence_resolver,
         receiver_attestation_resolver=receiver_attestation_resolver, related=related, policy=policy,
         expected_executor_id=expected_executor_id, effect_bytes=effect_bytes,
-        decision_envelope=decision_envelope, decision_public_key=decision_public_key,
+        decision_envelope=decision_envelope, decision_public_key=decision_public_key, case=case,
         _raise_on_malformed=True)
 
 
@@ -812,6 +813,7 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                            related: dict | None = None, policy: dict | None = None,
                            expected_executor_id: str | None = None, effect_bytes: bytes | None = None,
                            decision_envelope: dict | None = None, decision_public_key: bytes | None = None,
+                           case: str | None = None,
                            _raise_on_malformed: bool = False) -> dict:
     """Verify a DSSE-signed Outcome Receipt. Crypto first, then structure over the EXACT signed bytes.
 
@@ -1093,6 +1095,25 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
             r["bound_decision_ok"], _gruende = _gebundene_entscheidung(
                 predicate, decision_envelope, _entscheider, schluessel)
             r["errors"].extend(_gruende)
+        # Case 3 of Section 3.3, executed (finding B3, vectors F17, F54): chosen by the relying party, never by the
+        # receipt. The outcome passes Section 3.4 against the bound decision (bound_decision_ok), the decision's
+        # verdict is ALLOW, and the outcome's status is executed. Section 3.4 is judged first, as the draft says.
+        if case is not None:
+            _fall = _zeichen_von(case)
+            _gruende3: list[str] = []
+            if _fall != "executed":
+                _gruende3.append("the case of an outcome receipt must be 'executed' (Section 3.3)")
+            elif decision_envelope is None or _entscheider is None:
+                _gruende3.append("case executed needs the bound decision receipt and its key")
+            elif r["bound_decision_ok"] is not True:
+                _gruende3.append("the outcome does not pass Section 3.4 against the bound decision")
+            else:
+                if _entscheidungs_verdict(decision_envelope, _entscheider) != "ALLOW":
+                    _gruende3.append("the bound decision's verdict is not ALLOW")
+                if predicate.get("status") != "executed":
+                    _gruende3.append("the outcome's status is not executed")
+            r["case_ok"] = not _gruende3
+            r["errors"].extend(f"case executed: {g} (Section 3.3, fail-closed)" for g in _gruende3)
 
         # relation/v0.1 (EXPERIMENTAL, additive): evaluate the OPTIONAL relationships edges against
         # caller-attached targets (offline --with-related). Only over AUTHENTICATED bytes; NEVER feeds
@@ -1517,7 +1538,7 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         and r["lineage_ok"] is not False
         and r["policy_ok"] is not False
         and r["executor_id_ok"] is not False and r["effect_bytes_ok"] is not False
-        and r["bound_decision_ok"] is not False)
+        and r["bound_decision_ok"] is not False and r["case_ok"] is not False)
 
     # Finding 01 (additive): the STRICTER automation-safety verdict — never changes `ok` above. Outcome has
     # no separate trust-policy layer (yet); executor_role_trusted (the outcomeExecutors role gate) is the
@@ -1527,7 +1548,7 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
         "crypto": "crypto_ok", "structure": "structure_ok", "policy": "executor_role_trusted",
         "references": ["decision_bound", "role_separation_ok", "audience_ok", "nonce_ok",
                        "subject_derived_ok", "lineage_ok", "executor_id_ok", "effect_bytes_ok",
-                       "bound_decision_ok"],
+                       "bound_decision_ok", "case_ok"],
     })
     # Bug-hunt follow-up (3.6.2, P1) + adversarial re-audit (P1 sibling): outcome's automation_summary maps the
     # "policy" dimension to executor_role_trusted, NOT policy_ok — so ANY policy_ok=False (a relations

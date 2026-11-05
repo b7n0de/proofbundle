@@ -2671,6 +2671,16 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
     # Step 10 of Section 3.2 of draft-gruszka-audit-decision-receipts-07 (finding B1, vector F5): the action bytes
     # the relying party holds, read as bytes from a regular file. `--action ''` names a file that cannot be read,
     # never no action; an empty FILE is an action whose bytes are empty and is checked like any other.
+    # Section 3.3 (finding B3): the case the relying party chooses and, for the approval case, the approval record bytes
+    # (a file, read as bytes). `--approval ''` names a file that cannot be read, never no record.
+    approval_record = None
+    if getattr(args, "approval", None) is not None:
+        try:
+            with _open_input(args.approval, binary=True) as handle:
+                approval_record = _read_capped_bytes(handle)
+        except (ProofBundleError, OSError, ValueError) as exc:
+            _err(f"cannot read --approval: {exc}")
+            return 2
     action_bytes = None
     if getattr(args, "action", None) is not None:
         try:
@@ -2733,7 +2743,8 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
                                          expected_nonce=args.nonce, policy=_politik, anchors=anchors,
                                          rp_trust=rp_trust,
                                          require_derived_subject=args.require_derived_subject,
-                                         related=related or None, now=_eval_now, action_bytes=action_bytes)
+                                         related=related or None, now=_eval_now, action_bytes=action_bytes,
+                                         case=getattr(args, "case", None), approval_record=approval_record)
     except (ProofBundleError, OSError, ValueError) as exc:
         _err(exc)
         return 2
@@ -2772,7 +2783,7 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         report = {k: result[k] for k in (
             "ok", "crypto_ok", "structure_ok", "predicate_type_ok", "signer_trusted", "policy_ok",
             "evidence_bound", "audience_ok", "nonce_ok", "freshness_ok", "anchors_ok",
-            "action_outcome_proven", "subject_binding", "subject_derived_ok", "action_bytes_ok",
+            "action_outcome_proven", "subject_binding", "subject_derived_ok", "action_bytes_ok", "case_ok",
             # Findings 01/03 (crypto-review X2): the uniform automation verdict + EvidenceLevel ladder are
             # part of the library result; a pipeline doing `... --json | jq .automation.safeForAutomation`
             # must not get null (indistinguishable from a real "not evaluated"). Emit them here too.
@@ -2795,6 +2806,8 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             print(f"NONCE: {'OK' if result['nonce_ok'] else 'MISMATCH'}")
         if result.get("action_bytes_ok") is not None:
             print(f"ACTION: {'OK' if result['action_bytes_ok'] else 'MISMATCH'}")
+        if result.get("case_ok") is not None:
+            print(f"CASE: {'OK' if result['case_ok'] else 'FAIL'} ({_safe_line(str(args.case))})")
         if result["anchors_ok"] is not None:
             print(f"ANCHORS: {'OK' if result['anchors_ok'] else 'FAIL'}")
         if result["action_outcome_proven"] is False:
@@ -2841,6 +2854,9 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
     # proposedAction.parametersDigest are a requested binding that does not hold — exit 2 like --aud/--nonce here
     # and the decision binding of outcome verify, never exit 0.
     if result.get("action_bytes_ok") is False:
+        return 2
+    # Section 3.3 (finding B3): the chosen case does not hold — a requested check that fails, exit 2.
+    if result.get("case_ok") is False:
         return 2
     # relation/v0.1: a REQUESTED lineage check (edges present or --with-related supplied) that FAILs
     # (cycle, depth, malformed ancestor, attached-but-unverified target) is a tamper/structure signal —
@@ -3029,7 +3045,7 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
             expected_audience=args.aud, expected_nonce=args.nonce,
             require_derived_subject=args.require_derived_subject, related=related or None,
             policy=policy, expected_executor_id=getattr(args, "executor_id", None), effect_bytes=effect_bytes,
-            decision_envelope=decision_env, decision_public_key=decision_pub)
+            decision_envelope=decision_env, decision_public_key=decision_pub, case=getattr(args, "case", None))
     except (ProofBundleError, OSError, ValueError) as exc:
         _err(exc)
         return 2
@@ -3037,7 +3053,7 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
         report = {k: result[k] for k in (
             "ok", "crypto_ok", "structure_ok", "predicate_type_ok", "decision_bound", "role_separation_ok",
             "execution_proven", "audience_ok", "nonce_ok", "subject_binding", "subject_derived_ok",
-            "executor_id_ok", "effect_bytes_ok", "bound_decision_ok",
+            "executor_id_ok", "effect_bytes_ok", "bound_decision_ok", "case_ok",
             # Findings 01/03/16 (crypto-review X2): uniform automation verdict + EvidenceLevel ladder +
             # receiver-corroboration fields are part of the library result — emit them so a --json consumer
             # is not silently blind to them (a jq filter on an absent key is indistinguishable from a real
@@ -3063,6 +3079,8 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
             print(f"EFFECT: {'OK' if result['effect_bytes_ok'] else 'MISMATCH'}")
         if result.get("bound_decision_ok") is not None:
             print(f"BOUND_DECISION: {'OK' if result['bound_decision_ok'] else 'FAIL'}")
+        if result.get("case_ok") is not None:
+            print(f"CASE: {'OK' if result['case_ok'] else 'FAIL'} ({_safe_line(str(args.case))})")
         if result["audience_ok"] is not None:
             print(f"AUDIENCE: {'OK' if result['audience_ok'] else 'MISMATCH'}")
         if result["nonce_ok"] is not None:
@@ -3092,7 +3110,7 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
     # Section 3.4 (finding B2): a requested executor, effect or decision binding that does not hold is the same
     # class as the decision binding above, exit 2.
     if (result.get("executor_id_ok") is False or result.get("effect_bytes_ok") is False
-            or result.get("bound_decision_ok") is False):
+            or result.get("bound_decision_ok") is False or result.get("case_ok") is False):
         return 2
     if result["audience_ok"] is False or result["nonce_ok"] is False:
         return 2
@@ -3903,6 +3921,14 @@ def build_parser() -> argparse.ArgumentParser:
                                "must equal proposedAction.parametersDigest, step 10 of Section 3.2 of "
                                "draft-gruszka-audit-decision-receipts. A mismatch, or a receipt without that "
                                "digest, exits 2 like --aud/--nonce")
+    d_verify.add_argument("--case", dest="case", default=None, metavar="CASE",
+                          help="the case of Section 3.3 of draft-gruszka-audit-decision-receipts the relying party "
+                               "checks the receipt under: approval (with --approval) or declined. The receipt never "
+                               "chooses its case. A case that does not hold exits 2")
+    d_verify.add_argument("--approval", dest="approval", default=None, metavar="PATH",
+                          help="the approval record bytes for --case approval (a file, read as bytes): exactly one "
+                               "inputSnapshot entry named \"approval record\" must hash to them, they must be their own "
+                               "RFC 8785 form, and their bounds must hold at the evaluation time")
     d_verify.add_argument("--verification-time", dest="verification_time", default=None, metavar="ISO8601",
                           help="Nachtrag 49b: evaluate the receipt AS OF this past instant (ISO-8601 'Z') — it "
                                "pins validity.expiresAt freshness and, with --policy, the policy lifecycle at "
@@ -3974,6 +4000,9 @@ def build_parser() -> argparse.ArgumentParser:
     o_verify.add_argument("--decision-pub", dest="decision_pub", default=None, metavar="B64",
                           help="the decision maker's Ed25519 public key (base64) the --decision receipt is verified "
                                "under; required with --decision")
+    o_verify.add_argument("--case", dest="case", default=None, metavar="CASE",
+                          help="Case 3 of Section 3.3: executed (with --decision): the decision's verdict must be "
+                               "ALLOW and the outcome's status executed, after Section 3.4 holds. A failure exits 2")
     o_verify.set_defaults(func=_cmd_outcome_verify)
 
     o_inspect = osub.add_parser("inspect", help="print an outcome receipt's predicate (no crypto verification)")
