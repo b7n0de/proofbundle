@@ -10,11 +10,13 @@ The findings that stay open after 6.4.0 are listed in [the 6.4.0 record](RESTRIS
 
 ### The 24-hour soak runs beside the release
 
-By the addendum of 2026-09-08 to the release standard, the full 24-hour fuzz soak runs in parallel with the release and does not hold the tag. The soak evidence of 6.5.0 is the short soak at the release candidate, signed and bound to that candidate (audit matrix row C6.2). Until the 24-hour run reports, row C6.3 is a named residual risk of this release. A crash the 24-hour run finds is a new finding under the usual rules.
+Under the 2026-09-08 addendum to the release standard, the full 24-hour fuzz soak runs in parallel with the release and does not block the tag. The short soak at the 6.5.0 release candidate, audit matrix row C6.2, is still pending at this preparation snapshot. The release evidence is to include its signed result bound to that candidate; this snapshot does not establish that the result exists. Until the 24-hour run reports, row C6.3 remains a named residual risk of this release. Any crash found by that run is recorded as a new finding under the usual rules.
 
-### An expired receipt outside the policy exits 3
+### An expired receipt with a policy failure returns exit 3
 
-Open. In the measurement of 2026-11-05 at the release candidate, `proofbundle decision verify` on vector F3 of Appendix A.5 of draft-gruszka-audit-decision-receipts, called with `--strict` and `--policy` but without `--verification-time`, so that `validity.expiresAt` lies before the evaluation time, reported both errors, the expired receipt and the `decisionMaker.id` that the policy does not bind to the signing key, and exited 3. Section 7 of `docs/predicates/decision-receipt.md` gives exit 2 for an expired receipt and exit 3 for crypto-OK bytes whose policy is not satisfied, and does not say which code applies when both hold. Both codes are non-zero, so the receipt is not accepted either way; a caller that tells the two codes apart reads such a receipt as a policy failure only. The code keeps exit 3 on purpose, as the Rust verifier does, but neither section 7 nor the help of --verification-time states that order; documenting it remains outside 6.5.0.
+Open. In the measurement on 2026-11-05 at candidate `7c680b2d`, `proofbundle decision verify` was called on vector F3 of Appendix A.5 of draft-gruszka-audit-decision-receipts-06 with `--strict` and `--policy`, but without `--verification-time`. The receipt had expired at the evaluation time, and its `decisionMaker.id` did not match the identity bound to the signing key by the test policy. The command reported both errors, set `freshness_ok` to false and returned exit 3, both with and without `--json`.
+
+A caller that branches only on the exit code sees the policy-failure code and must not infer that the receipt passed the freshness check. The full output still reports the expiry failure. Both exit 2 and exit 3 are non-zero, so neither result accepts the receipt. This measurement does not define a general precedence rule for every combination of failures. Defining and documenting that general rule remains outside 6.5.0.
 
 ### main fails the plugin pin case from the tag until the pin commit
 

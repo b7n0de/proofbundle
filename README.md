@@ -28,7 +28,7 @@
 <details>
 <summary>What was checked, and what remains open</summary>
 
-**A feature release following 6.4.0.** The installed package adds an offline verifier for Sigstore bundles of GitHub Artifact Attestations and npm provenance, and its in-toto verifiers now require the members and forms the eval-result v0.1, test-result v0.1 and SVR v0.1 predicates give them. Review the stricter statement checks when upgrading.
+**A feature release following 6.4.0.** The installed package adds an offline verifier for Sigstore bundles of GitHub Artifact Attestations and npm provenance, and stricter checks for eval-result v0.1, test-result v0.1 and SVR v0.1 statements. Some statements accepted by 6.4.0 no longer verify in 6.5.0, including statements emitted by earlier exporters with nonconforming caller-supplied values. Before upgrading, review the CHANGELOG entries for statement validation, exporter inputs, timestamp checks, stricter readers and SD-JWT bundle binding.
 
 - **Sigstore bundles, offline.** `proofbundle verify-sigstore` checks one bundle against the trusted root, the artifact digest and the identity the relying party supplies, under the profiles `github-artifact-attestation`, `npm-provenance` and `npm-publish`. It imports no Sigstore client, and `safeForAutomation` is false in every verdict.
 - **Stricter in-toto statement checks.** An eval-result v0.1, test-result v0.1 or SVR v0.1 statement verifies only when its predicate carries the members it requires, in the forms the predicate gives them, and `proofbundle intoto --verify` and `proofbundle svr --verify` name the reason of every check that does not hold.
