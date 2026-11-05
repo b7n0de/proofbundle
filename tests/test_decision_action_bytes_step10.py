@@ -133,10 +133,11 @@ class TestActionBytesCli(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("ACTION: OK", out)
 
-    def test_cli_other_action_exit_1(self):
-        # F5: the draft fails step 10; the command must not end with exit 0.
+    def test_cli_other_action_exit_2(self):
+        # F5: the draft fails step 10; the command must not end with exit 0. A requested binding that does not
+        # hold ends with exit 2 here, like --aud/--nonce.
         rc, out, err = self._verify("--action", str(self.other))
-        self.assertEqual(rc, 1)
+        self.assertEqual(rc, 2)
         self.assertIn("ACTION: MISMATCH", out)
         self.assertIn("parametersDigest", err)
 
@@ -156,7 +157,7 @@ class TestActionBytesCli(unittest.TestCase):
 
     def test_cli_json_reports_the_axis(self):
         rc, out, _ = self._verify("--action", str(self.other), "--json")
-        self.assertEqual(rc, 1)
+        self.assertEqual(rc, 2)
         rep = json.loads(out)
         self.assertIs(rep["action_bytes_ok"], False)
         self.assertFalse(rep["ok"])

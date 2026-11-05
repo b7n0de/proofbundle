@@ -145,6 +145,7 @@ class AnEmptyValueDoesNotDropTheRestriction(unittest.TestCase):
             ("verify --anchor-type", ["verify", b.bundle], ["--anchor-type", ""], {2, 3}),
             ("decision verify --policy", ["decision", "verify", b.decision, "--pub", b.pub], ["--policy", ""], {2}),
             ("decision verify --anchors", ["decision", "verify", b.decision, "--pub", b.pub], ["--anchors", ""], {2}),
+            ("decision verify --action", ["decision", "verify", b.decision, "--pub", b.pub], ["--action", ""], {2}),
             ("outcome verify --policy", ["outcome", "verify", b.outcome, "--pub", b.pub], ["--policy", ""], {2}),
             ("relation-statement verify --policy", ["relation-statement", "verify", b.relation, "--pub", b.pub],
              ["--policy", ""], {2}),
@@ -255,7 +256,7 @@ _DATEI_INHALTE = ("null", " null", "null\n", "\t null \r\n", "[]", " [ ] ", "{}"
 _DATEI_FAELLE = frozenset({
     ("verify", "--policy"), ("verify", "--trusted-checkpoint"), ("verify", "--trusted-tsa-root"),
     ("show-eval", "--eat"), ("decision verify", "--policy"), ("decision verify", "--anchors"),
-    ("decision verify", "--trusted-tsa-root"), ("decision verify", "--with-related"),
+    ("decision verify", "--trusted-tsa-root"), ("decision verify", "--with-related"), ("decision verify", "--action"),
     ("outcome verify", "--policy"), ("outcome verify", "--with-related"),
     ("relation-statement verify", "--policy"), ("relation-statement verify", "--with-related"),
     ("policy instantiate", "--expected-root-file"), ("prereg", "--check"), ("evalcard", "--check")})
@@ -319,6 +320,9 @@ class AFileWhoseContentReadsAsAbsentIsRefused(unittest.TestCase):
             ("decision verify", "--anchors"): (dv, [], _beobachte),
             ("decision verify", "--trusted-tsa-root"): (dv, [], _beobachte),
             ("decision verify", "--with-related"): (dv, [], _beobachte),
+            # Step 10 of Section 3.2 (finding B1): without --action no action is checked; every content of the file,
+            # the empty one included, is an action whose SHA-256 is compared, so none may end like no option.
+            ("decision verify", "--action"): (dv, [], _beobachte),
             ("outcome verify", "--policy"): (ov, [], _beobachte),
             ("outcome verify", "--with-related"): (ov, [], _beobachte),
             ("relation-statement verify", "--policy"): (rv, [], _beobachte),

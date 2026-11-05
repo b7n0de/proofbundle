@@ -1057,7 +1057,8 @@ def _flaechen():
         ("decision.verify_decision_receipt", lambda w: decision.verify_decision_receipt(
             w(dec_env), w(pub), expected_audience=w((dec_validity.get("audience") or ["x"])[0]),
             expected_nonce=w(dec_validity.get("nonce") or "n"), policy=w(dec_policy_relationen),
-            anchors=w(dec_anker), related=w(verwandt), rp_trust=w({}), now=w(1_700_000_000))),
+            anchors=w(dec_anker), related=w(verwandt), rp_trust=w({}), now=w(1_700_000_000),
+            action_bytes=w(b'{"sweep":"action"}'))),
         ("outcome.verify_outcome_receipt", lambda w: outcome.verify_outcome_receipt(
             w(out_env), w(pub), expected_decision_ref=w("a" * 64), trust_pack=w(tp_pred),
             trust_pack_expected_genesis_digest=w("a" * 64), trust_pack_expected_root_keys=w(dict(tp_keys)),

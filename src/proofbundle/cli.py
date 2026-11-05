@@ -2838,9 +2838,10 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
     if result["anchors_ok"] is False:
         return 1
     # Step 10 of Section 3.2 (finding B1, vector F5): supplied action bytes that do not hash to
-    # proposedAction.parametersDigest are a verification failure of a requested binding — exit 1, never exit 0.
+    # proposedAction.parametersDigest are a requested binding that does not hold — exit 2 like --aud/--nonce here
+    # and the decision binding of outcome verify, never exit 0.
     if result.get("action_bytes_ok") is False:
-        return 1
+        return 2
     # relation/v0.1: a REQUESTED lineage check (edges present or --with-related supplied) that FAILs
     # (cycle, depth, malformed ancestor, attached-but-unverified target) is a tamper/structure signal —
     # fail-closed exit 2, never a silent exit 0. DECLARED_UNRESOLVED stays exit 0 (declared-only is honest).
@@ -3860,7 +3861,7 @@ def build_parser() -> argparse.ArgumentParser:
                           help="the action bytes the relying party holds (a file, read as bytes): their SHA-256 "
                                "must equal proposedAction.parametersDigest, step 10 of Section 3.2 of "
                                "draft-gruszka-audit-decision-receipts. A mismatch, or a receipt without that "
-                               "digest, exits 1")
+                               "digest, exits 2 like --aud/--nonce")
     d_verify.add_argument("--verification-time", dest="verification_time", default=None, metavar="ISO8601",
                           help="Nachtrag 49b: evaluate the receipt AS OF this past instant (ISO-8601 'Z') — it "
                                "pins validity.expiresAt freshness and, with --policy, the policy lifecycle at "
