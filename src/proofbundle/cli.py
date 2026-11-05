@@ -2681,6 +2681,21 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         except (ProofBundleError, OSError, ValueError) as exc:
             _err(f"cannot read --approval: {exc}")
             return 2
+    # Section 4 (finding B4, Owner choice A on OA-616feb8f26): the relying party's consumption state and the copies of
+    # the approval it received, read as bytes and never written. `--consumed ''` names a file that cannot be read.
+    consumed_state = received_copies = None
+    for _opt, _attr in (("--consumed", "consumed"), ("--received", "received")):
+        if getattr(args, _attr, None) is not None:
+            try:
+                with _open_input(getattr(args, _attr), binary=True) as handle:
+                    _gelesen = _read_capped_bytes(handle)
+            except (ProofBundleError, OSError, ValueError) as exc:
+                _err(f"cannot read {_opt}: {exc}")
+                return 2
+            if _attr == "consumed":
+                consumed_state = _gelesen
+            else:
+                received_copies = _gelesen
     action_bytes = None
     if getattr(args, "action", None) is not None:
         try:
@@ -2744,7 +2759,8 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
                                          rp_trust=rp_trust,
                                          require_derived_subject=args.require_derived_subject,
                                          related=related or None, now=_eval_now, action_bytes=action_bytes,
-                                         case=getattr(args, "case", None), approval_record=approval_record)
+                                         case=getattr(args, "case", None), approval_record=approval_record,
+                                         consumed_state=consumed_state, received_copies=received_copies)
     except (ProofBundleError, OSError, ValueError) as exc:
         _err(exc)
         return 2
@@ -2784,6 +2800,7 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             "ok", "crypto_ok", "structure_ok", "predicate_type_ok", "signer_trusted", "policy_ok",
             "evidence_bound", "audience_ok", "nonce_ok", "freshness_ok", "anchors_ok",
             "action_outcome_proven", "subject_binding", "subject_derived_ok", "action_bytes_ok", "case_ok",
+            "consumption_ok",
             # Findings 01/03 (crypto-review X2): the uniform automation verdict + EvidenceLevel ladder are
             # part of the library result; a pipeline doing `... --json | jq .automation.safeForAutomation`
             # must not get null (indistinguishable from a real "not evaluated"). Emit them here too.
@@ -2808,6 +2825,9 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             print(f"ACTION: {'OK' if result['action_bytes_ok'] else 'MISMATCH'}")
         if result.get("case_ok") is not None:
             print(f"CASE: {'OK' if result['case_ok'] else 'FAIL'} ({_safe_line(str(args.case))})")
+        if result.get("consumption_ok") is not None:
+            print("CONSUMPTION: " + ("NOT CONSUMED (in the state given)" if result["consumption_ok"]
+                                     else "REFUSE (Section 4, relying party)"))
         if result["anchors_ok"] is not None:
             print(f"ANCHORS: {'OK' if result['anchors_ok'] else 'FAIL'}")
         if result["action_outcome_proven"] is False:
@@ -2864,6 +2884,10 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
     if isinstance(result.get("lineage"), dict) and result["lineage"].get("lineage") == "FAIL":
         return 2
     if result["policy_ok"] is False:
+        return 3
+    # Section 4 (finding B4, Owner choice A): the relying party refuses an approval its consumption state shows as
+    # consumed, a state that is no complete view, or a T past the earliest validUntil of the copies — exit 3.
+    if result.get("consumption_ok") is False:
         return 3
     # Nachtrag 49b CX-02: a declared validity.expiresAt that is expired or unreadable is a validity failure —
     # fail-closed, never a silent exit 0 (the Codex finding: an expired but otherwise-valid receipt exited 0).
@@ -3929,6 +3953,14 @@ def build_parser() -> argparse.ArgumentParser:
                           help="the approval record bytes for --case approval (a file, read as bytes): exactly one "
                                "inputSnapshot entry named \"approval record\" must hash to them, they must be their own "
                                "RFC 8785 form, and their bounds must hold at the evaluation time")
+    d_verify.add_argument("--consumed", dest="consumed", default=None, metavar="PATH",
+                          help="Section 4: the relying party's consumption state (a JSON array of approval identities "
+                               "or an object of generations), read only, never written. With --case approval an "
+                               "approval whose identity is in any generation, or a state that is no complete view, "
+                               "exits 3. An OK says only that the identity is not in the state given")
+    d_verify.add_argument("--received", dest="received", default=None, metavar="PATH",
+                          help="Section 4 item 2: the copies of the approval the relying party received (a JSON array); "
+                               "T must be earlier than the earliest validUntil of the same identity, else exit 3")
     d_verify.add_argument("--verification-time", dest="verification_time", default=None, metavar="ISO8601",
                           help="Nachtrag 49b: evaluate the receipt AS OF this past instant (ISO-8601 'Z') — it "
                                "pins validity.expiresAt freshness and, with --policy, the policy lifecycle at "
