@@ -962,7 +962,8 @@ FINDINGS = [
     # Severity is triage for each stated scope; it is not a tool-measured impact bound.
     {"id": "EXPIRED-RECEIPT-OUTSIDE-POLICY-EXITS-3-01", "severity": "P3", "status": "open",
      "note": "Recorded in RESTRISIKO_650.md, section 'An expired receipt with a policy failure "
-             "returns exit 3'. In the measurement on 2026-11-05 at candidate 7c680b2d, "
+             "returns exit 3'. In the measurement on 2026-11-05 at an unpublished local candidate "
+             "that merged pull request 482 at 28bce567 into main at 43544e21, "
              "proofbundle decision verify on vector F3 of Appendix A.5 of "
              "draft-gruszka-audit-decision-receipts-06, called with --strict and --policy but "
              "without --verification-time, reported both errors, the expired receipt and the "
