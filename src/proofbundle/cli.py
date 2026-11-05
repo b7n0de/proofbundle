@@ -2985,6 +2985,34 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
             _err("cannot use --policy: the policy holds no relations rule, the only part of a policy an outcome "
                  "receipt is judged by; a verify without a policy omits the option")
             return 2
+    # Section 3.4 of draft-gruszka-audit-decision-receipts-07 (finding B2, vectors F6, F7, F8): the effect bytes (a
+    # file, read as bytes; every content, the empty file included, is an effect), and the decision receipt the outcome
+    # is bound to with its key. `--effect ''` and `--decision ''` name files that cannot be read, never no option;
+    # --decision and --decision-pub come together or not at all.
+    effect_bytes = None
+    if getattr(args, "effect", None) is not None:
+        try:
+            with _open_input(args.effect, binary=True) as handle:
+                effect_bytes = _read_capped_bytes(handle)
+        except (ProofBundleError, OSError, ValueError) as exc:
+            _err(f"cannot read --effect: {exc}")
+            return 2
+    decision_env = None
+    decision_pub = None
+    if (getattr(args, "decision", None) is None) != (getattr(args, "decision_pub", None) is None):
+        _err("--decision and --decision-pub go together: the decision receipt is verified under its own key")
+        return 2
+    if getattr(args, "decision", None) is not None:
+        try:
+            with _open_input(args.decision) as handle:
+                decision_env = loads_strict(_read_capped(handle))
+            decision_pub = decode_b64(args.decision_pub)
+        except (ProofBundleError, OSError, ValueError) as exc:
+            _err(f"cannot read --decision or --decision-pub: {exc}")
+            return 2
+        if not isinstance(decision_env, dict):
+            _err("cannot use --decision: the file holds no DSSE envelope (a JSON object)")
+            return 2
     try:
         with _open_input(args.envelope) as handle:
             env = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
@@ -3000,7 +3028,8 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
             expected_decision_ref=args.expected_decision_ref, decision_maker_id=args.decision_maker_id,
             expected_audience=args.aud, expected_nonce=args.nonce,
             require_derived_subject=args.require_derived_subject, related=related or None,
-            policy=policy)
+            policy=policy, expected_executor_id=getattr(args, "executor_id", None), effect_bytes=effect_bytes,
+            decision_envelope=decision_env, decision_public_key=decision_pub)
     except (ProofBundleError, OSError, ValueError) as exc:
         _err(exc)
         return 2
@@ -3008,6 +3037,7 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
         report = {k: result[k] for k in (
             "ok", "crypto_ok", "structure_ok", "predicate_type_ok", "decision_bound", "role_separation_ok",
             "execution_proven", "audience_ok", "nonce_ok", "subject_binding", "subject_derived_ok",
+            "executor_id_ok", "effect_bytes_ok", "bound_decision_ok",
             # Findings 01/03/16 (crypto-review X2): uniform automation verdict + EvidenceLevel ladder +
             # receiver-corroboration fields are part of the library result — emit them so a --json consumer
             # is not silently blind to them (a jq filter on an absent key is indistinguishable from a real
@@ -3027,6 +3057,12 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
             print(f"DECISION_BINDING: {'OK' if result['decision_bound'] else 'MISMATCH'}")
         if result["role_separation_ok"] is not None:
             print(f"ROLE_SEPARATION: {'OK' if result['role_separation_ok'] else 'VIOLATED'}")
+        if result.get("executor_id_ok") is not None:
+            print(f"EXECUTOR_ID: {'OK' if result['executor_id_ok'] else 'MISMATCH'}")
+        if result.get("effect_bytes_ok") is not None:
+            print(f"EFFECT: {'OK' if result['effect_bytes_ok'] else 'MISMATCH'}")
+        if result.get("bound_decision_ok") is not None:
+            print(f"BOUND_DECISION: {'OK' if result['bound_decision_ok'] else 'FAIL'}")
         if result["audience_ok"] is not None:
             print(f"AUDIENCE: {'OK' if result['audience_ok'] else 'MISMATCH'}")
         if result["nonce_ok"] is not None:
@@ -3052,6 +3088,11 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
     if not result["structure_ok"]:
         return 2
     if result["decision_bound"] is False or result["role_separation_ok"] is False:
+        return 2
+    # Section 3.4 (finding B2): a requested executor, effect or decision binding that does not hold is the same
+    # class as the decision binding above, exit 2.
+    if (result.get("executor_id_ok") is False or result.get("effect_bytes_ok") is False
+            or result.get("bound_decision_ok") is False):
         return 2
     if result["audience_ok"] is False or result["nonce_ok"] is False:
         return 2
@@ -3919,6 +3960,20 @@ def build_parser() -> argparse.ArgumentParser:
                                "commitment to the predicate (subject_binding.classify_subject) — rejects a "
                                "self-attested/rehung subject_sha256 override. Default off: an "
                                "EXTERNAL_ATTESTED subject is still warned, never silent")
+    o_verify.add_argument("--executor-id", dest="executor_id", default=None, metavar="ID",
+                          help="the expected executor.id; given beside --pub it says this key may attest that id "
+                               "(step 5 of Section 3.4 of draft-gruszka-audit-decision-receipts). A mismatch exits 2")
+    o_verify.add_argument("--effect", dest="effect", default=None, metavar="PATH",
+                          help="the effect bytes (a file, read as bytes): effectDigest must be present and equal "
+                               "their SHA-256, whatever the status (step 6). A mismatch or no effectDigest exits 2")
+    o_verify.add_argument("--decision", dest="decision", default=None, metavar="PATH",
+                          help="the decision receipt this outcome is bound to (with --decision-pub): decisionRef must "
+                               "be its content root, requestedActionDigest its parametersDigest, the keys and ids "
+                               "must differ, and decidedAt <= performedAt < its validity.expiresAt (steps 4, 5, 7). "
+                               "A failure exits 2")
+    o_verify.add_argument("--decision-pub", dest="decision_pub", default=None, metavar="B64",
+                          help="the decision maker's Ed25519 public key (base64) the --decision receipt is verified "
+                               "under; required with --decision")
     o_verify.set_defaults(func=_cmd_outcome_verify)
 
     o_inspect = osub.add_parser("inspect", help="print an outcome receipt's predicate (no crypto verification)")
