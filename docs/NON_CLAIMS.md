@@ -59,7 +59,7 @@ A verified Action Outcome does **not** prove:
   write any `executor.id`, and the outcome verifies with `executor_role_trusted` true. Role separation
   compares that statement with the decision maker's id (docs/predicates/action-outcome.md §5 and §7).
 
-## Steps of draft-gruszka-audit-decision-receipts-03 that proofbundle does not perform
+## Steps of draft-gruszka-audit-decision-receipts-05 that proofbundle does not perform
 
 The offline verification of that draft (sections 3.1 to 3.4) asks the verifier for three inputs that
 `proofbundle decision verify`, `proofbundle outcome verify`, `verify_decision_receipt` and

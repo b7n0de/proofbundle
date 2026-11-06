@@ -152,7 +152,7 @@ override / tamper / malformed subject, fail-closed `matches = False`). See
   binding of an identifier per executor key, compared with `executor.id`, is scheduled for 6.6.0. A LIVE
   registry / DID anchor that DISCOVERS and fetches the right Trust Pack for a given executor automatically
   is further future work.
-- The outcome checks of draft-gruszka-audit-decision-receipts-03 that need an input proofbundle does not take
+- The outcome checks of draft-gruszka-audit-decision-receipts-05 that need an input proofbundle does not take
   are NOT performed: `verify_outcome_receipt` and `proofbundle outcome verify` take no effect bytes to compare
   with `effectDigest` (section 3.4 step 6) and no expected `executor.id` (section 3.4 step 5). Both inputs are
   scheduled for 6.6.0; see `docs/NON_CLAIMS.md`.
