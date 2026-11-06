@@ -603,8 +603,11 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.12"
+      # coverage is pinned, to the same version as in the closing job: the closing job refuses data of another
+      # version, and an unpinned install let a release of coverage during run 41634881133 (pull request 450,
+      # 2026-11-03) give one part 7.17.1 and six parts 7.17.0 (tests/test_coverage_parts_cover_the_suite.py).
       - name: Install with all test extras
-        run: python -m pip install -e ".[dev,pq,anchors,eval]" coverage pytest pytest-xdist==3.8.0 pytest-cov==7.1.0
+        run: python -m pip install -e ".[dev,pq,anchors,eval]" coverage==7.17.1 pytest pytest-xdist==3.8.0 pytest-cov==7.1.0
       - name: Build the Rust second verifier the suite requires (pinned above)
         run: cd tools/pb_verify_rs && cargo build --release
       # PARALLEL (Z281): pytest-cov measures every worker of the part and combines their data into one file.
@@ -647,9 +650,9 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.12"
-      # The same unpinned `coverage` the parts install; the closing script refuses data of another version.
+      # The same pinned `coverage` the parts install; the closing script refuses data of another version.
       - name: Install coverage
-        run: python -m pip install coverage
+        run: python -m pip install coverage==7.17.1
       - name: Download the data of every part
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
