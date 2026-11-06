@@ -13,7 +13,7 @@ python -m pip install --upgrade proofbundle==6.5.0
 
 ## Verify this release yourself
 
-Use the checksums and build provenance to check the downloaded files. To check the signed pre-tag audit receipt, use a clone at the source commit identified by the build attestation. The commands, prerequisites and limits are in [Verifying a published release](https://github.com/b7n0de/proofbundle/blob/956ee1af45a7873dccdea802bf03e8b3229858ea/RELEASE.md#verifying-a-published-release-anyone).
+Use the checksums and build provenance to check the downloaded files. To check the signed pre-tag audit receipt, use a clone at the source commit identified by the build attestation. The commands, prerequisites and limits are in [Verifying a published release](https://github.com/b7n0de/proofbundle/blob/0464be5a409c6db5dde250ad8e4dacb7b5294e96/RELEASE.md#verifying-a-published-release-anyone).
 
 ## What a receipt still does not prove
 
@@ -24,6 +24,10 @@ A valid signature binds the signed content to the signing key. It does not make 
 A Statement with two subject entries, which Section 3.2 step 6 does not allow, exits 0 without `--require-derived-subject` and 2 with that switch. Both measurements use `--strict`, the gate-1 public key, `--aud observer-1`, `--nonce dec-0002` and `--verification-time 2026-10-15T09:06:00Z`. The valid V2 control still exits 0 with the switch. These command results are not verdicts of full conformance to revision 05.
 
 Without `--policy`, `decision verify` does not establish that `decisionMaker.id` is the identity trusted for the signing key. In vector F3 of Appendix A.5 of draft-gruszka-audit-decision-receipts-05, the receipt names gate-2 under the gate-1 key. With `--strict`, `--aud observer-1`, `--nonce dec-0002` and `--verification-time 2026-10-15T09:06:00Z`, it exits 0 without a policy and reports `POLICY: NOT_EVALUATED`. The same invocation exits 3 when `--policy` supplies a `trusted_decision_makers` mapping from that key to gate-1. These results depend on the stated verification time; they do not mean that an expired receipt passes without a policy. The command does not read or hash the evidence bytes referenced by `evidenceRefs`, with or without that test policy.
+
+## Measured on the reference machine
+
+The budget cost axis was measured on the reference machine on 2026-11-06 using the code at 14fe3390. The record identifies the run as a reference measurement (`ist_referenzmessung=true`). All 12 expected axes and all 7 expected combinations passed, and no axis was skipped. The recorded calibration factor `maschinenfaktor_schnellstes_ende` is 1.036, and the timing-limit setting is `latte_aus_der_klammer=schnellstes_ende`. These results apply to the listed axes and combinations, not to every reader or input. The [measurement record](https://github.com/b7n0de/proofbundle/blob/0464be5a409c6db5dde250ad8e4dacb7b5294e96/audit_artifacts/360/budget_axis_latest.json) lists every axis and combination.
 
 ## Details
 
@@ -61,7 +65,7 @@ Without `--policy`, `decision verify` does not establish that `decisionMaker.id`
 
 </details>
 
-[Full changelog](https://github.com/b7n0de/proofbundle/blob/956ee1af45a7873dccdea802bf03e8b3229858ea/CHANGELOG.md) · [Known limitations for 6.5.0](https://github.com/b7n0de/proofbundle/blob/956ee1af45a7873dccdea802bf03e8b3229858ea/RESTRISIKO_650.md) · [Earlier risk record](https://github.com/b7n0de/proofbundle/blob/956ee1af45a7873dccdea802bf03e8b3229858ea/RESTRISIKO_640.md) · [Release scope](https://github.com/b7n0de/proofbundle/blob/956ee1af45a7873dccdea802bf03e8b3229858ea/docs/release_scope/6.5.0.md) · [proofbundle.dev](https://proofbundle.dev)
+[Full changelog](https://github.com/b7n0de/proofbundle/blob/0464be5a409c6db5dde250ad8e4dacb7b5294e96/CHANGELOG.md) · [Known limitations for 6.5.0](https://github.com/b7n0de/proofbundle/blob/0464be5a409c6db5dde250ad8e4dacb7b5294e96/RESTRISIKO_650.md) · [Earlier risk record](https://github.com/b7n0de/proofbundle/blob/0464be5a409c6db5dde250ad8e4dacb7b5294e96/RESTRISIKO_640.md) · [Release scope](https://github.com/b7n0de/proofbundle/blob/0464be5a409c6db5dde250ad8e4dacb7b5294e96/docs/release_scope/6.5.0.md) · [proofbundle.dev](https://proofbundle.dev)
 
 The plugin under `plugins/` is not part of this package. It is released on its own as plugin 0.4.0, with release notes of its own.
 
