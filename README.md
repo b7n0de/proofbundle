@@ -21,7 +21,7 @@
 
 ## Use it where your agents work
 
-proofbundle runs as a plugin in **Claude Code** and **Codex**. Ask your agent to check a receipt, and it tells you in plain words whether the key you trust signed it, whether anything changed since, and what the receipt cannot tell you.
+proofbundle runs as a plugin in **Claude Code** and **Codex**. Ask your agent to check a receipt, and it explains which signature and integrity checks passed, what was not checked, and what the receipt cannot tell you. For decision and outcome receipts, it verifies against an issuer public key you trust. An evidence bundle uses a separate check that does not by itself establish whether you should trust its signer.
 
 **Claude Code**
 

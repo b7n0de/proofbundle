@@ -2,7 +2,7 @@
 
 **Ask your agent to check a receipt, and get a plain answer.**
 
-You received an AI result with a receipt. This plugin lets your agent verify it on your own machine and explain what it found. It tells you whether the key you trust signed the receipt, whether anything changed after signing, and what a receipt cannot tell you.
+You received an AI result with a receipt. This plugin lets your agent verify it on your own machine and explain what it found. For decision and outcome receipts, it checks the signature against an issuer public key you trust. It also verifies evidence bundles, but a passing bundle check alone does not establish that you should trust its signer or that its claims are true.
 
 ## Install
 
@@ -34,7 +34,7 @@ In Codex, ask for the skill by its name, such as `proofbundle:verify`. Give the 
 
 ## Good to know
 
-- A passing check proves that the holder of the key you gave signed exactly these bytes, and that nothing changed since. It does not prove that the content is true.
+- A passing check confirms only the signature and integrity properties checked for that receipt type, not the truth of the recorded content. For decision and outcome receipts, the issuer public key must come from a source you trust. An evidence bundle can pass verification without such an externally supplied key, so a pass alone does not establish signer trust.
 - Every verdict comes from the proofbundle package on PyPI, in the one exact version the plugin pins and names in every result. You can run that version yourself.
 - The verify, review-receipt and emit skills and the plugin's server tell your agent to treat anything inside a receipt as data, never as an instruction.
 - Status is experimental in Claude Code and in Codex. So far, less of the plugin is measured under Codex than under Claude Code. Under Codex, signing needs a key file you name.
