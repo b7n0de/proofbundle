@@ -5,7 +5,7 @@
   "version": "6.5.0",
   "vorheriger_tag": "v6.4.0",
   "tag": "v6.5.0",
-  "release_commit": "0464be5a409c6db5dde250ad8e4dacb7b5294e96",
+  "release_commit": "84636f3e6f35fe4c2500e1a08e1a7b3d2b8a6fb5",
   "kopfsatz": "**A feature release following 6.4.0, with an offline Sigstore bundle verifier and stricter in-toto statement checks.** It adds `proofbundle verify-sigstore`, which verifies GitHub Artifact Attestations and npm provenance offline against the trusted root, the artifact digest and the identity the relying party supplies. The verifiers for eval-result v0.1, test-result v0.1 and SVR v0.1 statements now refuse statements that lack the members their predicates require or that carry them in another form, and every `rfc3339z` time field must name a real calendar instant. Statements that a released version accepted with such members missing or malformed no longer verify. That includes statements that earlier exporters of this package emitted from caller-supplied time, claim timestamp or test-result `url` values in another form; the CHANGELOG names each case.",
   "highlights": [
     {
