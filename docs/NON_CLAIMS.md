@@ -61,19 +61,23 @@ A verified Action Outcome does **not** prove:
 
 ## Steps of draft-gruszka-audit-decision-receipts-05 that proofbundle does not perform
 
-The offline verification of that draft (sections 3.1 to 3.4) asks the verifier for three inputs that
+The offline verification of that draft (sections 3.1 to 3.4) names inputs that
 `proofbundle decision verify`, `proofbundle outcome verify`, `verify_decision_receipt` and
-`verify_outcome_receipt` do not take. A pass of proofbundle on such receipts is therefore not a pass of
-the draft's procedure:
+`verify_outcome_receipt` do not take. Section 3.1 requires two of them, so a pass of proofbundle on such
+receipts is not a pass of the draft's procedure:
 
-- **The effect bytes** (section 3.1, section 3.4 step 6). proofbundle reads `effectDigest` as a digest
-  and compares it with no bytes.
 - **The expected `executor.id`** (section 3.1, section 3.4 step 5), and a trust policy that permits the
   outcome-signing key to attest that identifier.
 - **The approval record bytes of Case 1** (section 3.3), with the bounds approvedAt <= decidedAt <= T <
   validity.expiresAt <= validUntil.
 
-The three inputs are scheduled for 6.6.0.
+Section 3.1 calls two more optional:
+
+- **The effect bytes** (section 3.4 step 6). proofbundle reads `effectDigest` as a digest and compares it
+  with no bytes.
+- **The action bytes** (section 3.2 step 10). The decision verifiers take no action bytes.
+
+The expected `executor.id`, the approval record bytes and the effect bytes are scheduled for 6.6.0.
 
 ## TEE attestation bridge (experimental)
 
