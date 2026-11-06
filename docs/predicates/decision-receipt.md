@@ -146,6 +146,25 @@ Enums:
 - `decision.verdict`: `ALLOW` | `DENY` | `REFUSE` | `ESCALATE` | `DEFER` | `OBSERVE`
 - `actionOutcome.status`: `notAttempted` | `blocked` | `refused` | `attempted` | `executed` | `failed` | `unknown`
 
+With `--strict`, `proofbundle decision verify` checks the signature and the package's v0.1 structure rules. It checks
+the expected audience and nonce when `--aud` and `--nonce` are supplied, and checks `validity.expiresAt` against the
+evaluation time. These checks do not implement the complete offline verification procedure in
+draft-gruszka-audit-decision-receipts-05.
+
+The command does not reject an evaluation time before `decidedAt`, as required by Section 3.2 step 9. A
+Statement with two subject entries passes without `--require-derived-subject` and is rejected with that switch;
+Section 3.2 step 6 requires exactly one derived subject. Binding `decisionMaker.id` to the signing key requires an
+applicable `--policy`, as described in Section 9 below. The `decision verify` and `outcome verify` commands also do
+not perform the full action, case and outcome checks in Section 3.2 step 10, Section 3.3 and Section 3.4 steps 5 to
+7. Those outcome checks include executor identity, separation of keys and identifiers, result and effect checks, and
+the execution-time window.
+
+For the F5 scenario in Appendix A.5 of revision 05, `proofbundle decision verify v2-declined-good.dsse.json --pub
+<gate-1 key> --strict --aud observer-1 --nonce dec-0002 --verification-time 2026-10-15T09:06:00Z` exits 0. This
+invocation does not receive the action bytes `a1` whose digest differs from `proposedAction.parametersDigest`. Exit 0
+therefore does not mean that those action bytes were compared with the receipt. The relying party must perform that
+comparison when action bytes are supplied for verification.
+
 See `examples/decision_receipt_{allow,deny,escalate}.json` and the wrapped Statement
 `examples/decision_receipt_with_eval_ref.intoto.json`. Machine schema:
 `schemas/decision-receipt-v0.1.schema.json`.
@@ -257,6 +276,18 @@ additive; fail-closed preserved). Knobs:
 `trusted_decision_makers`. A `predicateType` confusion attack (a decision receipt presented as an eval-result,
 or vice versa) fails via the `predicate_type_ok` check plus `accepted_predicate_types`. Without a policy,
 `verify` reports `POLICY: NOT_EVALUATED`; a policy violation over crypto-OK bytes is exit code 3.
+
+The relying party supplies the policy that binds an expected `decisionMaker.id` to the signing key. In vector F3 of
+Appendix A.5 of draft-gruszka-audit-decision-receipts-05, the receipt names gate-2 but is signed with the gate-1 key.
+`proofbundle decision verify f3.dsse.json --pub <gate-1 key> --strict --aud observer-1 --nonce dec-0002
+--verification-time 2026-10-15T09:06:00Z --policy policy_gate1.json` exits 3 when `trusted_decision_makers` maps that
+key to gate-1. The same invocation without `--policy` exits 0 and reports `POLICY: NOT_EVALUATED`. That result does
+not establish trust in the identity named by the receipt.
+
+Checking the bytes referenced by `evidenceRefs` remains the relying party's responsibility. A true `evidence_bound`
+result does not establish that those bytes were read or that their hashes match the references. In the B7
+measurement, the receipt with the mismatching evidence digest exits 0 and reports `evidence_bound` true both without
+a policy and with the test policy.
 
 ## 10. Privacy
 
