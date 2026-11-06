@@ -26,7 +26,9 @@ import pytest
 
 #: The names a plugin test keeps from its caller. UV_OFFLINE and UV_CACHE_DIR carry no secret and let the pinned
 #: verifier start from uv's cache (owner answer of follow-up note 8); a proxy name and a certificate path stay out.
-FIXED = ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "PYTHONPATH", "UV_OFFLINE", "UV_CACHE_DIR")
+#: VIRTUAL_ENV names a path and carries no secret either; without it uv chose another interpreter than the active venv
+#: and found nothing for it in its cache (dry run of 6.5.0, 5 November 2026, finding T2-3).
+FIXED = ("PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "PYTHONPATH", "UV_OFFLINE", "UV_CACHE_DIR", "VIRTUAL_ENV")
 #: The prefixes of the names plugin_env carries when the case set them.
 CASE_PREFIXES = ("GIT_", "PROOFBUNDLE_")
 #: pytest's own name, set by pytest for each phase; it is neither the caller's nor the case's, and plugin_env leaves it
