@@ -17,9 +17,13 @@ import re
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 #: The wide form, in the spellings the tree used: every statement a released version wrote, and an attestation that
-#: released versions wrote giving the same verdict as before.
-_WIDE = re.compile(r"every\s+statement\s+a\s+released\s+version\s+wrote"
-                   r"|attestations?\s+that\s+released\s+versions\s+wrote\s+gives?\s+the\s+same\s+verdict", re.IGNORECASE)
+#: released versions wrote giving the same verdict as before. The words are matched across any separator, not only
+#: across white space: a test named test_every_statement_a_released_version_wrote_still_verifies makes the same claim
+#: in its name, and the first form of this guard did not see it.
+_SEP = r"[\W_]+"
+_WIDE = re.compile(_SEP.join(("every", "statement", "a", "released", "version", "wrote"))
+                   + "|" + _SEP.join(("attestations?", "that", "released", "versions", "wrote", "gives?", "the", "same",
+                                      "verdict")), re.IGNORECASE)
 
 
 def _unreleased(changelog: str) -> str:
@@ -48,3 +52,9 @@ def test_control_the_guard_finds_the_wide_form_across_a_line_end():
     assert _WIDE.search("so the Statement of every statement a released\nversion wrote verifies")
     assert _WIDE.search("verifying an SVR attestation\nthat released versions wrote gives the same verdict as before")
     assert not _WIDE.search("the 14 bundled corpus statements keep verifying")
+
+
+def test_control_the_guard_finds_the_wide_form_in_a_name():
+    assert _WIDE.search("def test_every_statement_a_released_version_wrote_still_verifies(self):")
+    assert _WIDE.search("an attestation-that-released-versions-wrote gives-the-same-verdict")
+    assert not _WIDE.search("def test_all_14_corpus_statements_still_verify(self):")
