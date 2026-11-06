@@ -25,6 +25,8 @@ _SIGNED_FIELDS = (
     "schema", "version", "subject_tree_digest", "gate_source_digest",
     "audit_command", "audit_exit_code", "audit_output_digest", "runner_identity", "produced_at",
 )
+#: Every member a receipt may carry: the signed fields and the two that wrap them (DELTA2 N2).
+_RECEIPT_MEMBERS = frozenset(_SIGNED_FIELDS) | {"signature", "signer_pubkey"}
 
 
 # ── ONE FUNNEL FOR EVERY GIT CALL OF THE RECEIPT CHAIN ──────────────────────────────────────────
@@ -692,6 +694,13 @@ def verify_receipt(receipt: dict, *, trusted_pubkeys: list[str], expected_versio
                 "instead of comparing against a placeholder that a receipt could simply carry")
     if receipt.get("schema") != RECEIPT_SCHEMA:
         return False, f"unknown schema {receipt.get('schema')!r} (want {RECEIPT_SCHEMA})"
+    # A MEMBER BESIDE THE SIGNED ONES TRAVELS UNSIGNED (DELTA2 N2, 2026-11-06): `canonical_bytes`
+    # signs `_SIGNED_FIELDS` only, so anything else in the object was carried under a verified
+    # receipt without being attested. The receipt is a closed set; each foreign member is named.
+    fremd = sorted((k for k in receipt if k not in _RECEIPT_MEMBERS), key=repr)
+    if fremd:
+        return False, ("receipt carries member(s) outside the signed set, which no signature covers: "
+                       + ", ".join(repr(k) for k in fremd))
     if receipt.get("version") != expected_version:
         return False, f"receipt version {receipt.get('version')!r} != release {expected_version!r}"
     if receipt.get("subject_tree_digest") != subject_tree_digest:
