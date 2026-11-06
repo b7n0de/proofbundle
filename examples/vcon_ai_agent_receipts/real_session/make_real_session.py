@@ -13,7 +13,8 @@ Inputs, all in this folder and unchanged since the recording:
    its call by traceContext.parentId, the tool_use id. Its verdict is handed to the converter of the synthetic example
    (../claude_jsonl_to_vcon.py) as the permissionDecision of that call's result line, in memory only: ESCALATE as a
    person's acceptance, because the call ran after the person approved it in the dialog, DENY as a rejection. The
-   transcript file is not changed.
+   transcript file is not changed. Every receipt names one call with a result line, and every call of the transcript
+   is named by one receipt.
 2. The converter writes the operations of tool-invocation-00: a policy-decision before each call, the call and its
    result for the escalated comment, and for the denied push neither its arguments nor its result.
 3. The guard's hook messages to the person and to the agent are attachment lines in the transcript, which the converter
@@ -91,6 +92,12 @@ def build():
         fed.append(raw)
     if seen != set(verdict_of):
         raise ValueError("a receipt names a call with no result line in the transcript: %s" % sorted(set(verdict_of) - seen))
+    # and the other direction: every call of the transcript is named by a receipt
+    calls = {b.get("id") for raw in lines for b in ((json.loads(raw).get("message") or {}).get("content") or [])
+             if isinstance(b, dict) and b.get("type") == "tool_use"}
+    if calls != set(verdict_of):
+        raise ValueError("a call of the transcript is named by no receipt: %s"
+                         % sorted(str(c) for c in calls - set(verdict_of)))
     agent = one({r[2]["agent"]["id"] for r in recs}, "agent.id")
     person = one({r[2]["principal"]["id"] for r in recs}, "principal.id")
     gate = one({r[2]["decisionMaker"]["id"] for r in recs}, "decisionMaker.id")

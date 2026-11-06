@@ -145,6 +145,51 @@ class TheRecordedSessionExample(unittest.TestCase):
             v["events"].append(pd)
         self._fails_at(change, "K2")
 
+    def test_k2_a_tool_operation_no_receipt_names_fails(self):
+        """A recorded call with no policy-decision and no receipt: its operation is named by none."""
+        def change(v):
+            call = copy.deepcopy(self._event(v, self._op("ESCALATE"), "tool-invocation"))
+            call["operation_id"] = "00000000-0000-8000-8000-000000000001"
+            call["body"] = {"command": "echo unreceipted"}
+            v["events"].append(call)
+        self._fails_at(change, "K2")
+
+    def test_k4_a_tool_progress_event_of_the_denied_operation_fails(self):
+        def change(v):
+            pd = self._event(v, self._op("DENY"), "policy-decision")
+            v["events"].append({"type": "tool-progress", "time": pd["time"], "sessions": 0, "party": pd["party"],
+                                "operation_id": pd["operation_id"], "attempt": 1})
+        self._fails_at(change, "K4")
+
+    def test_the_tool_event_types_are_those_of_part_1(self):
+        """The check keeps to the standard library, so it does not import ../check_example.py; its inventory of tool
+        event types must still be the same set."""
+        part1 = _load("check_example_under_test", FOLDER.parent / "check_example.py")
+        self.assertEqual(self.ck.TOOL_TYPES, part1.TOOL_TYPES)
+
+    def test_the_producer_refuses_a_call_no_receipt_names(self):
+        """Every call of the transcript is named by one receipt, not only every receipt by one call."""
+        import tempfile
+        extra = []
+        for raw in self.lines:
+            e = json.loads(raw)
+            blocks = (e.get("message") or {}).get("content")
+            if isinstance(blocks, list) and any(isinstance(b, dict) and b.get("type") == "tool_use" for b in blocks):
+                e = copy.deepcopy(e)
+                for b in e["message"]["content"]:
+                    if isinstance(b, dict) and b.get("type") == "tool_use":
+                        b["id"] = "toolu_unreceipted"
+                        b["input"] = {"command": "echo unreceipted"}
+                extra.append(json.dumps(e, ensure_ascii=False))
+                break
+        with tempfile.TemporaryDirectory() as td:
+            session = pathlib.Path(td) / "session.jsonl"
+            session.write_text("\n".join(self.lines + extra) + "\n", encoding="utf-8")
+            with mock.patch.object(self.mk, "SESSION", session):
+                with self.assertRaises(ValueError) as cm:
+                    self.mk.build()
+        self.assertIn("toolu_unreceipted", str(cm.exception))
+
     def test_k3_a_verdict_other_than_escalate_or_deny_fails(self):
         """A receipt with another verdict that verifies needs the demonstration private key, which is not in the
         repository. The check is handed such a predicate after K1, and the decision of the policy-decision is null, so

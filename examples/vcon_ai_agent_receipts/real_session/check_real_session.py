@@ -10,8 +10,8 @@ K1 each attachment with the purpose "decision receipt" verifies with `proofbundl
    first whole second after its decidedAt.
 K2 its traceContext names the session (traceId is the agent_session_id) and one call (parentId is the tool_use id; the
    operation_id the converter derives from it names exactly one policy-decision of that session). Together the
-   receipts name every policy-decision of the session, each once, so two receipts for the same call do not pass as the
-   two receipts of the session.
+   receipts name every policy-decision of the session, each once, and every operation that has a tool event, so two
+   receipts for the same call do not pass as the two receipts of the session, and no recorded call goes unchecked.
 K3 the verdict is ESCALATE or DENY and the policy-decision fits it (ESCALATE permission-required, DENY disallowed),
    agent.id is the agent party of
    that decision, principal.id the person, and decisionMaker.id the party that contributed the attachment.
@@ -45,7 +45,10 @@ import claude_jsonl_to_vcon as conv  # noqa: E402
 GATE_KEY_FILE_SHA256 = "a200f5f1ee3da0d20144150df9dc1ba005926b7d948db7194aeeb411246eed96"
 AUDIENCE = "b7vcon-demo-observer"
 FITS = {"ESCALATE": "permission-required", "DENY": "disallowed"}
-TOOL_TYPES = {"tool-invocation", "tool-result", "tool-failure", "tool-error", "tool-denied"}
+#: The tool event types of tool-invocation-00, the same set as TOOL_TYPES in ../check_example.py. That module imports
+#: cryptography, this check keeps to the standard library, so the set stands here and a test holds the two equal.
+TOOL_TYPES = {"tool-invocation", "tool-pending", "tool-progress", "tool-input", "tool-input-response", "tool-result",
+              "tool-failure", "tool-error", "tool-denied", "tool-timeout", "tool-cancel"}
 
 
 class Stop(Exception):
@@ -152,11 +155,13 @@ def check(v: dict, transcript_lines: list, cmd: str, rep: Report):
         text = " ".join(str(x) for n in notes for x in conv_list(n["data"].get("content")))
         rep.observations.append({"id": "K5", "operation": op, "verdict": verdict,
                                  "note_to_agent_begins": text[:60]})
-    decided = [e.get("operation_id") for e in events if e.get("type") == "policy-decision"]
-    rep.need(sorted(named) == sorted(decided) and len(set(named)) == len(named), "K2", "receipts",
-             "the receipts name the calls %s, the session decided the calls %s; each must be named by one receipt"
-             % (sorted(named), sorted(decided)),
-             "the %d receipts name the %d policy-decisions of the session, each once" % (len(named), len(decided)))
+    decided = [str(e.get("operation_id")) for e in events if e.get("type") == "policy-decision"]
+    acted = {str(e.get("operation_id")) for e in events if e.get("type") in TOOL_TYPES}
+    rep.need(sorted(named) == sorted(decided) and len(set(named)) == len(named) and acted <= set(named), "K2",
+             "receipts", "the receipts name the operations %s; the session decided %s and has tool events of %s; each "
+             "must be named by one receipt" % (sorted(named), sorted(decided), sorted(acted)),
+             "the %d receipts name the %d policy-decisions of the session, each once, and every operation with a "
+             "tool event" % (len(named), len(decided)))
     keys = {conv.json_key(x) for x in denied_inputs if isinstance(x, dict)}
     rep.need(not (conv.json_keys(v)[1] & keys), "K4", "vCon", "a JSON value equals the denied arguments",
              "no JSON value in the vCon equals the denied arguments")

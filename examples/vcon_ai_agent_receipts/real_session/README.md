@@ -56,7 +56,7 @@ The check exits 0 only when K1 to K4 pass, names the first failure otherwise, an
 | Check | What it holds |
 |---|---|
 | K1 | each receipt verifies with `proofbundle decision verify --strict` against the pinned demonstration key, for the audience the guard wrote, at the first whole second after its `decidedAt` |
-| K2 | `traceContext.traceId` is the session's `agent_session_id`, and `traceContext.parentId`, the tool_use id, names one policy-decision through the operation_id the converter derives from it; together the receipts name every policy-decision of the session, each once |
+| K2 | `traceContext.traceId` is the session's `agent_session_id`, and `traceContext.parentId`, the tool_use id, names one policy-decision through the operation_id the converter derives from it; together the receipts name every policy-decision of the session, each once, and every operation that has a tool event |
 | K3 | the verdict is ESCALATE or DENY and the policy-decision fits it, ESCALATE `permission-required` and DENY `disallowed`, and `agent`, `principal` and `decisionMaker` are the parties of the vCon |
 | K4 | for ESCALATE the call stands once, after its decision, and `parametersDigest` is the SHA-256 of the `--body` argument of its `gh` command, read with shlex in POSIX mode; for DENY no tool event of the operation stands in the vCon, and no JSON value in it equals the denied arguments |
 | K5 | an observation, not a pass or fail: what the guard's note to the agent begins with, next to the verdict it signed |
