@@ -231,6 +231,22 @@ class TestContract1_NoValidReceiptFails:
         assert res2["foreign_files"] == ["audit_artifacts/500/findings_register_v2.json"]
         assert res2["receipt_path"].endswith("pre_tag_receipt_5.0.0.json") and not res2["rejected"]
 
+    def test_a_rejected_receipt_beside_a_valid_one_is_not_verified(self, welt):
+        """DELTA2 N1 (2026-11-06): `verified` was decided before `rejected` was looked at, so a
+        genuine receipt carried a broken one committed beside it to VERIFIED, exit 0. The name of
+        the broken one matches the receipt pattern, so it lies outside the tree binding and the
+        genuine receipt stays valid; only the rule of the folder can refuse it."""
+        repo, env, _priv, _kand, commit = welt
+        rc0, res0, roh0 = _verify(repo, env, commit)
+        assert rc0 == 0 and res0["verdict"] == "VERIFIED", roh0
+        (repo / "audit_artifacts" / "500" / "pre_tag_receipt_v5.0.0-zweit.json").write_text("{ kaputt")
+        _git(["add", "audit_artifacts/500/"], repo)
+        _git(["commit", "-q", "-m", "broken neighbour"], repo)
+        rc, res, roh = _verify(repo, env, _head(repo))
+        assert rc == 1 and res["verdict"] == "NOT_VERIFIED", roh
+        assert len(res["verified"]) == 1 and len(res["rejected"]) == 1, roh
+        assert "pre_tag_receipt_v5.0.0-zweit.json" in res["reason"], roh
+
 
 class TestContract2_ReceiptForAnotherCommitFails:
     def test_the_receipt_of_the_previous_commit_does_not_cover_a_later_one(self, welt):

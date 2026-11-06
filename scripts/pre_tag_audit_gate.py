@@ -567,7 +567,10 @@ def _evaluate(repo: Path, version: str | None = None) -> dict:
             except Exception:  # noqa: BLE001
                 anderer = False
         (other_tree if anderer else rejected).append({"path": rp, "reason": reason})
-    ok = bool(verified)
+    # A REJECTED CANDIDATE OUTRANKS A VERIFIED ONE TOO (DELTA2 N1, 2026-11-06). `ok` was
+    # `bool(verified)`, so a genuine receipt carried a broken one beside it to ok=True and
+    # state=verified, against the sentence below. One known-bad artefact in the folder is a finding.
+    ok = bool(verified) and not rejected
     # ── THE TYPED STATE, and why a consumer must key on it (deep gate 2026-09-05, L5-G6-01, P2) ────────
     #
     # C12.1 narrows "no receipt binds this tree" to NOT_APPLICABLE on a pull request, because a receipt
@@ -584,7 +587,7 @@ def _evaluate(repo: Path, version: str | None = None) -> dict:
     # (no receipt at all). `rejected` keeps its meaning: a present artefact that claims to be a
     # receipt for this version and is broken. A rejected candidate outranks other_tree: one known-bad
     # artefact in the folder is a finding, whatever else lies beside it.
-    state = ("verified" if verified else "rejected" if rejected
+    state = ("rejected" if rejected else "verified" if verified
              else "other_tree" if other_tree else "absent")
     # PRESENTATIONAL ONLY: the CHANGELOG discipline line is reported for a reader but cannot move the
     # verdict in either direction (L5-02 kept; the attestation is the receipt's job now).
@@ -605,8 +608,12 @@ def _evaluate(repo: Path, version: str | None = None) -> dict:
         "changelog_records_audit": changelog_ok,
         "changelog_is_presentational": True,
         "reason": None if ok else (
-            f"no valid pre-tag audit RECEIPT binds tree {tree[:12]} + version {version} + this gate. "
-            + (f"{len(rejected)} candidate receipt(s) rejected: {[r['reason'] for r in rejected]}"
+            (f"{len(verified)} valid receipt(s) bind tree {tree[:12]} + version {version} + this gate, "
+             "but a rejected candidate lies beside them. "
+             if verified else
+             f"no valid pre-tag audit RECEIPT binds tree {tree[:12]} + version {version} + this gate. ")
+            + (f"{len(rejected)} candidate receipt(s) rejected: "
+               f"{[(r['path'], r['reason']) for r in rejected]}"
                if rejected else
                f"{len(other_tree)} valid receipt(s) bind ANOTHER tree or gate version, none this one: "
                f"{[r['path'] for r in other_tree]} — a receipt attests one candidate tree; this tree "

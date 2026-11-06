@@ -1357,7 +1357,9 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
     out["verified"] = verified
     out["rejected"] = rejected
     out["foreign_files"] = foreign
-    if verified:
+    # A REJECTED RECEIPT BESIDE A VALID ONE IS NOT VERIFIED (DELTA2 N1, 2026-11-06): the gate's rule
+    # holds here too, one known-bad artefact in the folder is a finding, whatever lies beside it.
+    if verified and not rejected:
         out["verdict"] = "VERIFIED"
         out["receipt_path"] = verified[0]["path"]
         out["signer_pubkey"] = verified[0]["signer_pubkey"]
