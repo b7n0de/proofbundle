@@ -16,9 +16,11 @@ K2 its traceContext names the session (traceId is the agent_session_id) and one 
 K3 the verdict is ESCALATE or DENY and the policy-decision fits it (ESCALATE permission-required, DENY disallowed),
    agent.id is the agent party of
    that decision, principal.id the person, and decisionMaker.id the party that contributed the attachment.
-K4 for ESCALATE, the call stands once, at or after its decision, and the SHA-256 of the --body argument of its gh
-   command, read with shlex in POSIX mode, is parametersDigest; for DENY, no tool event of the operation stands in the
-   vCon, and no JSON value in it equals the denied arguments the transcript holds.
+K4 for ESCALATE, the call stands once, at or after its decision, as a Bash call whose command is exactly
+   gh pr comment N --repo OWNER/NAME --body TEXT with no shell syntax beyond words and quotes, so it runs nothing else;
+   the pull request it names is the target of the receipt, and the SHA-256 of TEXT, read with shlex in POSIX mode, is
+   parametersDigest. For DENY, no tool event of the operation stands in the vCon, and no JSON value in it equals the
+   denied arguments the transcript holds.
 K5 what the guard told the agent for each operation, next to the verdict it signed. This is reported as an observation,
    not as a pass or a fail: in this session the note to the agent begins with NOT MEASURED where the receipt says
    ESCALATE (finding GF-E001 of the guard).
@@ -76,6 +78,39 @@ def gate_key(rep) -> str:
     rep.need(hashlib.sha256(raw).hexdigest() == GATE_KEY_FILE_SHA256, "K1", "gate.pub.hex",
              "the key file is not the pinned demonstration key", "pinned demonstration key")
     return base64.b64encode(bytes.fromhex(raw.decode("ascii").strip())).decode("ascii")
+
+
+#: Characters a POSIX shell leaves alone outside quotes, besides the space between words. Anything else outside quotes
+#: may end the command, pipe, redirect, start a subshell, a comment, a glob or an expansion.
+PLAIN = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_./:@%+,=")
+
+
+def shell_syntax(command: str):
+    """(offset, character) of the first place where a POSIX shell would do more than split words at spaces and remove
+    quotes, or None. Inside single quotes every character is literal; a backslash outside them makes the next character
+    literal; inside double quotes $ and the backquote still expand; outside quotes only PLAIN characters, the space and
+    the quoting itself are plain."""
+    quote, i = None, 0
+    while i < len(command):
+        c = command[i]
+        if quote == "'":
+            if c == "'":
+                quote = None
+        elif c == "\\":
+            if i + 1 == len(command):
+                return i, c
+            i += 1
+        elif quote == '"':
+            if c in "$`":
+                return i, c
+            if c == '"':
+                quote = None
+        elif c in "'\"":
+            quote = c
+        elif c != " " and c not in PLAIN:
+            return i, c
+        i += 1
+    return None if quote is None else (len(command), quote)
 
 
 def whole_second_after(t: str) -> str:
@@ -136,10 +171,19 @@ def check(v: dict, transcript_lines: list, cmd: str, rep: Report):
             rep.need(len(calls) == 1, "K4", where, "the escalated call does not stand exactly once")
             rep.need(conv._when(calls[0]["time"]) >= conv._when(pd["time"]), "K4", where,
                      "the call stands before its decision")
-            argv = shlex.split(calls[0]["body"]["command"], posix=True)
-            rep.need(argv[:3] == ["gh", "pr", "comment"] and argv.count("--body") == 1, "K4", where,
-                     "the call is not one gh pr comment with one --body")
-            body = argv[argv.index("--body") + 1].encode("utf-8")
+            rep.need(calls[0].get("tool") == "Bash", "K4", where, "the call is not a Bash call")
+            command = calls[0]["body"]["command"]
+            special = shell_syntax(command)
+            rep.need(special is None, "K4", where, "the command holds shell syntax beyond words and quotes, %r at "
+                     "offset %s, so it may run more than the receipted comment" % (special or (None, None))[::-1])
+            argv = shlex.split(command, posix=True)
+            rep.need(len(argv) == 8 and argv[:3] == ["gh", "pr", "comment"] and argv[3].isdigit()
+                     and argv[4] == "--repo" and argv[6] == "--body", "K4", where,
+                     "the command is not gh pr comment N --repo OWNER/NAME --body TEXT")
+            rep.need(p["proposedAction"].get("target", {}).get("uri") == "https://github.com/%s/pull/%s"
+                     % (argv[5], argv[3]), "K4", where, "the pull request of the command is not the target %r of "
+                     "the receipt" % p["proposedAction"].get("target", {}).get("uri"))
+            body = argv[7].encode("utf-8")
             rep.need(hashlib.sha256(body).hexdigest() == p["proposedAction"]["parametersDigest"]["sha256"], "K4", where,
                      "SHA-256 of the --body argument is not parametersDigest",
                      "parametersDigest = SHA-256 of the --body argument of the call")

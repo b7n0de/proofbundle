@@ -244,6 +244,45 @@ class TheRecordedSessionExample(unittest.TestCase):
             call["body"]["command"] = call["body"]["command"].replace("Case 1", "Case 9")
         self._fails_at(change, "K4")
 
+    def _escalated_call_changed(self, change_call):
+        def change(v):
+            change_call(self._event(v, self._op("ESCALATE"), "tool-invocation"))
+        self._fails_at(change, "K4")
+
+    def test_k4_a_second_command_after_the_comment_fails(self):
+        """The --body and its digest are unchanged, but the shell would run a second command."""
+        def change(call):
+            call["body"]["command"] += " ; git push origin --delete main"
+        self._escalated_call_changed(change)
+
+    def test_k4_a_command_substitution_in_the_call_fails(self):
+        def change(call):
+            call["body"]["command"] = call["body"]["command"].replace(
+                "gh pr comment 1 ", 'gh pr comment 1 "$(git push origin --delete main)" ', 1)
+        self._escalated_call_changed(change)
+
+    def test_shell_syntax_finds_what_a_shell_would_run_or_expand(self):
+        refused = ["a ; b", "a | b", "a && b", "a > f", "a < f", "a\nb", "a `b`", 'a "$x"', 'a "`b`"', "a $(b)",
+                   "a 'b", 'a "b', "a *", "a #c", "a ~", "a {x,y}", "a (b)", "a \\"]
+        plain = ["gh pr comment 1", "a 'b;c|d`$(e)'", 'a "b c;d|e"', "a b\\'c", "a 'it'\\''s'", 'a "b\\$c"']
+        for c in refused:
+            with self.subTest(refused=c):
+                self.assertIsNotNone(self.ck.shell_syntax(c))
+        for c in plain:
+            with self.subTest(plain=c):
+                self.assertIsNone(self.ck.shell_syntax(c))
+
+    def test_k4_a_comment_on_another_pull_request_fails(self):
+        """The receipt names its target, pull request 1 of the demonstration repository."""
+        def change(call):
+            call["body"]["command"] = call["body"]["command"].replace("gh pr comment 1 ", "gh pr comment 2 ", 1)
+        self._escalated_call_changed(change)
+
+    def test_k4_the_same_command_through_another_tool_fails(self):
+        def change(call):
+            call["tool"] = "Task"
+        self._escalated_call_changed(change)
+
     def test_k4_a_tool_event_after_the_deny_fails(self):
         def change(v):
             op = self._op("DENY")

@@ -96,6 +96,24 @@
       "id": "K4",
       "where": "attachments[0] a-c3d403fa489a533ed075263186638b06-1.json",
       "result": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "K4",
+      "where": "attachments[0] a-c3d403fa489a533ed075263186638b06-1.json",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "K4",
+      "where": "attachments[0] a-c3d403fa489a533ed075263186638b06-1.json",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "K4",
+      "where": "attachments[0] a-c3d403fa489a533ed075263186638b06-1.json",
+      "result": "PASS",
       "detail": "parametersDigest = SHA-256 of the --body argument of the call"
     },
     {
