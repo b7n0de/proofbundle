@@ -19,6 +19,26 @@
 
 </div>
 
+## Use it where your agents work
+
+proofbundle runs as a plugin in **Claude Code** and **Codex**. Ask your agent to check a receipt, and it tells you in plain words whether the key you trust signed it, whether anything changed since, and what the receipt cannot tell you.
+
+**Claude Code**
+
+```sh
+claude plugin marketplace add b7n0de/proofbundle
+claude plugin install proofbundle@proofbundle
+```
+
+**Codex**
+
+```sh
+codex plugin marketplace add b7n0de/proofbundle
+codex plugin add proofbundle@proofbundle
+```
+
+Then ask for `/proofbundle:verify receipt.json` in Claude Code, or for the skill `proofbundle:verify` in Codex, and give the signer's public key when your agent asks for it. The plugin needs [uv](https://docs.astral.sh/uv/), and network access to PyPI on its first start. Plugin 0.4.0, experimental in both hosts. [How the plugins work](https://github.com/b7n0de/proofbundle/blob/main/plugins/README.md)
+
 ## Current release
 
 **[v6.5.0](https://github.com/b7n0de/proofbundle/releases/tag/v6.5.0) · Beta · [Audit status and limits](https://github.com/b7n0de/proofbundle/blob/v6.5.0/audit_artifacts/650/README.md)**
@@ -128,12 +148,14 @@ Shipped features do not all have the same maturity. Agent review disclosures are
 
 ## Plugins
 
-proofbundle ships plugins for pytest and Inspect AI. Receipt emission is opt-in and requires an explicit pass threshold.
+| Where | Install | What you get |
+|---|---|---|
+| Claude Code | `claude plugin install proofbundle@proofbundle` | Verify and review receipts from your agent session |
+| Codex | `codex plugin add proofbundle@proofbundle` | The same skills in Codex |
+| pytest | `proofbundle[pytest,eval]` | A signed receipt for a test run |
+| Inspect AI | `proofbundle[inspect,eval]` | A signed receipt for an eval |
 
-| Plugin | Package |
-|---|---|
-| pytest | `proofbundle[pytest,eval]` |
-| Inspect AI | `proofbundle[inspect,eval]` |
+Receipt emission in pytest and Inspect AI is opt-in and requires an explicit pass threshold.
 
 <details>
 <summary>Commands, threshold and output</summary>

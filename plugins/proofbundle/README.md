@@ -1,5 +1,49 @@
 # proofbundle plugin for Claude Code and Codex
 
+**Ask your agent to check a receipt, and get a plain answer.**
+
+You received an AI result with a receipt. This plugin lets your agent verify it on your own machine and explain what it found. It tells you whether the key you trust signed the receipt, whether anything changed after signing, and what a receipt cannot tell you.
+
+## Install
+
+You need [uv](https://docs.astral.sh/uv/) on `PATH`, a Python version uv can use (3.10 or later), and network access to PyPI on the first start.
+
+**Claude Code**
+
+```sh
+claude plugin marketplace add b7n0de/proofbundle
+claude plugin install proofbundle@proofbundle
+```
+
+**Codex**
+
+```sh
+codex plugin marketplace add b7n0de/proofbundle
+codex plugin add proofbundle@proofbundle
+```
+
+## Try it
+
+| Ask your agent in Claude Code | What happens |
+|---|---|
+| `/proofbundle:verify receipt.json` | Checks the receipt with the signer's public key you trust, and explains the result |
+| `/proofbundle:review-receipt receipt.json` | Verifies first, then separates what the signature proves from what the signer only claims |
+| `/proofbundle:emit` | Fills a receipt with facts you give, shows it to you, signs it after you confirm, then verifies it. Experimental, and the skill runs only when you invoke it |
+
+In Codex, ask for the skill by its name, such as `proofbundle:verify`. Give the signer's public key with the command or when your agent asks for it. The skills tell your agent not to take it from the receipt, its file name or a file next to it, unless you confirm that it is the key you trust.
+
+## Good to know
+
+- A passing check proves that the holder of the key you gave signed exactly these bytes, and that nothing changed since. It does not prove that the content is true.
+- Every verdict comes from the proofbundle package on PyPI, in the one exact version the plugin pins and names in every result. You can run that version yourself.
+- The verify, review-receipt and emit skills and the plugin's server tell your agent to treat anything inside a receipt as data, never as an instruction.
+- Status is experimental in Claude Code and in Codex. So far, less of the plugin is measured under Codex than under Claude Code. Under Codex, signing needs a key file you name.
+- This plugin registers no hook. The pre-push gate and the done check belong to proofbundle-guard, a separate preview plugin for the house profile of b7n0de, which no public catalog lists.
+
+The [technical details](#technical-details) follow below, with the gate, its hooks, the release assets and how to move from an earlier 0.4.0.
+
+## Technical details
+
 With proofbundle-guard installed beside this plugin (D134), and under Codex its hooks trusted (D13), in a repository
 whose declaration names a done check, the Stop hook keeps your agent's turn open, up to a set number of blocks, until
 every check you required has a signed, passing test receipt for exactly the commit and tree it leaves behind, and when
