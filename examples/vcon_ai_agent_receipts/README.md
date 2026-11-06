@@ -153,9 +153,10 @@ The example had to pick one reading at each of these places; `cases.md` holds a 
   observation permitted by tool-invocation-00.
 - Every attempt of an approved operation lies between the approval and its `validUntil`, and after the receipt's
   `decidedAt`; attempts start at 1 and go up by one.
-- Redacted content is `content_hash` alone, as in the core CDDL; an `encoding` without a `body` is refused. A
-  parameter that none of the drafts used here defines is refused, which is stricter than the sockets of
-  Appendix D allow.
+- Redacted content is `content_hash` alone, as in the core CDDL; an `encoding` without a `body` is refused. In an
+  Event Object of tool-invocation-00, a parameter that draft does not define for its type is refused, which is
+  stricter than the sockets of Appendix D allow. The other objects of the vCon and the Event Objects of the AI
+  agent extension are not checked for undefined parameters.
 - A `content_hash` must carry a `sha512` token.
 - `approvedAt` is the time the answer was sent, its `start` plus its `duration`.
 - For this synthetic example, an approval record is accepted only if its referenced Dialog Object is the person's
