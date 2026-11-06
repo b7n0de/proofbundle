@@ -86,7 +86,9 @@ class TheCap(unittest.TestCase):
         r = verify_opentimestamps(self.over, _ROOT, frozen={})
         self.assertEqual((r["ok"], r["status"]), (False, "over_budget"))
         self.assertIn("before deserializing", r["detail"])
-        pack = {"proof": base64.b64encode(self.over).decode(), "canonicalRoot": base64.b64encode(_ROOT).decode()}
+        # type and packVersion since DELTA2 N3: the verifier refuses a pack of another format first.
+        pack = {"type": "opentimestamps-evidence-pack", "packVersion": "v0.2",
+                "proof": base64.b64encode(self.over).decode(), "canonicalRoot": base64.b64encode(_ROOT).decode()}
         self.assertEqual(verify_evidence_pack(pack)["status"], "over_budget")
         self.assertEqual(calendar_uris(self.over), [])
         self.assertIs(ots_upgraded_proof_is_self_contained(self.over_upgraded), False)
@@ -108,7 +110,8 @@ class TheCap(unittest.TestCase):
         from proofbundle.anchors_ots import calendar_uris, verify_opentimestamps
         from proofbundle.evidence_pack import (build_evidence_pack, describe_proof,
                                                ots_upgraded_proof_is_self_contained, verify_evidence_pack)
-        over_pack = {"proof": base64.b64encode(self.over).decode(),
+        over_pack = {"type": "opentimestamps-evidence-pack", "packVersion": "v0.2",
+                     "proof": base64.b64encode(self.over).decode(),
                      "canonicalRoot": base64.b64encode(_ROOT).decode()}
         readers = {
             "verify_opentimestamps": lambda p: verify_opentimestamps(p, _ROOT, frozen={}),

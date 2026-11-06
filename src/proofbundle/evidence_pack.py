@@ -43,6 +43,16 @@ __all__ = [
 ]
 
 
+#: The members `build_evidence_pack` writes (DELTA2 N3). The verifier refuses any other member and any
+#: other `type` or `packVersion`: a member nobody reads is a member a producer can put anything into.
+_PACK_TYPE = "opentimestamps-evidence-pack"
+_PACK_VERSION = "v0.2"
+_PACK_MEMBERS = frozenset({
+    "type", "packVersion", "canonicalRoot", "proof", "selfContained", "provenCalendars",
+    "provenCalendarOperators", "operatorRedundancy", "bundledHeaderEvidence", "declaredCalendars",
+    "declaredCalendarOperators", "declaredCalendarsVerified", "frozen"})
+
+
 def _as_dict(v):
     """adversarial re-audit r5/r6 class-fix: Config-Sub-Feld als dict, sonst {} (das ``_as_dict(x.get(k))``-Idiom ersetzte nur FALSY)."""
     return v if isinstance(v, dict) else {}
@@ -119,8 +129,8 @@ def build_evidence_pack(canonical_root: bytes, proof: bytes, *,
     proven = _calendar_uris_of(timestamp) if timestamp is not None else []
     proven_operators = calendar_operators(proven)
     pack: dict = {
-        "type": "opentimestamps-evidence-pack",
-        "packVersion": "v0.2",
+        "type": _PACK_TYPE,
+        "packVersion": _PACK_VERSION,
         "canonicalRoot": base64.b64encode(canonical_root).decode(),
         "proof": base64.b64encode(proof).decode(),
         "selfContained": _classify(timestamp)[0] if timestamp is not None else False,
@@ -188,6 +198,18 @@ def verify_evidence_pack(pack: dict, *, rp_trust: Optional[dict] = None,
     except ValueError as exc:
         return {"ok": False, "warn": False, "status": "malformed_pack",
                 "detail": f"evidence pack is not a JSON object: {exc}"}
+    if not isinstance(pack, dict):
+        return {"ok": False, "warn": False, "status": "malformed_pack",
+                "detail": f"evidence pack must be a JSON object, got {type(pack).__name__}"}
+    fremd = sorted((k for k in pack if k not in _PACK_MEMBERS), key=repr)
+    if fremd:
+        return {"ok": False, "warn": False, "status": "malformed_pack",
+                "detail": "evidence pack carries member(s) the pack format does not have: "
+                          + ", ".join(repr(k) for k in fremd)}
+    for feld, soll in (("type", _PACK_TYPE), ("packVersion", _PACK_VERSION)):
+        if pack.get(feld) != soll:
+            return {"ok": False, "warn": False, "status": "malformed_pack",
+                    "detail": f"evidence pack {feld} is {pack.get(feld)!r}, not {soll!r}"}
     try:
         proof = decode_b64(pack["proof"])
         canonical_root = decode_b64(pack["canonicalRoot"])
