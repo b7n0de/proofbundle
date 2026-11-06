@@ -2652,9 +2652,24 @@ def c10_4_manifest_self_receipt():
     if not man.is_file():
         return FAIL, "readiness pack SHA-256 manifest missing"
     receipt_dir = REPO / "docs" / "readiness_pack" / "proofbundle"
-    has_receipt = receipt_dir.is_dir() and any(receipt_dir.iterdir())
-    return (PASS, "SHA-256 manifest + proofbundle self-receipt present (advisory dogfood)") if has_receipt \
-        else (PENDING, "SHA-256 manifest present; proofbundle self-receipt not generated (advisory)")
+    eintraege = sorted(receipt_dir.iterdir()) if receipt_dir.is_dir() else []
+    if not eintraege:
+        return PENDING, "SHA-256 manifest present; proofbundle self-receipt not generated (advisory)"
+    # THE FOLDER HOLDS EXACTLY WHAT THE PACK SCRIPT WRITES (DELTA2 N5, 2026-11-06): any entry used to
+    # pass, so a stray `.DS_Store` stood in for the self-receipt. The two files of
+    # `scripts/readiness_pack_manifest.py` (RECEIPT, PUBKEY) must be regular files, and an entry
+    # beside them, file, folder or link, is named by repr.
+    erwartet = ("readiness_pack.bundle.json", "readiness_pack.pub.b64")
+    fremd = [p.name for p in eintraege if p.name not in erwartet]
+    fehlt = [n for n in erwartet
+             if not (receipt_dir / n).is_file() or (receipt_dir / n).is_symlink()]
+    if fremd or fehlt:
+        return FAIL, ("the self-receipt folder docs/readiness_pack/proofbundle is not the pack's: "
+                      + (f"foreign entr(y/ies) {', '.join(repr(n) for n in fremd)}" if fremd else "")
+                      + ("; " if fremd and fehlt else "")
+                      + (f"missing or not a regular file {', '.join(repr(n) for n in fehlt)}"
+                         if fehlt else ""))
+    return PASS, "SHA-256 manifest + proofbundle self-receipt present (advisory dogfood)"
 
 
 def c10_5_runbook():
