@@ -265,6 +265,18 @@ def measure_vector_set(conformance_dir: "Path | str") -> dict:
                 f"conformance manifest lists one case directory under two spellings: "
                 f"{aufgeloest[ziel]!r} and {rel!r}")
         aufgeloest[ziel] = rel
+    # A CASE THE MANIFEST DOES NOT NAME IS A FOREIGN MEMBER (DELTA2 N4, 2026-11-06). A directory
+    # carrying `case.json` (what `conformance/cross_format.py` loads as a case) moved neither the
+    # digest nor `cases` when the manifest left it out, so a corpus with a case nobody runs measured
+    # like the corpus without it. Helper directories without `case.json` stay outside the set.
+    benannt = set(aufgeloest)
+    fremd = sorted({p.parent.resolve().relative_to(root.resolve()).as_posix()
+                    for p in root.rglob("case.json")
+                    if "__pycache__" not in p.parts and p.parent.resolve() not in benannt
+                    and _innerhalb(p.parent, root)})
+    if fremd:
+        raise VerifierBlockError("the corpus carries case directories the manifest does not name: "
+                                 + ", ".join(repr(f) for f in fremd))
     rows = [f"manifest.json\0{_sha256_file(manifest_path)}"]
     for rel in cases:
         d = root / rel
