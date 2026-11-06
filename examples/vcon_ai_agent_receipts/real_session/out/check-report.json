@@ -168,7 +168,7 @@
       "id": "K2",
       "where": "receipts",
       "result": "PASS",
-      "detail": "the 2 receipts name the 2 policy-decisions of the session, each once, and every operation with a tool event"
+      "detail": "the 2 receipts name the 2 policy-decisions of the session, each once, and every operation an event names"
     },
     {
       "id": "K4",

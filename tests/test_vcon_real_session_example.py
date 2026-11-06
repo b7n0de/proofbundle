@@ -167,28 +167,52 @@ class TheRecordedSessionExample(unittest.TestCase):
         part1 = _load("check_example_under_test", FOLDER.parent / "check_example.py")
         self.assertEqual(self.ck.TOOL_TYPES, part1.TOOL_TYPES)
 
-    def test_the_producer_refuses_a_call_no_receipt_names(self):
-        """Every call of the transcript is named by one receipt, not only every receipt by one call."""
+    @staticmethod
+    def _blocks(e, typ):
+        content = (e.get("message") or {}).get("content")
+        return [b for b in content if isinstance(b, dict) and b.get("type") == typ] if isinstance(content, list) else []
+
+    def _producer_refuses(self, has, change):
+        """Append a changed copy of the first transcript line for which has(line) holds; the producer must refuse it and
+        name the call it does not know."""
         import tempfile
-        extra = []
-        for raw in self.lines:
-            e = json.loads(raw)
-            blocks = (e.get("message") or {}).get("content")
-            if isinstance(blocks, list) and any(isinstance(b, dict) and b.get("type") == "tool_use" for b in blocks):
-                e = copy.deepcopy(e)
-                for b in e["message"]["content"]:
-                    if isinstance(b, dict) and b.get("type") == "tool_use":
-                        b["id"] = "toolu_unreceipted"
-                        b["input"] = {"command": "echo unreceipted"}
-                extra.append(json.dumps(e, ensure_ascii=False))
-                break
+        e = copy.deepcopy(next(json.loads(raw) for raw in self.lines if has(json.loads(raw))))
+        change(e)
         with tempfile.TemporaryDirectory() as td:
             session = pathlib.Path(td) / "session.jsonl"
-            session.write_text("\n".join(self.lines + extra) + "\n", encoding="utf-8")
+            session.write_text("\n".join(self.lines + [json.dumps(e, ensure_ascii=False)]) + "\n", encoding="utf-8")
             with mock.patch.object(self.mk, "SESSION", session):
                 with self.assertRaises(ValueError) as cm:
                     self.mk.build()
         self.assertIn("toolu_unreceipted", str(cm.exception))
+
+    def test_the_producer_refuses_a_call_no_receipt_names(self):
+        """Every call of the transcript is named by one receipt, not only every receipt by one call."""
+        def change(e):
+            for b in self._blocks(e, "tool_use"):
+                b["id"] = "toolu_unreceipted"
+                b["input"] = {"command": "echo unreceipted"}
+        self._producer_refuses(lambda e: self._blocks(e, "tool_use"), change)
+
+    def test_the_producer_refuses_a_result_no_receipt_names(self):
+        """A result line of a call no receipt names; the converter would drop it as a result without its call."""
+        def change(e):
+            for b in self._blocks(e, "tool_result"):
+                b["tool_use_id"] = "toolu_unreceipted"
+        self._producer_refuses(lambda e: self._blocks(e, "tool_result"), change)
+
+    def test_the_producer_refuses_a_hook_message_for_a_call_no_receipt_names(self):
+        def change(e):
+            e["attachment"]["toolUseID"] = "toolu_unreceipted"
+        self._producer_refuses(lambda e: isinstance((e.get("attachment") or {}).get("toolUseID"), str), change)
+
+    def test_k2_a_note_for_an_operation_no_receipt_names_fails(self):
+        """A system-event of the guard that names an operation no receipt names."""
+        def change(v):
+            note = copy.deepcopy(next(e for e in v["events"] if e.get("type") == "system-event"))
+            note["data"]["operation_id"] = "00000000-0000-8000-8000-000000000002"
+            v["events"].append(note)
+        self._fails_at(change, "K2")
 
     def test_k3_a_verdict_other_than_escalate_or_deny_fails(self):
         """A receipt with another verdict that verifies needs the demonstration private key, which is not in the

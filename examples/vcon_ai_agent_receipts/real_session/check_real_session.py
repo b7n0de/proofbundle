@@ -10,8 +10,9 @@ K1 each attachment with the purpose "decision receipt" verifies with `proofbundl
    first whole second after its decidedAt.
 K2 its traceContext names the session (traceId is the agent_session_id) and one call (parentId is the tool_use id; the
    operation_id the converter derives from it names exactly one policy-decision of that session). Together the
-   receipts name every policy-decision of the session, each once, and every operation that has a tool event, so two
-   receipts for the same call do not pass as the two receipts of the session, and no recorded call goes unchecked.
+   receipts name every policy-decision of the session, each once, and every operation any Event Object names (a tool
+   event by its operation_id, a note of the guard in its data), so two receipts for the same call do not pass as the
+   two receipts of the session, and no recorded call goes unchecked.
 K3 the verdict is ESCALATE or DENY and the policy-decision fits it (ESCALATE permission-required, DENY disallowed),
    agent.id is the agent party of
    that decision, principal.id the person, and decisionMaker.id the party that contributed the attachment.
@@ -156,12 +157,16 @@ def check(v: dict, transcript_lines: list, cmd: str, rep: Report):
         rep.observations.append({"id": "K5", "operation": op, "verdict": verdict,
                                  "note_to_agent_begins": text[:60]})
     decided = [str(e.get("operation_id")) for e in events if e.get("type") == "policy-decision"]
-    acted = {str(e.get("operation_id")) for e in events if e.get("type") in TOOL_TYPES}
-    rep.need(sorted(named) == sorted(decided) and len(set(named)) == len(named) and acted <= set(named), "K2",
-             "receipts", "the receipts name the operations %s; the session decided %s and has tool events of %s; each "
-             "must be named by one receipt" % (sorted(named), sorted(decided), sorted(acted)),
-             "the %d receipts name the %d policy-decisions of the session, each once, and every operation with a "
-             "tool event" % (len(named), len(decided)))
+    # every operation an Event Object names, as its operation_id or, for the guard's notes, in its data
+    mentioned = {str(e.get("operation_id")) for e in events if e.get("type") in TOOL_TYPES}
+    mentioned |= {str(e["operation_id"]) for e in events if "operation_id" in e}
+    mentioned |= {str(e["data"]["operation_id"]) for e in events
+                  if isinstance(e.get("data"), dict) and "operation_id" in e["data"]}
+    rep.need(sorted(named) == sorted(decided) and len(set(named)) == len(named) and mentioned <= set(named), "K2",
+             "receipts", "the receipts name the operations %s; the session decided %s and its events name %s; each "
+             "must be named by one receipt" % (sorted(named), sorted(decided), sorted(mentioned)),
+             "the %d receipts name the %d policy-decisions of the session, each once, and every operation an event "
+             "names" % (len(named), len(decided)))
     keys = {conv.json_key(x) for x in denied_inputs if isinstance(x, dict)}
     rep.need(not (conv.json_keys(v)[1] & keys), "K4", "vCon", "a JSON value equals the denied arguments",
              "no JSON value in the vCon equals the denied arguments")
