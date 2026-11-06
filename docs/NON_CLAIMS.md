@@ -50,6 +50,35 @@ The same discipline applies to the decision path. A verified Decision Receipt do
   *which* outcome record is meant — whether that record is itself signed and by whom is a separate
   trust decision.
 
+## Action outcomes (`action-outcome/v0.1`)
+
+A verified Action Outcome does **not** prove:
+
+- **That `executor.id` names the party that signed.** `executor.id` is the outcome signer's own
+  statement. A Trust Pack binds only `executor.keyId` to the signing key; an anchored executor key can
+  write any `executor.id`, and the outcome verifies with `executor_role_trusted` true. Role separation
+  compares that statement with the decision maker's id (docs/predicates/action-outcome.md §5 and §7).
+
+## Steps of draft-gruszka-audit-decision-receipts-05 that proofbundle does not perform
+
+The offline verification of that draft (sections 3.1 to 3.4) names inputs that
+`proofbundle decision verify`, `proofbundle outcome verify`, `verify_decision_receipt` and
+`verify_outcome_receipt` do not take. Section 3.1 requires two of them, so a pass of proofbundle on such
+receipts is not a pass of the draft's procedure:
+
+- **The expected `executor.id`** (section 3.1, section 3.4 step 5), and a trust policy that permits the
+  outcome-signing key to attest that identifier.
+- **The approval record bytes of Case 1** (section 3.3), with the bounds approvedAt <= decidedAt <= T <
+  validity.expiresAt <= validUntil.
+
+Section 3.1 calls two more optional:
+
+- **The effect bytes** (section 3.4 step 6). proofbundle reads `effectDigest` as a digest and compares it
+  with no bytes.
+- **The action bytes** (section 3.2 step 10). The decision verifiers take no action bytes.
+
+The expected `executor.id`, the approval record bytes and the effect bytes are scheduled for 6.6.0.
+
 ## TEE attestation bridge (experimental)
 
 A verified enclave Attestation Result does **not** prove the enclave is genuine, the vendor's root of

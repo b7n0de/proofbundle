@@ -33,6 +33,7 @@ import json
 import os
 import pathlib
 import re
+import shlex
 import sqlite3
 import subprocess
 import sys
@@ -83,9 +84,39 @@ PINNED_USES = re.compile(r"^[\w.-]+/[\w./-]+@[0-9a-f]{40}$")
 #: The one install line of each job, word for word. It decides which pytest plugins a part collects with, so an
 #: added package or a command substitution in it changes what a part measures; a change of the dependencies of
 #: either job therefore changes this contract on purpose.
-INSTALL_PARTS = ('python -m pip install -e ".[dev,pq,anchors,eval]" coverage pytest pytest-xdist==3.8.0 '
+INSTALL_PARTS = ('python -m pip install -e ".[dev,pq,anchors,eval]" coverage==7.17.1 pytest pytest-xdist==3.8.0 '
                  'pytest-cov==7.1.0')
-INSTALL_CLOSING = "python -m pip install coverage"
+INSTALL_CLOSING = "python -m pip install coverage==7.17.1"
+#: The name a requirement word starts with, as pip reads it (PEP 508); extras and version follow it.
+_REQUIREMENT_NAME = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)")
+
+
+def coverage_pin_findings(installs: "dict[str, list[str]]") -> list[str]:
+    """Each coverage job installs coverage exactly once, pinned with `==`, and every job the same version.
+
+    `installs` maps a job to its install lines. The closing job combines the data the parts wrote and refuses data
+    of another version of coverage (scripts/ci_coverage_combine.py), so the version is part of the data format the
+    jobs exchange. An unpinned install takes whatever PyPI serves when the job starts: run 41634881133 at pull
+    request 450 on 3 November 2026, where coverage 7.17.1 appeared between 12:36:03Z and 12:38:47Z, part 6 started at
+    12:36:48Z and wrote with 7.17.1, the six other parts with 7.17.0, and the closing job installed 7.17.1 and refused
+    six of seven parts. Pure."""
+    found, versions = [], {}
+    for job, lines in installs.items():
+        named = [w for line in lines for w in shlex.split(line)
+                 if (m := _REQUIREMENT_NAME.match(w)) and re.sub(r"[-_.]+", "-", m.group(1)).lower() == "coverage"]
+        if len(named) != 1:
+            found.append(f"the job {job} installs coverage {len(named)} time(s): every coverage job installs it once")
+            continue
+        pinned = re.fullmatch(r"coverage==(\d+(?:\.\d+)*)", named[0], re.IGNORECASE)
+        if pinned is None:
+            found.append(f"the job {job} installs {named[0]!r}, not coverage pinned with ==: a release of coverage "
+                         "during a run gives the parts and the closing job different versions")
+            continue
+        versions[job] = pinned.group(1)
+    if len(set(versions.values())) > 1:
+        found.append(f"the jobs install coverage in different versions {versions}: the closing job refuses data of "
+                     "another version")
+    return found
 #: The Python every coverage job measures under, and the runner it runs on.
 PYTHON = "3.12"
 RUNS_ON = "ubuntu-latest"
@@ -415,6 +446,33 @@ class TheCoverageJobsAreShapedSoNoPartIsLost(unittest.TestCase):
         k = len(jobs[PARTS_JOB]["strategy"]["matrix"]["part"])
         self.assertEqual(closing_findings(jobs[CLOSING_JOB], k), [])
         self.assertEqual(workflow_findings(_ci_workflow()), [])
+
+    def test_both_jobs_install_the_same_pinned_coverage(self):
+        """The install lines as the workflow has them, not the held constants: every coverage job installs coverage
+        once, pinned with ==, and all of them the same version (coverage_pin_findings says why)."""
+        jobs = _ci_jobs()
+        installs = {name: [str(s.get("run", "")).strip() for s in jobs[name].get("steps") or []
+                           if str(s.get("run", "")).strip().startswith("python -m pip install")]
+                    for name in (PARTS_JOB, CLOSING_JOB)}
+        self.assertEqual(coverage_pin_findings(installs), [])
+
+    def test_control_the_pin_check_falls_on_every_way_to_get_two_versions(self):
+        """Control for the case above, on built lines: an unpinned, a ranged or a twice named coverage, a job
+        without it and two different pins are each found, and one pin in both jobs is not."""
+        pin = "python -m pip install coverage==7.17.1"
+        self.assertEqual(coverage_pin_findings({"a": [pin], "b": ["python -m pip install -e .[dev] coverage==7.17.1"]}),
+                         [])
+        cases = {"not coverage pinned with ==": {"a": [pin], "b": ["python -m pip install coverage"]},
+                 "'coverage>=7.17'": {"a": [pin], "b": ["python -m pip install 'coverage>=7.17'"]},
+                 "'coverage[toml]'": {"a": [pin], "b": ["python -m pip install coverage[toml]"]},
+                 "'Coverage'": {"a": [pin], "b": ["python -m pip install Coverage"]},
+                 "installs coverage 2 time(s)": {"a": [pin], "b": [pin + " coverage"]},
+                 "installs coverage 0 time(s)": {"a": [pin], "b": ["python -m pip install pytest"]},
+                 "different versions": {"a": [pin], "b": ["python -m pip install coverage==7.17.0"]}}
+        for words, installs in cases.items():
+            with self.subTest(words):
+                found = coverage_pin_findings(installs)
+                self.assertTrue(any(words in f for f in found), found)
 
     def test_the_jobs_that_wait_for_coverage_wait_for_the_closing_job(self):
         """`mutation` and `all-checks-passed` keep `needs: [test, coverage]`; `coverage` is the closing job, so

@@ -18,5 +18,7 @@ examples/<file>` (or `make examples` to run all that need no optional extras). E
 | `inspect_hook_example.py` | The opt-in end-of-task hook auto-emitting a receipt | `[inspect]` |
 | `pytest_plugin_example.py` | The opt-in pytest plugin emitting a run receipt | `pytest` |
 
+The folder `vcon_ai_agent_receipts/` is a worked vCon example with decision receipts for an AI agent session. It has its own README and runs against an installed `proofbundle==6.4.0`.
+
 For the whole trust story with no checkout at all: `pip install proofbundle && proofbundle demo`
 (honest receipt verifies, six tampers fail, a swapped sample is caught — see `docs/DEMO.md`).
