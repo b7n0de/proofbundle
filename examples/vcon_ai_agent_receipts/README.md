@@ -56,7 +56,9 @@ python measure_cases.py
 public key and the SHA-256 digests of the recorder's two test certificates in the script. It reads recorder public
 keys from certificates in the supplied signed forms only after checking their DER hashes against those pins; it
 does not trust an unpinned supplied key. Each attachment with the purpose `decision receipt`, and the citing
-receipt, are also verified with `proofbundle decision verify --strict`.
+receipt, are also verified with `proofbundle decision verify --strict`. The default `--action-bytes jcs` compares
+the arguments of every attempt with the receipt's `parametersDigest`; `--action-bytes none` skips each of these
+comparisons and binds an attempt to its receipt by `operation_id` only (case P1 of `cases.md`).
 
 ## How the pieces bind
 
@@ -144,8 +146,9 @@ The example had to pick one reading at each of these places; `cases.md` holds a 
 - Every event of an operation lists the session of its receipt in `sessions`.
 - Tool arguments are JSON objects: the converter refuses other input of a tool_use, and the check refuses a
   tool-invocation whose JSON content is not an object, so a copy of denied arguments is always a JSON object.
-- Every attempt of an operation has the arguments its receipt names, and event content has the types of the core
-  CDDL (a media type, a body that decodes in its encoding, a non-empty content_hash with a sha512 token); the
+- With the default `--action-bytes jcs`, every attempt of an operation has the arguments its receipt names, and
+  event content has the types of the core CDDL (a media type, a body that decodes in its encoding, a non-empty
+  content_hash with a sha512 token); the
   bytes of external tool content are not fetched. Every result of an attempt comes at or after its tool-invocation.
 - The check refuses a vCon in which a JSON value with the SHA-256 of a denied operation's arguments appears
   anywhere: as a value, as JSON text, inside other text, in an object key, or in a body in the base64url encoding of
