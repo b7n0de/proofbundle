@@ -19,7 +19,7 @@ The pre-tag receipt is to be produced from a fresh checkout of the final release
 | Record | Status in this preparation snapshot |
 |---|---|
 | Final pre-tag audit and signed receipt | Pending |
-| Reference measurement of the budget cost axis | Pending |
+| Reference measurement of the budget cost axis | Recorded; measured on the reference machine on 2026-11-06 using the code at `14fe3390`. [The measurement record](../360/budget_axis_latest.json) identifies a reference measurement in which all 12 expected axes and all 7 expected combinations passed and no axis was skipped |
 | Short soak at the release candidate (C6.2) and Rust differential (C8.2), signed and bound to the candidate | Pending |
 | Findings register signed for 6.5.0 | Recorded; its canonical body is signed for version `6.5.0` |
 | Paths named twice at the final release head | The final-tree check must be recorded before the pre-tag receipt is produced; its completion is not established by this page. |
