@@ -119,6 +119,51 @@ class TheRecordedSessionExample(unittest.TestCase):
             v["sessions"][0]["agent_session_id"] = "00000000-0000-4000-8000-000000000000"
         self._fails_at(change, "K2")
 
+    def _receipt_in_place_of_the_other(self, keep):
+        def change(v):
+            rec = [a for a in v["attachments"] if a.get("purpose") == "decision receipt"]
+            src = next(a for a in rec if self._verdict(a) == keep)
+            dst = next(a for a in rec if self._verdict(a) != keep)
+            dst["body"] = copy.deepcopy(src["body"])
+        return change
+
+    @staticmethod
+    def _verdict(att):
+        return json.loads(base64.b64decode(att["body"]["payload"]))["predicate"]["decision"]["verdict"]
+
+    def test_k2_the_escalate_receipt_twice_fails(self):
+        """Two receipts that both verify, but both name the escalated call: the denied call is checked by none."""
+        self._fails_at(self._receipt_in_place_of_the_other("ESCALATE"), "K2")
+
+    def test_k2_the_deny_receipt_twice_fails(self):
+        self._fails_at(self._receipt_in_place_of_the_other("DENY"), "K2")
+
+    def test_k2_a_policy_decision_no_receipt_names_fails(self):
+        def change(v):
+            pd = copy.deepcopy(self._event(v, self._op("DENY"), "policy-decision"))
+            pd["operation_id"] = "00000000-0000-8000-8000-000000000000"
+            v["events"].append(pd)
+        self._fails_at(change, "K2")
+
+    def test_k3_a_verdict_other_than_escalate_or_deny_fails(self):
+        """A receipt with another verdict that verifies needs the demonstration private key, which is not in the
+        repository. The check is handed such a predicate after K1, and the decision of the policy-decision is null, so
+        a lookup that returns nothing for the verdict would match it."""
+        real = self.ck.verify
+
+        def verify(rep, where, env, pub, cmd):
+            p = real(rep, where, env, pub, cmd)
+            if p["decision"]["verdict"] == "DENY":
+                p = copy.deepcopy(p)
+                p["decision"]["verdict"] = "ALLOW"
+            return p
+        v = copy.deepcopy(self.vcon)
+        self._event(v, self._op("DENY"), "policy-decision")["decision"] = None
+        with mock.patch.object(self.ck, "verify", verify):
+            rep = self._run(v)
+        self.assertIsNotNone(rep.first, "a verdict other than ESCALATE or DENY passed the check")
+        self.assertEqual(rep.first["id"], "K3", rep.first)
+
     def test_k3_an_escalated_call_recorded_as_allowed_fails(self):
         def change(v):
             self._event(v, self._op("ESCALATE"), "policy-decision")["decision"] = "allowed"

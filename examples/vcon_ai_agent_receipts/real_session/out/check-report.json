@@ -66,6 +66,12 @@
       "id": "K3",
       "where": "attachments[0] a-c3d403fa489a533ed075263186638b06-1.json",
       "result": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "K3",
+      "where": "attachments[0] a-c3d403fa489a533ed075263186638b06-1.json",
+      "result": "PASS",
       "detail": "verdict ESCALATE, decision permission-required, agent, person and guard as named"
     },
     {
@@ -138,6 +144,12 @@
       "id": "K3",
       "where": "attachments[1] a-9f29d0cdfac2bc0ab4f1734466abf86a-1.json",
       "result": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "K3",
+      "where": "attachments[1] a-9f29d0cdfac2bc0ab4f1734466abf86a-1.json",
+      "result": "PASS",
       "detail": "verdict DENY, decision disallowed, agent, person and guard as named"
     },
     {
@@ -151,6 +163,12 @@
       "where": "attachments[1] a-9f29d0cdfac2bc0ab4f1734466abf86a-1.json",
       "result": "PASS",
       "detail": "no tool event of the denied operation; the receipt names its arguments by {\"uri\": \"urn:proofbundle:pilot:not-resolved\"}, not by a digest"
+    },
+    {
+      "id": "K2",
+      "where": "receipts",
+      "result": "PASS",
+      "detail": "the 2 receipts name the 2 policy-decisions of the session, each once"
     },
     {
       "id": "K4",

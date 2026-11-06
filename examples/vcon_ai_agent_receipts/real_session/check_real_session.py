@@ -9,8 +9,11 @@ K1 each attachment with the purpose "decision receipt" verifies with `proofbundl
    guard's demonstration key in gate.pub.hex, pinned here by its SHA-256, for the audience b7vcon-demo-observer, at the
    first whole second after its decidedAt.
 K2 its traceContext names the session (traceId is the agent_session_id) and one call (parentId is the tool_use id; the
-   operation_id the converter derives from it names exactly one policy-decision of that session).
-K3 the policy-decision fits the verdict (ESCALATE permission-required, DENY disallowed), agent.id is the agent party of
+   operation_id the converter derives from it names exactly one policy-decision of that session). Together the
+   receipts name every policy-decision of the session, each once, so two receipts for the same call do not pass as the
+   two receipts of the session.
+K3 the verdict is ESCALATE or DENY and the policy-decision fits it (ESCALATE permission-required, DENY disallowed),
+   agent.id is the agent party of
    that decision, principal.id the person, and decisionMaker.id the party that contributed the attachment.
 K4 for ESCALATE, the call stands once, at or after its decision, and the SHA-256 of the --body argument of its gh
    command, read with shlex in POSIX mode, is parametersDigest; for DENY, no tool event of the operation stands in the
@@ -100,7 +103,7 @@ def check(v: dict, transcript_lines: list, cmd: str, rep: Report):
     sid = sessions[0]["agent_session_id"]
     found = [(i, a) for i, a in enumerate(v.get("attachments", [])) if a.get("purpose") == "decision receipt"]
     rep.need(len(found) == 2, "K1", "attachments", "expected the two receipts of the session, found %d" % len(found))
-    denied_inputs = []
+    denied_inputs, named = [], []
     for i, a in found:
         where = "attachments[%d] %s" % (i, a.get("filename"))
         rep.need(a.get("encoding") == "json" and isinstance(a.get("body"), dict), "K1", where, "receipt not inline JSON")
@@ -111,9 +114,11 @@ def check(v: dict, transcript_lines: list, cmd: str, rep: Report):
         pds = [j for j, e in enumerate(events) if e.get("type") == "policy-decision" and e.get("operation_id") == op]
         rep.need(len(pds) == 1, "K2", where, "call %s names no single policy-decision" % tc["parentId"],
                  "call %s is operation %s" % (tc["parentId"], op))
+        named.append(op)
         pd = events[pds[0]]
         verdict = p["decision"]["verdict"]
-        rep.need(pd.get("decision") == FITS.get(verdict), "K3", where,
+        rep.need(verdict in FITS, "K3", where, "verdict %r is neither ESCALATE nor DENY" % verdict)
+        rep.need(pd.get("decision") == FITS[verdict], "K3", where,
                  "policy-decision %r does not fit the verdict %s" % (pd.get("decision"), verdict))
         rep.need(parties[pd["party"]].get("uuid") == p["agent"]["id"], "K3", where, "agent.id is not the agent party")
         rep.need([x.get("uuid") for x in parties if x.get("type") == "person"] == [p["principal"]["id"]], "K3", where,
@@ -147,6 +152,11 @@ def check(v: dict, transcript_lines: list, cmd: str, rep: Report):
         text = " ".join(str(x) for n in notes for x in conv_list(n["data"].get("content")))
         rep.observations.append({"id": "K5", "operation": op, "verdict": verdict,
                                  "note_to_agent_begins": text[:60]})
+    decided = [e.get("operation_id") for e in events if e.get("type") == "policy-decision"]
+    rep.need(sorted(named) == sorted(decided) and len(set(named)) == len(named), "K2", "receipts",
+             "the receipts name the calls %s, the session decided the calls %s; each must be named by one receipt"
+             % (sorted(named), sorted(decided)),
+             "the %d receipts name the %d policy-decisions of the session, each once" % (len(named), len(decided)))
     keys = {conv.json_key(x) for x in denied_inputs if isinstance(x, dict)}
     rep.need(not (conv.json_keys(v)[1] & keys), "K4", "vCon", "a JSON value equals the denied arguments",
              "no JSON value in the vCon equals the denied arguments")
