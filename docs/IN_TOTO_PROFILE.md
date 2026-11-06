@@ -127,8 +127,10 @@ verifiers (eval-result, test-result, SVR) also require the Statement v1 layer un
 `digest`, because in-toto matches subject artifacts by digest alone. A digest under a hash function the
 package knows must have that function's length in lowercase hex; under any other algorithm name it must be
 a non-empty string. A statement without that layer names no artifact and does not verify (`statement_ok`
-is `False`). Every export function writes it, so an eval-result, test-result or SVR attestation one of them
-wrote gives the same verdict as before. The public builders `to_eval_result_statement` and
+is `False`). Every export function writes it, so this rule alone does not change the verdict on an
+eval-result, test-result or SVR attestation one of them wrote; other checks of 6.5.0 can, for a
+`time_created`, a claim timestamp or a test-result `url` a caller passed to an earlier exporter in another
+form (the CHANGELOG of 6.5.0). The public builders `to_eval_result_statement` and
 `to_test_result_statement` write the subject a caller hands them: a statement a caller built with them from a
 digest that does not have that form, and signed itself, verified before 6.3.1 and does not verify since
 (measured with the builders of 6.3.0: a sha256 digest in capitals, of 63 characters or with a `sha256:` prefix).
