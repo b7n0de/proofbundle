@@ -544,9 +544,12 @@ predicate of §PREDICATE.md). The mapping is fixed:
   `PASSED`, `WARNED`, `FAILED`, `url` a string in URI form (ResourceURI, the form only, never fetched;
   `to_test_result_statement` refuses a `url` in another form), each case list an array of strings, and each
   `configuration` entry a ResourceDescriptor that specifies one of `uri`, `digest` or `content`.
-- **DSSE** — `payloadType` = `application/vnd.in-toto.test-result+json`; `payload` = standard RFC 4648 §4
-  base64 (with padding, **not** base64url) of the serialized Statement bytes; `signatures[].sig` = base64
-  of the raw Ed25519 signature. The signature is over the DSSE **PAE**:
+- **DSSE** — `payloadType` = `application/vnd.in-toto.test-result+json`; `payload` = base64 of the
+  serialized Statement bytes in the standard (RFC 4648 §4) or the URL-safe (RFC 4648 §5) alphabet, which
+  the DSSE envelope allows ("Either standard or URL-safe encoding is allowed"), padded and canonical in
+  either alphabet; the exporter writes the standard alphabet, and a payload without its padding does not
+  verify. The rule of section 2, the standard alphabet only, governs the native bundle fields, not this
+  envelope. `signatures[].sig` = base64 of the raw Ed25519 signature. The signature is over the DSSE **PAE**:
   `"DSSEv1" SP LEN(payloadType) SP payloadType SP LEN(body) SP body`, where `LEN` is the ASCII-decimal
   byte length with no leading zeros and `body` is the **raw** Statement bytes — never the base64 string.
   A verifier decodes `payload` and reconstructs the PAE over exactly those bytes (it never re-serializes),

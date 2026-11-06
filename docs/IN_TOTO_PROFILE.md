@@ -134,7 +134,10 @@ form (the CHANGELOG of 6.5.0). The public builders `to_eval_result_statement` an
 `to_test_result_statement` write the subject a caller hands them: a statement a caller built with them from a
 digest that does not have that form, and signed itself, verified before 6.3.1 and does not verify since
 (measured with the builders of 6.3.0: a sha256 digest in capitals, of 63 characters or with a `sha256:` prefix).
-The same rule judges the Statement of a
+The three verifiers read the DSSE `payload` in
+either base64 alphabet the in-toto envelope allows, standard (RFC 4648 §4) or URL-safe (§5), padded and
+canonical in both; a payload without its padding does not verify, and the exports write the standard
+alphabet. The same rule judges the Statement of a
 decision, outcome, relation statement, verification summary, run ledger and trust pack in the Python
 verifier, and the Rust verifier applies it on its relation, relation-statement and trust-pack-threshold
 paths, since it stands in the one Statement oracle (`_statement_payload`). One verdict changes there: the
@@ -147,7 +150,7 @@ verifies, and the emitters now refuse such an override. Fields:
 | `verifier.id` | the emitter/verifier TypeURI (replaced by `evaluator.id` in v0.2) |
 | `evaluatedAt` | when the eval ran (from the signed receipt) |
 | `suite` | `{name, version}` |
-| `claims[]` | one or more `{metric, comparator, threshold, passed}`. `passed` is the producer's **signed threshold verdict**, not a recomputable relation: proofbundle discards the exact score after the comparison, so without a disclosed value a generic consumer can authenticate the verdict but cannot recompute it |
+| `claims[]` | one or more `{metric, comparator, threshold, passed}`. `passed` is the producer's **signed threshold verdict**, not a recomputable relation: proofbundle discards the exact score after the comparison, so without a disclosed value a generic consumer can authenticate the verdict but cannot recompute it. In v0.1 `passed` is optional: a claim without it verifies and carries no verdict, and a present `passed` must be a boolean. A consumer that needs a verdict reads v0.2, where every claim carries `passed` as a boolean |
 | `sampleSize` | `n` |
 | `commitments` | `{model, dataset}`, each `{alg, value, salted:true}` — a **salted commitment**, NOT an artifact hash |
 | `assuranceLevel` | an **issuer-declared** assurance claim: `self_attested` \| `third_party` \| `reproduced` \| `enclave_attested`. The predicate does not corroborate it; external corroboration belongs in separately referenced evidence |
