@@ -121,7 +121,7 @@ class Controls(unittest.TestCase):
                 res = I.verify_eval_result_dsse(_sign(statement), _pub())
                 self.assertIs(res["ok"], True, (member, res))
 
-    def test_every_statement_a_released_version_wrote_still_verifies(self):
+    def test_all_14_corpus_statements_still_verify(self):
         corpus = json.loads(_G2_CORPUS.read_text(encoding="utf-8"))
         public = base64.b64decode(corpus["public_key_b64"])
         self.assertEqual(len(corpus["entries"]), 14)

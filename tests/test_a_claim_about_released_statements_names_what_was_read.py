@@ -1,8 +1,8 @@
 """A sentence about the statements released versions wrote says what was read, not every statement there is.
 
 Before the tag v6.5.0 (step 982 of the release plan): docs/IN_TOTO_PROFILE.md, the CHANGELOG entries of the predicate
-sweep, a comment of intoto.py and the docstrings of three tests said that every statement a released version wrote
-keeps verifying. What was read is the writer of 6.4.0 and the 14 entries of tests/fixtures/eval_result_v0_1/corpus.json;
+sweep, a comment of intoto.py and the docstrings and names of three tests said that every statement a released version
+wrote keeps verifying. What was read is the writer of 6.4.0 and the 14 entries of tests/fixtures/eval_result_v0_1/corpus.json;
 a statement a caller built with the public builders from a value of its own is not covered. Measured with the builders
 of 6.3.0 against this tree: `to_test_result_statement` and `to_eval_result_statement` with a caller's sha256 digest in
 capitals, of 63 characters or with a `sha256:` prefix gave statements that verified at 6.3.0 and do not verify since
