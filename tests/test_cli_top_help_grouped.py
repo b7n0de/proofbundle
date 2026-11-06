@@ -76,6 +76,7 @@ EXPECTED_GROUP = {
     "verify-enclave": "Verify",
     "verify-trace": "Verify",
     "verify-sigstore": "Verify",
+    "scitt-ccf": "Verify",
     "policy": "Verify",
     "emit": "Emit and commit",
     "emit-eval": "Emit and commit",
@@ -99,7 +100,7 @@ EXPECTED_GROUP = {
 #: findings of that day, a hardening at ONE place with the neighbouring place left open.
 EXPECTED_ORDER_PER_GROUP = {
     "Verify": ["verify", "verify-proof", "verify-opening", "verify-enclave", "verify-trace", "verify-sigstore",
-               "policy"],
+               "scitt-ccf", "policy"],
     "Emit and commit": ["emit", "emit-eval", "show-eval", "prereg", "evalcard", "hf-token",
                         "audit-challenge"],
     "Statements over a receipt": ["decision", "outcome", "relation-statement"],

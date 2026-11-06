@@ -1223,6 +1223,15 @@ _LOOKUPS_CLASSIFIED = {
          "the certificate path reads tbs_certificate_bytes), so the key is bytes and hashes"),
     ("proofbundle/scitt_ccf.py", "_verify", "_ALGS", "alg"):
         (1, "guarded: isinstance(alg, int) and is_member(alg, _ALGS) return before it in the same condition"),
+    # Seen once the scitt-ccf command line (6.6.0) met this guard; each was read at its source.
+    ("proofbundle/cli.py", "_cmd_scitt_verify_statement", "_SCITT_STATEMENT_EXIT", "check.status"):
+        (1, "own value: check is what scitt_ccf.verify_transparent_statement returns, and every path of it sets "
+            "status to a string literal of the module (STATUS_ORDER, CONFIRMED, or the status of a ScittFormatError, "
+            "malformed or outside_profile)"),
+    ("proofbundle/cli.py", "_cmd_scitt_verify_consistency", "_SCITT_CONSISTENCY_EXIT", "check.status"):
+        (1, "own value: check is what scitt_ccf.verify_consistency_receipt returns, and every path of it sets "
+            "status to a string literal of the module (CONSISTENCY_STATUS_ORDER, CONFIRMED, "
+            "CONFIRMED_WITHOUT_TREE_SIZES, or the status of a ScittFormatError)"),
     ("proofbundle/canonical.py", "_fremdkoerper", "FREMDKOERPER_KLASSEN", "id(klasse)"):
         (1, "own value: id() returns an int"),
     ("proofbundle/canonical.py", "_fremdkoerper", "_EINGEBAUT", "roh"):
