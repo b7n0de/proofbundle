@@ -6,7 +6,9 @@ This page identifies the audit records for 6.5.0 and explains their limits. It d
 
 ## Records
 
-The [findings register](../findings_register_361.json) is maintained separately from this directory. The signed findings-register check reads that register, rather than any count displayed on this page.
+The [findings register](../findings_register_361.json) is maintained separately from this directory. Its canonical body is signed for version `6.5.0`. The signed findings-register check reads that register, rather than the counts displayed on this page.
+
+The signed register reports 41 register entries for version `6.5.0`, with 27 closed, 14 open and no open P0 or P1 entries under the maintainer's classifications. Against 6.4.0 it adds two entries, `EXPIRED-RECEIPT-OUTSIDE-POLICY-EXITS-3-01` and `PIN-CASE-RED-FROM-TAG-UNTIL-PIN-COMMIT-01`, removes none and changes the content of none. These totals count register entries only.
 
 The pre-tag receipt is to be produced from a fresh checkout of the final release-preparation head with `scripts/pre_tag_receipt.py`, version `6.5.0` and `--out audit_artifacts/650/pre_tag_receipt_v6.5.0.json`. The configured audit command runs while the receipt context is produced. Its command and exit status are recorded before signing.
 
@@ -19,7 +21,7 @@ The pre-tag receipt is to be produced from a fresh checkout of the final release
 | Final pre-tag audit and signed receipt | Pending |
 | Reference measurement of the budget cost axis | Pending |
 | Short soak at the release candidate (C6.2) and Rust differential (C8.2), signed and bound to the candidate | Pending |
-| Findings register signed for 6.5.0 | Pending |
+| Findings register signed for 6.5.0 | Recorded; its canonical body is signed for version `6.5.0` |
 | Paths named twice at the final release head | The final-tree check must be recorded before the pre-tag receipt is produced; its completion is not established by this page. |
 
 ## Verification and limits
