@@ -41,7 +41,9 @@ another surface (M3), a write without an approval (M5), a refused write that arr
 2. The signer service (D58) and its key signer (D64), in place before the pilot starts on account A, under two accounts of
    the operator that are neither the agent's user nor each other: the deciding account and the key account.
    - The key signer, under the key account:
-     - a copy of `pilot/key_signer.py` in a folder only the key account reads and writes;
+     - a copy of `pilot/key_signer.py` in a folder only the key account reads and writes, of the same version as the
+       gate: since D135 the gate writes traceContext, which a key signer of an earlier version refuses
+       (`statement_type`), and an owner's release (D119) then stays unused;
      - the gate key as 64 hex digits in a key file there that only the key account reads (mode 600);
      - the key signer's configuration there:
 
@@ -55,8 +57,9 @@ another surface (M3), a write without an approval (M5), a refused write that arr
        in it (D65). The key signer writes each line and syncs it to the disk before a signature leaves it; a journal
        it cannot write gives no signature (journal_unwritable, at the gate `signer_refused_key_journal_unwritable`).
    - The service, under the deciding account, which holds no key:
-     - a copy of this plugin's folder (hooks/, pilot/, server/) owned by the deciding account and not writable by the
-       agent's user; its `hooks/proofbundle_gate.py` must be the same bytes as the agent's;
+     - a copy of the Guard's folder (hooks/, server/) and of this plugin's pilot/, owned by the deciding account and
+       not writable by the agent's user; its `hooks/proofbundle_gate.py` must be the same bytes as the agent's (the
+       gate programs live in plugins/proofbundle-guard since D134);
      - the service's configuration, in a folder only the deciding account reads:
 
        ```

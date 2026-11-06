@@ -16,7 +16,7 @@ import pytest
 from _gate_answer import skip_where_the_gate_is_not_shipped
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-GATE = os.path.join(HERE, "..", "plugins", "proofbundle", "hooks", "proofbundle_gate.py")
+GATE = os.path.join(HERE, "..", "plugins", "proofbundle-guard", "hooks", "proofbundle_gate.py")
 skip_where_the_gate_is_not_shipped(pathlib.Path(GATE).resolve(), pathlib.Path(HERE).resolve().parent)
 
 

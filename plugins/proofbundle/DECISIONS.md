@@ -974,7 +974,8 @@ Options:
 
 Chosen: the gate verifies through the plugin's own MCP server, `server/proofbundle_mcp.py`, started
 with `uv run --script`. Its `verify_receipt` tool is the one the skills use, and its pin
-(`proofbundle==6.3.0` since follow-up note 45, 6.1.0 before) is the only pin. Without `uv`, or without a cached or
+(`proofbundle==6.4.0` since slice pin640 of the review package, 6.3.0 since follow-up note 45, 6.1.0 before) is
+the only pin. Without `uv`, or without a cached or
 reachable PyPI, the verifier does not start and the gate denies (D6).
 
 Isolation from the checked repository (review N4, R3-4): the host starts the gate itself with `python3 -I`
@@ -3474,7 +3475,8 @@ The rule:
   does not resolve them there (D3); `gh pr comment`, `gh pr edit --body`, `gh pr merge` and `gh pr create` in their plain
   forms with literal words, a reply in a review thread through `gh api repos/<o>/<r>/pulls/<n>/comments/<id>/replies -f
   body=…`, and the gated MCP tools from their own arguments. A pull request is named `https://github.com/<o>/<r>/pull/<n>`
-  on every surface, a new one `…/compare/<base>...<head>`. A merge writes no text of the agent; its bytes are empty. Any
+  on every surface, a new one `…/compare/<base>...<head>`. A merge writes no text of the agent; its bytes are empty
+  (since D135 the RFC 8785 form of the merge the call names, and the empty bytes are hashed for no surface). Any
   other form is not read: the gate decides it as before and writes no receipt, so an effect of it counts under M5 of
   the contract.
 - The receipt carries no value of the configuration, the environment or a credential (the rule of D49): the names of
@@ -3506,8 +3508,8 @@ The rule:
   api.github.com or from recorded files; the live path runs first in the pilot on account A.
 - An effect is an event of an agent identity of the roster inside the window: a push (`<head>` and a line feed on
   `https://github.com/<o>/<r>#<ref>`), a comment on a pull request's conversation, a reply in a review thread, a pull
-  request opened (on `…/compare/<base>...<head>`) or its body edited, a merge (empty bytes, the merge commit as its
-  object), and every other event under its own name, which matches no decision and counts under M5. A person's write is
+  request opened (on `…/compare/<base>...<head>`) or its body edited, a merge (empty bytes, since D135 none, the merge
+  commit as its object), and every other event under its own name, which matches no decision and counts under M5. A person's write is
   no agent write and is not read.
 - The observer matches effects to decisions by the rule of the contract, section 5 (`pilot_records.match`), from the
   decisions whose signature verifies with the pinned gate key, and signs an outcome for each effect that takes a
@@ -5827,6 +5829,49 @@ record written past its byte bound, a release refused by the record that hid ano
 with another answer pass. Not changed: code an interpreter runs can still remove the record (D111, O44-2); the digests
 fill the record over time, and a record at its byte bound refuses every new release until a person clears it.
 
+Addendum (order DELTA-FREIGABE-FENSTER-ERSTE-ANTWORT-01 of 2026-11-01, after paragraph 7 of section 5 of the draft
+draft-gruszka-audit-decision-receipts-00, read at main 8bb289c8): the window of a release ran from the answer of the
+copy the gate was reading (_autonomy_release, _release_free), in the hook and so in the signer service, which decides
+with the same code (signer_service.decide calls tool_outcome). No layer kept a first validity per identity, so for an
+identity not used yet a copy with a later answer opened a later window, which section 4 point 2 of the draft rules out:
+copies do not extend the original validity; once held. Since then the window of an identity runs from the earliest
+answer the gate has read for it: every copy that lies in the folder freigaben when it decides, and the record
+RELEASES_FIRST (freigaben-erste.json in the plugin data directory, {_release_identity: time}), which the gate writes
+for every release it reads, of any line, under the lock of the answer hook, and in which it never moves an answer
+later. _release_take reads the record again under its lock. A record that does not read whole releases nothing, and so does
+one that has to change and cannot be written, a write past MAX_RELEASES_USED_BYTES included; a record that already holds
+every answer the call read is not written again and loses nothing (line 3 of the reading of c660a495 found that the
+first wording promised more). Where the record cannot take an identity it does not
+hold yet, the gate still writes an earlier answer of an identity it holds, since the time has one width and takes no
+byte more; the first form wrote nothing then, so a later copy of a known identity opened its window again once the
+earlier copy was gone (the pre-run of the reading of the main-in, 2026-11-03). The record is written in its compact
+form, which no form the reader takes undercuts, so rewriting a record the reader took never passes the bound either
+(the second pre-run: the default spaces of json.dumps made a compact record of 522062 bytes 540064 bytes long). The
+record of the uses keeps the default form; there a write past the bound only refuses the release. The folder is read
+under the lock under which the answers are noted, so no second hook decides between the read of an earlier copy and
+the note of its answer (the third line of the reading of 586d245c: a hook paused after its read let a second hook
+release a later copy); a hook that cannot take the lock within LOCK_SECONDS releases nothing. _release_take holds
+the same lock before the lock of the uses, so a held release is not used while another hook notes an earlier answer
+it has read (the fourth pre-run); no path takes the two locks the other way round. The pass says that its window
+runs from the earliest answer the gate has read for the identity and names no time it starts at, since _release_take
+decides the window again under its locks (line 3 of the reading of 93fa78d9; the Codex pre-run of the reading of
+7b370ad4 found that a time named before that could be later than the one that binds). The card says the same of the
+window, not "its first answer", which a copy the gate never read could precede (line 3 of the reading of 7b01bc3b). Limit, named,
+the one of D119 above: where the pilot reads the call as a GitHub write, the signer service signs ALLOW for the held
+release before _release_take writes the use; where _release_take then refuses, because another hook noted an earlier
+answer in between or the use cannot be written, the call does not run and the release is spent on the service's side
+without its call. Coupling that signature to the check of the record follows the plugin 0.4.0, under the owner's scope
+freeze of 2026-11-03. A write that fails loses what that call read, as a copy the gate never read is lost. Where a later copy can arise: the writer at the farmer
+(scripts/b7_klickfreigabe_schreiber.py of 2bedone, pull request 2454, not landed) writes one file per card and line,
+once, and refuses a second click under the same name; a later copy needs the first file gone (a cleared folder; the
+gate reads at most MAX_RELEASE_FILES) and a new click, or a file that something other than the writer leaves under
+another name. Limit, named: the gate sees only the copies that lie in the folder when it decides; a copy it never read,
+written and taken away before any call reached the gate, is unknown to it, and only the writer, which reads every click
+of the decision board, knows each first answer for sure. Measured: tests/test_plugin_release_window_first_answer_d119.py,
+of its first 12 cases 9 red at 8bb289c8 and the three controls green there, each later case red at the head before its
+fix, end to end through the hook and the signer service
+with a data directory of its own (A2) included.
+
 ## D120. The own doors the gate held nowhere are house rule H5, a deny no card opens (O49-1, 2026-10-24)
 
 Owner choice A of 2026-10-24, 11:5x Berlin (O49-1, after follow-up note 49): the doors D119 names in its last limit go to the
@@ -6560,3 +6605,248 @@ account can remove or rewrite its record at any time, as D119 says the record ho
 archive shows only the rotations the operator made; a records folder without the sticky bit, which step 5 of the setup
 forbids, lets another account rename `honoured-releases/` away, and the service then reads no archive; each start reads
 every archive, so its time grows with the rotations (NOT MEASURED).
+
+## D134. The Guard is a plugin of its own, proofbundle-guard; proofbundle registers no hook (owner choice F2 A, 2026-10-31)
+
+Owner choice F2 A on the release plan of plugin 0.4.0 (2026-10-31), translated: "Separate them, the Guard only at the
+house." The release plan read the state before it: m0/PRODUCT_SPEC.md says the delivery profile ships with the Guard
+off until M2 (O45-3), IMPLEMENTATION_GAP.md P-2 said no such setting exists (INACTIVE), and whoever added the
+marketplace got the Guard, whose hook runs before every Bash call and blocks the call when its program cannot run
+(`|| exit 2`). The order of the slice: the smallest bundle after which a stranger who adds the marketplace gets the
+verifier without the Guard and the owner's machines keep the Guard; the red test first.
+
+The rule was first cut at the end of the guard chain, on top of slices 32 to 38. Plugin 0.4.0 goes out
+without those slices (Nachtrag 26), so this is the same rule cut again on main: the files the Guard takes are the
+files of main, and what slices 32 to 38 added (D132, D133, the Level 2 pairs of A-3, the Level 1 witnesses of T-4, the
+reviewer texts TX39 to TX44) is not part of it.
+
+Owner choice N2 B on delivery -2 of the release plan (2026-10-31), translated: "The public marketplace lists only
+proofbundle. Our machines get the Guard through a house marketplace at the local path plugins/proofbundle-guard. The
+source stays public." Delivery -2 measured with Claude Code 2.1.316 that a marketplace at a plugin's own folder with the
+source "./" is valid and that a `file://` Git marketplace is refused.
+
+Measured with Claude Code 2.1.314 (`claude plugin validate`, `marketplace add`, `install`, `details`) in a throwaway
+CLAUDE_CONFIG_DIR, from a local marketplace copied from the end of the guard chain, no network and no model:
+- As delivered: one entry, `Hooks (6)` (PreToolUse, PostToolUse, PostToolUseFailure, Stop, TaskCompleted,
+  SessionStart).
+- The same entry with empty inline hooks for each event: still `Hooks (6)`. The plugin manifest reference says a
+  `hooks` field merges with hooks/hooks.json, which loads first; an entry cannot take the file's hooks away.
+- Two entries: proofbundle without hooks/hooks.json gave `Hooks (0)`, four skills and one MCP server; a second folder
+  with its own manifest and hooks/hooks.json, its programs relative links to ../proofbundle/hooks and
+  ../proofbundle/server, gave `Hooks (6)`, no skill and no server. In the plugin cache the links stood as files.
+
+The rule:
+- plugins/proofbundle, the one entry of the public marketplace, holds no hooks/hooks.json, and neither of its host
+  manifests carries "hooks". Installing it registers no hook under Claude Code or under Codex. It keeps the programs
+  under hooks/ and the server; nothing of it starts the gate. (Since the bundle after this rule, below, it keeps the
+  server alone and holds no hooks/ folder.)
+- plugins/proofbundle-guard is the Guard: hooks/hooks.json for Claude Code and the "hooks" of its
+  .codex-plugin/plugin.json for Codex, moved from plugins/proofbundle unchanged but for the flag below. It is a house
+  marketplace of its own (N2 B): its .claude-plugin/marketplace.json, named proofbundle-house, lists the Guard with the
+  source "./". No public catalog lists it; the owner's machines add that marketplace from a checkout of
+  b7n0de/proofbundle and install proofbundle-guard@proofbundle-house, and Codex reads the same file (D15). Its
+  hooks/proofbundle_gate.py, proofbundle_secrets.py, proofbundle_answered.py, pin_state_schleuse.py and
+  server/proofbundle_mcp.py are byte-equal copies of the files of plugins/proofbundle (git stores each blob once), not
+  links: Codex copies regular files and drops links on install (core-plugins/src/store.rs, as
+  tests/test_codex_plugin.py records it), so a linked gate would be missing under Codex and every hook would block its
+  call. A change to one of these programs changes both files; tests/test_plugin_guard_apart_d134.py and
+  tests/test_codex_plugin.py are red until they are equal. (Since the bundle after this rule, below, the four
+  programs live only here and the server alone is a copy.) The Guard adds no skill and no MCP server, so the house,
+  which installs both, gets each once. Its manifests carry the plugin's version; each entry's name is its manifest's
+  name.
+- The Guard is the house profile of m0/PRODUCT_SPEC.md: its four Claude Code PreToolUse commands start their program
+  with --autonomous again. This is the house's opt-in D125 names, now a file of the plugin proofbundle-guard and not of
+  proofbundle; it closes the point D125 left open, how the house adds the flag. The standing GO of D87 still needs its
+  own consent (D129), which the plugin does not set. The Codex commands carry `--host codex` and no flag, as before.
+- The catalog plugins/README.md lists proofbundle alone: owner answer A on card OA-08eb65e9e2 (2026-11-01) reads N2 B
+  word for word, "the public catalog lists only proofbundle". Its rows for proofbundle-guard, added first in this
+  bundle, are gone again (found in the reading of the tests, red first); tests/test_plugin_catalog.py lets a plugin
+  folder go without a row only when its HOUSE_PLUGINS names it and it carries its house marketplace, and the D134 test
+  holds that no row names the Guard. The first form of that rule took any folder with a marketplace of its own for a
+  house marketplace, so a public plugin could leave the catalog by adding the file (second reading of F2, sol-pro;
+  owner answer A on card OA-186d82300b, red first with a planted case). The texts of the verifier's manifests, the
+  marketplace entry and its catalog rows that still speak of the verifier's own hooks are corrected in a commit of
+  their own in this slice, each sentence with the source that measures it (Nachtrag 28, point 1).
+
+Red first: tests/test_plugin_guard_apart_d134.py, 5 of 5 cases red at the base of this cut, where plugins/proofbundle
+registers the hooks and the marketplace has one entry; green at the fix. Changed tests: the tests that read
+hooks/hooks.json or the hooks of the Codex manifest read them from plugins/proofbundle-guard, with its folder as the
+plugin root. The tests of D125 and D85 hold the new rule (the verifier registers no hook; the Guard's commands answer
+as the gate started with the flag; no standing GO without D129's consent). tests/test_plugin_verify_carries_no_guard.py
+knows a third state beside Verify and Guard, the split: the Guard's folder carries hooks/hooks.json and a marketplace
+entry, the verifier registers no hook and keeps the gate program, and every program a hook of the Guard starts is in
+the Guard's folder; three planted cases. The corpus's Codex hook check installs both plugins, expects the Guard's hooks
+and is not ok when proofbundle loaded one. tests/test_codex_plugin.py reads the hooks from the Guard's manifests, holds
+the D14 guard against an Agent Plugins manifest at the Guard's folder, and finds each program once in
+plugins/proofbundle and once, byte-equal and no link, in plugins/proofbundle-guard.
+After N2 B the D134 test holds that the public marketplace lists proofbundle alone and the house marketplace the Guard
+with the source "./" (red at the commit before the fix, where the public marketplace listed the Guard); the
+marketplace tests, the lock (a split now needs the house marketplace and no public entry for the Guard, one planted
+case more) and the corpus's Codex hook check (proofbundle-guard@proofbundle-house) follow.
+
+Found by a read-only cross-reading of the split commit of the guard chain and fixed with their red cases first:
+- Claude Code gives each plugin a data directory of its own, ~/.claude/plugins/data/<id>/, <id> the plugin identifier
+  with every character other than a letter, digit, _ or - as "-" (plugin manifest reference, read 2026-10-31). The gate
+  runs in proofbundle-guard and logs into its directory, so gate_status and the self-test of proofbundle, which read
+  their own, would have said in the house that the hook did not run. The server reads the log in
+  proofbundle-guard-proofbundle-house, the directory of the Guard installed from its house marketplace, where its own
+  directory is proofbundle-<marketplace> from whichever marketplace (_log_path, GUARD_DATA_DIR, which the D134 test
+  binds to the name of the house marketplace); under any other name it reads its own directory as before. The first
+  fix read proofbundle-guard-<marketplace>, and after N2 B no house install has that directory; found in a reading of
+  the D134 test, red first. The second fix still took every directory proofbundle-guard-<rest> for the
+  Guard's, and proofbundle from a marketplace named guard-<rest> has that directory, so it read its own (second reading
+  of F2, sol-pro; owner answer A on card OA-186d82300b, red first). The Guard brings no MCP server and the server runs
+  in the verifier alone, so every directory proofbundle-<anything> but proofbundle-guard-proofbundle-house itself reads
+  the log there (since the host run at the end of this decision, the log written last of the Guard directories it
+  knows). How Codex names PLUGIN_DATA is NOT MEASURED.
+- The pre-push wrapper follows a plugin update for a version folder under proofbundle-guard as under proofbundle
+  (_PRE_PUSH_RESOLVER). Read in the code, not measured: a wrapper written before this rule differs from the one the
+  gate writes now, so Level 1 hands no push over to it until install-pre-push writes it again; and Level 1 hands a
+  push over only to a Level 2 that runs the same gate file (D35), so the house installs Level 2 from the Guard's folder
+  (README).
+- The corpus's Codex hook check is not ok for a Codex hook that carries --autonomous (carries_autonomous).
+Named, not changed: `claude plugin eval plugins/proofbundle` loads no hook since this rule, so the gate and done cases
+of evals/ see no gate; the CLI takes one plugin, and how they run with proofbundle-guard beside it is NOT MEASURED.
+The description of hooks/hooks.json, TX42 of D125, was rewritten, because it said the commands carry no flag.
+Two findings of delivery -2, named: the lock between Verify and Guard forbids Guard words in every text of a Verify
+state, and plugins/proofbundle carries them; it is no Verify state since this rule, and the lock
+judges it as the split, so its texts stay where they are. The verifier's server keeps its seven tools, gate_status and
+the two self-test tools among them, which read the Guard's log as above; TV-5 of m0/TEST_PLAN.md, which names seven,
+stays. The release generator of delivery -2 holds no hooks/ folder in the public verifier at all, and
+plugins/proofbundle keeps its unregistered programs there. Owner answer C (2026-10-31): this bundle stays small and
+lands as planned, and a bundle of its own after it moves the programs out of plugins/proofbundle into the Guard's
+folder before the GO for 0.4.0; until then the generator's split profile is red at this state.
+
+The bundle after the split (owner answer C, card OA-10af190ede, 2026-10-31) moves hooks/proofbundle_gate.py,
+proofbundle_secrets.py, proofbundle_answered.py and pin_state_schleuse.py out of plugins/proofbundle. They live only
+in plugins/proofbundle-guard/hooks/, and plugins/proofbundle holds no hooks/ folder: the profile the release
+generator of delivery -2 checks before it builds the split release (check_public_profile: no hooks/ folder, no
+"hooks" field in the two host manifests or the marketplace entry, no dependency on the Guard). The server stays in
+both folders, byte-equal: proofbundle serves it as its MCP server, and the gate starts <its root>/server/
+proofbundle_mcp.py. Red first: the D134 test's case of that profile, red at the commit before the move, where the verifier kept the
+four programs. The lock's split rule now finds a hooks/ folder in the verifier and wants the gate in the Guard's
+folder, one planted case more. Tests that ran or read a program under plugins/proofbundle/hooks take it from
+plugins/proofbundle-guard/hooks, the path only; the strict decoding guard reads the four programs as files of the
+Guard. The CI template ci/proofbundle-evidence.yml runs the gate from gate/plugins/proofbundle-guard/hooks/, so a
+proofbundle-ref from before this move goes with the template of its own commit (ci/README.md). The eval fixtures
+(evals/_fixtures/make.py, scaffold.sh) take the gate from the Guard's folder beside the plugin; an installed copy of
+proofbundle alone has no such folder, and there the gate and done cases cannot build their fixtures, as
+`claude plugin eval plugins/proofbundle` already loads no hook (above). The plugin's README, RUNBOOK_CODEX, the
+pilot runbook, m0/PRODUCT_SPEC.md, m0/IMPLEMENTATION_GAP.md and the Guard's README say where the gate is now.
+
+Not changed, and named: reviewer texts that still speak of a public Guard default without the flag (TX48 in the README,
+TX59 and the Pre-push gate row in m0/PRODUCT_SPEC.md) stand word for word, as D125 ordered them; since this rule no
+public Guard default exists, and changing them needs an owner word. The proofbundle folder documents the gate, so
+a Verify state in the sense of the lock (no hooks/ folder, no Guard word) it is not; since the bundle after the
+split it ships no gate program.
+How a change of the checkout reaches an installed Guard of an unchanged version is NOT MEASURED; the release plan
+names updates of the house install as following the checkout. A Codex install of both plugins, through the public
+and the house marketplace, is NOT MEASURED (no Codex on the measuring machine), and so are a real Codex session with
+both plugins and a real Claude Code session with both installed from their marketplaces. A Claude Code session with
+both loaded with `--plugin-dir` ran once, at an earlier state of this cut (the host run below).
+
+Measured at this cut on main, after N2 B, from a copy of its tree, with Claude Code 2.1.314 and a fresh
+CLAUDE_CONFIG_DIR, no network and no model: `validate --strict` passed for the repository root and both plugin
+folders; proofbundle installed from the public marketplace with `Hooks (0)`, four skills, one MCP server;
+`proofbundle-guard@proofbundle` was not found there; the house marketplace added from plugins/proofbundle-guard
+installed proofbundle-guard@proofbundle-house with `Hooks (6)`, no skill and no server, its cache holding
+hooks/hooks.json, the gate and server/proofbundle_mcp.py as regular files, the gate byte-equal to
+plugins/proofbundle/hooks/proofbundle_gate.py. `details` still shows proofbundle's description of its own hooks,
+which the text commit of this slice corrects.
+
+Found by a run in a real host (the cloud run M1 -4 of 2026-11-02: Claude Code 2.1.316, the verifier alone and the
+verifier with the Guard, both loaded with `--plugin-dir`, at a state of this cut before the fixes below) and fixed with
+their red cases first:
+- A plugin loaded with `--plugin-dir` has the identifier `<name>@inline`, so the Guard logged into
+  proofbundle-guard-inline, and gate_status and the self-test, which read only the house's directory, reported NOT
+  MEASURABLE for a deny the gate had logged. The server now reads, of the Guard directories it knows (the house's,
+  proofbundle-guard-inline, and proofbundle-guard-<its own marketplace>), the log written last, a rotated log counted
+  with its own time; where two carry the same newest time, it cannot tell which was written last and reads none, and
+  gate_status says NOT MEASURED (a reading of the split, red first). Only the house's directory is the Guard's own: a verifier from a marketplace named guard-inline
+  has the directory proofbundle-guard-inline too and reads the log as any other verifier does (found by a pre-run of
+  that fix, red first). A Guard installed from any other marketplace is not found, and gate_status and the self-test
+  then say they read the house's directory. Of two Guard logs the one written last wins, so a house log written after
+  the inline Guard's last call is read until that Guard logs again.
+- On the verifier alone the self-test skill and the README did not say that the gate comes only with proofbundle-guard,
+  and one answer advised releasing the push; both say it now, and the skill says never to suggest allowing, approving
+  or releasing a push. The same run found the server's tool count, the number of skills the evals cover and the
+  package the signed fixtures were made with, corrected in the texts.
+A Claude Code session at the state after these fixes is NOT MEASURED.
+
+## D135. A receipt of Level 1 names its tool call in traceContext, and a merge's receipt binds the merge by its bytes (owner choice of 2026-11-03, Agent Guard 0.4.0)
+
+Owner choice of 2026-11-03, 18:1x Berlin, in the scope of Agent Guard 0.4.0 and before its release candidate C. Delivery
+-3 of the vCON example (CLOUD-VCON-AI-AGENT-BELEG-BEISPIEL-01) read `_pilot_statement` at cf5c1515 and found two gaps.
+No receipt carried traceContext, so a reader of a session record could not tell which tool call a receipt decides.
+And the receipt of a merge hashed the empty bytes (D55), so every merge of one pull request carried one
+parametersDigest and the digest bound none of them.
+
+Section 2 of draft-gruszka-audit-decision-receipts-06 maps trace_id and parent_id of the architecture onto
+traceContext.traceId and traceContext.parentId, and its table 4 keeps traceContext an open object, as
+decision-receipt/v0.1 does.
+
+Measured on 2026-11-03:
+- The PreToolUse event names session_id and tool_use_id: for Claude Code as D94 (2.1.302, the tool_use_id an answer
+  carries is that of the PreToolUse event) and D110 (2.1.303, the session of the environment equals the event's)
+  measured it, for Codex as the note above on Codex 0.162.1 read it from hooks/src/schema.rs lines 278 to 296. No
+  test here runs a host; an event that lacks an id, or names it in another form, gets notChecked, as below.
+- The tool merge_pull_request of the GitHub MCP server takes owner, repo, pullNumber, commit_title, commit_message,
+  merge_method (merge, squash or rebase) and expectedHeadSha (github/github-mcp-server at 4bcdcdf8,
+  pkg/github/pullrequests.go lines 1670 to 1705).
+- `gh pr merge` of gh 2.92.0 takes --match-head-commit, --subject (-t) and --body (-b) beside the three methods.
+- The events API lists a PullRequestEvent with a pull_request of base, head, id, number and url only (one page of
+  b7n0de/proofbundle, read at 17:4x UTC). It names no merge method and no text of the merge commit, and no `merged`.
+
+The rule:
+- A receipt of Level 1 carries traceContext: traceId is the session_id of the hook event, parentId its tool_use_id.
+  An id is copied only in the form `[A-Za-z0-9][A-Za-z0-9._-]{0,127}`. An id the event lacks, or names in another
+  form, is not copied, and notChecked names traceContext with the reason. The trace is not part of the action id, so
+  a retried call is the next attempt of the same action. The signer service builds the trace from the event it is
+  handed, so a proposal that names another call is not signed (statement_differs).
+- A receipt of Level 2 carries no traceContext. git hands the pre-push hook no session and no tool call, and the
+  session the hook's environment names is a value of the environment, which no receipt carries (D49, D55). Its
+  notChecked says so.
+- The bytes of a merge are the RFC 8785 form of `{"surface": "github.merge", "repository": "<owner>/<repo>",
+  "pullRequest": "<n>", "headCommit": "<object id>", "mergeMethod": "merge" | "squash" | "rebase"}`, with
+  `commitTitle` and `commitMessage` where the call writes them. Every value is a string. gh names the head commit by
+  --match-head-commit, the method by its flag, the title by --subject or -t and the message by --body or -b; the MCP
+  tool by expectedHeadSha, merge_method, commit_title and commit_message. One merge written by gh or by the tool has one
+  digest. A call that does not name the head commit as an object id or does not name a method is recorded as a push at
+  Level 1 is, with the target, a parametersRef and no digest. The media type of these bytes is application/json.
+- The empty bytes are hashed for no surface. An action whose bytes are empty is unresolved, wherever its form came
+  from: one function gives every receipt and every action id its digest.
+- The observer names no stored bytes for a merge, since the event does not carry what the receipt hashes. Where it
+  reads an event as a merge, which needs `merged` in the event (see the open gap below), an approved merge that arrived
+  is then "approved, arrived, form not measured", never "reconciled" by the empty bytes. The match
+  of the contract (section 5) reads such an effect as equal to an action in its surface alone, and of several such
+  actions with one verdict it takes the earliest decided; every other surface is matched as before. A reading of this rule
+  on 2026-11-03 found that without that sentence a merge listed before an earlier comment on the same pull request
+  took the comment's decision, the earliest decided of the target, and the comment then counted under M5. A rerun of
+  records written before D135 reads their merges so too: an approved merge reads "form not measured" there, where it
+  read "reconciled" by the empty bytes. The pre-run of the paid reading then found that a retried merge, two merge
+  decisions of one verdict, still fell back to the earliest decided action of the target, and that the first form of
+  the rule also changed the match of a comment whose stored bytes are not read; both are closed by the surface
+  github.merge and the earliest of the equal actions. The third line of the reading found that the contract named an
+  effect `ambiguous` only by equal surface and bytes, while the match also names a merge so that equals by its surface
+  actions of different verdicts; section 5 now says so too, and such a merge counts under M6 where one of them was
+  refused.
+- The repository in the bytes of a merge is written in lower case, as GitHub reads owner and name whatever their case.
+- The key signer signs traceContext only in the gate's form: an object of traceId and parentId or one of them, each an
+  id of the form above. Any other value is statement_type, as every other field outside the gate's form is. An operator
+  who updates the gate updates key_signer.py with it; the key signer of an earlier version refuses a receipt that
+  carries traceContext. A receipt then changes no ordinary answer (D55), but under D119 an owner's release needs the
+  signed ALLOW, so it stays unused until the key signer is updated too.
+- Where an earlier GitHub MCP server does not know expectedHeadSha, it merges whatever head the pull request has, and
+  the receipt names a head the merge did not require. The gate does not see the server's version; the argument is
+  measured at the commit named above.
+
+What stays: a receipt that D55 wrote, without traceContext and with the digest of the empty bytes for a merge, verifies
+as before, and the profile reads it as before; tools/pilot/vectors.json does not change. No field of
+decision-receipt/v0.1 changes, nor the DSSE envelope, the keys or the trust policy.
+
+Open, named here: the observer reads `merged` and the body of a pull request from the PullRequestEvent, and the events
+API no longer lists them (measured above). That gap is older than this rule and is not closed here. In the shape of
+2026-11-03 a merge is therefore no `github.merge` effect at all but an event under its own name, which matches no
+decision and counts under M5; a test pins that limit, so that a fix of the observer changes it knowingly.
+
+Tests: tests/test_plugin_guard_trace_context_and_merge_digest_d135.py.

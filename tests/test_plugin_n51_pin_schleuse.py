@@ -5,7 +5,7 @@ of pin-state and writes into pin-state.json only after the owner's click, atomic
 way back and a case book; one entry per work tree the owner gives a session, a linked work tree its own entry; pinning
 and renewing only by the owner, never by a session.
 
-The script, plugins/proofbundle/hooks/pin_state_schleuse.py: `zeigen` prints the entry the gate's own `pin-state`
+The script, plugins/proofbundle-guard/hooks/pin_state_schleuse.py: `zeigen` prints the entry the gate's own `pin-state`
 gives and a release value that binds the write to the gate directory, the bytes of pin-state.json now and the bytes to
 come, and writes nothing; `schreiben` writes only with that value, after a backup, atomically, and reads the file back;
 `zurueck` restores a backup, a backup `.keine` removes the file; `liste` shows the entries and backups. The gate

@@ -1,0 +1,23 @@
+{
+  "session_id": "5e551011-0000-4000-8000-000000000001",
+  "lines_converted": 11,
+  "dialog": 5,
+  "events": 6,
+  "events_by_type": {
+    "policy-decision": 2,
+    "reasoning": 1,
+    "system-event": 1,
+    "tool-invocation": 1,
+    "tool-result": 1
+  },
+  "operations": {
+    "5d67adf0-d064-8500-80ff-a7b826055c60": "toolu_example_02",
+    "dc895440-19d3-8bf8-a3d2-bb171406fa25": "toolu_example_01"
+  },
+  "not_converted": {
+    "arguments of a disallowed operation (tool-invocation-00 6.1.1)": 1,
+    "tool result of a disallowed operation": 1,
+    "type attachment": 1,
+    "type last-prompt": 1
+  }
+}

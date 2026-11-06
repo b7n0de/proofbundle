@@ -40,7 +40,9 @@ from _plugin_env import plugin_env
 
 gate = d71.gate
 pytestmark = d71.pytestmark
-PLUGIN = pathlib.Path(gate.__file__).resolve().parent.parent
+PLUGIN = pathlib.Path(__file__).resolve().parents[1] / "plugins" / "proofbundle"
+#: The house's hooks, the plugin proofbundle-guard beside the verifier (D134).
+GUARD = PLUGIN.parent / "proofbundle-guard"
 SESSION = "fallbook-session"
 
 CASES = [{'id': 'f01',
@@ -412,8 +414,8 @@ def world(tmp_path_factory):
 
 def run(world, host: str, tool: str, tool_input: dict, repo: pathlib.Path, data: pathlib.Path | None = None) -> dict:
     """The answer of the hook as the host starts it, as the probe of follow-up note 33 reads it."""
-    hooks = json.loads((PLUGIN / "hooks" / "hooks.json").read_text())
-    codex = json.loads((PLUGIN / ".codex-plugin" / "plugin.json").read_text())
+    hooks = json.loads((GUARD / "hooks" / "hooks.json").read_text())
+    codex = json.loads((GUARD / ".codex-plugin" / "plugin.json").read_text())
     if not _matched(hooks if host == "claude" else codex.get("hooks", {}), tool):
         return {"art": "nicht_gesehen", "reasons": []}
     if data is None:

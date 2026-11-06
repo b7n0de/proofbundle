@@ -2,10 +2,11 @@
 """check_version_and_changelog.py — release-integrity gate for proofbundle.
 
 Closes the "merged but never released / version drift" class (the M2 security fix and the 811-vs-817
-typo both sat unreleased on main because nothing enforced this). Six checks:
+typo both sat unreleased on main because nothing enforced this). Seven checks:
 
   1. VERSION SINGLE-SOURCING: pyproject.toml, src/proofbundle/__init__.py and CITATION.cff MUST agree.
-  2. CHANGELOG DOCUMENTS THE VERSION: the current version has a `## [<version>]` section in CHANGELOG.md.
+  2. CHANGELOG DOCUMENTS THE VERSION: the current version has a `## [<version>]` section in CHANGELOG.md,
+     and that section opens with text before its first subsection (see `check_changelog_opening`).
   3. POST-TAG DRIFT (the M2 catcher): if there are non-trivial commits since the last release tag AND the
      version was NOT bumped past that tag, CHANGELOG.md MUST carry an `## [Unreleased]` section — otherwise
      work is sitting on main undelivered with no changelog trace. Git-gated: skipped (with a note) when git
@@ -19,6 +20,9 @@ typo both sat unreleased on main because nothing enforced this). Six checks:
      declare; a new sentence that starts claiming the current release is invisible to it, and the
      place nobody declared is exactly the one that goes stale. Historical forms ("since X.Y.Z",
      "as of X.Y.Z") do not match — only claim shapes that mean "this is the current release".
+  7. VERSION-BOUND LINKS: a README link that names an artefact of the release (its audit directory,
+     its residual-risk record, its pre-tag receipt, its release scope) names the artefact of the
+     source version, in the part of the link the tag does not carry (see `_VERSIONSGEBUNDENE_VERWEISE`).
 
 EVERY NUMBER NAMES ITS OBJECT AND ITS SOURCE. Not "version 0.49.1" but "markdownlint-cli 0.49.1,
 read from package.json". A bare number is real and still says nothing: on 2026-08-07 a single day
@@ -253,6 +257,38 @@ _TRACKED_PLACES = [
      "every link to a release tag of this project"),
 ]
 
+# Check 7 — README links that name an artefact OF the release, in a part of the link the tag does not
+# carry. Check 4 keeps every tag `vX.Y.Z` in README.md current; the same links name the audit directory
+# and the residual-risk record by the release's short number (640 for 6.4.0), the pre-tag receipt by
+# both, and the release scope by its file name. The dry run of 6.5.0 (finding K5) raised every tag and
+# left `audit_artifacts/640/README.md`, `RESTRISIKO_640.md` and `docs/release_scope/6.4.0.md` behind
+# them, and the gate stayed green: the front page would have sent a reader to the audit of the previous
+# release under the tag of the new one.
+#
+# Each entry: (description, pattern, the role of each capture group in order). A role "kurz" is
+# compared with the short number of the source version, "version" with the source version itself.
+# THE EARLIER RISK RECORD IS NOT HERE: it names the previous release on purpose. A form that is absent
+# is no finding, because the synthetic trees of this gate's tests carry none of them;
+# tests/test_the_readme_links_name_the_artefacts_of_the_release.py holds the real README to carrying
+# each form, so a reworded link is noticed rather than unwatched.
+_VERSIONSGEBUNDENE_VERWEISE = [
+    ("the audit link `[Audit status and limits](…/audit_artifacts/NNN/README.md)`",
+     re.compile(r"\[Audit status and limits\]\([^)\s]*/audit_artifacts/([0-9]+)/README\.md\)",
+                re.IGNORECASE),
+     ("kurz",)),
+    ("the risk record `[Known limitations for X.Y.Z](…/RESTRISIKO_NNN.md)` or `[Residual risks for …]`",
+     re.compile(r"\[(?:Known limitations|Residual risks) for v?" + _SEMVER
+                + r"\]\([^)\s]*/RESTRISIKO_([0-9]+)\.md\)", re.IGNORECASE),
+     ("version", "kurz")),
+    ("the pre-tag receipt `audit_artifacts/NNN/pre_tag_receipt_vX.Y.Z.json`",
+     re.compile(r"audit_artifacts/([0-9]+)/pre_tag_receipt_v" + _SEMVER + r"\.json"),
+     ("kurz", "version")),
+    ("the release-scope link `[Release scope](…/docs/release_scope/X.Y.Z.md)` or `[Deferred work]`",
+     re.compile(r"\[(?:Release scope|Deferred work)\]\([^)\s]*/docs/release_scope/" + _SEMVER + r"\.md",
+                re.IGNORECASE),
+     ("version",)),
+]
+
 # Check 6 — shapes that mean "this IS the current release". Deliberately narrow: "since X.Y.Z" and
 # "as of X.Y.Z" record history and must never match, or the sweep would demand that facts be bumped.
 _CURRENT_CLAIM = re.compile(
@@ -470,8 +506,142 @@ def _source_version(repo: Path) -> tuple[str | None, str]:
 
 
 def _changelog_headings(repo: Path) -> list[str]:
-    # Every `## [x.y.z]` or `## [Unreleased]` heading, in file order.
-    return re.findall(r"(?m)^##\s*\[([^\]]+)\]", _read(repo / "CHANGELOG.md"))
+    # Every `## [x.y.z]` or `## [Unreleased]` heading, in file order. An ATX heading needs a space or a tab after its
+    # hashes; `\s` would also take U+2028 or a no-break space, and `*` no space at all (fifth reading of 2026-11-01).
+    return re.findall(r"(?m)^##[ \t]+\[([^\]]+)\]", _read(repo / "CHANGELOG.md"))
+
+
+def check_changelog_opening(repo: Path, version: str) -> list[str]:
+    """The `## [<version>]` section opens with text before its first subsection.
+
+    RELEASE.md asks in its release gate that the CHANGELOG entry says explicitly whether semantics
+    change. Check 2 held only that the heading exists. The dry run of 6.5.0 (finding K6) renamed
+    `## [Unreleased]` to the release heading the way a release preparation does, the heading stood
+    directly over `### Added`, and the gate stayed green.
+
+    WHAT IS HELD, AND WHAT IS NOT. Whether the opening says the right thing about semantics is a
+    reading, not a pattern. What the gate can hold is that the section of the version opens with
+    text at all, as the 6.4.0 entry does. Only the section of the version being released is read:
+    an older section is history, and an `[Unreleased]` block may open with a subsection because it
+    is not an entry yet.
+    """
+    # CommonMark ends a line at LF, CR or CRLF only; str.splitlines also splits at U+2028, U+2029 and U+0085.
+    zeilen = re.split(r"\r\n|\r|\n", _read(repo / "CHANGELOG.md"))
+    kopf = re.compile(r"^##[ \t]+\[" + re.escape(version) + r"\]")   # the same heading as `_changelog_headings`
+    verdeckt = _lines_in_code_or_comments(zeilen)
+    starts = [i for i, zeile in enumerate(zeilen) if i not in verdeckt and kopf.match(zeile)]
+    if not starts:
+        return []                         # check 2 reports the missing section itself
+    if len(starts) > 1:
+        # Which of the sections is the entry cannot be read off; judging the first one passed over the other.
+        return [f"CHANGELOG.md: the `## [{version}]` heading stands twice (lines "
+                f"{', '.join(str(i + 1) for i in starts)}); keep one section for the version."]
+    if _opens_with_a_paragraph(zeilen[starts[0] + 1:]):
+        return []
+    return [f"CHANGELOG.md: the `## [{version}]` section opens with no text before its first "
+            f"subsection or the next heading. RELEASE.md asks the entry to say explicitly whether "
+            f"semantics change; write that opening paragraph above the first `###`."]
+
+
+# CommonMark (0.31.2) and GitHub's table extension, read line by line for the start of a section. A PARAGRAPH IS
+# RECOGNISED FOR WHAT IT IS, not as whatever no other pattern matched: the first form of this check passed a list, a
+# block quote and an HTML block as an opening because none of its five patterns named them (readings of 2026-11-01).
+# Since the third reading the opening is the narrow form `_OPENING` below, and no pattern of the other blocks is read.
+_THEMATIC_BREAK = re.compile(r"^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$")
+_LINK_REFERENCE = re.compile(
+    r"^ {0,3}\[(?=[^\]]*\S)(?:[^\[\]\\]|\\.){1,999}\]:[ \t]*(?:<[^<>\n]*>|[^\s<]\S*)"
+    r"(?:[ \t]+(?:\"[^\"]*\"|'[^']*'|\([^()]*\)))?[ \t]*$")
+_FENCE_OPEN = re.compile(r"^ {0,3}(?:(`{3,})[^`]*|(~{3,}).*)$")
+_SETEXT_UNDERLINE = re.compile(r"^ {0,3}(?:=+|-+)[ \t]*$")
+_TABLE_DELIMITER = re.compile(r"^ {0,3}\|?[ \t]*:?-+:?[ \t]*(?:\|[ \t]*:?-+:?[ \t]*)*\|?[ \t]*$")
+
+
+def _fence_closes(zeile: str, zeichen: str, laenge: int) -> bool:
+    """A closing fence: the opening's character, at least as many, and nothing but blanks after them."""
+    return re.match(r"^ {0,3}" + re.escape(zeichen) + "{" + str(laenge) + r",}[ \t]*$", zeile) is not None
+
+
+#: THE OPENING IS A NARROW FORM, AND EVERYTHING ELSE IS A FINDING (third reading of 2026-11-01, sol-pro, three P1, and
+#: the owner's answer on its card). Three readings found the next edge of a hand-made CommonMark reader each time, in
+#: both directions. A line opens the section only when it starts, after at most three spaces and no tab, with a letter
+#: or a digit that begins no list item. Such a line can open no other block. Its price is named: an opening that starts
+#: with markup, a bracket or a quotation mark is a finding although it renders as a paragraph.
+_OPENING = re.compile(r"^ {0,3}(?![0-9]{1,9}[.)](?:[ \t]|$))[^\W_]")
+
+
+def _indent(zeile: str) -> int:
+    """The columns of the leading blanks, with a tab to the next multiple of four, as CommonMark counts them."""
+    spalte = 0
+    for c in zeile:
+        if c == " ":
+            spalte += 1
+        elif c == "\t":
+            spalte += 4 - spalte % 4
+        else:
+            break
+    return spalte
+
+
+def _lines_in_code_or_comments(zeilen: list[str]) -> set[int]:
+    """The indices of the lines inside a fenced code block or an HTML comment, fence and comment lines included."""
+    drin: set[int] = set()
+    i, n = 0, len(zeilen)
+    while i < n:
+        zaun = _FENCE_OPEN.match(zeilen[i])
+        if zaun:
+            zeichen = (zaun.group(1) or zaun.group(2))[0]
+            laenge = len(zaun.group(1) or zaun.group(2))
+            j = i + 1
+            while j < n and not _fence_closes(zeilen[j], zeichen, laenge):
+                j += 1
+            drin.update(range(i, min(j, n - 1) + 1))
+            i = j + 1
+            continue
+        # At most three spaces, as for every block start: with four the line is code, and `<!--` opens no comment. Only
+        # spaces count; a no-break space before it makes the line paragraph text (fourth reading of 2026-11-01, P1).
+        if re.match(r" {0,3}<!--", zeilen[i]):
+            j = i
+            while j < n and "-->" not in zeilen[j]:
+                j += 1
+            drin.update(range(i, min(j, n - 1) + 1))
+            i = j + 1
+            continue
+        i += 1
+    return drin
+
+
+def _opens_with_a_paragraph(zeilen: list[str]) -> bool:
+    """Whether the first block of a section, up to its next heading, is a paragraph.
+
+    Passed over: blank lines (spaces and tabs only, a no-break space is text), HTML comments that start after at most
+    three spaces, fenced code with its content (closed by a fence of the same character, at least as long, followed
+    only by blanks), indented code (four columns or more, a tab counted to the next multiple of four), and thematic
+    breaks and valid link reference definitions where a blank line ends them. The next line that is none of these must
+    have the narrow form `_OPENING`, no setext underline may stand in its paragraph up to the next blank line, and no
+    table delimiter may follow it. Any other line is a finding, a paragraph that starts with markup included
+    (`_OPENING` names that price), and so is a link reference right above the opening (fourth reading of 2026-11-01,
+    two P1, and the owner's answer A: a break or a reference a line runs on into can be part of a setext heading)."""
+    verdeckt = _lines_in_code_or_comments(zeilen)
+    for i, zeile in enumerate(zeilen):
+        if i in verdeckt or not zeile.strip(" \t"):
+            continue
+        frei = i + 1 >= len(zeilen) or not zeilen[i + 1].strip(" \t")
+        if (_THEMATIC_BREAK.match(zeile) or _LINK_REFERENCE.match(zeile)) and frei:
+            continue                      # passed over only where a blank line ends it: no line runs on into it
+        if _indent(zeile) >= 4:
+            continue                      # indented code: at the start of a section no paragraph runs on into it
+        if not _OPENING.match(zeile):
+            return False
+        folgt = zeilen[i + 1] if i + 1 < len(zeilen) else ""
+        j = i + 1
+        while j < len(zeilen) and zeilen[j].strip(" \t"):
+            if _SETEXT_UNDERLINE.match(zeilen[j]):
+                return False              # a setext underline anywhere before the next blank line makes a heading
+            j += 1
+        if "|" in zeile and "|" in folgt and _TABLE_DELIMITER.match(folgt):
+            return False                  # a table header with its delimiter row
+        return True
+    return False
 
 
 def _git(repo: Path, *args: str) -> tuple[int, str]:
@@ -575,6 +745,8 @@ def check(repo: Path, nicht_gemessen: list[tuple[int, str]] | None = None) -> li
     if version and version not in headings:
         problems.append(f"CHANGELOG.md has no `## [{version}]` section for the current version "
                         f"(headings seen: {headings[:5]})")
+    elif version:
+        problems.extend(check_changelog_opening(repo, version))
 
     # 3. Post-tag drift (M2 catcher), git-gated
     last_tag_raw, tag_note = _last_release_tag(repo)
@@ -596,9 +768,34 @@ def check(repo: Path, nicht_gemessen: list[tuple[int, str]] | None = None) -> li
 
     # 4. Tracked prose places state the current version
     # 6. Places that state a current version without being declared
+    # 7. README links name the artefacts of the current version
     if version:
         problems.extend(check_tracked_places(repo, version, herkunft))
         problems.extend(check_undeclared_places(repo, nicht_gemessen=nicht_gemessen))
+        problems.extend(check_version_bound_links(repo, version, herkunft))
+    return problems
+
+
+def check_version_bound_links(repo: Path, version: str, herkunft: str = "the source file") -> list[str]:
+    """Every README link of `_VERSIONSGEBUNDENE_VERWEISE` names the artefact of `version`.
+
+    The short number is read from the three release numbers of the version (`6.4.0` gives `640`), the
+    form the audit directories and the residual-risk records of this repository carry."""
+    text = _read(repo / "README.md")
+    kern = re.match(r"([0-9]+)\.([0-9]+)\.([0-9]+)", version)
+    if not text or not kern:
+        return []
+    soll = {"kurz": "".join(kern.groups()), "version": version}
+    problems: list[str] = []
+    for beschreibung, muster, rollen in _VERSIONSGEBUNDENE_VERWEISE:
+        for treffer in muster.finditer(text):
+            for rolle, wert in zip(rollen, treffer.groups()):
+                if wert != soll[rolle]:
+                    nr = text.count("\n", 0, treffer.start()) + 1
+                    problems.append(
+                        f"README.md:{nr}: {beschreibung} names {wert!r}, but the source version is "
+                        f"{version}, read from {herkunft}, so it names {soll[rolle]!r}. The tag of the "
+                        f"link moves with the release; this part of it has to move with it.")
     return problems
 
 
@@ -992,7 +1189,8 @@ def main() -> int:
     # 6 as passed when they had been skipped, and a reader of the summary takes it as the verdict.
     offen_nr = {nr for nr, _ in intern_offen}
     teile = ["single-sourced across pyproject.toml/__init__.py/CITATION.cff",
-             "tracked places current", "changelog carries the section"]
+             "tracked places current", "changelog carries the section",
+             "README links name the artefacts of this version"]
     if 3 not in offen_nr:
         teile.append("no undelivered post-tag drift")
     if 6 not in offen_nr:

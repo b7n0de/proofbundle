@@ -2165,6 +2165,41 @@ def _options_the_mode_does_not_read(args: argparse.Namespace, command: str, opti
     return bool(given)
 
 
+def _dsse_verify_reasons(res: dict, envelope: object, shown: tuple) -> list:
+    """The reasons of a failed `intoto --verify` or `svr --verify` that the command has not printed yet.
+
+    Measured on main f79d6c8e: both printed a reason only for the Statement layer and the v0.2 shape, so an
+    envelope with empty `signatures` (HCTP vector OP17), a payload in base64 without its padding (OP20), a
+    signature under another key, a non-canonical payload or a refused claim field printed `[FAIL]` and
+    `=> FAILED` and nothing between. `content_root_detail` is the verifier's merged reason of every check
+    but the signature, its parts joined by "; ", and the parts `shown` printed are taken out of it as whole
+    parts, so no reason is printed twice. The signature gets its own line wherever the DSSE check ran, which
+    is every case but a payload rejected before it: then the verifier read no statement and no content-root
+    algorithm."""
+    from .intoto import INTOTO_STATEMENT_PAYLOAD_TYPE  # noqa: PLC0415
+    reasons = []
+    rest = res.get("content_root_detail") or ""
+    for part in (p for p in shown if p):
+        if rest == part:
+            rest = ""
+        elif rest.startswith(part + "; "):
+            rest = rest[len(part) + 2:]
+        elif rest.endswith("; " + part):
+            rest = rest[:-len(part) - 2]
+        elif "; " + part + "; " in rest:
+            rest = rest.replace("; " + part + "; ", "; ", 1)
+    if rest:
+        reasons.append(rest)
+    rejected = res.get("statement") is None and res.get("content_root_alg") is None
+    if not res.get("signature_ok") and not rejected:
+        ptype = envelope.get("payloadType") if isinstance(envelope, dict) else None
+        if ptype != INTOTO_STATEMENT_PAYLOAD_TYPE:
+            reasons.append(f"payloadType {ptype!r} is not {INTOTO_STATEMENT_PAYLOAD_TYPE}")
+        else:
+            reasons.append("no signature verifies under the key given with --pub")
+    return reasons
+
+
 def _cmd_intoto(args: argparse.Namespace) -> int:
 
     from .bundle import load_bundle  # noqa: PLC0415
@@ -2204,6 +2239,15 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
             print(f"    {_safe_line(res['statement_detail'])}")
         if res.get("predicate_shape_ok") is False:
             print(f"    {_safe_line(res['predicate_shape_detail'])}")
+        if not ok:
+            shown = tuple(res[detail] for key, detail in (("statement_ok", "statement_detail"),
+                                                          ("predicate_shape_ok", "predicate_shape_detail"))
+                          if res.get(key) is False)
+            for reason in _dsse_verify_reasons(res, envelope, shown):
+                print(f"    {_safe_line(reason)}")
+            if res.get("statement") is not None and not (isinstance(pt, str) and pt in EVAL_RESULT_PREDICATE_TYPES):
+                types = ", ".join(EVAL_RESULT_PREDICATE_TYPES)
+                print(f"    {_safe_line(f'predicateType {pt!r} is neither of {types}')}")
         print("=> OK" if ok else "=> FAILED")
         return 0 if ok else 1
 
@@ -2309,6 +2353,10 @@ def _cmd_svr(args: argparse.Namespace) -> int:
         print(f"[{'PASS' if res['ok'] else 'FAIL'}] SVR attestation{note}")
         if res.get("statement_ok") is False:
             print(f"    {_safe_line(res['statement_detail'])}")
+        if not res["ok"]:
+            shown = (res["statement_detail"],) if res.get("statement_ok") is False else ()
+            for reason in _dsse_verify_reasons(res, envelope, shown):
+                print(f"    {_safe_line(reason)}")
         if res["ok"]:
             props = res["statement"].get("predicate", {}).get("properties", [])
             for p in (props if isinstance(props, list) else []):

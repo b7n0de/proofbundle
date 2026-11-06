@@ -5,6 +5,10 @@ pytest stays the normative runner, coverage is combined across workers, and the 
 manifest, the F4 type-confusion matrix and the hermetic cleanroom stay. Owner note of the same day:
 the jobs that run the suite build pb_verify_rs first, pin it, and require it, so a test that would
 skip for a missing binary fails there instead.
+
+Since 2026-11-02 (order DELTA-COVERAGE-IN-TEILEN-01) the coverage suite runs in the matrix job `coverage-part`,
+and the job `coverage` combines the parts and holds the floor; the suite properties below are asked of the job
+that runs the suite, the floor of the job that judges it (tests/test_coverage_parts_cover_the_suite.py).
 """
 from __future__ import annotations
 
@@ -17,7 +21,7 @@ yaml = pytest.importorskip("yaml")
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 WORKFLOWS = REPO / ".github" / "workflows"
-SUITE_JOBS = ("test", "coverage", "crypto-floor")
+SUITE_JOBS = ("test", "coverage-part", "crypto-floor")
 BUILD = "cd tools/pb_verify_rs && cargo build --release"
 PINNED = "${{ github.workspace }}/tools/pb_verify_rs/target/release/pb_verify_rs"
 
@@ -41,25 +45,25 @@ def _suite_step(name: str) -> int:
     return _index(_jobs()[name], needle)
 
 
-@pytest.mark.parametrize("name", ["test", "coverage"])
+@pytest.mark.parametrize("name", ["test", "coverage-part"])
 def test_xdist_is_installed_at_an_exact_version(name):
     installs = " ".join(r for r in _runs(_jobs()[name]) if "pip install" in r)
     assert re.search(r"(?<![\w-])pytest-xdist==\d+\.\d+\.\d+(?![\w.])", installs), installs
 
 
 def test_the_coverage_job_pins_pytest_cov():
-    installs = " ".join(r for r in _runs(_jobs()["coverage"]) if "pip install" in r)
+    installs = " ".join(r for r in _runs(_jobs()["coverage-part"]) if "pip install" in r)
     assert re.search(r"(?<![\w-])pytest-cov==\d+\.\d+\.\d+(?![\w.])", installs), installs
 
 
-@pytest.mark.parametrize("name", ["test", "coverage"])
+@pytest.mark.parametrize("name", ["test", "coverage-part"])
 def test_the_suite_runs_on_every_worker_the_runner_has(name):
     run = _runs(_jobs()[name])[_suite_step(name)]
     assert "--numprocesses=auto" in run and "--dist=worksteal" in run, run
 
 
 def test_coverage_is_combined_across_workers_and_the_floor_stays():
-    run = _runs(_jobs()["coverage"])[_suite_step("coverage")]
+    run = _runs(_jobs()["coverage-part"])[_suite_step("coverage-part")]
     assert "--cov=src/proofbundle" in run, run
     report = [r for r in _runs(_jobs()["coverage"]) if "coverage report" in r]
     assert report and "--fail-under=83" in report[0], report

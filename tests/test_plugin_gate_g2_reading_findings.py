@@ -29,9 +29,9 @@ import sys
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-GATE = ROOT / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py"
+GATE = ROOT / "plugins" / "proofbundle-guard" / "hooks" / "proofbundle_gate.py"
 SIGNER = ROOT / "plugins" / "proofbundle" / "pilot" / "key_signer.py"
-SECRETS = ROOT / "plugins" / "proofbundle" / "hooks" / "proofbundle_secrets.py"
+SECRETS = ROOT / "plugins" / "proofbundle-guard" / "hooks" / "proofbundle_secrets.py"
 
 
 def _load(path: pathlib.Path, name: str):
@@ -435,7 +435,7 @@ def _planted_tree(tmp_path: pathlib.Path, *, manifest: str, pkg_info: bool, git:
         (root / "PKG-INFO").write_text("Metadata-Version: 2.1\nName: proofbundle\n", encoding="utf-8")
     if git:
         (root / ".git").mkdir()
-    return root, root / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py"
+    return root, root / "plugins" / "proofbundle-guard" / "hooks" / "proofbundle_gate.py"
 
 
 def _skip_reason(gate: pathlib.Path, root: pathlib.Path) -> str | None:
@@ -451,7 +451,7 @@ def test_a_distribution_that_prunes_plugins_skips_a_module_that_imports_the_gate
     root, gate = _planted_tree(tmp_path, manifest="graft src\nprune plugins\n", pkg_info=True, git=False)
     why = _skip_reason(gate, root)
     assert why is not None and why.startswith("NOT MEASURED"), why
-    assert "plugins/proofbundle/hooks/proofbundle_gate.py" in why
+    assert "plugins/proofbundle-guard/hooks/proofbundle_gate.py" in why
 
 
 @pytest.mark.parametrize("case", ["promised", "checkout", "neither", "both", "shipped"])

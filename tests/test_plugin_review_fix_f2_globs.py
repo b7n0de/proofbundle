@@ -38,12 +38,12 @@ from _owner_state import owner_state_protected  # noqa: F401 - D124: a person's 
 from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-GATE = ROOT / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py"
+GATE = ROOT / "plugins" / "proofbundle-guard" / "hooks" / "proofbundle_gate.py"
 
 _bytecode, sys.dont_write_bytecode = sys.dont_write_bytecode, True
 sys.path.insert(0, str(GATE.parent))
 from _gate_answer import skip_where_the_gate_is_not_shipped  # noqa: E402
-skip_where_the_gate_is_not_shipped(pathlib.Path(__file__).resolve().parent.parent / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py",
+skip_where_the_gate_is_not_shipped(pathlib.Path(__file__).resolve().parent.parent / "plugins" / "proofbundle-guard" / "hooks" / "proofbundle_gate.py",
                                    pathlib.Path(__file__).resolve().parent.parent)
 import proofbundle_gate as gate  # noqa: E402
 
