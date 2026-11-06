@@ -165,6 +165,13 @@ include Makefile
 # `tests/test_pr_language_check.py` loads it on module level, so `tests/conftest.py` reports the
 # module as a skip outside a checkout.
 #
+# OUT, and deliberately decided (2026-11-03): scripts/plugin_release_artifacts.py and
+# scripts/plugin_release_run_probe.sh. They build and check the release artifacts of the plugins from the
+# git objects of one commit of this repository, the plugin folders under `plugins/` among them, which
+# `prune plugins` keeps out of the sdist. An installed package has neither a git tree nor the plugins, so
+# both could only fail to find their input, the same reason `render_release.py` stands outside. Their
+# contract `tests/test_plugin_release_artifacts.py` skips its module where the generator is absent.
+#
 # DRIN, und zwingend statt abgewogen: scripts/b7_historie.py. scripts/audit_candidate_matrix.py:707
 # importiert daraus `historie_abgeschnitten`, und audit_candidate_matrix.py ist SELBST ausgeliefert
 # (Zeile weiter unten). Ein ausgeliefertes Skript, dessen Import im Paket fehlt, bricht bei dem, der

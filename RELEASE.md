@@ -17,10 +17,11 @@ Every line is checkable by someone else. "I think so" is not an answer.
       one reason per line. For a PATCH the reason must survive the SemVer question: no semantic
       change, no new obligation, no changed behaviour at a public interface. In doubt, leave it out
       and say so in the list. Scope lists live in `docs/release_scope/<version>.md`.
-- [ ] **`scripts/check_version_and_changelog.py --external --require-external` is green.** Source
-      (`pyproject.toml`), the two derived files, the tracked prose places, PyPI and the project page
-      all state the same version. `--require-external` is deliberate here: at release time,
-      "we could not reach it" must block, because that is exactly when the number matters.
+- [ ] **`scripts/check_version_and_changelog.py --repo .` is green.** Source (`pyproject.toml`),
+      the two derived files and the tracked prose places state the version being released. PyPI and
+      the project page cannot state it before the upload, so `--external --require-external` is
+      answered after the publish (see *Per release*), not here. Measured on a local probe of 6.5.0
+      on 2026-10-31: with PyPI at 6.4.0 the external check reports `ABWEICHUNG` and fails.
 - [ ] **No security-relevant work exists only locally**, in a stash or under `/tmp`. Measure it, do
       not remember it: `git stash list` plus `git branch -r --contains <sha>` per entry.
       `git rev-list --all --not --remotes` alone is NOT sufficient — it only sees `refs/stash`, i.e.
@@ -142,6 +143,11 @@ after the merge (see *Release ordering* above).
 - [ ] After publish: verify the PyPI page shows the **PEP 740 attestation**, and that the wheel's
       sha256 on PyPI equals the attested subject digest and the `SHA256SUMS` on the GitHub Release.
 - [ ] `pip install proofbundle==X.Y.Z && proofbundle demo` from a clean environment → exit 0.
+- [ ] After publish, once the project page follows,
+      `scripts/check_version_and_changelog.py --external --require-external` is green. Source, the
+      two derived files, the tracked prose places, PyPI and the project page all state the same
+      version. `--require-external` is deliberate: "we could not reach it" must block, because
+      this is the moment the number is read from outside.
 
 ## Verifying a published release (anyone)
 

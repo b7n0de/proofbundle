@@ -82,7 +82,9 @@ semantically mixes into the other.
 
 1. Unknown top-level predicate fields are rejected (`additionalProperties: false`), never ignored.
 2. Time fields are RFC3339 with a trailing `Z`. No generic `timestamp`; use `decidedAt`, `recordedAt`,
-   `performedAt`.
+   `performedAt`. A time field names a real instant: month 01 to 12, a day that exists in that month and year,
+   hour to 23, minute to 59, second to 60 (RFC 3339 5.7 allows a leap second). `2026-13-15T09:05:00Z` and
+   `2026-02-30T09:05:00Z` fail in every mode, as `validity.expiresAt` already did.
 3. SemVer: `schemaVersion: "0.1.0"` (or a compatible `0.1.x`); the `predicateType` contains `v0.1`.
 4. Field names are **lowerCamelCase** (ITE-9). Only the proofbundle-local trust-policy file is snake_case.
 

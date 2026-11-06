@@ -18019,8 +18019,8 @@ def _autonomy_card(answer: "Outcome", command: str | None, cwd: str, deadline: f
         door = _release_door(command, answer)
         binding = (f" The card carries the line verbatim, sha256 {command_sha256(command)}, and what it does outside: "
                    f"{said}. The owner's answer A frees exactly this line once, in this session, within "
-                   f"{RELEASE_SECONDS // 60} minutes of the answer; a changed line needs a new card (DECISIONS.md "
-                   "D111, D119).") if door is None else \
+                   f"{RELEASE_SECONDS // 60} minutes of the earliest answer the gate has read for this card, line and "
+                   "session; a changed line needs a new card (DECISIONS.md D111, D119).") if door is None else \
             (f" The line touches {_RELEASE_DOORS[door][0]}, an own door of the owner: no card frees it. Say so on the "
              "card; the owner runs the line themselves (DECISIONS.md D119).")
     verdict = Verdict("deny", f"proofbundle gate, autonomous operation (D93): {said} is asked of the owner on a card in "
@@ -18057,6 +18057,12 @@ RELEASES_USED = "freigaben-genutzt.json"
 RELEASES_USED_SCHEMA = "proofbundle-plugin/freigaben-genutzt/v0.1"
 MAX_RELEASES_USED = 1024
 MAX_RELEASES_USED_BYTES = 512 * 1024
+#: The earliest answer the gate has read for each identity of a release (card, sha256, session), in the plugin data
+#: directory beside RELEASES_USED: {"schema": RELEASES_FIRST_SCHEMA, "erste": {<_release_identity>: <UTC time>}}. The
+#: window of an identity runs from it, so a copy with a later answer does not extend it; the gate never moves an answer
+#: later (order DELTA-FREIGABE-FENSTER-ERSTE-ANTWORT-01, section 4 point 2 of draft-gruszka-audit-decision-receipts-00).
+RELEASES_FIRST = "freigaben-erste.json"
+RELEASES_FIRST_SCHEMA = "proofbundle-plugin/freigaben-erste/v0.1"
 _CARD_ID = re.compile(r"OA-[0-9a-f]{10}")
 _SESSION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 _UTC_STAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
@@ -18408,6 +18414,83 @@ def _write_releases_used(directory: str, used: dict, consumed: set | frozenset =
     os.replace(tmp, os.path.join(directory, RELEASES_USED))
 
 
+def _releases_first(directory: str) -> dict:
+    """The earliest answer the gate has read for each identity, {_release_identity: seconds}; a ValueError where the
+    record does not read whole (another schema or key, an identity that is no digest, a time of another shape), so no
+    window is opened through a record the gate cannot read."""
+    try:
+        raw = _read_regular(os.path.join(directory, RELEASES_FIRST), MAX_RELEASES_USED_BYTES + 1)
+    except FileNotFoundError:
+        return {}
+    data = strict_json(raw) if len(raw) <= MAX_RELEASES_USED_BYTES else None
+    if not isinstance(data, dict) or set(data) != {"schema", "erste"} or data["schema"] != RELEASES_FIRST_SCHEMA or \
+            not isinstance(data["erste"], dict):
+        raise ValueError("the record of the first answers does not read whole")
+    first = {}
+    for identity, stamp in data["erste"].items():
+        seconds = _ts_seconds(stamp) if isinstance(stamp, str) and _UTC_STAMP.fullmatch(stamp) else None
+        if not _CONSUMED.fullmatch(identity) or seconds is None:
+            raise ValueError("the record of the first answers does not read whole")
+        first[identity] = seconds
+    return first
+
+
+def _releases_first_text(first: dict) -> str:
+    """The record of first answers as _releases_first reads it, in its compact form: no form the reader takes is shorter
+    (an identity and a time each have one width, and the reader takes no key twice), so rewriting a record it took with
+    an earlier answer of a known identity never passes MAX_RELEASES_USED_BYTES (the second pre-run of the reading)."""
+    return json.dumps({"schema": RELEASES_FIRST_SCHEMA, "erste": {
+        identity: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(seconds)) for identity, seconds in first.items()}},
+        separators=(",", ":"))
+
+
+def _release_first_note(directory: str, environ) -> tuple[list[dict], dict] | None:
+    """Read the releases of the folder (_releases) and write the earliest answer of each of their identities into
+    RELEASES_FIRST, both under the lock of the answer hook (D94), and return the releases and the record as it then
+    stands, {_release_identity: seconds}; an answer already there is never moved later. The folder is read under the
+    lock, so no second hook decides between the read of an earlier copy and the note of its answer (the reading of
+    586d245c). None where the record does not read, where it has to change and cannot be written, or where it cannot
+    take an identity it does not hold yet without passing MAX_RELEASES_USED_BYTES: then the gate releases nothing. A
+    record that already holds every answer the call read is not written again, so it loses nothing (the reading of
+    c660a495). An earlier answer of an
+    identity the record holds is written in that case too, since its time has one width and takes no byte more, so the
+    bound never makes the gate forget an answer it has read (the pre-run of the reading of the main-in of 468)."""
+    try:
+        hook = _answer_hook()
+        with hook.asks_lock(directory, RELEASES_FIRST):
+            releases = _releases(environ)
+            first = _releases_first(directory)
+            known, fresh = dict(first), {}
+            for release in releases:
+                identity = _release_identity(_release_key(release))
+                into = known if identity in known else fresh
+                if identity not in into or release["zeit"] < into[identity]:
+                    into[identity] = release["zeit"]
+            full = bool(fresh) and \
+                len(_releases_first_text({**known, **fresh}).encode("utf-8")) > MAX_RELEASES_USED_BYTES
+            merged = known if full else {**known, **fresh}
+            if merged != first:
+                text = _releases_first_text(merged)
+                if len(text.encode("utf-8")) > MAX_RELEASES_USED_BYTES:
+                    return None
+                fd, tmp = tempfile.mkstemp(prefix=".freigaben-erste-", dir=directory)
+                with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                    handle.write(text)
+                os.replace(tmp, os.path.join(directory, RELEASES_FIRST))
+            if full:
+                return None
+    except (OSError, ValueError, UnicodeDecodeError, ImportError, AttributeError, SyntaxError):
+        return None
+    return releases, merged
+
+
+def _release_from_first(release: dict, first: dict) -> dict:
+    """The release with the time its window runs from: the earliest of its own answer and the one `first` holds for its
+    identity. The answer it names (antwort) stays its own."""
+    earliest = first.get(_release_identity(_release_key(release)))
+    return release if earliest is None or earliest >= release["zeit"] else {**release, "zeit": earliest}
+
+
 def _release_use_past(stamp: object, now: float) -> bool:
     """Whether a use the record keeps lies more than RELEASE_SECONDS + RELEASE_SKEW_SECONDS before now: a release is used
     no earlier than RELEASE_SKEW_SECONDS before its answer and binds at most RELEASE_SECONDS after it, so no release binds
@@ -18430,8 +18513,13 @@ def _release_take(release: dict, environ, now: float | None = None) -> bool:
     now = time.time() if now is None else now
     try:
         hook = _answer_hook()
-        with hook.asks_lock(data, RELEASES_USED):
+        # the lock of the record of first answers first, then that of the uses, so no hook notes an earlier answer it
+        # has read while the use is decided (the fourth pre-run of the reading); no other path takes the two locks
+        with hook.asks_lock(data, RELEASES_FIRST), hook.asks_lock(data, RELEASES_USED):
             used, consumed = _releases_record(data)
+            # the window again from the earliest answer of the identity, as it stands now (a record that does not read
+            # whole is a ValueError: then nothing is used)
+            release = _release_from_first(release, _releases_first(data))
             if not _release_free(release, used, consumed, now):
                 return False
             if len(used) >= MAX_RELEASES_USED:
@@ -18474,8 +18562,15 @@ def _autonomy_release(answer: "Outcome", command: str | None, environ, now: floa
         return None
     sha = command_sha256(command)
     now = time.time() if now is None else now
-    fitting = [r for r in _releases(environ) if r["sha256"] == sha and r["sitzung"] == session
-               and r["zeit"] - RELEASE_SKEW_SECONDS <= now <= r["zeit"] + RELEASE_SECONDS]
+    # The window of an identity runs from the earliest answer the gate has read for it, every copy in the folder now
+    # and the record of first answers included, so a copy with a later answer does not extend it (RELEASES_FIRST). The
+    # gate notes every release it reads, of any line, so a copy it read once keeps its answer after it is gone.
+    noted = _release_first_note(data, environ)
+    if noted is None:
+        return None
+    present, first = noted
+    fitting = [r for r in (_release_from_first(r, first) for r in present) if r["sha256"] == sha
+               and r["sitzung"] == session and r["zeit"] - RELEASE_SKEW_SECONDS <= now <= r["zeit"] + RELEASE_SECONDS]
     if not fitting:
         return None
     door = _release_door(command, answer)
@@ -18489,11 +18584,14 @@ def _autonomy_release(answer: "Outcome", command: str | None, environ, now: floa
     release = next((r for r in fitting if _release_free(r, used, consumed, now)), None)
     if release is None or (take and not _release_take(release, environ, now)):
         return None
+    # The pass names the rule of the window and no time it starts at: _release_take decides the window again under its
+    # locks, from the earliest answer as it stands then, so a time read here could be later than the one that binds.
     verdict = Verdict("pass", f"proofbundle gate: the owner released this command on the card {release['karte']}, "
                               f"answered at {release['antwort']}. The release frees exactly the command whose words "
                               f"as written have the sha256 {sha}, once, in this session, within "
-                              f"{RELEASE_SECONDS // 60} minutes of the answer; its use stands in the plugin data "
-                              "before the call runs (DECISIONS.md D111, D119).", "released_by_owner")
+                              f"{RELEASE_SECONDS // 60} minutes of the earliest answer the gate has read for this "
+                              "card, line and session; its use stands in the plugin data before the call runs "
+                              "(DECISIONS.md D111, D119).", "released_by_owner")
     new = Outcome("pass", verdict.text(), list(answer.verdicts) + [verdict], None, step=answer.step)
     new.release = {"freigabe": release, "ohne": answer, "genutzt": take}
     record = getattr(answer, "autonomy", None) or {}
@@ -23251,6 +23349,13 @@ _GH_PUSH_URLS = (re.compile(rf"https://github\.com/({_GH_OWNER})/({_GH_REPO})(?:
                  re.compile(rf"git@github\.com:({_GH_OWNER})/({_GH_REPO})(?:\.git)?/?\Z", re.ASCII),
                  re.compile(rf"ssh://git@github\.com/({_GH_OWNER})/({_GH_REPO})(?:\.git)?/?\Z", re.ASCII))
 _PILOT_BRANCH = re.compile(r"[A-Za-z0-9._/-]{1,200}\Z", re.ASCII)
+#: D135: the ids of a hook event a receipt of Level 1 names in traceContext, its session_id as traceId and its tool_use_id
+#: as parentId (draft-gruszka-audit-decision-receipts-06, section 2). An id in another form is not copied, and the
+#: receipt's notChecked says so.
+_PILOT_TRACE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z", re.ASCII)
+#: D135: the merge method a gh flag names.
+_PILOT_MERGE_METHODS = {"--merge": "merge", "-m": "merge", "--squash": "squash", "-s": "squash", "--rebase": "rebase",
+                        "-r": "rebase"}
 #: The plain gh forms the pilot reads a write from: the surface, the options that take a value and the slot each fills,
 #: the options without a value. Every other option, a second use of one, `--` and a spelling such as `-bTEXT` leave the
 #: form unread: the gate still decides it, and no receipt is written, so an effect of it counts under M5.
@@ -23258,7 +23363,8 @@ _PILOT_GH_FORMS = {
     ("pr", "comment"): ("github.conversationComment", {"--body": "body", "-b": "body", "--repo": "repo", "-R": "repo"},
                         {}),
     ("pr", "edit"): ("github.pullRequestBody", {"--body": "body", "-b": "body", "--repo": "repo", "-R": "repo"}, {}),
-    ("pr", "merge"): ("github.merge", {"--repo": "repo", "-R": "repo"},
+    ("pr", "merge"): ("github.merge", {"--repo": "repo", "-R": "repo", "--match-head-commit": "head",
+                                       "--subject": "title", "-t": "title", "--body": "body", "-b": "body"},
                       {"--merge": "method", "-m": "method", "--squash": "method", "-s": "method", "--rebase": "method",
                        "-r": "method"}),
     ("pr", "create"): ("github.pullRequestBody", {"--title": "title", "-t": "title", "--body": "body", "-b": "body",
@@ -23367,8 +23473,8 @@ def _pilot_options(args: list[str], valued: dict, flags: dict) -> tuple[dict, li
     return found, positional
 
 
-def _pilot_pull_target(positional: list, found: dict) -> str | None:
-    """https://github.com/<owner>/<repo>/pull/<n> for a pull request named by its URL, or by its number and --repo."""
+def _pilot_pull_parts(positional: list, found: dict) -> tuple[str, str, str] | None:
+    """(owner, repo, number) of a pull request named by its URL, or by its number and --repo."""
     if len(positional) != 1:
         return None
     match = _GH_PULL_URL.fullmatch(positional[0])
@@ -23379,7 +23485,33 @@ def _pilot_pull_target(positional: list, found: dict) -> str | None:
         if not (slug and _PILOT_GH_NUMBER.fullmatch(positional[0])):
             return None
         (owner, repo), number = slug.groups(), positional[0]
-    return None if repo in (".", "..") else f"https://github.com/{owner}/{repo}/pull/{number}"
+    return None if repo in (".", "..") else (owner, repo, number)
+
+
+def _pilot_pull_target(positional: list, found: dict) -> str | None:
+    """https://github.com/<owner>/<repo>/pull/<n> for a pull request named by its URL, or by its number and --repo."""
+    parts = _pilot_pull_parts(positional, found)
+    return f"https://github.com/{parts[0]}/{parts[1]}/pull/{parts[2]}" if parts else None
+
+
+def _pilot_merge_bytes(owner: str, repo: str, number: str, head: object, method: object, texts: dict) -> bytes | None:
+    """D135: the bytes a merge's receipt hashes, the RFC 8785 form of {surface, repository, pullRequest, headCommit,
+    mergeMethod} and of commitTitle and commitMessage where the call writes them (`texts`, by those two names), the
+    repository as `<owner>/<repo>` in lower case. None
+    where the call names no head commit as an object id or no merge method, or a title or a message that is no
+    string: a merge whose head the call does not require is not the merge of one commit. Every value is a string, so
+    sorted keys without spaces and the string escapes json.dumps writes are that form (RFC 8785, section 3.2.2.2); a
+    lone surrogate has no form, and the bytes are None."""
+    if not (isinstance(head, str) and _PILOT_OID.fullmatch(head)) or method not in ("merge", "squash", "rebase") or \
+            not all(isinstance(text, str) for text in texts.values()):
+        return None
+    # GitHub names a repository whatever case its owner and name are written in, so the bytes write them lower case
+    value = {"surface": "github.merge", "repository": f"{owner}/{repo}".lower(), "pullRequest": number,
+             "headCommit": head, "mergeMethod": method, **texts}
+    try:
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    except UnicodeEncodeError:
+        return None
 
 
 def _pilot_compare_target(owner: str, repo: str, base: object, head: object) -> str | None:
@@ -23435,8 +23567,14 @@ def _pilot_shell_action(command: str) -> dict | None:
         return {"surface": surface, "target": target, "bytes": _pilot_bytes(found["body"]), "media": "text/markdown"}
     target = _pilot_pull_target(positional, found)
     if surface == "github.merge":
-        # A merge writes no text of the agent: its approved bytes are the empty string (D55).
-        return {"surface": surface, "target": target, "bytes": b"", "media": "text/plain"}
+        # D135: the bytes bind what the merge merges. The empty bytes of D55 were the same for every merge of a pull
+        # request, so their digest bound none of them.
+        parts = _pilot_pull_parts(positional, found)
+        texts = {name: found[slot] for name, slot in (("commitTitle", "title"), ("commitMessage", "body"))
+                 if slot in found}
+        data = _pilot_merge_bytes(*parts, found.get("head"), _PILOT_MERGE_METHODS.get(found.get("method", "")),
+                                  texts) if parts else None
+        return {"surface": surface, "target": target, "bytes": data, "media": "application/json"}
     if "body" not in found:
         return None
     return {"surface": surface, "target": target, "bytes": _pilot_bytes(found["body"]), "media": "text/markdown"}
@@ -23458,9 +23596,15 @@ def _pilot_mcp_action(tool: str, tool_input: object) -> dict | None:
     if name == "merge_pull_request":
         number = tool_input.get("pullNumber", tool_input.get("pull_number"))
         number = str(number) if type(number) is int else number
-        target = (f"https://github.com/{owner}/{repo}/pull/{number}"
-                  if isinstance(number, str) and _PILOT_GH_NUMBER.fullmatch(number) else None)
-        return {"surface": "github.merge", "target": target, "bytes": b"", "media": "text/plain"}
+        named = isinstance(number, str) and _PILOT_GH_NUMBER.fullmatch(number)
+        target = f"https://github.com/{owner}/{repo}/pull/{number}" if named else None
+        # D135: the arguments of the tool in the GitHub MCP server (pkg/github/pullrequests.go, merge_pull_request):
+        # expectedHeadSha, merge_method, commit_title and commit_message beside owner, repo and pullNumber.
+        texts = {name: tool_input[arg] for name, arg in (("commitTitle", "commit_title"),
+                                                          ("commitMessage", "commit_message")) if arg in tool_input}
+        data = _pilot_merge_bytes(owner, repo, number, tool_input.get("expectedHeadSha"), tool_input.get("merge_method"),
+                                  texts) if named else None
+        return {"surface": "github.merge", "target": target, "bytes": data, "media": "application/json"}
     if name in ("push_files", "create_or_update_file"):
         branch = tool_input.get("branch")
         target = (f"https://github.com/{owner}/{repo}#refs/heads/{branch}"
@@ -23542,11 +23686,33 @@ def _pilot_sign(config: dict, body: bytes, context: dict) -> bytes:
     return signature
 
 
+def _pilot_digest(action: dict) -> str | None:
+    """The sha256 a receipt names for the bytes of an action (D55), None where the gate resolves no bytes. Also None
+    for the empty bytes (D135): every form that writes nothing would share their digest, so it names no action, and
+    such an action is recorded as unresolved, as a push at Level 1 is. Every receipt and every action id takes its
+    digest here."""
+    data = action["bytes"]
+    return hashlib.sha256(data).hexdigest() if data else None
+
+
+def _pilot_trace(event: dict) -> dict:
+    """D135: the traceContext of a receipt of Level 1, the session_id of the hook event as traceId and its tool_use_id
+    as parentId (draft-gruszka-audit-decision-receipts-06, section 2), each where the event names it in the form of
+    _PILOT_TRACE_ID. A PreToolUse event of Claude Code and of Codex names both (measured in D94, D110 and the note
+    on Codex 0.162.1); an event that does not gets notChecked in its receipt."""
+    trace = {}
+    for name, field in (("traceId", "session_id"), ("parentId", "tool_use_id")):
+        value = event.get(field)
+        if isinstance(value, str) and _PILOT_TRACE_ID.fullmatch(value):
+            trace[name] = value
+    return trace
+
+
 def _pilot_action_id(config: dict, action: dict, key: str) -> str:
     """The action id of a decision (D55): a digest of the surface, the target, the bytes and the agent, so a retried
     action keeps its id; where the gate resolves no target or no bytes, of the surface, the key of the call and the
-    agent."""
-    digest = hashlib.sha256(action["bytes"]).hexdigest() if action["bytes"] is not None else None
+    agent. The trace of the call (D135) is not part of it: a retried call is another tool call of the same action."""
+    digest = _pilot_digest(action)
     named = [action["surface"], action["target"], digest, config["agent_id"]] if action["target"] and digest else \
         [action["surface"], "unresolved", key, config["agent_id"]]
     return "a-" + hashlib.sha256("\0".join(named).encode("ascii")).hexdigest()[:32]
@@ -23556,9 +23722,10 @@ def _pilot_statement(config: dict, environ: dict, action: dict, verdict: str, re
                      decided_ns: int) -> dict:
     """The in-toto Statement of one decision receipt of github-write/1 (D55), as the gate proposes it and as the signer
     service builds it again from its own decision before it signs (D58): everything but the decision's id and instant
-    follows from the pilot's configuration, the action, the verdict and the reasons."""
-    digest = hashlib.sha256(action["bytes"]).hexdigest() if action["bytes"] is not None else None
-    surface, target = action["surface"], action["target"]
+    follows from the pilot's configuration, the action, the verdict and the reasons. The action of a tool call carries
+    the trace of its event (_pilot_trace, D135); one of Level 2 carries none."""
+    digest = _pilot_digest(action)
+    surface, target, trace = action["surface"], action["target"], action.get("trace")
     closing = None
     if config["closing_rules"] is not None:
         try:
@@ -23583,6 +23750,14 @@ def _pilot_statement(config: dict, environ: dict, action: dict, verdict: str, re
     if target is None or digest is None:
         not_checked.append({"field": "proposedAction", "reason": "the gate does not resolve the target or the "
                             "bytes of this form", "impact": "an effect cannot be matched to this decision by them"})
+    if trace is None:
+        not_checked.append({"field": "traceContext", "reason": "git hands the pre-push hook no session and no "
+                            "tool_use_id, and the session the environment names is a value no receipt carries (D49)",
+                            "impact": "this receipt cannot be matched to one tool call by its trace"})
+    elif set(trace) != {"traceId", "parentId"}:
+        not_checked.append({"field": "traceContext", "reason": "the hook event names no session_id or no tool_use_id "
+                            "in the form the gate copies", "impact": "this receipt cannot be matched to one tool call "
+                            "by its trace"})
     predicate = {
         "schemaVersion": "0.1.0", "decisionId": decision_id, "decisionType": "preActionAuthorization",
         "decidedAt": _pilot_instant(decided_ns), "decisionMaker": {"id": config["gate_id"]},
@@ -23600,6 +23775,8 @@ def _pilot_statement(config: dict, environ: dict, action: dict, verdict: str, re
         "validity": {"audience": [config["observer_id"]], "nonce": decision_id,
                      "expiresAt": _pilot_instant(decided_ns + config["validity_seconds"] * 1_000_000_000)},
     }
+    if trace:
+        predicate["traceContext"] = dict(trace)
     return {"_type": INTOTO_STATEMENT_TYPE,
             "subject": [{"name": f"decision:{decision_id}",
                          "digest": {"sha256": hashlib.sha256(_pilot_canonical(predicate)).hexdigest()}}],
@@ -23688,11 +23865,15 @@ def _pilot_tool_action(event: object) -> tuple[dict | None, str]:
     if isinstance(tool, str) and tool.startswith("mcp__"):
         key = hashlib.sha256(json.dumps(event.get("tool_input"), sort_keys=True, ensure_ascii=True,
                                         default=str).encode("ascii")).hexdigest()
-        return _pilot_mcp_action(tool, event.get("tool_input")), key
-    if isinstance(tool, str) and tool in FILE_WRITE_TOOLS:
+        action = _pilot_mcp_action(tool, event.get("tool_input"))
+    elif isinstance(tool, str) and tool in FILE_WRITE_TOOLS:
         return None, ""
-    command, _cwd = _command_from_event(event)
-    return _pilot_shell_action(command), hashlib.sha256(command.encode("utf-8", "surrogatepass")).hexdigest()
+    else:
+        command, _cwd = _command_from_event(event)
+        action, key = _pilot_shell_action(command), hashlib.sha256(command.encode("utf-8", "surrogatepass")).hexdigest()
+    if action is not None:
+        action["trace"] = _pilot_trace(event)   # D135: the call this receipt decides
+    return action, key
 
 
 def pilot_after_tool(event: object, outcome: "Outcome", environ: dict, host: str = "claude",

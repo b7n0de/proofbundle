@@ -1183,11 +1183,17 @@ def test_die_grenze_ein_zufallstreffer_des_stamms_irrt_zu_nicht_messbar(tmp_path
 #: 6.5.0.md opens the scope after the tag v6.4.0 as not started (2026-10-28), because without a scope
 #: file above the source version the release being built is NOT MEASURABLE in every clone with tags;
 #: measured with this reader: state measured, no branch, no rider, no line.
+#: plugin-0.4.0.md scopes the plugin release, which comes before 6.5.0. Its name is no package version, so the gate
+#: never takes it for the release being built; measured with this reader on main c9ab65b1 with the file and the row of
+#: pull request 468 added: state measured, 13 branches, no rider, 13 lines, 13 rows examined; with the row GR1 added
+#: on main ab681dfe: state measured, 14 branches, no rider, 14 lines, 14 rows examined; with the row MG3 added on main
+#: 26d625c1: state measured, 15 branches, no rider, 15 lines, 15 rows examined; with the row IG1 added on main
+#: 6d29ead3: state measured, 16 branches, no rider, 16 lines, 16 rows examined.
 _ZUSTAND_DER_ECHTEN = {"3.7.1.md": "kein einziger Zweig", "4.0.0.md": "kein einziger Zweig",
                        "5.0.0.md": "kein einziger Zweig", "6.0.0.md": "kein einziger Zweig",
                        "6.1.0.md": "gemessen", "6.2.0.md": "gemessen", "6.2.1.md": "gemessen",
                        "6.3.0.md": "gemessen", "6.3.1.md": "gemessen", "6.4.0.md": "gemessen",
-                       "6.5.0.md": "gemessen"}
+                       "6.5.0.md": "gemessen", "plugin-0.4.0.md": "gemessen"}
 
 
 def test_GRUEN_die_echten_umfangsdateien_lesen_sich_wie_vorher():
