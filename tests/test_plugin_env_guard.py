@@ -389,6 +389,21 @@ def test_uv_offline_and_its_cache_pass_and_a_proxy_or_certificate_path_does_not(
     assert set(passed) | set(withheld) <= set(other["child"]), other
 
 
+def test_the_active_virtual_environment_reaches_the_child_of_a_plugin_test(tmp_path):
+    """A plugin test whose child starts uv must hand it the caller's VIRTUAL_ENV, which names a path and carries no
+    secret. Measured in the dry run of 6.5.0 on 5 November 2026 (finding T2-3): without it, uv chose the uv-managed
+    Python 3.10.20 instead of the active venv, found nothing for it in its cache with the network off, and
+    test_plugin_gate_runde15_n37.py::test_r14_4_the_real_server_verifies_a_valid_bundle and its neighbour went red under
+    3.11, 3.12 and 3.13; `uv python find` with and without VIRTUAL_ENV named the two interpreters. Here the caller sets
+    VIRTUAL_ENV: the plugin module's child process, its module fixture and plugin_env() see it, as a module of another
+    name does. Red before VIRTUAL_ENV stood in FIXED."""
+    planted = {"VIRTUAL_ENV": str(tmp_path / "planted-venv")}
+    _proc, plugin, other = _planted_run(tmp_path, planted)
+    for names in (plugin["child"], plugin["module"], plugin["helper"]):
+        assert "VIRTUAL_ENV" in names, names
+    assert "VIRTUAL_ENV" in other["child"] and "VIRTUAL_ENV" in other["module"], other
+
+
 _IMPORTING_MODULE = '''
 import json, pathlib, subprocess, sys
 
