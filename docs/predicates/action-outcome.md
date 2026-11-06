@@ -108,7 +108,8 @@ the crypto step fails:
    NOT accepted); or **C** `trust_pack_pinned=True` + `trust_pack_pinned_digest == sha256(JCS(predicate))` (a
    bare `trust_pack_pinned=True` alone is NOT accepted). Without a matching anchor `executor_role_trusted` is
    `False` and the outcome's aggregate is blocked with `TRUST_PACK_NOT_ANCHORED` (see `trust-pack.md` §5 and
-   `outcome.verify_outcome_receipt`'s docstring for the exact parameters).
+   `outcome.verify_outcome_receipt`'s docstring for the exact parameters). The check binds `executor.keyId`,
+   not `executor.id`: the pack names no identifier per key (§7).
 
 Read the aggregate verdict, never an individual field alone. `status = refused` / `failed` are first-class,
 honest outcomes (a refusal is a valid, signable outcome — not an error to hide).
@@ -142,11 +143,19 @@ override / tamper / malformed subject, fail-closed `matches = False`). See
 
 ## 7. Open (honest, not yet built)
 
-- ~~Independent attestation of `executor.id` via a trust-pack role binding~~ — CLOSED (verify-layer
-  hardening): `verify_outcome_receipt(..., trust_pack=...)` now checks `executor.keyId` against the pack's
-  `outcomeExecutors` role membership (§5.8). What remains open: this checks membership in an
-  ALREADY-authenticated pack the caller supplies; a LIVE registry / DID anchor that DISCOVERS and fetches
-  the right Trust Pack for a given executor automatically is still future work.
+- Independent attestation of `executor.id` is NOT built. `verify_outcome_receipt(..., trust_pack=...)` checks
+  `executor.keyId` against the pack's `outcomeExecutors` role and binds that key id to the signing key (§5.8);
+  a Trust Pack names no identifier per key, and no verify path compares `executor.id` with anything but
+  `decision_maker_id` (§5.5). An anchored executor key can therefore sign an outcome under any `executor.id`
+  it writes, and each such outcome reports `executor_role_trusted` True, so role separation holds only
+  against a signer that keeps to its own name. `executor.id` is the outcome signer's own statement. The
+  binding of an identifier per executor key, compared with `executor.id`, is scheduled for 6.6.0. A LIVE
+  registry / DID anchor that DISCOVERS and fetches the right Trust Pack for a given executor automatically
+  is further future work.
+- The outcome checks of draft-gruszka-audit-decision-receipts-05 that need an input proofbundle does not take
+  are NOT performed: `verify_outcome_receipt` and `proofbundle outcome verify` take no effect bytes to compare
+  with `effectDigest` (section 3.4 step 6) and no expected `executor.id` (section 3.4 step 5). Both inputs are
+  scheduled for 6.6.0; see `docs/NON_CLAIMS.md`.
 - ~~Third-party corroboration of an outcome (the "overwhelmingly executor-self-attested" gap, Finding 16)~~
   — SELF-FIXABLE PART CLOSED: `receiverRefs[]` (digest-bound, mirrors `evidenceRefs[]`) +
   `assurance.classify_receiver_corroboration` (capped at `CONTENT_RESOLVED`; `INDEPENDENTLY_ATTESTED` is NOT
