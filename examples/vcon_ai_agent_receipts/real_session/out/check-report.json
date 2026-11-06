@@ -1,0 +1,176 @@
+{
+  "result": "PASS",
+  "first_failure": null,
+  "checks": [
+    {
+      "id": "K1",
+      "where": "gate.pub.hex",
+      "result": "PASS",
+      "detail": "pinned demonstration key"
+    },
+    {
+      "id": "K2",
+      "where": "sessions",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "K1",
+      "where": "attachments",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "K1",
+      "where": "attachments[0] a-c3d403fa489a533ed075263186638b06-1.json",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "K1",
+      "where": "attachments[0] a-c3d403fa489a533ed075263186638b06-1.json",
+      "result": "PASS",
+      "detail": "proofbundle decision verify --strict --aud b7vcon-demo-observer --verification-time 2026-11-04T10:31:46Z, exit 0"
+    },
+    {
+      "id": "K2",
+      "where": "attachments[0] a-c3d403fa489a533ed075263186638b06-1.json",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "K2",
+      "where": "attachments[0] a-c3d403fa489a533ed075263186638b06-1.json",
+      "result": "PASS",
+      "detail": "call toolu_01HjMNbh61G3rhFxQuLpmQnQ is operation b5622fed-eac6-8ca7-874f-c9b459139de2"
+    },
+    {
+      "id": "K3",
+      "where": "attachments[0] a-c3d403fa489a533ed075263186638b06-1.json",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "K3",
+      "where": "attachments[0] a-c3d403fa489a533ed075263186638b06-1.json",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "K3",
+      "where": "attachments[0] a-c3d403fa489a533ed075263186638b06-1.json",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "K3",
+      "where": "attachments[0] a-c3d403fa489a533ed075263186638b06-1.json",
+      "result": "PASS",
+      "detail": "verdict ESCALATE, decision permission-required, agent, person and guard as named"
+    },
+    {
+      "id": "K4",
+      "where": "attachments[0] a-c3d403fa489a533ed075263186638b06-1.json",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "K4",
+      "where": "attachments[0] a-c3d403fa489a533ed075263186638b06-1.json",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "K4",
+      "where": "attachments[0] a-c3d403fa489a533ed075263186638b06-1.json",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "K4",
+      "where": "attachments[0] a-c3d403fa489a533ed075263186638b06-1.json",
+      "result": "PASS",
+      "detail": "parametersDigest = SHA-256 of the --body argument of the call"
+    },
+    {
+      "id": "K1",
+      "where": "attachments[1] a-9f29d0cdfac2bc0ab4f1734466abf86a-1.json",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "K1",
+      "where": "attachments[1] a-9f29d0cdfac2bc0ab4f1734466abf86a-1.json",
+      "result": "PASS",
+      "detail": "proofbundle decision verify --strict --aud b7vcon-demo-observer --verification-time 2026-11-04T10:33:40Z, exit 0"
+    },
+    {
+      "id": "K2",
+      "where": "attachments[1] a-9f29d0cdfac2bc0ab4f1734466abf86a-1.json",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "K2",
+      "where": "attachments[1] a-9f29d0cdfac2bc0ab4f1734466abf86a-1.json",
+      "result": "PASS",
+      "detail": "call toolu_01Jh5KN3htQGLpgnvy5xwFz6 is operation 48253767-60e5-8ec8-97ba-0105d312234d"
+    },
+    {
+      "id": "K3",
+      "where": "attachments[1] a-9f29d0cdfac2bc0ab4f1734466abf86a-1.json",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "K3",
+      "where": "attachments[1] a-9f29d0cdfac2bc0ab4f1734466abf86a-1.json",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "K3",
+      "where": "attachments[1] a-9f29d0cdfac2bc0ab4f1734466abf86a-1.json",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "K3",
+      "where": "attachments[1] a-9f29d0cdfac2bc0ab4f1734466abf86a-1.json",
+      "result": "PASS",
+      "detail": "verdict DENY, decision disallowed, agent, person and guard as named"
+    },
+    {
+      "id": "K4",
+      "where": "attachments[1] a-9f29d0cdfac2bc0ab4f1734466abf86a-1.json",
+      "result": "PASS",
+      "detail": ""
+    },
+    {
+      "id": "K4",
+      "where": "attachments[1] a-9f29d0cdfac2bc0ab4f1734466abf86a-1.json",
+      "result": "PASS",
+      "detail": "no tool event of the denied operation; the receipt names its arguments by {\"uri\": \"urn:proofbundle:pilot:not-resolved\"}, not by a digest"
+    },
+    {
+      "id": "K4",
+      "where": "vCon",
+      "result": "PASS",
+      "detail": "no JSON value in the vCon equals the denied arguments"
+    }
+  ],
+  "observations": [
+    {
+      "id": "K5",
+      "operation": "b5622fed-eac6-8ca7-874f-c9b459139de2",
+      "verdict": "ESCALATE",
+      "note_to_agent_begins": "NOT MEASURED: Evidence: a git or gh command, or an unevaluab"
+    },
+    {
+      "id": "K5",
+      "operation": "48253767-60e5-8ec8-97ba-0105d312234d",
+      "verdict": "DENY",
+      "note_to_agent_begins": "proofbundle gate: Evidence: the words of the push, its refsp"
+    }
+  ]
+}

@@ -39,6 +39,7 @@ account.
 | `check_real_session.py` | The offline check, K1 to K4, and the observation K5. |
 | `out/vcon.unsigned.json` | The vCon the producer writes. |
 | `out/conversion-report.json` | What the converter converted and what it left out, and which call each receipt names. |
+| `out/check-report.json` | The report of `check_real_session.py` on `out/`, every check with its result, both receipts verified, and the observation K5. |
 | `SHA256SUMS` | The SHA-256 of every file in this folder. |
 
 ## Check it offline
@@ -47,7 +48,7 @@ account.
 pip install "proofbundle>=6.4.0"
 cd examples/vcon_ai_agent_receipts/real_session
 python make_real_session.py
-python check_real_session.py
+python check_real_session.py --report out/check-report.json
 ```
 
 The check exits 0 only when K1 to K4 pass, names the first failure otherwise, and prints the observation K5.
@@ -90,7 +91,9 @@ signed-in account's mail address, the full system prompt and the account's conne
 ## What the example does not show
 
 It is one session with one guard and one person. The demonstration key signs for the guard in this account only, and
-the vCon records the guard's statements, not that the person approved. The person asked for the push in case 2, so the
+the vCon records the guard's statements, not that the person approved. A receipt that verifies establishes the
+integrity of the decision under the demonstration public key; it does not establish trust in whoever operates that
+key, the person's later approval, or the outcome of the call. The person asked for the push in case 2, so the
 dialog names the command; tool-invocation-00 keeps the arguments of a disallowed call out of its Event Objects, and
 the converter writes neither the call nor its result. The comment of case 1 names the person by first name; it is
 public on the demonstration repository, and the receipt covers exactly its bytes.

@@ -71,6 +71,16 @@ class TheRecordedSessionExample(unittest.TestCase):
             with self.subTest(rel=rel):
                 self.assertEqual((FOLDER / "out" / rel).read_bytes(), data)
 
+    def test_the_committed_check_report_is_what_the_check_writes(self):
+        """out/check-report.json is the verification output of both receipts as the README names it; it must be what
+        the check writes on out/ today, not an older run."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as td, mock.patch.dict(os.environ, TREE_PATH):
+            rep = pathlib.Path(td) / "check-report.json"
+            rc = self.ck.main([str(FOLDER / "out"), "--proofbundle", CLI, "--report", str(rep)])
+            self.assertEqual(rc, 0)
+            self.assertEqual(rep.read_bytes(), (FOLDER / "out" / "check-report.json").read_bytes())
+
     def test_the_example_passes(self):
         rep = self._run(self.vcon)
         self.assertIsNone(rep.first, rep.first)
