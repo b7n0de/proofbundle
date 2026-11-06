@@ -8,7 +8,7 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
-## [6.5.0] - 2026-11-06
+## [6.5.0] - 2026-11-08
 
 6.5.0 is a feature release following 6.4.0. It adds `proofbundle verify-sigstore`, an offline verifier for GitHub Artifact Attestations and npm provenance, and the verifiers for eval-result v0.1, test-result v0.1 and SVR v0.1 statements now require the members their predicates require, in the forms those predicates give them. Every `rfc3339z` time field must name a real calendar instant, five walks over a JSON value keep their memory in proportion to the input, and the Bitcoin header map of the trust policy, `--bitcoin-header`, `--bundled-header`, the agent-review policy file and the SD-JWT bundle binding read their inputs strictly. The `[scitt]` extra and the dev pins take cbor2 6.1.5.
 
