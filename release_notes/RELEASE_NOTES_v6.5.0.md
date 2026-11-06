@@ -13,7 +13,7 @@ python -m pip install --upgrade proofbundle==6.5.0
 
 ## Verify this release yourself
 
-Use the checksums and build provenance to check the downloaded files. To check the signed pre-tag audit receipt, use a clone at the source commit identified by the build attestation. The commands, prerequisites and limits are in [Verifying a published release](https://github.com/b7n0de/proofbundle/blob/0464be5a409c6db5dde250ad8e4dacb7b5294e96/RELEASE.md#verifying-a-published-release-anyone).
+Use the checksums and build provenance to check the downloaded files. To check the signed pre-tag audit receipt, use a clone at the source commit identified by the build attestation. The commands, prerequisites and limits are in [Verifying a published release](https://github.com/b7n0de/proofbundle/blob/84636f3e6f35fe4c2500e1a08e1a7b3d2b8a6fb5/RELEASE.md#verifying-a-published-release-anyone).
 
 ## What a receipt still does not prove
 
@@ -27,7 +27,7 @@ Without `--policy`, `decision verify` does not establish that `decisionMaker.id`
 
 ## Measured on the reference machine
 
-The budget cost axis was measured on the reference machine on 2026-11-06 using the code at 14fe3390. The record identifies the run as a reference measurement (`ist_referenzmessung=true`). All 12 expected axes and all 7 expected combinations passed, and no axis was skipped. The recorded calibration factor `maschinenfaktor_schnellstes_ende` is 1.036, and the timing-limit setting is `latte_aus_der_klammer=schnellstes_ende`. These results apply to the listed axes and combinations, not to every reader or input. The [measurement record](https://github.com/b7n0de/proofbundle/blob/0464be5a409c6db5dde250ad8e4dacb7b5294e96/audit_artifacts/360/budget_axis_latest.json) lists every axis and combination.
+The budget cost axis was measured on the reference machine on 2026-11-06 using the code at 14fe3390. The record identifies the run as a reference measurement (`ist_referenzmessung=true`). All 12 expected axes and all 7 expected combinations passed, and no axis was skipped. The recorded calibration factor `maschinenfaktor_schnellstes_ende` is 1.036, and the timing-limit setting is `latte_aus_der_klammer=schnellstes_ende`. These results apply to the listed axes and combinations, not to every reader or input. The [measurement record](https://github.com/b7n0de/proofbundle/blob/84636f3e6f35fe4c2500e1a08e1a7b3d2b8a6fb5/audit_artifacts/360/budget_axis_latest.json) lists every axis and combination.
 
 ## Details
 
@@ -65,7 +65,7 @@ The budget cost axis was measured on the reference machine on 2026-11-06 using t
 
 </details>
 
-[Full changelog](https://github.com/b7n0de/proofbundle/blob/0464be5a409c6db5dde250ad8e4dacb7b5294e96/CHANGELOG.md) · [Known limitations for 6.5.0](https://github.com/b7n0de/proofbundle/blob/0464be5a409c6db5dde250ad8e4dacb7b5294e96/RESTRISIKO_650.md) · [Earlier risk record](https://github.com/b7n0de/proofbundle/blob/0464be5a409c6db5dde250ad8e4dacb7b5294e96/RESTRISIKO_640.md) · [Release scope](https://github.com/b7n0de/proofbundle/blob/0464be5a409c6db5dde250ad8e4dacb7b5294e96/docs/release_scope/6.5.0.md) · [proofbundle.dev](https://proofbundle.dev)
+[Full changelog](https://github.com/b7n0de/proofbundle/blob/84636f3e6f35fe4c2500e1a08e1a7b3d2b8a6fb5/CHANGELOG.md) · [Known limitations for 6.5.0](https://github.com/b7n0de/proofbundle/blob/84636f3e6f35fe4c2500e1a08e1a7b3d2b8a6fb5/RESTRISIKO_650.md) · [Earlier risk record](https://github.com/b7n0de/proofbundle/blob/84636f3e6f35fe4c2500e1a08e1a7b3d2b8a6fb5/RESTRISIKO_640.md) · [Release scope](https://github.com/b7n0de/proofbundle/blob/84636f3e6f35fe4c2500e1a08e1a7b3d2b8a6fb5/docs/release_scope/6.5.0.md) · [proofbundle.dev](https://proofbundle.dev)
 
 The plugin under `plugins/` is not part of this package. It is released on its own as plugin 0.4.0, with release notes of its own.
 
