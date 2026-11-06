@@ -55,8 +55,8 @@ python measure_cases.py
 `check_example.py` exits 0 only when every check passes, and names the first failure otherwise. It pins the gate
 public key and the SHA-256 digests of the recorder's two test certificates in the script. It reads recorder public
 keys from certificates in the supplied signed forms only after checking their DER hashes against those pins; it
-does not trust an unpinned supplied key. Each decision receipt is also verified with
-`proofbundle decision verify --strict`.
+does not trust an unpinned supplied key. Each attachment with the purpose `decision receipt`, and the citing
+receipt, are also verified with `proofbundle decision verify --strict`.
 
 ## How the pieces bind
 
@@ -72,14 +72,16 @@ does not trust an unpinned supplied key. Each decision receipt is also verified 
 | verification time | time of the first tool-result, tool-failure, tool-error or tool-denied of the attempt its policy-decision precedes; an invoked operation without one, and a response without a tool-invocation of its attempt, are refused |
 
 A receipt is an Attachment Object, inline (`encoding` json) or referenced by `url` and `content_hash`. The
-`content_hash` carries a SHA-512 token over the receipt file, as vCon core requires, and a SHA-256 token over
-the same bytes. The receipt's own identity, SHA-256 over its signed payload, follows from those bytes.
+`content_hash` carries a SHA-512 token over the receipt file, as vCon core requires, and here also a SHA-256
+token over the same bytes; the check requires the SHA-512 token and compares each token it knows. The receipt's
+own identity, SHA-256 over its signed payload, follows from those bytes.
 A policy-decision may carry neither content nor attachment (Table 3 of tool-invocation-00), so in the vCon the
 link runs from the receipt to the event, by operation_id.
 
 The citing receipt names the conversation record twice, by SHA-256 of the payload all signatures cover, which
-is also the `jcs-sha256-v1` value and the `content-hash` of the COSE trace-metadata, and by SHA-256 of the
-COSE_Sign1 bytes. The first survives re-serialization of the signed form; the second pins one signature.
+is also the `jcs-sha256-v1` value and the `content-hash` of the COSE trace-metadata (the check compares these two
+where they are present), and by SHA-256 of the COSE_Sign1 bytes. The first survives re-serialization of the
+signed form; the second pins one signature.
 
 ## Our proposal
 
@@ -107,8 +109,9 @@ From the ai_agent draft come only the parts tool-invocation-00 does not define:
   lines, which tool-invocation-00 does not cover.
 - `recording_agent` and `vcs` of the vCon.
 
-The tool-call and tool-result Event Objects of the ai_agent draft and its permission-decision system-event are
-no longer used; the Event Objects of tool-invocation-00 replace them, and they carry no entry_id.
+The example no longer writes the tool-call and tool-result Event Objects of the ai_agent draft or its
+permission-decision system-event; the Event Objects of tool-invocation-00 replace them, and they carry no
+entry_id. The check passes an Event Object of a type outside this profile without reading it.
 
 ## Choices the drafts leave open
 
@@ -124,7 +127,8 @@ The example had to pick one reading at each of these places; `cases.md` holds a 
   for sending the request; a request that waited for a grant carries the time of the tool result's line, the
   latest time at which it was sent. The DENY receipt's `decidedAt` is the time of its policy-decision.
 - The converter assigns the operation_id, derived from the session id and the tool_use id; every operation has
-  attempt 1. The tools of Claude Code are provided by the host, so `server` is `!host`.
+  attempt 1. The tools of Claude Code are provided by the host, so the converter writes `server` `!host`; the
+  check refuses only a `server` that starts with `!` and is not `!host`.
 - A disallowed operation's tool result in the transcript is the host's refusal, not a response of the tool, and no
   tool event is written. Its text is not carried as the `reason` either: it is free text and can repeat the proposed
   arguments, which a disallowed operation must not record.
@@ -137,7 +141,7 @@ The example had to pick one reading at each of these places; `cases.md` holds a 
 - No tool event may follow a disallowed policy-decision, whether or not a receipt names the operation.
 - Standing decisions are not part of this profile and are refused: the example has none, and how a tool's and a
   server's standing decisions combine is open in Section 4.1. Every operation has a decision of its own.
-- Every event of an operation stands in the session of its receipt.
+- Every event of an operation lists the session of its receipt in `sessions`.
 - Tool arguments are JSON objects: the converter refuses other input of a tool_use, and the check refuses a
   tool-invocation whose JSON content is not an object, so a copy of denied arguments is always a JSON object.
 - Every attempt of an operation has the arguments its receipt names, and event content has the types of the core
@@ -149,20 +153,24 @@ The example had to pick one reading at each of these places; `cases.md` holds a 
   The converter drops a text or thinking block that holds those arguments as JSON and refuses a transcript whose
   output would still hold them. A paraphrase, or a copy in a representation vCon core does not define (hex,
   compression), cannot be found from a digest and is outside what the check claims.
-- This checker validates the complete synthetic example profile. It is not a general validator for every
-  observation permitted by tool-invocation-00.
+- `check_example.py` holds the bullets of this list that say what the check refuses, holds or accepts, at the
+  places they name. A bullet that says what the example or its converter writes describes the example and is
+  not a check. The checker is not a general validator for every observation permitted by tool-invocation-00.
 - Every attempt of an approved operation lies between the approval and its `validUntil`, and after the receipt's
   `decidedAt`; attempts start at 1 and go up by one.
-- Redacted content is `content_hash` alone, as in the core CDDL; an `encoding` without a `body` is refused. In an
-  Event Object of tool-invocation-00, a parameter that draft does not define for its type is refused, which is
+- Redacted content carries `content_hash` and no `encoding`, `body` or `url`, as in the core CDDL; an `encoding`
+  without a `body` is refused. In an Event Object of tool-invocation-00, a parameter outside the set the check
+  holds for its type (Tables 3 to 5 of that draft) is refused, which is
   stricter than the sockets of Appendix D allow. The other objects of the vCon and the Event Objects of the AI
   agent extension are not checked for undefined parameters.
-- A `content_hash` must carry a `sha512` token.
+- A `content_hash` of tool event content, of an external receipt or approval attachment, or of a proposed
+  reference must carry a `sha512` token.
 - `approvedAt` is the time the answer was sent, its `start` plus its `duration`.
 - For this synthetic example, an approval record is accepted only if its referenced Dialog Object is the person's
   text/plain answer with encoding `none` and body `Approved.`. Matching the answer's identifier, party, session, and
   send time alone does not establish that permission was granted.
-- `trace-format` is "ietf-vac-v3.0" for a vCon payload, with content type "application/vcon".
+- The example writes `trace-format` "ietf-vac-v3.0" for a vCon payload, with content type "application/vcon";
+  the check requires that content type and a `trace-format` string, not this value.
 - The JWS form is shown with EdDSA, whose test key derives from a label like the others, and with RS256,
   which vCon core recommends.
 
