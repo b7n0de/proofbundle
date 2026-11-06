@@ -9,8 +9,9 @@ Measured on main 647ed0a2: a validly signed statement of type `eval-result/v0.1`
 none of those members verified ok=True, and `proofbundle intoto --verify` printed
 `[PASS] eval-result attestation` and exited 0.
 
-Every statement a released version wrote carries all eight (the 14 entries of
-tests/fixtures/eval_result_v0_1/corpus.json), so they keep verifying; the optional members stay optional.
+The 14 statements of tests/fixtures/eval_result_v0_1/corpus.json, five from the published 6.1.0 wheel and nine
+rebuilt from the source of nine tags between v2.0.0 and v6.0.0, carry all eight, so they keep verifying; the
+optional members stay optional. A predicate a caller built is not covered.
 """
 from __future__ import annotations
 
@@ -120,7 +121,7 @@ class Controls(unittest.TestCase):
                 res = I.verify_eval_result_dsse(_sign(statement), _pub())
                 self.assertIs(res["ok"], True, (member, res))
 
-    def test_every_statement_a_released_version_wrote_still_verifies(self):
+    def test_all_14_corpus_statements_still_verify(self):
         corpus = json.loads(_G2_CORPUS.read_text(encoding="utf-8"))
         public = base64.b64decode(corpus["public_key_b64"])
         self.assertEqual(len(corpus["entries"]), 14)

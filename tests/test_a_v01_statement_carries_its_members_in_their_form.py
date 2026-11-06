@@ -10,8 +10,9 @@ Measured on main b55d736d: a validly signed v0.1 statement verified ok=True, and
 printed `[PASS] eval-result attestation` with exit 0, with `verifier` {} or a string, with `verifier.id` 5, with
 `suite` lacking `name` or `version`, and with `subjectProfile` 7 or "bogus_profile".
 
-Every statement a released version wrote has these forms (the 14 entries of
-tests/fixtures/eval_result_v0_1/corpus.json), so they keep verifying.
+The 14 statements of tests/fixtures/eval_result_v0_1/corpus.json, five from the published 6.1.0 wheel and nine
+rebuilt from the source of nine tags between v2.0.0 and v6.0.0, have these forms, so they keep verifying. A
+predicate a caller built is not covered.
 """
 from __future__ import annotations
 
@@ -122,7 +123,7 @@ class Controls(unittest.TestCase):
         rc, text = _cli(_sign(_released_statement()))
         self.assertEqual(rc, 0, text)
 
-    def test_every_statement_a_released_version_wrote_still_verifies(self):
+    def test_all_14_corpus_statements_still_verify(self):
         corpus = json.loads(_G2_CORPUS.read_text(encoding="utf-8"))
         public = base64.b64decode(corpus["public_key_b64"])
         self.assertEqual(len(corpus["entries"]), 14)

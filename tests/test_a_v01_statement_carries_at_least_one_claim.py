@@ -8,9 +8,9 @@ Measured on main b55d736d and with the three patches of the predicate sweep: a v
 `claims` was [] verified ok=True, and `proofbundle intoto --verify` printed `[PASS] eval-result attestation` with
 exit 0.
 
-Every statement a released version wrote carries exactly one claim (the 14 entries of
-tests/fixtures/eval_result_v0_1/corpus.json), so they keep verifying, and so does every statement
-`to_eval_result_predicate` writes.
+The 14 statements of tests/fixtures/eval_result_v0_1/corpus.json, five from the published 6.1.0 wheel and nine
+rebuilt from the source of nine tags between v2.0.0 and v6.0.0, carry exactly one claim each, so they keep
+verifying, and so does every statement `to_eval_result_predicate` writes. A predicate a caller built is not covered.
 """
 from __future__ import annotations
 
@@ -104,7 +104,7 @@ class Controls(unittest.TestCase):
         self.assertIn("must be an array of claim objects", res["content_root_detail"])
         self.assertNotIn("at least one claim", res["content_root_detail"])
 
-    def test_every_statement_a_released_version_wrote_still_verifies(self):
+    def test_all_14_corpus_statements_still_verify(self):
         corpus = json.loads(_G2_CORPUS.read_text(encoding="utf-8"))
         public = base64.b64decode(corpus["public_key_b64"])
         self.assertEqual(len(corpus["entries"]), 14)
