@@ -148,15 +148,19 @@ def emit_bundle(
     root = merkle.merkle_tree_hash(leaves)
     proof = merkle.inclusion_proof(leaves, index)
 
+    # Placeholders of the fixed lengths of an Ed25519 public key and signature until the reading below has passed.
+    # The signer is not asked before that reading, and then in the order this function always had: sign, then read
+    # the public key (Codex thread 4219203464 on pull request 307, held by tests/test_merkle_accumulator.py). Equal
+    # lengths give the budget the same verdict as the real values.
+    signature: dict[str, str] = {
+        "alg": "ed25519",
+        "public_key_b64": _b64(bytes(32)),
+        "sig_b64": _b64(bytes(64)),
+    }
     bundle = {
         "schema": SCHEMA,
         "payload_b64": _b64(payload),
-        "signature": {
-            "alg": "ed25519",
-            "public_key_b64": _b64(_raw_pub(signer)),
-            # A placeholder of the signature's fixed length until the reading below has passed.
-            "sig_b64": _b64(bytes(64)),
-        },
+        "signature": signature,
         "merkle": {
             "hash_alg": "sha256-rfc6962",
             "leaf_index": index,
@@ -180,5 +184,6 @@ def emit_bundle(
     except ProofBundleError as exc:
         raise BundleFormatError(f"emit_bundle: the bundle is one verify_bundle cannot read, so it is not "
                                 f"signed: {exc}") from None
-    bundle["signature"]["sig_b64"] = _b64(signer.sign(payload))
+    signature["sig_b64"] = _b64(signer.sign(payload))
+    signature["public_key_b64"] = _b64(_raw_pub(signer))
     return bundle

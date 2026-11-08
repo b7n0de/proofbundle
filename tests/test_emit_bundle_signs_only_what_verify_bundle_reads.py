@@ -26,16 +26,18 @@ BOUND = DEFAULT_BUDGET.string_len // 4 * 3
 
 
 class _Counting:
-    """A signer that counts its signatures and signs with the real key."""
+    """A signer that counts its signatures, records the order it is asked in, and signs with the real key."""
 
     def __init__(self, inner):
-        self.inner, self.signed = inner, 0
+        self.inner, self.signed, self.asked = inner, 0, []
 
     def sign(self, data):
         self.signed += 1
+        self.asked.append("sign")
         return self.inner.sign(data)
 
     def public_key(self):
+        self.asked.append("public_key")
         return self.inner.public_key()
 
 
@@ -77,3 +79,33 @@ def test_an_ordinary_bundle_is_emitted_and_verifies_as_before(signer):
     bundle = emit_bundle(b'{"claim": 1}', signer, prior_leaves=[b"a", b"b"])
     assert verify_bundle(bundle).ok is True
     assert bundle["merkle"]["tree_size"] == 3
+
+
+def test_the_signer_is_asked_as_before_sign_then_public_key(signer):
+    """The budget reading uses placeholders of the fixed key and signature lengths, so it asks the signer nothing.
+    At f35a4b8d it read the public key BEFORE signing to build the bundle it measured: a signer whose public key
+    depends on having signed then gave a signature and a key that do not belong together, and the control of
+    tests/test_merkle_accumulator.py (Codex thread 4219203464 on pull request 307) fell."""
+    counting = _Counting(signer)
+    assert verify_bundle(emit_bundle(b"payload", counting)).ok is True
+    assert counting.asked == ["sign", "public_key"]
+
+
+def test_a_refused_bundle_asks_the_signer_nothing(signer):
+    counting = _Counting(signer)
+    with pytest.raises(BundleFormatError, match="verify_bundle cannot read"):
+        emit_bundle(b"x" * (BOUND + 1), counting)
+    assert counting.asked == []
+
+
+def test_ein_blatt_is_what_the_emitter_writes(signer):
+    """Self-probe of the shared builder in tests/_ein_blatt_buendel.py: on an in-budget payload it writes the bundle
+    the emitter writes, key for key and value for value, so a test that needs the same bundle past the budget gets
+    exactly that and nothing else."""
+    from _ein_blatt_buendel import ein_blatt
+    for payload in (b'{"x": 1}', b"", b"x" * BOUND):
+        assert ein_blatt(payload, signer) == emit_bundle(payload, signer)
+    gross = ein_blatt(b"x" * (BOUND + 1), signer)
+    assert len(gross["payload_b64"]) > DEFAULT_BUDGET.string_len
+    with pytest.raises(BundleFormatError):
+        verify_bundle(gross)
