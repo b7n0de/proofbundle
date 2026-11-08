@@ -313,7 +313,21 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
         # meant to hold nested values; the claim values are the read-back claim, which the verifier's
         # reader bounds at 64 levels.
         raise ValueError("the SD-JWT payload nests too deep to serialize") from exc
-    signing_input = _b64url(json.dumps(header).encode("utf-8")) + "." + _b64url(nutzlast.encode("utf-8"))
+    # THE ISSUER SIGNS ONLY WHAT ITS OWN VERIFIERS READ (deep gate 6.5.0, iteration 1). check_binds_bundle reads
+    # this payload with `_read_payload_text`, the strict reader under DEFAULT_BUDGET: 1,000,000 characters per
+    # string, 8 MiB per document, the node and depth bounds; verify_sd_jwt first refuses a base64url segment
+    # longer than the same 8 MiB (`sdjwt._b64url_decode`). Measured at ac4129f7: a `vct` of 1,000,001
+    # characters, one of 900,000 characters outside the BMP (12 bytes each in the payload text) and a
+    # `root_b64` of 1,000,001 characters were signed, and check_binds_bundle refused each result. The payload
+    # segment is now read here as both verifiers read it, before the signature exists.
+    nutzlast_b64 = _b64url(nutzlast.encode("utf-8"))
+    try:
+        from .sdjwt import _b64url_decode as _segment_of_verify_sd_jwt  # noqa: PLC0415
+        _read_payload_text(_segment_of_verify_sd_jwt(nutzlast_b64).decode("utf-8"))
+    except (ProofBundleError, ValueError) as exc:
+        raise ValueError(f"issue_sd_jwt: the SD-JWT payload is one check_binds_bundle or verify_sd_jwt cannot "
+                         f"read, so it is not signed: {exc}") from None
+    signing_input = _b64url(json.dumps(header).encode("utf-8")) + "." + nutzlast_b64
     signature = signer.sign(signing_input.encode("ascii"))
     jwt = signing_input + "." + _b64url(signature)
 
@@ -391,7 +405,14 @@ def _jwt_payload(compact: str) -> dict:
     jwt = compact.split("~", 1)[0]
     payload_b64 = jwt.split(".")[1]
     # JWS segments are unpadded base64url; decode_b64url refuses a padded spelling (one wire form).
-    entschluesselt = loads_strict(decode_b64url(payload_b64).decode("utf-8"))
+    return _read_payload_text(decode_b64url(payload_b64).decode("utf-8"))
+
+
+def _read_payload_text(text: str) -> dict:
+    """The always-open JWT payload from its text: the one reader of `_jwt_payload` and therefore of
+    check_binds_bundle, which `issue_sd_jwt` also applies to the text it is about to sign. Raises
+    ProofBundleError (BundleFormatError, BudgetExceeded) or ValueError for a text it does not take."""
+    entschluesselt = loads_strict(text)
     if not isinstance(entschluesselt, dict):
         # A-16 neighbour (2026-09-19): THE SAME CLASS the `as_dict` at check_binds_bundle patches at the
         # ACCESS site — but `present_with_key_binding` reads `_issuer_payload.get("_sd_alg", ...)` WITHOUT
