@@ -1187,7 +1187,13 @@ def _sct_problem(leaf: _Leaf, issuer: Any, ctlogs: Sequence[_Log]) -> Optional[s
         if log is None:
             tried.append(f"SCT from unknown log {sct.log_id.hex()[:16]}")
             continue
-        when = _dt_ns(sct.timestamp)
+        # Read inside a boundary: the 64-bit millisecond count becomes a datetime on its first reading, and
+        # one past year 9999 raised a bare ValueError out of verify_sigstore_bundle (measured at ac4129f7).
+        try:
+            when = _dt_ns(sct.timestamp)
+        except (ValueError, OverflowError):
+            tried.append(f"SCT from {log.base_url}: the SCT time is outside the range of a date")
+            continue
         if not log.valid_at(when):
             tried.append(f"SCT from {log.base_url} outside its validity")
             continue

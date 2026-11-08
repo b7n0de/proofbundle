@@ -135,3 +135,28 @@ def test_verify_sigstore_bundle_refuses_a_year_zero_leaf_and_raises_nothing(whic
     out = verify_sigstore_bundle(gen.bundle(cert=leaf, cert_edit=edit), **_positive_arguments())
     assert exit_code(out) == 1
     assert [c.name for c in out.result.checks if c.ok is not True] == ["certificate"]
+
+
+# THE SCT, read after the signature and the chain. The embedded SCT's timestamp is a count of
+# milliseconds in 64 bits (RFC 6962 section 3.2), and cryptography converts it to a datetime on its first
+# reading, which raises ValueError past year 9999. `_sct_problem` read it outside any boundary, so a
+# leaf whose SCT names such a time raised a bare ValueError out of `verify_sigstore_bundle`. The reader
+# reaches it only for a leaf a trusted CA issued, after the signature and the chain verified.
+
+@pytest.mark.parametrize("timestamp", [2**62, 2**64 - 1])
+def test_an_sct_time_past_year_9999_is_an_sct_failure_and_raises_nothing(timestamp: int, monkeypatch) -> None:
+    gen = _generator()
+    original = gen._sct
+
+    def far(*args, **kwargs):
+        raw = bytearray(original(*args, **kwargs))
+        raw[33:41] = timestamp.to_bytes(8, "big")   # version (1) and log id (32), then the timestamp
+        return bytes(raw)
+
+    monkeypatch.setattr(gen, "_sct", far)
+    leaf = gen.leaf_cert(gen.EXTENSIONS, gen.WORKFLOW_URI)
+    out = verify_sigstore_bundle(gen.bundle(cert=leaf), **_positive_arguments())
+    assert exit_code(out) == 1
+    failed = [c for c in out.result.checks if c.ok is not True]
+    assert [c.name for c in failed] == ["sct"]
+    assert "SCT time is outside the range of a date" in failed[0].detail
