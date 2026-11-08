@@ -765,6 +765,9 @@ _V01_REQUIRED_MEMBERS = ("verifier", "evaluatedAt", "suite", "claims", "sampleSi
 _V01_REQUIRED_COMMITMENTS = ("model", "dataset")
 #: The two parts of `suite` (docs/IN_TOTO_PROFILE.md, the v0.1 table: `{name, version}`).
 _V01_REQUIRED_SUITE = ("name", "version")
+#: The members of each claim entry (docs/IN_TOTO_PROFILE.md, the v0.1 table: `{metric, comparator, threshold,
+#: passed}`, with `passed` optional in v0.1).
+_V01_REQUIRED_CLAIM = ("metric", "comparator", "threshold")
 
 
 def _eval_result_v01_member_forms(predicate: dict) -> list:
@@ -785,6 +788,15 @@ def _eval_result_v01_member_forms(predicate: dict) -> list:
     claims = predicate.get("claims")
     if isinstance(claims, list) and not claims:
         gruende.append(("predicate claims", "must carry at least one claim, got an empty array"))
+    # EACH CLAIM ENTRY CARRIES `metric`, `comparator` AND `threshold` (docs/IN_TOTO_PROFILE.md, the v0.1 table:
+    # "one or more {metric, comparator, threshold, passed}", with `passed` the one optional member). The claim
+    # rule judges the fields an entry carries, so `claims` [{}] verified (deep gate 6.5.0, iteration 1, measured
+    # again at ac4129f7). An entry that is no object stays the claim rule's reason.
+    if isinstance(claims, list):
+        for i, eintrag in enumerate(claims):
+            if isinstance(eintrag, dict):
+                gruende += [(f"predicate claims[{i}].{t}", "is required by eval-result v0.1 and absent")
+                            for t in _V01_REQUIRED_CLAIM if t not in eintrag]
     if "verifier" in predicate:
         verifier = predicate["verifier"]
         if not isinstance(verifier, dict):
