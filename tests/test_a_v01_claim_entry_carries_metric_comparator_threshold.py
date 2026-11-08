@@ -41,10 +41,10 @@ def _pub() -> bytes:
     return _SIGNER.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
 
 
-def _signed(claims: list) -> dict:
+def _signed(claims: list, **members) -> dict:
     env = json.loads(_RELEASED.read_text(encoding="utf-8"))
     statement = json.loads(base64.b64decode(env["payload"]))
-    statement["predicate"] = dict(statement["predicate"], claims=claims)
+    statement["predicate"] = dict(statement["predicate"], claims=claims, **members)
     body = I._serialize_statement(statement, statement.get("contentRootAlg", I.LEGACY_CONTENT_ROOT_ALG))
     return dsse.sign_envelope(body, _SIGNER, payload_type=I.INTOTO_STATEMENT_PAYLOAD_TYPE)
 
@@ -96,6 +96,56 @@ def test_an_entry_that_is_no_object_keeps_its_own_reason() -> None:
     assert res["ok"] is False
     assert "predicate claims[0]: must be an object" in res["content_root_detail"]
     assert "claims[0].metric" not in res["content_root_detail"]
+
+
+@pytest.mark.parametrize("claims, members, first", [
+    ([5, {}], {}, "predicate claims[0]: must be an object, got int"),
+    ([{"metric": "m", "comparator": "=="}], {},
+     "predicate claims[0]: comparator must be one of ['<', '<=', '>', '>='], got '=='"),
+    ([{}], {"verifier": {}}, "predicate verifier.id: is required by eval-result v0.1 and absent"),
+], ids=["an-entry-that-is-no-object", "a-comparator-the-rule-refuses", "a-verifier-without-id"])
+def test_an_earlier_reason_keeps_its_precedence_over_a_missing_claim_member(claims, members, first) -> None:
+    """The verdict names the first reason, and the missing claim members come last. Each first reason here is
+    the one ac4129f7 gave for the same statement; with the members judged before them (e1a684f8, review of the
+    class fix, round 1) the three answered claims[1].metric, claims[0].threshold and claims[0].metric."""
+    res = I.verify_eval_result_dsse(_signed(claims, **members), _pub())
+    assert res["ok"] is False and res["predicate_claim_ok"] is False
+    assert res["content_root_detail"] == first
+
+
+def _broken_signature(env: dict) -> dict:
+    """The same envelope with the first byte of its one signature flipped."""
+    env = copy.deepcopy(env)
+    sig = base64.b64decode(env["signatures"][0]["sig"])
+    env["signatures"][0]["sig"] = base64.b64encode(bytes([sig[0] ^ 1]) + sig[1:]).decode("ascii")
+    return env
+
+
+SIGNATURE_REASON = "no signature verifies under the key given with --pub"
+
+
+def test_with_a_broken_signature_the_command_names_the_signature_before_a_missing_member() -> None:
+    """At ac4129f7 the command named only the signature for this statement; the reason added since then comes
+    after it (review of the class fix, round 2: at b2a11647 it came first)."""
+    rc, text = _cli(_broken_signature(_signed([{}])))
+    member = "predicate claims[0].metric: is required by eval-result v0.1 and absent"
+    assert rc == 1, text
+    assert SIGNATURE_REASON in text and member in text, text
+    assert text.index(SIGNATURE_REASON) < text.index(member), text
+
+
+def test_with_a_broken_signature_an_earlier_claim_reason_keeps_its_place_before_the_signature() -> None:
+    """The control: a reason the command printed before the signature line at ac4129f7 stays there."""
+    rc, text = _cli(_broken_signature(_signed([{"metric": "m", "comparator": "==", "threshold": "0.5"}])))
+    assert rc == 1, text
+    assert text.index("comparator must be one of") < text.index(SIGNATURE_REASON), text
+
+
+def test_the_library_names_the_missing_member_in_its_own_field() -> None:
+    res = I.verify_eval_result_dsse(_signed([{}]), _pub())
+    assert res["predicate_member_detail"] == "predicate claims[0].metric: is required by eval-result v0.1 and absent"
+    assert res["content_root_detail"].endswith(res["predicate_member_detail"])
+    assert I.verify_eval_result_dsse(_signed([FULL]), _pub())["predicate_member_detail"] == ""
 
 
 def test_every_statement_of_the_released_corpus_verifies_as_before() -> None:
