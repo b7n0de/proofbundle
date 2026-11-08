@@ -10,11 +10,17 @@ signature check.
 
 THE CLASS. An untrusted field was decoded outside the reader's failure boundary: a field that the
 parser decodes lazily raises at its first reading, wherever that reading stands.
+
+THE NEIGHBOUR. The same question asked of every other field `_read_leaf` reads before the signature:
+the validity times are converted to a Python datetime when first read, and a GeneralizedTime of year
+0000 parses as ASN.1 and raises ``ValueError: year 0 is out of range`` there. Extensions, version, the
+SAN, the Fulcio extension values and the public key were already read inside the boundary.
 """
 from __future__ import annotations
 
 import importlib.util
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -96,3 +102,36 @@ def test_a_subject_that_decodes_is_still_refused_as_not_empty() -> None:
     with pytest.raises(sb._Fail) as caught:
         sb._read_leaf(leaf.public_bytes(serialization.Encoding.DER))
     assert str(caught.value) == "the leaf's subject is not empty; Fulcio names the identity in the SAN only"
+
+
+def _with_year_zero(gen, which: str) -> tuple:
+    leaf = gen.leaf_cert(gen.EXTENSIONS, gen.WORKFLOW_URI, not_before=datetime(2051, 1, 1, tzinfo=timezone.utc))
+    der = leaf.public_bytes(serialization.Encoding.DER)
+    when = leaf.not_valid_before_utc if which == "notBefore" else leaf.not_valid_after_utc
+    # GeneralizedTime (tag 0x18, 15 bytes) for years from 2050 on (RFC 5280 section 4.1.2.5).
+    time = b"\x18\x0f" + when.strftime("%Y%m%d%H%M%SZ").encode("ascii")
+    assert der.count(time) == 1, which
+
+    def edit(raw: bytes) -> bytes:
+        return raw.replace(time, b"\x18\x0f0000" + time[6:])
+
+    return leaf, edit
+
+
+@pytest.mark.parametrize("which", ["notBefore", "notAfter"])
+def test_a_validity_time_without_a_datetime_is_a_certificate_failure(which: str) -> None:
+    gen = _generator()
+    leaf, edit = _with_year_zero(gen, which)
+    with pytest.raises(sb._Fail) as caught:
+        sb._read_leaf(edit(leaf.public_bytes(serialization.Encoding.DER)))
+    assert caught.value.check == "certificate"
+    assert str(caught.value).startswith("the leaf certificate is not a well-formed X.509 certificate: ")
+
+
+@pytest.mark.parametrize("which", ["notBefore", "notAfter"])
+def test_verify_sigstore_bundle_refuses_a_year_zero_leaf_and_raises_nothing(which: str) -> None:
+    gen = _generator()
+    leaf, edit = _with_year_zero(gen, which)
+    out = verify_sigstore_bundle(gen.bundle(cert=leaf, cert_edit=edit), **_positive_arguments())
+    assert exit_code(out) == 1
+    assert [c.name for c in out.result.checks if c.ok is not True] == ["certificate"]

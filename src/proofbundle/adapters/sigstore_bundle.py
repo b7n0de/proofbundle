@@ -483,12 +483,15 @@ def _read_leaf(der: bytes) -> _Leaf:
     from cryptography.x509.oid import ExtendedKeyUsageOID, ExtensionOID  # noqa: PLC0415
     # EVERY FIELD READ BEFORE THE SIGNATURE IS READ HERE, inside the boundary (deep gate 6.5.0, iteration 1):
     # cryptography decodes a Name only when it is first asked for, so a subject UTF8String with invalid
-    # UTF-8 loaded as a certificate and raised a bare ValueError at the subject check further down.
+    # UTF-8 loaded as a certificate and raised a bare ValueError at the subject check further down. The
+    # validity times are converted to a datetime on their first reading as well, and a GeneralizedTime of
+    # year 0000 parses as ASN.1 and raised "year 0 is out of range" at the end of this function.
     try:
         cert = x509.load_der_x509_certificate(der)
         exts = cert.extensions
         version = cert.version
         subject_attributes = len(cert.subject)
+        not_before, not_after = _not_before(cert), _not_after(cert)
     except (ValueError, x509.DuplicateExtension, x509.InvalidVersion, x509.UnsupportedGeneralNameType) as exc:
         raise _Fail("certificate", f"the leaf certificate is not a well-formed X.509 certificate: {exc}") from None
     if version is not x509.Version.v3:
@@ -569,7 +572,7 @@ def _read_leaf(der: bytes) -> _Leaf:
     except (ValueError, UnsupportedAlgorithm) as exc:
         raise _Fail("unsupported", f"the leaf key is not one this module verifies with (ECDSA P-256, P-384, "
                                    f"Ed25519): {exc}") from None
-    nb, na = _dt_ns(_not_before(cert)), _dt_ns(_not_after(cert))
+    nb, na = _dt_ns(not_before), _dt_ns(not_after)
     if nb > na:
         raise _Fail("certificate", "the leaf's validity period is empty")
     return _Leaf(cert=cert, der=der, key=key, san=san, extensions=values, not_before=nb, not_after=na)
