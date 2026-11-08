@@ -805,12 +805,28 @@ class EveryVerdictIsTheVerdictOverOneState(unittest.TestCase):
     def test_a_bundle_over_the_budget_is_judged_in_the_state_the_budget_saw(self):
         """V2 F7 on 6d674973: `verify_bundle` bounded one reading and copied another; a bundle whose second state
         is over the budget was verified."""
-        from proofbundle import emit_bundle, generate_signer, verify_bundle
+        from proofbundle import emit_bundle, generate_signer, merkle, verify_bundle
         from proofbundle.budget import DEFAULT_BUDGET
+        from proofbundle.bundle import SCHEMA
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+        def ein_blatt(payload: bytes, key) -> dict:
+            """A one-leaf bundle with its real signature and root, built here: since the class fix after 6.5.0
+            `emit_bundle` refuses a bundle `verify_bundle` cannot read, and this case needs one over the budget
+            that is cryptographically consistent (review of the class fix, round 2)."""
+            def b64(raw: bytes) -> str:
+                return base64.b64encode(raw).decode("ascii")
+            return {"schema": SCHEMA, "payload_b64": b64(payload),
+                    "signature": {"alg": "ed25519",
+                                  "public_key_b64": b64(key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)),
+                                  "sig_b64": b64(key.sign(payload))},
+                    "merkle": {"hash_alg": "sha256-rfc6962", "leaf_index": 0, "tree_size": 1,
+                               "inclusion_proof_b64": [], "root_b64": b64(merkle.merkle_tree_hash([payload]))}}
         sk = generate_signer()
         klein = emit_bundle(b'{"x": 1}', sk)
-        gross = emit_bundle(b"y" * (gedeckelt(DEFAULT_BUDGET.string_len, bytes_je_element=KOSTEN_JE_ELEMENT["string_len"])
-                                    * 3 // 4 + 1000), sk)
+        self.assertEqual(ein_blatt(b'{"x": 1}', sk), klein, "the bundle built here is the one the emitter writes")
+        gross = ein_blatt(b"y" * (gedeckelt(DEFAULT_BUDGET.string_len, bytes_je_element=KOSTEN_JE_ELEMENT["string_len"])
+                                  * 3 // 4 + 1000), sk)
         falsch = copy.deepcopy(klein)
         falsch["payload_b64"] = gross["payload_b64"][:16]
 

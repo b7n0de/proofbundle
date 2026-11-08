@@ -1276,9 +1276,8 @@ def _cmd_emit(args: argparse.Namespace) -> int:
 
     try:
         with open(args.payload_file, "rb") as handle:
-            # NOT capped (adversarial re-audit 3.6.2): this is `emit` — the operator signs their OWN payload, which
-            # may legitimately exceed the input_bytes verify budget; capping it would silently block a valid
-            # large-payload emit. The verify surfaces (untrusted third-party input) are the ones that are bounded.
+            # The payload is read here. Before signing, `emit_bundle` enforces the native bundle verifier's
+            # structural budget; an over-budget bundle is reported by `main` as malformed input with exit 2.
             payload = handle.read()
     except OSError as exc:   # `--payload-file ''` or a missing file: exit 2, not a raw traceback (verify lane V3)
         _err(f"cannot read --payload-file: {exc}")

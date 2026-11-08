@@ -1,8 +1,10 @@
 """Evidence bundle emitter (v0.2).
 
-Sign a payload with Ed25519 and anchor it as the last leaf of an RFC 6962
-Merkle tree, producing a bundle that ``verify_bundle`` accepts. This is the
-counterpart to the verifier: create the evidence here, check it anywhere with
+Sign a payload with Ed25519 and include it as the last leaf of an RFC 6962
+Merkle tree. Before signing, apply the structural budget used by
+``verify_bundle`` for dictionary input. This check does not validate an
+embedded SD-JWT or impose the byte limit of a serialized file. This is the
+counterpart to the verifier: create the evidence here, check it with
 ``proofbundle verify``, fully offline.
 
 The eval-receipt emitter that builds on this (``emit_eval_receipt``) lives in
@@ -115,8 +117,10 @@ def emit_bundle(
     """Produce a ``proofbundle/v0.1`` bundle for ``payload``.
 
     The payload is signed with ``signer`` and appended as the last leaf of an
-    RFC 6962 Merkle tree over ``prior_leaves + [payload]``. The returned dict is
-    accepted by :func:`proofbundle.verify_bundle`.
+    RFC 6962 Merkle tree over ``prior_leaves + [payload]``. Before signing, the complete bundle is
+    checked with the structural budget used by :func:`proofbundle.verify_bundle` for dictionary input.
+    Exceeding that budget raises ``BundleFormatError`` without creating a signature. This check does not
+    validate an embedded SD-JWT or impose the byte limit of a serialized file.
 
     ``sd_jwt_vc`` is passed through verbatim if given (for example
     ``{"compact": "...", "issuer_public_key_b64": "..."}``). Its bytes belong to a foreign issuer and
@@ -143,7 +147,6 @@ def emit_bundle(
     index = len(leaves) - 1
     root = merkle.merkle_tree_hash(leaves)
     proof = merkle.inclusion_proof(leaves, index)
-    signature = signer.sign(payload)
 
     bundle = {
         "schema": SCHEMA,
@@ -151,7 +154,8 @@ def emit_bundle(
         "signature": {
             "alg": "ed25519",
             "public_key_b64": _b64(_raw_pub(signer)),
-            "sig_b64": _b64(signature),
+            # A placeholder of the signature's fixed length until the reading below has passed.
+            "sig_b64": _b64(bytes(64)),
         },
         "merkle": {
             "hash_alg": "sha256-rfc6962",
@@ -163,4 +167,18 @@ def emit_bundle(
     }
     if sd_jwt_vc is not None:
         bundle["sd_jwt_vc"] = sd_jwt_vc
+    # THE STRUCTURAL BUDGET OF verify_bundle BEFORE THE SIGNATURE (the native-bundle neighbour of the 6.5.0 SD-JWT
+    # finding, review of the class fix, rounds 1 and 2). verify_bundle reads a bundle dict with
+    # `enforce_structural_budget` (string_len, json_nodes, json_depth, int_bits, all from DEFAULT_BUDGET) and
+    # refused a bundle this function had signed: a payload over 750,000 bytes gives a payload_b64 over 1,000,000
+    # characters. The same reading runs here before the signer is called, and a refusal is a BundleFormatError.
+    # The byte limit of a serialized file (load_bundle, input_bytes) is not this check's.
+    from ._strict_json import enforce_structural_budget  # noqa: PLC0415
+    from .errors import ProofBundleError  # noqa: PLC0415
+    try:
+        enforce_structural_budget(bundle)
+    except ProofBundleError as exc:
+        raise BundleFormatError(f"emit_bundle: the bundle is one verify_bundle cannot read, so it is not "
+                                f"signed: {exc}") from None
+    bundle["signature"]["sig_b64"] = _b64(signer.sign(payload))
     return bundle
