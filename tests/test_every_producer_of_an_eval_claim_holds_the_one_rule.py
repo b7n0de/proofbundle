@@ -2686,6 +2686,7 @@ class TestTheSerializerAfterTheCopyGivesTheEntrysRefusal(_Basis):
             "export_svr_dsse legacy policy": (BundleFormatError, lambda w: intoto.export_svr_dsse(
                 buendel, s, policy={"p": w}, content_root_alg=alt)),
         }
+        from proofbundle.budget import DEFAULT_BUDGET  # noqa: PLC0415
         from proofbundle.sdjwt import verify_sd_jwt  # noqa: PLC0415
         for name, (erlaubt, aufruf) in wege.items():
             for art in ("list", "dict"):
@@ -2693,9 +2694,21 @@ class TestTheSerializerAfterTheCopyGivesTheEntrysRefusal(_Basis):
                     tiefste, danach = self._bandsuche(aufruf, erlaubt, art)
                     if name.startswith("issue_sd_jwt"):
                         # Since the neighbour of the 6.5.0 SD-JWT finding the issuer reads each disclosure as
-                        # verify_sd_jwt does, so the deepest opening it writes is one that verifier reads (at
-                        # ac4129f7 it wrote openings about 990 levels deep, past the depth bound of 64).
-                        self.assertTrue(verify_sd_jwt(aufruf(_geschachtelt(tiefste, art)), self.pub)["structure_ok"])
+                        # verify_sd_jwt does (at ac4129f7 it wrote openings about 990 levels deep, past the depth
+                        # bound of 64). The deepest opening written is the deepest that verifier reads, exactly:
+                        # an issuer that refused earlier would pass "the deepest written verifies" alone (review of
+                        # the class fix, round 1).
+                        if name == "issue_sd_jwt dataset_id_opening" and art == "dict":
+                            # list(kopie) discloses the keys; nested values still exercise the copy.
+                            self.assertGreater(tiefste, 64)
+                        else:
+                            # The verifier's depth bound counts the disclosure array, the opening array of
+                            # model_id_opening ["m", w] and the scalar leaf.
+                            wrappers = 3 if name == "issue_sd_jwt model_id_opening" else 2
+                            self.assertEqual(tiefste, DEFAULT_BUDGET.json_depth - wrappers)
+                        result = verify_sd_jwt(aufruf(_geschachtelt(tiefste, art)), self.pub)
+                        self.assertIs(result["structure_ok"], True)
+                        self.assertIs(result["sig_ok"], True)
                     else:
                         self.assertGreater(tiefste, 64)
                     self.assertEqual(danach, ["refused"] * 13, tiefste)

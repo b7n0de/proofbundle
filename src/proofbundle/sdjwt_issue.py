@@ -101,9 +101,10 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
 
     The two withheld numbers are judged as well: ``ci95`` by the claim rule's own ``ci95`` check, and
     ``exact_score`` as a plain decimal string, the form ``build_eval_claim`` requires of ``score``.
-    Measured at 835df85b: disclosures ``["inf", "nan"]`` and ``"1e400"`` were signed. The openings
-    are not judged: no verifier in this package reads them; a relying party checks a presented pair
-    against the commitment with ``evalclaim.verify_commitment``.
+    Measured at 835df85b: disclosures ``["inf", "nan"]`` and ``"1e400"`` were signed. Opening
+    disclosures are checked against the same segment and strict-JSON resource limits as
+    ``verify_sd_jwt``. This function does not validate the disclosed identifier and salt against the
+    commitment; a relying party performs that check with ``evalclaim.verify_commitment``.
 
     Each argument that is checked is read ONCE, into a plain value, and that value is judged and
     signed. Measured at 6893586f: ``ci95`` was judged on one iteration of the caller's object and
@@ -289,8 +290,9 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
                            ("dataset_id_opening", dataset_id_opening)):
         if oeffnung is None:
             continue
-        # The opening is not judged (see above), but it is read once, as a JSON value, and written
-        # as that copy. `list()` then runs on the copy, so a list, a tuple, a string and a JSON object
+        # The opening is copied once and checked against the disclosure reader's resource limits
+        # (`_add`); commitment validation remains the relying party's (see above). It is read once, as a
+        # JSON value, and written as that copy. `list()` then runs on the copy, so a list, a tuple, a string and a JSON object
         # give the list they gave before. `list()` of the caller's object ran its own `__iter__` and
         # accepted any iterable (bytes, a set, a generator); those are refused as not JSON values.
         kopie = _plain_for_jcs(oeffnung, _fehler(ValueError), name)
