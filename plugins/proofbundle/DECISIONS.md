@@ -974,7 +974,8 @@ Options:
 
 Chosen: the gate verifies through the plugin's own MCP server, `server/proofbundle_mcp.py`, started
 with `uv run --script`. Its `verify_receipt` tool is the one the skills use, and its pin
-(`proofbundle==6.4.0` since slice pin640 of the review package, 6.3.0 since follow-up note 45, 6.1.0 before) is
+(`proofbundle==6.5.0` since the pin after the release of 6.5.0, 6.4.0 since slice pin640 of the review package,
+6.3.0 since follow-up note 45, 6.1.0 before) is
 the only pin. Without `uv`, or without a cached or
 reachable PyPI, the verifier does not start and the gate denies (D6).
 

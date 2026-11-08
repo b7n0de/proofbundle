@@ -17,8 +17,9 @@ One release is read apart: the release in preparation. Between the preparation o
 plugin on main must not pin a version the package index does not serve yet, since `uv run --script` would find no
 release to install. So where the first section after [Unreleased] is the version of this tree and the clone holds
 no tag v<version>, that section may carry the placeholder date ` - YYYY-MM-DD`, and the pins name the release
-below it. A clone that sees no tag at all, such as a checkout of depth one, cannot tell, reads the same way and says
-so in a warning. Once the tag stands, the section needs its date and the pins name it, as before.
+below it. A clone that sees no tag at all, such as a checkout of depth one, cannot tell: _pin_target() reads it the
+same way and returns a note, and the two comparisons against the real tree report NOT MEASURED there. Comparisons in
+planted worlds stay measured. Once the tag stands, the section needs its date and the pins name it, as before.
 """
 from __future__ import annotations
 
@@ -260,6 +261,10 @@ def _tags() -> set[str] | None:
     return set(listed.stdout.split()) if listed.returncode == 0 else None
 
 
+#: The start of the note of a clone that holds no tag at all. The cases that compare the pins of this tree skip there.
+_NO_TAG_SEEN = "this clone sees no tag"
+
+
 def _pin_target() -> tuple[str, str | None]:
     """The version the pins must name, with a note where it is not the first section after [Unreleased]. The first
     section is the release in preparation when it is the version of this tree and the clone holds no tag
@@ -273,7 +278,7 @@ def _pin_target() -> tuple[str, str | None]:
     tags = _tags()
     if not tags:
         return _newest_release(prepared=version), (
-            f"this clone sees no tag, so whether {version} is released is not read here; the pins may name the "
+            f"{_NO_TAG_SEEN}, so whether {version} is released is not read here; the pins may name the "
             f"release before it")
     if f"v{version}" not in tags:
         return _newest_release(prepared=version), (
@@ -626,7 +631,7 @@ def test_a_stale_pin_in_any_text_file_of_the_plugin_is_found(tmp_path, monkeypat
     monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
     monkeypatch.setattr(sys.modules[__name__], "PLUGIN", plugin)
     with pytest.raises(AssertionError, match="6.3.0"):
-        test_every_pin_the_plugin_writes_names_that_version()
+        _every_pin_names()
 
 
 @pytest.mark.parametrize("written, stale", [
@@ -646,9 +651,9 @@ def test_a_pin_is_compared_as_pep_440_reads_it(tmp_path, monkeypatch, written, s
     monkeypatch.setattr(sys.modules[__name__], "PLUGIN", plugin)
     if stale:
         with pytest.raises(AssertionError):
-            test_every_pin_the_plugin_writes_names_that_version()
+            _every_pin_names()
     else:
-        test_every_pin_the_plugin_writes_names_that_version()
+        _every_pin_names()
 
 
 @pytest.mark.parametrize("written, stale", [
@@ -703,9 +708,9 @@ def test_the_character_before_the_name_is_read_after_its_escape(tmp_path, monkey
     monkeypatch.setattr(sys.modules[__name__], "PLUGIN", plugin)
     if stale:
         with pytest.raises(AssertionError, match="6.3.0"):
-            test_every_pin_the_plugin_writes_names_that_version()
+            _every_pin_names()
     else:
-        test_every_pin_the_plugin_writes_names_that_version()
+        _every_pin_names()
 
 
 def test_control_a_binary_file_of_the_plugin_is_not_read_for_pins(tmp_path, monkeypatch):
@@ -717,7 +722,7 @@ def test_control_a_binary_file_of_the_plugin_is_not_read_for_pins(tmp_path, monk
     (plugin / "module.pyc").write_bytes(b"\0\0proofbundle==6.3.0\0")
     monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
     monkeypatch.setattr(sys.modules[__name__], "PLUGIN", plugin)
-    test_every_pin_the_plugin_writes_names_that_version()
+    _every_pin_names()
 
 
 def test_the_four_pins_name_one_version():
@@ -727,8 +732,24 @@ def test_the_four_pins_name_one_version():
     assert len({version for found in pins.values() for version in found}) == 1, pins
 
 
-def test_the_pin_is_the_newest_release_the_changelog_records():
+def _measured_pin_target(skip_without_tags: bool) -> tuple[str, str | None]:
+    """Return the pin target. For the two comparisons against the real tree (skip_without_tags), if the first release
+    section matches the tree version and no tags are available, skip as NOT MEASURED because the release status is
+    unknown (owner choice of 2026-11-08): a fetch of one commit without tags, as the local witness takes, read the pins
+    after the release of 6.5.0 as stale while a checkout with tags passed them. Comparisons in planted worlds remain
+    measured."""
     newest, note = _pin_target()
+    if skip_without_tags and note and note.startswith(_NO_TAG_SEEN):
+        pytest.skip(f"NOT MEASURED: {note}")
+    return newest, note
+
+
+def test_the_pin_is_the_newest_release_the_changelog_records():
+    _pin_is_newest(skip_without_tags=True)
+
+
+def _pin_is_newest(skip_without_tags: bool = False) -> None:
+    newest, note = _measured_pin_target(skip_without_tags)
     if note:
         warnings.warn(note, stacklevel=1)
     pins = _pins()
@@ -808,15 +829,25 @@ def _names(pin: re.Match, newest: str) -> bool:
 
 
 def test_every_pin_the_plugin_writes_names_that_version():
+    _every_pin_names(skip_without_tags=True)
+
+
+def _every_pin_names(skip_without_tags: bool = False) -> None:
     """Every file of the plugin that holds no NUL byte is read, whatever its ending (an eighth pre-run of the reading of
     the pin on main, Codex, P2: a list of endings left `.yml` unread), as written, as a shell passes it on (a
     fourteenth pre-run) and with the escapes of a string literal read (the reading of the pull request at its head).
-    The limits of that third view stand at _string_view."""
-    newest, note = _pin_target()
+    The limits of that third view stand at _string_view.
+
+    The Guard's folder is read under ROOT, as the plugin's folder is under the PLUGIN a case sets: read through the
+    module path of the gate, a case that plants a plugin folder and a changelog also read the Guard of the real tree,
+    so its planted release had to equal the real pin, and the pin after the release of 6.5.0 turned 29 of these cases
+    red without one of them having found a stale pin (measured 2026-11-08 at build/plugin-pin-6.5.0)."""
+    newest, note = _measured_pin_target(skip_without_tags)
     if note:
         warnings.warn(note, stacklevel=1)
     stale = []
-    for path in sorted(p for folder in (PLUGIN, GATE.parents[1]) for p in folder.rglob("*")):
+    folders = (PLUGIN, ROOT / "plugins" / "proofbundle-guard")
+    for path in sorted(p for folder in folders if folder.is_dir() for p in folder.rglob("*")):
         if not path.is_file():
             continue
         raw = path.read_bytes()
@@ -826,6 +857,35 @@ def test_every_pin_the_plugin_writes_names_that_version():
         found = [pin for view in (text, _shell_view(text), _string_view(text)) for pin in _ANY_PIN.finditer(view)]
         stale += dict.fromkeys(f"{path.relative_to(ROOT)}: {pin.group(0)}" for pin in found if not _names(pin, newest))
     assert not stale, (newest, stale)
+
+
+def test_a_planted_plugin_is_read_apart_from_the_pins_of_this_tree(tmp_path, monkeypatch):
+    """A planted changelog and plugin folder are read alone: their release need not be the pin of this tree. Before
+    the Guard's folder was read under ROOT, this case read the Guard of the real tree as well and found its pins stale
+    against the planted 1.0.0 (Fix the class, 2026-11-08)."""
+    _changelog(tmp_path, monkeypatch, "## [Unreleased]\n\n## [1.0.0] - 2026-01-02\n")
+    plugin = tmp_path / "plugins" / "proofbundle"
+    plugin.mkdir(parents=True)
+    (plugin / "notes.txt").write_text("run: uv run --with proofbundle==1.0.0 python\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    monkeypatch.setattr(sys.modules[__name__], "PLUGIN", plugin)
+    _every_pin_names()
+
+
+def test_a_stale_pin_only_in_the_planted_guard_is_found(tmp_path, monkeypatch):
+    """The other direction of the case above (Codex pre-run of the pin pull request): under a planted ROOT the Guard's
+    folder is read too, and a stale pin there alone is found with its path."""
+    _changelog(tmp_path, monkeypatch, "## [Unreleased]\n\n## [1.0.0] - 2026-01-02\n")
+    plugin = tmp_path / "plugins" / "proofbundle"
+    guard = tmp_path / "plugins" / "proofbundle-guard"
+    plugin.mkdir(parents=True)
+    guard.mkdir(parents=True)
+    (plugin / "notes.txt").write_text("run: uv run --with proofbundle==1.0.0 python\n", encoding="utf-8")
+    (guard / "notes.txt").write_text("run: uv run --with proofbundle==0.9.0 python\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    monkeypatch.setattr(sys.modules[__name__], "PLUGIN", plugin)
+    with pytest.raises(AssertionError, match=r"plugins/proofbundle-guard/notes\.txt: proofbundle==0\.9\.0"):
+        _every_pin_names()
 
 
 def _prepared_world(tmp_path, monkeypatch, text: str, tags) -> None:
@@ -853,6 +913,62 @@ def test_a_clone_that_sees_no_tag_reads_the_release_in_preparation_and_says_so(t
     _prepared_world(tmp_path, monkeypatch, _HEAD + "## [6.5.0] - YYYY-MM-DD\n\n## [6.4.0] - 2026-10-27\n", tags)
     newest, note = _pin_target()
     assert newest == "6.4.0" and "sees no tag" in note, (newest, note)
+
+
+def _world_with_pin(tmp_path, monkeypatch, tags, pin: str) -> None:
+    """A prepared world of 6.5.0 over 6.4.0 with `tags`, whose pins (the gate's and a plugin file) all name `pin`."""
+    _prepared_world(tmp_path, monkeypatch, _HEAD + "## [6.5.0] - YYYY-MM-DD\n\n## [6.4.0] - 2026-10-27\n", tags)
+    plugin = tmp_path / "plugins" / "proofbundle"
+    plugin.mkdir(parents=True)
+    (plugin / "notes.txt").write_text(f"run: uv run --with proofbundle=={pin} python\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    monkeypatch.setattr(sys.modules[__name__], "PLUGIN", plugin)
+    monkeypatch.setattr(sys.modules[__name__], "_pins", lambda: {"server header": [pin]})
+
+
+_COMPARISONS = pytest.mark.parametrize("compare", [_pin_is_newest, _every_pin_names],
+                                       ids=["the pins name the newest release", "every pin of the plugin"])
+_NO_TAGS = pytest.mark.parametrize("tags", [None, set()], ids=["no git checkout", "a clone without tags"])
+
+
+def _measured(compare, **kwargs) -> None:
+    """Run a comparison that must remain measured; treat any skip as a test failure."""
+    try:
+        compare(**kwargs)
+    except pytest.skip.Exception as skipped:
+        pytest.fail(f"the comparison was skipped instead of compared: {skipped}")
+
+
+@_COMPARISONS
+@_NO_TAGS
+def test_a_comparison_against_the_real_tree_skips_where_the_clone_sees_no_tag(tmp_path, monkeypatch, compare, tags):
+    """Each comparison against the real tree skips as NOT MEASURED where the clone sees no tag, and the skip names why
+    (owner choice of 2026-11-08). The pin of 6.3.0 would be a finding if the comparison ran."""
+    _world_with_pin(tmp_path, monkeypatch, tags, "6.3.0")
+    with pytest.raises(pytest.skip.Exception, match=f"NOT MEASURED: {_NO_TAG_SEEN}"):
+        compare(skip_without_tags=True)
+
+
+@_COMPARISONS
+@_NO_TAGS
+def test_a_planted_world_without_tags_still_finds_a_stale_pin(tmp_path, monkeypatch, compare, tags):
+    """The skip belongs to the real tree alone (Codex pre-run of the second commit, a): a planted world whose first
+    release is the tree version and whose clone sees no tag still compares its pins, and a pin of 6.3.0 against 6.4.0
+    stays a finding."""
+    _world_with_pin(tmp_path, monkeypatch, tags, "6.3.0")
+    with pytest.raises(AssertionError, match="6.3.0"):
+        _measured(compare)
+
+
+@_COMPARISONS
+def test_control_a_clone_with_tags_but_not_the_tag_of_the_tree_still_compares_the_pins(tmp_path, monkeypatch,
+                                                                                        compare):
+    """The skip stays narrow: a clone that holds tags, but not v6.5.0, reads 6.5.0 as in preparation and compares the
+    pins with 6.4.0 as before, even where the comparison is the one against the real tree, so a pin of 6.5.0 stays a
+    finding there."""
+    _world_with_pin(tmp_path, monkeypatch, {"v6.4.0"}, "6.5.0")
+    with pytest.raises(AssertionError, match="6.5.0"):
+        _measured(compare, skip_without_tags=True)
 
 
 def test_once_the_tag_stands_the_release_needs_its_date_and_the_pins_name_it(tmp_path, monkeypatch):
