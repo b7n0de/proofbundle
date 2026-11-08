@@ -98,6 +98,46 @@ def test_a_refused_bundle_asks_the_signer_nothing(signer):
     assert counting.asked == []
 
 
+class _Odd:
+    """A signer of another kind: it signs and names its key with the real Ed25519 key unless told otherwise."""
+
+    def __init__(self, inner, *, sig=None, pub=None):
+        self.inner, self.sig, self.pub = inner, sig, pub
+
+    def sign(self, data):
+        return self.inner.sign(data) if self.sig is None else self.sig
+
+    def public_key(self):
+        echt, pub = self.inner.public_key(), self.pub
+
+        class _Public:
+            def public_bytes(self, *args):
+                return echt.public_bytes(*args) if pub is None else pub
+        return _Public()
+
+
+@pytest.mark.parametrize("fall,sig,pub", [
+    # Codex pre-review 5, reproduced: the key past the string budget after the reading had passed.
+    ("public key of 750,001 bytes", None, b"k" * 750_001),
+    ("signature of 750,001 bytes", b"s" * 750_001, None),
+    ("public key of 31 bytes", None, b"k" * 31),
+    ("signature of 65 bytes", b"s" * 65, None),
+    ("signature that is no bytes", "s" * 64, None),
+    ("public key that is no bytes", None, 32),
+])
+def test_a_signer_output_of_another_length_is_refused_and_no_bundle_returned(signer, fall, sig, pub):
+    with pytest.raises(BundleFormatError, match="no bundle is returned"):
+        emit_bundle(b"payload", _Odd(signer, sig=sig, pub=pub))
+
+
+def test_control_a_signer_of_another_kind_with_ed25519_outputs_is_emitted_and_verifies(signer):
+    """The check is on the outputs, not on the type of the signer: one that returns a 64-byte signature and a 32-byte
+    key, as bytes or as a memoryview, gives the bundle the real key gives."""
+    assert emit_bundle(b"payload", _Odd(signer)) == emit_bundle(b"payload", signer)
+    gesehen = _Odd(signer, sig=memoryview(signer.sign(b"payload")))
+    assert verify_bundle(emit_bundle(b"payload", gesehen)).ok is True
+
+
 def test_ein_blatt_is_what_the_emitter_writes(signer):
     """Self-probe of the shared builder in tests/_ein_blatt_buendel.py: on an in-budget payload it writes the bundle
     the emitter writes, key for key and value for value, so a test that needs the same bundle past the budget gets

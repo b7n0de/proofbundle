@@ -120,7 +120,10 @@ def emit_bundle(
     RFC 6962 Merkle tree over ``prior_leaves + [payload]``. Before signing, the complete bundle is
     checked with the structural budget used by :func:`proofbundle.verify_bundle` for dictionary input.
     Exceeding that budget raises ``BundleFormatError`` without creating a signature. This check does not
-    validate an embedded SD-JWT or impose the byte limit of a serialized file.
+    validate an embedded SD-JWT or impose the byte limit of a serialized file. It measures the signature and
+    the public key at the lengths of Ed25519, 64 and 32 bytes, because a signer's outputs exist only once it
+    is asked. A signer whose signature or public key has another length is refused with ``BundleFormatError``
+    after it was asked, and no bundle is returned.
 
     ``sd_jwt_vc`` is passed through verbatim if given (for example
     ``{"compact": "...", "issuer_public_key_b64": "..."}``). Its bytes belong to a foreign issuer and
@@ -184,6 +187,18 @@ def emit_bundle(
     except ProofBundleError as exc:
         raise BundleFormatError(f"emit_bundle: the bundle is one verify_bundle cannot read, so it is not "
                                 f"signed: {exc}") from None
-    signature["sig_b64"] = _b64(signer.sign(payload))
-    signature["public_key_b64"] = _b64(_raw_pub(signer))
+    # THE PLACEHOLDERS HOLD ONLY FOR AN Ed25519 SIGNER (Codex pre-review 5 of the class fix): the reading above
+    # measured 64 signature bytes and 32 key bytes, and a signer of another kind could return any length after it,
+    # so a key of 750,001 bytes gave a bundle verify_bundle refuses. The lengths the reading assumed are checked on
+    # what the signer returns, read once as the bytes it holds; anything else is refused and no bundle is returned.
+    sig = _puffer_von(signer.sign(payload))
+    if sig is None or len(sig) != 64:
+        raise BundleFormatError("emit_bundle: the signer returned no 64-byte Ed25519 signature, so no bundle is "
+                                "returned")
+    signature["sig_b64"] = _b64(sig)
+    pub = _puffer_von(_raw_pub(signer))
+    if pub is None or len(pub) != 32:
+        raise BundleFormatError("emit_bundle: the signer's public key is no 32-byte Ed25519 key, so no bundle is "
+                                "returned")
+    signature["public_key_b64"] = _b64(pub)
     return bundle

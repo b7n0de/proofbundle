@@ -340,7 +340,12 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
         raise ValueError(f"issue_sd_jwt: the SD-JWT payload is one check_binds_bundle or verify_sd_jwt cannot "
                          f"read, so it is not signed: {exc}") from None
     signing_input = _b64url(json.dumps(header).encode("utf-8")) + "." + nutzlast_b64
-    signature = signer.sign(signing_input.encode("ascii"))
+    # The signature segment is the signer's output, and verify_sd_jwt reads it too. The header names EdDSA, so the
+    # signature is read once as the bytes it holds and must have the 64 bytes of Ed25519; a signer of another kind
+    # that returns another length gets no SD-JWT (the neighbour of the emit_bundle finding of Codex pre-review 5).
+    signature = plain_bytes(signer.sign(signing_input.encode("ascii")))
+    if signature is None or len(signature) != 64:
+        raise ValueError("issue_sd_jwt: the signer returned no 64-byte Ed25519 signature, so no SD-JWT is returned")
     jwt = signing_input + "." + _b64url(signature)
 
     # compact: JWT ~ disclosure1 ~ ... ~ (trailing tilde, no key-binding JWT in v0.5)
@@ -405,7 +410,11 @@ def present_with_key_binding(compact: str, holder_signer: Ed25519PrivateKey, *,
         raise ValueError(f"the KB-JWT payload is one verify_key_binding cannot read, so it is not signed: "
                          f"{exc}") from None
     signing_input = _b64url(json.dumps(header).encode("utf-8")) + "." + kb_payload_b64
-    signature = holder_signer.sign(signing_input.encode("ascii"))
+    # The same rule as at the issuer: the header names EdDSA, so the holder's signature must have 64 bytes.
+    signature = plain_bytes(holder_signer.sign(signing_input.encode("ascii")))
+    if signature is None or len(signature) != 64:
+        raise ValueError("present_with_key_binding: the holder signer returned no 64-byte Ed25519 signature, so no "
+                         "KB-JWT is returned")
     return compact + signing_input + "." + _b64url(signature)
 
 
