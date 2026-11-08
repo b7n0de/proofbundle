@@ -268,6 +268,16 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
 
     def _add(name: str, value):
         d, dig = _make_disclosure(name, value, _b64url(os.urandom(_SALT_BYTES)))
+        # Each disclosure is read as verify_sd_jwt reads it (`sdjwt._b64url_decode`, then the strict reader
+        # under DEFAULT_BUDGET), before anything is signed: an opening of 1,000,001 characters was signed and
+        # verify_sd_jwt refused its disclosure (string_len), measured at ac4129f7, the neighbour of the
+        # payload finding of the 6.5.0 deep gate.
+        try:
+            from .sdjwt import _b64url_decode as _segment_of_verify_sd_jwt  # noqa: PLC0415
+            loads_strict(_segment_of_verify_sd_jwt(d))
+        except (ProofBundleError, ValueError) as exc:
+            raise ValueError(f"issue_sd_jwt: the {name} disclosure is one verify_sd_jwt cannot read, so it is "
+                             f"not signed: {exc}") from None
         disclosures.append(d)
         sd_digests.append(dig)
 
