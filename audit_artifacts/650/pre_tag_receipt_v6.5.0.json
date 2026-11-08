@@ -1,0 +1,13 @@
+{
+  "schema": "b7n0de.pre_tag_audit_receipt.v1",
+  "version": "6.5.0",
+  "subject_tree_digest": "93af86e13b7a542885816d4b14293f3d938488796a43874ad50006b4edf47403",
+  "gate_source_digest": "911d10db54ac3def1abd4c64e76a2a3cf3241d82d41911efbac6b9c338ecfd06",
+  "audit_command": "/home/konrad/proofbundle/.venv/bin/python -m pytest -q -p no:cacheprovider -p no:randomly -n 6",
+  "audit_exit_code": 0,
+  "audit_output_digest": "61f2dff31bd0eefa6b236bdd1e2dadfa81f80f44ab56b5131a6b95ac72e5e522",
+  "runner_identity": "b7n0de-release-runner (farmer; claude-code, Konto un_deltaXX, Opus 5.5)",
+  "produced_at": "2026-11-08T10:52:50Z",
+  "signature": "xhE4h3Rk89eb1wVHj76SnTgNPrdU0vgkks2VhnbbYT2WHyy5YP7GwhMEAAEMvFHVzSz3L6riXQcUzZ1jiMb6BQ==",
+  "signer_pubkey": "iJipntJA8N//h+ln9CgLzeC9n/M5OdCZNeBhbfagom8="
+}

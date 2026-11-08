@@ -1045,32 +1045,32 @@
       "rust_reproduces_expectation": true
     }
   ],
-  "version": "6.4.0",
+  "version": "6.5.0",
   "candidate": {
-    "commit": "e636b5da1b615f2ca1596229193fdc6b97cc3acf",
-    "tree_digest": "292409c9dd9f250527593a7241d4ac2d59655a68b0744f3af41917f755216760",
-    "sdist_sha256": "9b074c7ed9dec106b45ae541b9194087f7238230953a7c784df7c4a08c386699",
-    "wheel_sha256": "72153d160c2f78647095f029c0946dbfd64a15e006a233a5abc78a3071eebf94"
+    "commit": "65bd4b7a34b84724298961254eaba5d67bb3fc3b",
+    "tree_digest": "93af86e13b7a542885816d4b14293f3d938488796a43874ad50006b4edf47403",
+    "sdist_sha256": "74cb56560447cf5b03c2778a677b407dc74f666aab518647bfd05cade9161ad0",
+    "wheel_sha256": "c7e1b1d61c9fbc4e59d0d132de05b33d81057a837a8705002557b15908d6b8cf"
   },
   "trust_anchor_digest": "f664369e599e0797784578611a885c90fee6f209cd5526bcfcfa1b1f9f100fd3",
   "gate_zeile": {
     "gate_version": "v4",
-    "workflow_datei": "kraxo/02_proofbundle_berichte/LAUFBESCHREIBUNG_deep_gate_640_weg_a_20261027.md",
-    "workflow_sha256": "3e62bb6f6dd6eb883b670881765b50b76f0b7d56a2b28d2011a13817476c1917",
-    "modus": "DEEP throttled D2/D3 (owner A on OA-6c9077580d): at most 2 iterations, each 1 read-only Claude lens + foreign family; ran: iteration 1, one Claude lens on 8608cb0f; not run: foreign family, iteration 2; head e636b5da carries the lensed src/ unchanged",
-    "head": "e636b5da1b615f2ca1596229193fdc6b97cc3acf",
+    "workflow_datei": "kraxo/02_proofbundle_berichte/LAUFBESCHREIBUNG_deep_gate_650_an_C_8048103c.md",
+    "workflow_sha256": "d026ec9e30acfeb69433dc5e71084556a6d3ff456ed5c2f52dc637933f4446e9",
+    "modus": "DEEP throttled D2/D3 (owner A on OA-211337d37d): at most 2 iterations, each 1 read-only Claude lens + foreign family; ran: iteration 1, one Claude lens on 8048103c; not run: foreign family, iteration 2; carried from C 8048103c to C strich 65bd4b7a (src and tests unchanged)",
+    "head": "65bd4b7a34b84724298961254eaba5d67bb3fc3b",
     "verdict": "REFUTED_IN_ITERATION_1"
   },
   "producer": {
     "tool": "tools/pb_verify_rs/crosscheck.py",
-    "tool_version": "6.4.0"
+    "tool_version": "6.5.0"
   },
-  "input_digest": "126d497437bbe340a8cde060692f21cd5c7c2df1c78f239ff48da519a87af0af",
+  "input_digest": "11a88d49547d8271e86a3b5985e1afccd11958ff98519ed34dec32c5d1a28ea2",
   "signer_role": "readiness_und_register_signierer_600",
-  "produced_at": "2026-10-27T18:05:19Z",
+  "produced_at": "2026-11-08T07:37:53Z",
   "signature": {
     "alg": "ed25519",
     "public_key_b64": "iJipntJA8N//h+ln9CgLzeC9n/M5OdCZNeBhbfagom8=",
-    "sig_b64": "6ONpB/25telRfs2F5+n7kMq7w2xIMqDeQCVfT+jx0jMaz6wEmn8VCwYLlgTCRf2rvmxQO4eRJqiYBRH064A3BQ=="
+    "sig_b64": "eZCEqrbd15Lj4QVOoyPZF2ff6sDiIxZlNY3HkD3ni+CmMtah59ZVRPYv8i+OihdQqibCYFsbY7FKW9HuhQ0vBg=="
   }
 }
