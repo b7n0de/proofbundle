@@ -481,10 +481,14 @@ def _read_leaf(der: bytes) -> _Leaf:
     """The leaf certificate read under Fulcio's certificate profile, or `_Fail("certificate", ...)`."""
     from cryptography import x509  # noqa: PLC0415
     from cryptography.x509.oid import ExtendedKeyUsageOID, ExtensionOID  # noqa: PLC0415
+    # EVERY FIELD READ BEFORE THE SIGNATURE IS READ HERE, inside the boundary (deep gate 6.5.0, iteration 1):
+    # cryptography decodes a Name only when it is first asked for, so a subject UTF8String with invalid
+    # UTF-8 loaded as a certificate and raised a bare ValueError at the subject check further down.
     try:
         cert = x509.load_der_x509_certificate(der)
         exts = cert.extensions
         version = cert.version
+        subject_attributes = len(cert.subject)
     except (ValueError, x509.DuplicateExtension, x509.InvalidVersion, x509.UnsupportedGeneralNameType) as exc:
         raise _Fail("certificate", f"the leaf certificate is not a well-formed X.509 certificate: {exc}") from None
     if version is not x509.Version.v3:
@@ -511,7 +515,7 @@ def _read_leaf(der: bytes) -> _Leaf:
         raise _Fail("certificate", "the leaf's key usage does not include digitalSignature")
     if ExtendedKeyUsageOID.CODE_SIGNING not in eku:
         raise _Fail("certificate", "the leaf's extended key usage does not include codeSigning")
-    if len(cert.subject) != 0:
+    if subject_attributes != 0:
         raise _Fail("certificate", "the leaf's subject is not empty; Fulcio names the identity in the SAN only")
     if not exts.get_extension_for_class(x509.SubjectAlternativeName).critical:
         raise _Fail("certificate", "the leaf's subject alternative name is not critical")
