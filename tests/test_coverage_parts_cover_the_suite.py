@@ -142,9 +142,12 @@ def _sequence(steps: list, named: dict, install: str, expected: tuple) -> list[s
     return []
 #: The actions a coverage job may run besides the ones it is held to (upload, download).
 SETUP_ACTIONS = ("actions/checkout", "actions/setup-python")
-#: The inputs each action of the coverage jobs may get. The checkout gets none: a ref, another repository or a
-#: sparse checkout would measure another state than the one the run is for.
-ACTION_INPUTS = {"actions/checkout": frozenset(), "actions/setup-python": frozenset({"python-version"}),
+#: The inputs each action of the coverage jobs may get. The checkout gets `fetch-depth` alone, and only the value 0: a
+#: ref, another repository or a sparse checkout would measure another state than the one the run is for, and a depth
+#: other than the full history narrows what the suite reads. The full history carries the tags, which the pin case
+#: (tests/test_plugin_pin_is_the_newest_release.py) reads; without them a part reads a released version as one in
+#: preparation and expects the pin before it (owner choice A on card OA-04e8a93ad4, 2026-11-05).
+ACTION_INPUTS = {"actions/checkout": frozenset({"fetch-depth"}), "actions/setup-python": frozenset({"python-version"}),
                  "actions/upload-artifact": frozenset({"name", "path", "include-hidden-files", "if-no-files-found",
                                                        "retention-days"}),
                  "actions/download-artifact": frozenset({"pattern", "merge-multiple", "path"})}
@@ -190,6 +193,11 @@ def _action_inputs(s: dict) -> list[str]:
     if kind == "actions/checkout" and extra:
         found.append(f"the checkout gets {extra}: coverage jobs must check out the current repository at the "
                      "workflow revision without narrowing the checkout")
+    given = s.get("with") or {}
+    depth = given.get("fetch-depth")
+    if kind == "actions/checkout" and "fetch-depth" in given and (isinstance(depth, bool) or str(depth) != "0"):
+        found.append(f"the checkout fetches the history only to depth {depth!r}: coverage jobs check out the full "
+                     "history (0), with the tags the suite reads")
     elif extra:
         found.append(f"the step {name!r} gives {kind} the input(s) {extra}, which the contract does not hold")
     if kind == "actions/setup-python" and (s.get("with") or {}).get("python-version") != PYTHON:
@@ -338,6 +346,12 @@ def part_findings(job: dict) -> list[str]:
     if k is not None and f"of {k})" not in str(job.get("name") or ""):
         findings.append(f"the name {job.get('name')!r} does not say `of {k}`")
     steps = job.get("steps") or []
+    for s in steps:
+        if str(s.get("uses", "")).split("@", 1)[0] == "actions/checkout" and "fetch-depth" not in (s.get("with") or {}):
+            # Without an explicit depth, checkout defaults to depth 1 and may omit the release tags.
+            # Require full history explicitly so the pin case can read them.
+            findings.append("the parts' checkout does not ask for the full history: require explicit fetch-depth 0 "
+                            "so the pin case can read the release tags")
     suite = [s for s in steps if "-m pytest" in str(s.get("run", ""))]
     if len(suite) != 1:
         return findings + [f"expected one suite step, found {len(suite)}"]
@@ -562,7 +576,7 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
                 "env": {"PROOFBUNDLE_REQUIRE_PB_VERIFY_RS": "1", "PROOFBUNDLE_PB_VERIFY_RS": PINNED,
                         "COVERAGE_CORE": "sysmon"},
                 "strategy": {"fail-fast": False, "matrix": {"part": [1, 2]}},
-                "steps": [{"uses": "actions/checkout@" + PIN},
+                "steps": [{"uses": "actions/checkout@" + PIN, "with": {"fetch-depth": 0}},
                           {"uses": "actions/setup-python@" + PIN, "with": {"python-version": PYTHON}},
                           {"name": "Install", "run": INSTALL_PARTS},
                           {"name": "Build", "run": BUILD},
@@ -591,6 +605,12 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
     def test_sound_jobs_are_not_reported(self):
         self.assertEqual(part_findings(self._part()), [])
         self.assertEqual(closing_findings(self._closing(), 2), [])
+
+    def test_a_checkout_of_the_full_history_is_sound(self):
+        """The parts check out the full history, so the pin case sees the tags (OA-04e8a93ad4 A). The contract before
+        this allowed the checkout no input at all and reported `fetch-depth: 0` too."""
+        self.assertEqual(part_findings(self._step(self._part(), 0, **{"with": {"fetch-depth": 0}})), [])
+        self.assertEqual(part_findings(self._step(self._part(), 0, **{"with": {"fetch-depth": "0"}})), [])
 
     def test_a_part_job_that_drops_hides_or_doubles_a_part_is_found(self):
         def changed(**top):
@@ -656,6 +676,10 @@ class TheShapeChecksCatchWhatTheyAreFor(unittest.TestCase):
                 "token": "${{ github.token }}"}}),
             "parts job uses the expression \"github['token']\"": changed(name="coverage part (${{ github['token'] }} of 2)"),
             "without narrowing the checkout": self._step(self._part(), 0, **{"with": {"ref": "c8b5b285"}}),
+            "only to depth 1": self._step(self._part(), 0, **{"with": {"fetch-depth": 1}}),
+            "does not ask for the full history": self._step(self._part(), 0, **{"with": {}}),
+            "require explicit fetch-depth 0": changed(steps=[{"uses": "actions/checkout@" + PIN}] + self._part()["steps"][1:]),
+            "only to depth True": self._step(self._part(), 0, **{"with": {"fetch-depth": True}}),
             "the input(s) ['overwrite']": self._step(self._part(), 6, **{"with": {
                 **self._part()["steps"][6]["with"], "overwrite": True}}),
             "can narrow the collection": changed(env={**self._part()["env"], "PYTEST_ADDOPTS": "--ignore=tests/x.py"}),

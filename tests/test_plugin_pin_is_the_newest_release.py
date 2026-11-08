@@ -811,12 +811,18 @@ def test_every_pin_the_plugin_writes_names_that_version():
     """Every file of the plugin that holds no NUL byte is read, whatever its ending (an eighth pre-run of the reading of
     the pin on main, Codex, P2: a list of endings left `.yml` unread), as written, as a shell passes it on (a
     fourteenth pre-run) and with the escapes of a string literal read (the reading of the pull request at its head).
-    The limits of that third view stand at _string_view."""
+    The limits of that third view stand at _string_view.
+
+    The Guard's folder is read under ROOT, as the plugin's folder is under the PLUGIN a case sets: read through the
+    module path of the gate, a case that plants a plugin folder and a changelog also read the Guard of the real tree,
+    so its planted release had to equal the real pin, and the pin after the release of 6.5.0 turned 29 of these cases
+    red without one of them having found a stale pin (measured 2026-11-08 at build/plugin-pin-6.5.0)."""
     newest, note = _pin_target()
     if note:
         warnings.warn(note, stacklevel=1)
     stale = []
-    for path in sorted(p for folder in (PLUGIN, GATE.parents[1]) for p in folder.rglob("*")):
+    folders = (PLUGIN, ROOT / "plugins" / "proofbundle-guard")
+    for path in sorted(p for folder in folders if folder.is_dir() for p in folder.rglob("*")):
         if not path.is_file():
             continue
         raw = path.read_bytes()
@@ -826,6 +832,35 @@ def test_every_pin_the_plugin_writes_names_that_version():
         found = [pin for view in (text, _shell_view(text), _string_view(text)) for pin in _ANY_PIN.finditer(view)]
         stale += dict.fromkeys(f"{path.relative_to(ROOT)}: {pin.group(0)}" for pin in found if not _names(pin, newest))
     assert not stale, (newest, stale)
+
+
+def test_a_planted_plugin_is_read_apart_from_the_pins_of_this_tree(tmp_path, monkeypatch):
+    """A planted changelog and plugin folder are read alone: their release need not be the pin of this tree. Before
+    the Guard's folder was read under ROOT, this case read the Guard of the real tree as well and found its pins stale
+    against the planted 1.0.0 (Fix the class, 2026-11-08)."""
+    _changelog(tmp_path, monkeypatch, "## [Unreleased]\n\n## [1.0.0] - 2026-01-02\n")
+    plugin = tmp_path / "plugins" / "proofbundle"
+    plugin.mkdir(parents=True)
+    (plugin / "notes.txt").write_text("run: uv run --with proofbundle==1.0.0 python\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    monkeypatch.setattr(sys.modules[__name__], "PLUGIN", plugin)
+    test_every_pin_the_plugin_writes_names_that_version()
+
+
+def test_a_stale_pin_only_in_the_planted_guard_is_found(tmp_path, monkeypatch):
+    """The other direction of the case above (Codex pre-run of the pin pull request): under a planted ROOT the Guard's
+    folder is read too, and a stale pin there alone is found with its path."""
+    _changelog(tmp_path, monkeypatch, "## [Unreleased]\n\n## [1.0.0] - 2026-01-02\n")
+    plugin = tmp_path / "plugins" / "proofbundle"
+    guard = tmp_path / "plugins" / "proofbundle-guard"
+    plugin.mkdir(parents=True)
+    guard.mkdir(parents=True)
+    (plugin / "notes.txt").write_text("run: uv run --with proofbundle==1.0.0 python\n", encoding="utf-8")
+    (guard / "notes.txt").write_text("run: uv run --with proofbundle==0.9.0 python\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path)
+    monkeypatch.setattr(sys.modules[__name__], "PLUGIN", plugin)
+    with pytest.raises(AssertionError, match=r"plugins/proofbundle-guard/notes\.txt: proofbundle==0\.9\.0"):
+        test_every_pin_the_plugin_writes_names_that_version()
 
 
 def _prepared_world(tmp_path, monkeypatch, text: str, tags) -> None:

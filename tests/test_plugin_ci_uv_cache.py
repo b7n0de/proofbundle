@@ -1,7 +1,7 @@
 """CI's test job gives the plugin tests the pinned verifier from a filled uv cache (review package -1, question T-2).
 
 The gate and the plugin server start the verifier with `uv run --script`, which installs the package pinned in the
-server's header (plugins/proofbundle/server/proofbundle_mcp.py, proofbundle==6.4.0). The plugin tests pass UV_CACHE_DIR
+server's header (plugins/proofbundle/server/proofbundle_mcp.py, proofbundle==6.5.0). The plugin tests pass UV_CACHE_DIR
 and UV_OFFLINE through to every process they start (tests/_plugin_env.py, FIXED), so they read the verifier from the
 cache their caller names. Measured on 2026-10-26: with UV_OFFLINE=1 and without UV_CACHE_DIR, seven plugin tests were
 red with "the verifier did not initialise". CI's test job installed no uv, named no cache and filled none.

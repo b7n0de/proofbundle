@@ -492,7 +492,7 @@ state.
 A repository without a declaration, or whose declaration names no done check, gets no block and no message (NOT
 MEASURED), as with the `PreToolUse` gate. The check is a command hook; nothing in it is decided by the model (Z355).
 It needs the proofbundle release whose pytest receipt names the git state and the selection (the release after
-6.2.0); the receipt is verified by the plugin's pinned `proofbundle==6.4.0`.
+6.2.0); the receipt is verified by the plugin's pinned `proofbundle==6.5.0`.
 
 ### With `/goal`
 
@@ -671,7 +671,7 @@ The verification program also needs a trusted source. The plugin tag is annotate
 
 The `verify` command needs Python 3.10 or later; it was independently exercised with Python 3.10.20 and 3.11.18. The separate `build` command needs Python 3.11 or later. The verifier reports the raw public-key SHA-256 as `public_key_raw_sha256`; compare that value with a fingerprint you trust independently of these release assets. The value printed in the release notes is not, on its own, proof of ownership. The verifier checks the signature over the exact statement bytes, the statement's form and values, the archive's size and SHA-256, and `SHA256SUMS` byte for byte. With `--repo` it also checks that the locally fetched tag is annotated and names the statement's commit. This is a consistency check, not authentication of the unsigned tag. `verify` does not rebuild the archive from the named source commit or compare the `commit_tree` and `plugin_tree` fields with that repository; source-to-archive correspondence requires a separate rebuild and byte comparison. The verification succeeds only if the final line is `result OK` and the exit status is 0. Exit 1 indicates a failed check; exit 2 means a check could not be completed. Checking `SHA256SUMS` alone does not verify a signature.
 
-Measured on Linux with Python 3.11.15 and proofbundle 6.4.0 from PyPI, the verifier pin of this release, with a
+Measured on Linux with Python 3.11.15 and proofbundle 6.4.0 from PyPI, the verifier pin of plugin 0.4.0, with a
 temporary key, over the assets the release tools built at a candidate commit, and with a local clone holding the tag
 object they wrote. With and without `--repo` the run ended with `result OK`, and another key and an added line in
 `SHA256SUMS` each ended with exit 1 and the failed check named.
@@ -789,7 +789,7 @@ model needs no tool.
 
 The scaffold scripts run offline. They copy the signed fixtures in `evals/_fixtures/data/`. Those
 fixtures were made once by `evals/_fixtures/make.py` with the package pinned then, proofbundle 6.1.0,
-which the receipts record; the server now pins 6.4.0. They carry public keys only.
+which the receipts record; the server now pins 6.5.0. They carry public keys only.
 
 Every eval run is a model call on your account.
 
