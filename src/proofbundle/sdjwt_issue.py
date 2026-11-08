@@ -37,7 +37,8 @@ from .errors import BundleFormatError, ProofBundleError
 from ._wire_b64 import decode_b64url
 from ._membership import as_dict, is_member
 from ._verdict import require_bool_verdict, require_eval_claim
-from .signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness, plain_bytes
+from .signature import (TRUST_ANCHOR_REFUSAL, _ed25519_signatur_von, ed25519_trust_anchor_weakness,
+                        plain_bytes)
 
 SD_ALG = "sha-256"
 # sd_hash / disclosure digests use the SD-JWT's declared _sd_alg — the kbjwt verifier reads _sd_alg from the
@@ -343,8 +344,8 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
     # The signature segment is the signer's output, and verify_sd_jwt reads it too. The header names EdDSA, so the
     # signature is read once as the bytes it holds and must have the 64 bytes of Ed25519; a signer of another kind
     # that returns another length gets no SD-JWT (the neighbour of the emit_bundle finding of Codex pre-review 5).
-    signature = plain_bytes(signer.sign(signing_input.encode("ascii")))
-    if signature is None or len(signature) != 64:
+    signature = _ed25519_signatur_von(signer.sign(signing_input.encode("ascii")))
+    if signature is None:
         raise ValueError("issue_sd_jwt: the signer returned no 64-byte Ed25519 signature, so no SD-JWT is returned")
     jwt = signing_input + "." + _b64url(signature)
 
@@ -411,8 +412,8 @@ def present_with_key_binding(compact: str, holder_signer: Ed25519PrivateKey, *,
                          f"{exc}") from None
     signing_input = _b64url(json.dumps(header).encode("utf-8")) + "." + kb_payload_b64
     # The same rule as at the issuer: the header names EdDSA, so the holder's signature must have 64 bytes.
-    signature = plain_bytes(holder_signer.sign(signing_input.encode("ascii")))
-    if signature is None or len(signature) != 64:
+    signature = _ed25519_signatur_von(holder_signer.sign(signing_input.encode("ascii")))
+    if signature is None:
         raise ValueError("present_with_key_binding: the holder signer returned no 64-byte Ed25519 signature, so no "
                          "KB-JWT is returned")
     return compact + signing_input + "." + _b64url(signature)

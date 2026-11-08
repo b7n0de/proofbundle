@@ -191,8 +191,9 @@ def emit_bundle(
     # measured 64 signature bytes and 32 key bytes, and a signer of another kind could return any length after it,
     # so a key of 750,001 bytes gave a bundle verify_bundle refuses. The lengths the reading assumed are checked on
     # what the signer returns, read once as the bytes it holds; anything else is refused and no bundle is returned.
-    sig = _puffer_von(signer.sign(payload))
-    if sig is None or len(sig) != 64:
+    from .signature import _ed25519_signatur_von  # noqa: PLC0415
+    sig = _ed25519_signatur_von(signer.sign(payload))
+    if sig is None:
         raise BundleFormatError("emit_bundle: the signer returned no 64-byte Ed25519 signature, so no bundle is "
                                 "returned")
     signature["sig_b64"] = _b64(sig)

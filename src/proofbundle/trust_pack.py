@@ -462,8 +462,13 @@ def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None 
     statement = build_trust_pack_statement(predicate, subject_name=subject_name, subject_sha256=subject_sha256)
     body = _rfc8785_bytes(statement)
     msg = dsse.pae(INTOTO_STATEMENT_PAYLOAD_TYPE, body)
-    signatures = [{"keyid": kid, "sig": base64.b64encode(sk.sign(msg)).decode("ascii")}
-                  for kid, sk in paare]
+    from .signature import _ed25519_signatur_von  # noqa: PLC0415
+    signatures = []
+    for kid, sk in paare:
+        sig = _ed25519_signatur_von(sk.sign(msg))
+        if sig is None:
+            raise TrustPackError(f"signer {kid!r} returned no 64-byte Ed25519 signature, so no pack is returned")
+        signatures.append({"keyid": kid, "sig": base64.b64encode(sig).decode("ascii")})
     return {"payload": base64.b64encode(body).decode("ascii"),
             "payloadType": INTOTO_STATEMENT_PAYLOAD_TYPE, "signatures": signatures}
 

@@ -22,7 +22,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 
 from ._membership import is_member
-from .canonical import _bytes_von, _ein_stand
+from .canonical import _bytes_von, _ein_stand, _puffer_von
 
 __all__ = ["verify_ed25519", "verify_ed25519_pinned", "ed25519_trust_anchor_weakness",
            "plain_bytes", "plain_text", "verify_ecdsa_p256", "verify_ecdsa_p384", "canonical_es256_signature"]
@@ -167,6 +167,24 @@ def plain_bytes(value: Any) -> "bytes | None":
     if issubclass(typ, bytearray):
         return bytes(bytearray.__getitem__(value, slice(None)))
     return None
+
+
+def _ed25519_signatur_von(value: Any) -> "bytes | None":
+    """A signer's output as the 64 bytes of an Ed25519 signature, read once as the bytes it holds, or None.
+
+    THE ONE READ OF A SIGNER'S OUTPUT BY A PRODUCER (Codex pre-reviews 5 and 6 of the class fix after 6.5.0). A
+    producer of an Ed25519 signature asked its signer and wrote what came back, unchecked, into something its own
+    verifier reads under a budget or as one segment. A signer of another kind that returned 750,001 bytes gave a
+    bundle, a DSSE envelope or a Trust Pack that the verifier refuses at string_len, and 6,500,000 bytes gave a status
+    list token past the segment bound. Each producer reads the output here and refuses None with its own error.
+
+    Read by `canonical._puffer_von`, the reader of the surfaces that took any bytes-like value: ``bytes``, a subclass
+    and ``bytearray`` by their storage, and a ``memoryview`` by the buffer it already holds, so a signer that returns
+    its signature as a view keeps working (pre-review 6: `plain_bytes`, the reader of a caller's key, refuses a view,
+    and the SD-JWT producers refused a valid signature with it). Any other value, and any length but 64, is None.
+    """
+    roh = _puffer_von(value)
+    return roh if roh is not None and len(roh) == 64 else None
 
 
 @_ein_stand
