@@ -173,6 +173,24 @@ def _path_text(base: str, chain: Any) -> str:
     return _chain_text(base, chain, _join_step)
 
 
+#: A path in the structure check: a link (parent link, member name or index) with None at the record,
+#: or a fixed text the check names directly. The structure check gives each member a link and renders
+#: the text only for a finding or an unknown member (`_text`, deep gate 6.5.0, iteration 1, the trace
+#: record finding): a member's text costs the names of all its ancestors, and under
+#: ``appraisal.platform_measurement.layers`` one of them is a name the record chooses, so a text built
+#: for every member cost members times that name.
+_Path = Any
+
+
+def _text(path: _Path) -> str:
+    """The text of a structure-check path, bounded like every walk's (`_path_text`)."""
+    return path if type(path) is str else _path_text("", path)
+
+
+#: ``appraisal.platform_measurement.layers`` as a link, for the section 3.1.5 layer-name rule.
+_LAYERS_PATH = (((None, "appraisal"), "platform_measurement"), "layers")
+
+
 def _canonicalizable(v: Any, path: str) -> Optional[str]:
     """Why ``v`` has no RFC 8785 form under section 3.2.2, or None. Iterative, so a deep value
     cannot exhaust the stack here (the parser already bounds depth), and each child costs one link,
@@ -377,16 +395,17 @@ class _Findings:
         self.violations: List[str] = []
         self.unknown: List[Tuple[str, bool]] = []
 
-    def bad(self, path: str, message: str) -> None:
-        self.violations.append(f"{path or '<record>'}: {message}")
+    def bad(self, path: _Path, message: str) -> None:
+        self.violations.append(f"{_text(path) or '<record>'}: {message}")
 
-    def extra(self, path: str, permitted: bool) -> None:
-        self.unknown.append((path, permitted))
+    def extra(self, path: _Path, permitted: bool) -> None:
+        text = _text(path)
+        self.unknown.append((text, permitted))
         if not permitted:
-            self.violations.append(f"{path}: member not defined by the TRACE v0.2 schema")
+            self.violations.append(f"{text}: member not defined by the TRACE v0.2 schema")
 
 
-def _string(v: Any, p: str, f: _Findings, *, min_len: int = 0) -> bool:
+def _string(v: Any, p: _Path, f: _Findings, *, min_len: int = 0) -> bool:
     if type(v) is not str:
         f.bad(p, "must be a string")
         return False
@@ -397,21 +416,21 @@ def _string(v: Any, p: str, f: _Findings, *, min_len: int = 0) -> bool:
 
 
 def _pattern(rx: "re.Pattern[str]", name: str):
-    def check(v: Any, p: str, f: _Findings) -> None:
+    def check(v: Any, p: _Path, f: _Findings) -> None:
         if _string(v, p, f) and rx.fullmatch(v) is None:
             f.bad(p, f"does not match the {name} pattern")
     return check
 
 
 def _enum(values: Sequence[str]):
-    def check(v: Any, p: str, f: _Findings) -> None:
+    def check(v: Any, p: _Path, f: _Findings) -> None:
         if type(v) is not str or v not in values:
             f.bad(p, f"must be one of {list(values)}")
     return check
 
 
 def _integer(lo: int, hi: int):
-    def check(v: Any, p: str, f: _Findings) -> None:
+    def check(v: Any, p: _Path, f: _Findings) -> None:
         if not _is_int_value(v):
             f.bad(p, "must be an integer")
         elif not lo <= _int_value(v) <= hi:
@@ -420,12 +439,12 @@ def _integer(lo: int, hi: int):
 
 
 def _str_check(min_len: int = 0):
-    def check(v: Any, p: str, f: _Findings) -> None:
+    def check(v: Any, p: _Path, f: _Findings) -> None:
         _string(v, p, f, min_len=min_len)
     return check
 
 
-def _uri(v: Any, p: str, f: _Findings) -> None:
+def _uri(v: Any, p: _Path, f: _Findings) -> None:
     if _string(v, p, f) and not _is_uri(v):
         f.bad(p, "is not an RFC 3986 URI")
 
@@ -433,16 +452,16 @@ def _uri(v: Any, p: str, f: _Findings) -> None:
 _digest = _pattern(_DIGEST, "digest")
 
 
-def _object(v: Any, p: str, f: _Findings, required: Sequence[str], props: Dict[str, Any],
+def _object(v: Any, p: _Path, f: _Findings, required: Sequence[str], props: Dict[str, Any],
             open_members: bool = False) -> bool:
     if type(v) is not dict:
         f.bad(p, "must be an object")
         return False
     for name in required:
         if name not in v:
-            f.bad(_member_path(p, name), "required member is missing")
+            f.bad((p, name), "required member is missing")
     for name, value in v.items():
-        mp = _member_path(p, name)
+        mp = (p, name)
         if name in props:
             props[name](value, mp, f)
         elif open_members:
@@ -455,14 +474,14 @@ def _object(v: Any, p: str, f: _Findings, required: Sequence[str], props: Dict[s
     return True
 
 
-def _array(v: Any, p: str, f: _Findings) -> bool:
+def _array(v: Any, p: _Path, f: _Findings) -> bool:
     if type(v) is not list:
         f.bad(p, "must be an array")
         return False
     return True
 
 
-def _model(v: Any, p: str, f: _Findings) -> None:
+def _model(v: Any, p: _Path, f: _Findings) -> None:
     _object(v, p, f, ("provider", "model_id"), {
         "provider": _str_check(), "model_id": _str_check(), "version": _str_check(),
         "weights_digest": _digest, "aibom_uri": _uri})
@@ -472,59 +491,59 @@ _PLATFORMS = ("intel-tdx", "amd-sev-snp", "azure-cvm-sev-snp", "nvidia-h100", "n
               "aws-nitro", "arm-cca", "google-confidential-space", "tpm2", "software-only")
 
 
-def _runtime(v: Any, p: str, f: _Findings) -> None:
+def _runtime(v: Any, p: _Path, f: _Findings) -> None:
     _object(v, p, f, ("platform", "measurement"), {
         "platform": _enum(_PLATFORMS), "measurement": _digest, "rim_uri": _uri,
         "nonce": _str_check(), "firmware_version": _str_check()})
 
 
-def _policy(v: Any, p: str, f: _Findings) -> None:
+def _policy(v: Any, p: _Path, f: _Findings) -> None:
     _object(v, p, f, ("bundle_hash", "enforcement_mode"), {
         "bundle_hash": _digest, "enforcement_mode": _enum(("enforce", "advisory", "silent", "declared")),
         "version": _str_check(), "policy_uri": _uri})
 
 
-def _tool_transcript(v: Any, p: str, f: _Findings) -> None:
+def _tool_transcript(v: Any, p: _Path, f: _Findings) -> None:
     _object(v, p, f, ("hash",), {
         "hash": _digest, "call_count": _integer(0, _SAFE_INT), "transcript_uri": _uri})
 
 
-def _delegation(v: Any, p: str, f: _Findings) -> None:
+def _delegation(v: Any, p: _Path, f: _Findings) -> None:
     _object(v, p, f, ("parent_record_hash", "credential_id"), {
         "parent_record_hash": _digest, "credential_id": _str_check(1)})
 
 
-def _origin(v: Any, p: str, f: _Findings) -> None:
+def _origin(v: Any, p: _Path, f: _Findings) -> None:
     _object(v, p, f, ("kind", "producer"), {
         "kind": _enum(("self", "third-party-control-plane", "log-import")),
         "producer": _str_check(1), "source_event_id": _str_check(1),
         "ingested_at": _integer(1700000000, _SAFE_INT)})
 
 
-def _reference(v: Any, p: str, f: _Findings) -> None:
+def _reference(v: Any, p: _Path, f: _Findings) -> None:
     _object(v, p, f, ("rel", "id", "resolver"), {
         "rel": _str_check(1), "id": _str_check(1), "resolver": _str_check(1),
         "retention": _pattern(_RETENTION, "ISO 8601 duration"), "digest": _digest})
 
 
-def _references(v: Any, p: str, f: _Findings) -> None:
+def _references(v: Any, p: _Path, f: _Findings) -> None:
     if _array(v, p, f):
         for i, value in enumerate(v):
-            _reference(value, f"{p}[{i}]", f)
+            _reference(value, (p, i), f)
 
 
-def _closure_entry(v: Any, p: str, f: _Findings) -> None:
+def _closure_entry(v: Any, p: _Path, f: _Findings) -> None:
     _object(v, p, f, ("id", "digest", "resolver"), {
         "id": _str_check(1), "digest": _digest, "resolver": _str_check(1)})
 
 
-def _input_closure(v: Any, p: str, f: _Findings) -> None:
+def _input_closure(v: Any, p: _Path, f: _Findings) -> None:
     if _array(v, p, f):
         for i, value in enumerate(v):
-            _closure_entry(value, f"{p}[{i}]", f)
+            _closure_entry(value, (p, i), f)
 
 
-def _reproducibility(v: Any, p: str, f: _Findings) -> None:
+def _reproducibility(v: Any, p: _Path, f: _Findings) -> None:
     _object(v, p, f, ("function", "code_identity", "input_closure", "transcript_digest"), {
         "function": _str_check(1), "code_identity": _digest, "code_resolver": _str_check(1),
         "input_closure": _input_closure, "transcript_digest": _digest})
@@ -533,25 +552,25 @@ def _reproducibility(v: Any, p: str, f: _Findings) -> None:
 _DEPTHS = ("surface", "builder", "transitive")
 
 
-def _build_provenance(v: Any, p: str, f: _Findings) -> None:
+def _build_provenance(v: Any, p: _Path, f: _Findings) -> None:
     _object(v, p, f, ("slsa_level", "digest"), {
         "slsa_level": _integer(0, 3), "builder": _str_check(), "digest": _digest,
         "provenance_uri": _uri, "provenance_depth": _enum(_DEPTHS)})
 
 
-def _re_execution(v: Any, p: str, f: _Findings) -> None:
+def _re_execution(v: Any, p: _Path, f: _Findings) -> None:
     if not _object(v, p, f, ("outcome",), {
             "outcome": _enum(("reproduced", "diverged", "not-attempted")),
             "observed_digest": _digest, "reason": _str_check(1),
             "verifier_code_identity": _digest}):
         return
     if v.get("outcome") == "diverged" and "observed_digest" not in v:
-        f.bad(_member_path(p, "observed_digest"), "required when outcome is diverged")
+        f.bad((p, "observed_digest"), "required when outcome is diverged")
     if v.get("outcome") == "not-attempted" and "reason" not in v:
-        f.bad(_member_path(p, "reason"), "required when outcome is not-attempted")
+        f.bad((p, "reason"), "required when outcome is not-attempted")
 
 
-def _layer(v: Any, p: str, f: _Findings) -> None:
+def _layer(v: Any, p: _Path, f: _Findings) -> None:
     if not _object(v, p, f, ("outcome",), {
             "outcome": _enum(("established", "not-established")),
             "reason": _enum(("layer-not-measured", "measured-not-appraised",
@@ -559,26 +578,26 @@ def _layer(v: Any, p: str, f: _Findings) -> None:
         return
     if "outcome" in v and v.get("outcome") == "not-established":
         if "reason" not in v:
-            f.bad(_member_path(p, "reason"), "required when outcome is not-established")
+            f.bad((p, "reason"), "required when outcome is not-established")
     elif "reason" in v:
-        f.bad(_member_path(p, "reason"), "must be absent unless outcome is not-established")
+        f.bad((p, "reason"), "must be absent unless outcome is not-established")
 
 
-def _layers(v: Any, p: str, f: _Findings) -> None:
+def _layers(v: Any, p: _Path, f: _Findings) -> None:
     if type(v) is not dict:
         f.bad(p, "must be an object")
         return
     if len(v) < 1:
         f.bad(p, "must name at least one layer")
     for name, value in v.items():
-        _layer(value, _member_path(p, name), f)
+        _layer(value, (p, name), f)
 
 
-def _platform_measurement(v: Any, p: str, f: _Findings) -> None:
+def _platform_measurement(v: Any, p: _Path, f: _Findings) -> None:
     _object(v, p, f, ("measurement", "layers"), {"measurement": _digest, "layers": _layers})
 
 
-def _appraisal(v: Any, p: str, f: _Findings) -> None:
+def _appraisal(v: Any, p: _Path, f: _Findings) -> None:
     if not _object(v, p, f, ("status", "verifier"), {
             "status": _enum(("affirming", "warning", "contraindicated", "none")),
             "verifier": _uri, "policy_ref": _uri, "timestamp": _integer(-_SAFE_INT, _SAFE_INT),
@@ -587,21 +606,23 @@ def _appraisal(v: Any, p: str, f: _Findings) -> None:
         return
     if v.get("method") == "re-execution" and "method" in v:
         if "re_execution" not in v:
-            f.bad(_member_path(p, "re_execution"), "required when method is re-execution")
+            f.bad((p, "re_execution"), "required when method is re-execution")
     elif "re_execution" in v:
-        f.bad(_member_path(p, "re_execution"), "must be absent unless method is re-execution")
+        f.bad((p, "re_execution"), "must be absent unless method is re-execution")
     if "platform_measurement" in v and v.get("status") == "none":
-        f.bad(_member_path(p, "status"), "must not be none when platform_measurement is present (3.1.5 rule 5)")
+        f.bad((p, "status"), "must not be none when platform_measurement is present (3.1.5 rule 5)")
 
 
-def _canonicalizable_value(v: Any, p: str, f: _Findings) -> None:
+def _canonicalizable_value(v: Any, p: _Path, f: _Findings) -> None:
     """Every value under an open member that has no RFC 8785 form, as a finding by path.
 
     BOUNDED IN BOTH DIRECTIONS (deep gate 6.4.0, iteration 1, finding C1): each child costs one link
     (`_path_text`), and at most `_MAX_VALUE_FINDINGS` findings are rendered; the rest is counted in one.
     Rendering a path per bad value would otherwise bring the cost back with many values under one long
     path, and the structure check runs before the record is authenticated."""
-    stack: List[Tuple[Any, Any]] = [(v, None)]
+    # A text base (a caller's own) is joined in front; a link is the chain the walk continues.
+    base, root = (p, None) if type(p) is str else ("", p)
+    stack: List[Tuple[Any, Any]] = [(v, root)]
     found = 0
     while stack:
         cur, chain = stack.pop()
@@ -612,7 +633,7 @@ def _canonicalizable_value(v: Any, p: str, f: _Findings) -> None:
             if not _is_int_value(cur) or abs(_int_value(cur)) > _SAFE_INT:
                 found += 1
                 if found <= _MAX_VALUE_FINDINGS:
-                    f.bad(_path_text(p, chain), "must be a string, boolean, null, safe integer, array or object")
+                    f.bad(_path_text(base, chain), "must be a string, boolean, null, safe integer, array or object")
         elif t is list:
             for i, value in enumerate(cur):
                 stack.append((value, (chain, i)))
@@ -622,13 +643,13 @@ def _canonicalizable_value(v: Any, p: str, f: _Findings) -> None:
         else:  # pragma: no cover - a strict parse yields no other type
             found += 1
             if found <= _MAX_VALUE_FINDINGS:
-                f.bad(_path_text(p, chain), "is not a JSON value")
+                f.bad(_path_text(base, chain), "is not a JSON value")
     if found > _MAX_VALUE_FINDINGS:
         f.bad(p, f"and {found - _MAX_VALUE_FINDINGS} more value(s) below it with no RFC 8785 form "
                  f"(only the first {_MAX_VALUE_FINDINGS} are named)")
 
 
-def _jwk(v: Any, p: str, f: _Findings) -> None:
+def _jwk(v: Any, p: _Path, f: _Findings) -> None:
     string = _str_check()
     if not _object(v, p, f, ("kty",), {
             "kty": string, "crv": string, "x": string, "y": string, "n": string, "e": string,
@@ -640,13 +661,13 @@ def _jwk(v: Any, p: str, f: _Findings) -> None:
               else ("n", "e") if kty == "RSA" else ())
     for name in needed:
         if name not in v:
-            f.bad(_member_path(p, name), f"required for kty {v.get('kty')}")
+            f.bad((p, name), f"required for kty {v.get('kty')}")
     for name in _PRIVATE_MEMBERS:
         if name in v:
-            f.bad(_member_path(p, name), "private-key member is not allowed in cnf.jwk")
+            f.bad((p, name), "private-key member is not allowed in cnf.jwk")
 
 
-def _cnf(v: Any, p: str, f: _Findings) -> None:
+def _cnf(v: Any, p: _Path, f: _Findings) -> None:
     _object(v, p, f, ("jwk",), {"jwk": _jwk})
 
 
@@ -657,17 +678,17 @@ _TOP_REQUIRED = ("eat_profile", "iat", "subject", "model", "runtime", "policy", 
 def _check_structure(record: Dict[str, Any], form: str) -> _Findings:
     f = _Findings()
 
-    def eat_profile(v: Any, p: str, fs: _Findings) -> None:
+    def eat_profile(v: Any, p: _Path, fs: _Findings) -> None:
         if v != TRACE_PROFILE_V0_2 or type(v) is not str:
             fs.bad(p, f"must be {TRACE_PROFILE_V0_2!r}")
 
-    def signature(v: Any, p: str, fs: _Findings) -> None:
+    def signature(v: Any, p: _Path, fs: _Findings) -> None:
         if form == "jws-compact":
             fs.bad(p, "an enveloping-signature profile omits the signature member (section 3.1)")
         else:
             _pattern(_SIGNATURE, "base64url signature")(v, p, fs)
 
-    _object(record, "", f, _TOP_REQUIRED, {
+    _object(record, None, f, _TOP_REQUIRED, {
         "eat_profile": eat_profile, "iat": _integer(1700000000, _SAFE_INT),
         "subject": _pattern(_SUBJECT, "subject"), "model": _model, "runtime": _runtime,
         "policy": _policy, "data_class": _str_check(), "tool_transcript": _tool_transcript,
@@ -689,7 +710,7 @@ def _check_structure(record: Dict[str, Any], form: str) -> _Findings:
         if type(runtime) is dict and runtime.get("platform") == "tpm2" and type(pm.get("layers")) is dict:
             for name in pm["layers"]:
                 if _PCR.fullmatch(name) is None:
-                    f.bad(_member_path("appraisal.platform_measurement.layers", name),
+                    f.bad((_LAYERS_PATH, name),
                           "a tpm2 layer key must be pcr:0 .. pcr:23 (section 3.1.5)")
         # Section 3.1.5: the measurement MUST equal runtime.measurement.
         if ("measurement" in pm and type(runtime) is dict and "measurement" in runtime
