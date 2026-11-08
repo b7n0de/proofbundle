@@ -391,7 +391,18 @@ def present_with_key_binding(compact: str, holder_signer: Ed25519PrivateKey, *,
     sd_hash = _b64url(_HASH_BY_SD_ALG[sd_alg](compact.encode("ascii")).digest())
     header = {"alg": "EdDSA", "typ": "kb+jwt"}
     payload = {"iat": iat, "aud": aud, "nonce": nonce, "sd_hash": sd_hash}
-    signing_input = _b64url(json.dumps(header).encode("utf-8")) + "." + _b64url(json.dumps(payload).encode("utf-8"))
+    kb_payload_b64 = _b64url(json.dumps(payload).encode("utf-8"))
+    # THE HOLDER SIGNS ONLY WHAT verify_key_binding READS (the neighbour of the 6.5.0 SD-JWT finding): the
+    # verifier reads this segment with `kbjwt._b64url_decode` and the strict reader under DEFAULT_BUDGET.
+    # Measured at ac4129f7: an `aud` or a `nonce` of 1,000,001 characters was signed, and verify_key_binding
+    # answered ok False with the reason string_len.
+    try:
+        from .kbjwt import _b64url_decode as _segment_of_verify_key_binding  # noqa: PLC0415
+        loads_strict(_segment_of_verify_key_binding(kb_payload_b64))
+    except (ProofBundleError, ValueError) as exc:
+        raise ValueError(f"the KB-JWT payload is one verify_key_binding cannot read, so it is not signed: "
+                         f"{exc}") from None
+    signing_input = _b64url(json.dumps(header).encode("utf-8")) + "." + kb_payload_b64
     signature = holder_signer.sign(signing_input.encode("ascii"))
     return compact + signing_input + "." + _b64url(signature)
 
