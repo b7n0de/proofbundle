@@ -319,8 +319,18 @@ def _dt_ns(dt: datetime) -> int:
     return calendar.timegm(dt.timetuple()) * 1_000_000_000 + dt.microsecond * 1000
 
 
+#: The last second a `datetime` can hold, 9999-12-31T23:59:59Z. A signed entry timestamp past it is refused.
+_LAST_DATE_SECONDS = 253_402_300_799
+
+
 def _iso(ns: int) -> str:
-    return datetime.fromtimestamp(ns // 1_000_000_000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    """Format a verified time for a diagnostic. If its integer-second timestamp cannot be represented by
+    `datetime`, report the seconds instead. This formatter does not validate the timestamp (review of the
+    class fix, rounds 1 and 2); `_verify_body` refuses a signed entry timestamp past `_LAST_DATE_SECONDS`."""
+    try:
+        return datetime.fromtimestamp(ns // 1_000_000_000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except (OverflowError, ValueError, OSError):
+        return f"{ns // 1_000_000_000} seconds after the epoch (past the range of a date)"
 
 
 def _parse_json_bytes(raw: bytes, what: str) -> Any:
@@ -482,15 +492,18 @@ def _read_leaf(der: bytes) -> _Leaf:
     from cryptography import x509  # noqa: PLC0415
     from cryptography.x509.oid import ExtendedKeyUsageOID, ExtensionOID  # noqa: PLC0415
     # EVERY FIELD READ BEFORE THE SIGNATURE IS READ HERE, inside the boundary (deep gate 6.5.0, iteration 1):
+    # decode the leaf subject, issuer name and validity times inside the certificate reader's failure
+    # boundary. These fields may fail when first accessed even after the DER certificate has loaded:
     # cryptography decodes a Name only when it is first asked for, so a subject UTF8String with invalid
-    # UTF-8 loaded as a certificate and raised a bare ValueError at the subject check further down. The
-    # validity times are converted to a datetime on their first reading as well, and a GeneralizedTime of
-    # year 0000 parses as ASN.1 and raised "year 0 is out of range" at the end of this function.
+    # UTF-8 raised a bare ValueError at the subject check further down, and a GeneralizedTime of year 0000
+    # parses as ASN.1 and raised "year 0 is out of range" at the end of this function. The issuer name is
+    # read here too (review of the class fix, round 1): undecoded, it surfaced only later, in the chain check.
     try:
         cert = x509.load_der_x509_certificate(der)
         exts = cert.extensions
         version = cert.version
         subject_attributes = len(cert.subject)
+        len(cert.issuer)
         not_before, not_after = _not_before(cert), _not_after(cert)
     except (ValueError, x509.DuplicateExtension, x509.InvalidVersion, x509.UnsupportedGeneralNameType) as exc:
         raise _Fail("certificate", f"the leaf certificate is not a well-formed X.509 certificate: {exc}") from None
@@ -1955,6 +1968,13 @@ def _verify_body(res: VerificationResult, prof: str, spec: Dict[str, Any], cfg: 
         if entry.set_signature is not None:
             if not _verify(log.key, entry.set_signature, _set_payload(entry)):
                 raise _Fail("tlog-set", f"{where}: the signed entry timestamp does not verify under {log.base_url}")
+            # A TIME THIS VERIFIER CANNOT WRITE AS A DATE IS NO TIME SOURCE (review of the class fix, round 2): before,
+            # a signed integratedTime past year 9999 raised from `_iso`; once `_iso` no longer raised, an npm-publish
+            # bundle with such a time and an open-ended log key verified, measured at b2a11647. The SCT time of the
+            # same class is a failed candidate; this one fails the check of the signed entry timestamp.
+            if entry.integrated_time > _LAST_DATE_SECONDS:
+                raise _Fail("tlog-set", f"{where}: integratedTime {entry.integrated_time} is past the range of a date "
+                                        "(year 9999), so it is no time this verifier compares")
             at = entry.integrated_time * 1_000_000_000
             if not log.valid_at(at):
                 raise _Fail("tlog-set", f"{where}: integratedTime {_iso(at)} is outside the log key's validity")
