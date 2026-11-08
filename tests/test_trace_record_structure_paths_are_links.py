@@ -2,8 +2,8 @@
 
 WHERE THIS COMES FROM. The deep gate of 6.5.0, iteration 1, the trace record finding (tag note of v6.5.0,
 "Known limitations of this release"): 3 percent more input gave 108 times the traced memory, and under a
-600 MiB address-space limit `verify_trace_record` raised an uncaught MemoryError on a 649,293-byte input
-before any signature was checked. The fix of 6.4.0 had turned the two value walks (`_canonicalizable`,
+600 MiB address-space limit `verify_trace_record` raised an uncaught MemoryError on a 649,293-byte
+unauthenticated input. The fix of 6.4.0 had turned the two value walks (`_canonicalizable`,
 `_canonicalizable_value`) into walks over links; the structure check (`_check_structure` and every
 reader it calls) still gave each member a fresh path string that copied the text of all its ancestors.
 Under `appraisal.platform_measurement.layers` the ancestor text holds a member name the record chooses,
@@ -14,9 +14,11 @@ THE CLASS. A walk's cost per node was assumed to be constant because the schema'
 node's path text costs the length of all its ancestors' names, which the input chooses; built for every
 node, the walk costs nodes times path length instead of nodes.
 
-THE PROPERTY. Each member of the structure check costs one link; the text is rendered only for a finding
-or an unknown member, at most `budget._PATH_TEXT_LIMIT` characters long. A path within that limit is
-rendered exactly as before (`test_every_message_of_the_corpus_is_unchanged`).
+THE PROPERTY. Each structure-check member carries a path link. Dynamic path text is rendered only for a
+finding or an unknown member, with at most `budget._PATH_TEXT_LIMIT` (256) characters followed by an ellipsis
+when truncated, 257 in all. Paths whose previous rendered form fits within the limit retain their spelling
+(`test_every_message_of_the_corpus_is_unchanged`). The structure check runs after the signature check and
+also when authentication fails, so its resource costs must remain bounded for unauthenticated records.
 """
 from __future__ import annotations
 
@@ -196,7 +198,9 @@ def _verdict_text(raw: bytes) -> str:
 
 def test_every_message_of_the_corpus_is_unchanged():
     """Messages, the order of the findings, unknown_fields and exit codes as v6.5.0 (ac4129f7) gave them.
-    The fixture was written by this file's `_write_golden` at ac4129f7, before the fix."""
+    The fixture was written by this file's `_write_golden` at ac4129f7, before the fix; this test compares
+    complete-verdict hashes with it. It pins the recorded corpus; fixture provenance and exhaustive path
+    coverage need separate checks."""
     golden = json.loads(GOLDEN.read_text(encoding="utf-8"))
     corpus = _corpus()
     assert [n for n, _ in corpus] == list(golden), "the corpus changed; the fixture no longer pins it"
