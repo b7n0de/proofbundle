@@ -35,11 +35,13 @@ def _walk(parser: argparse.ArgumentParser, path: tuple[str, ...] = ()):
 
 
 def _value(action: argparse.Action) -> str:
+    """A valid value that differs from the option's default, so a control cannot pass when the option is ignored."""
     if action.choices:
-        return str(next(iter(action.choices)))
+        other = [c for c in action.choices if c != action.default]
+        return str((other or list(action.choices))[0])
     if action.type is int:
-        return "1"
-    return "x"
+        return "2" if action.default == 1 else "1"
+    return "y" if action.default == "x" else "x"
 
 
 def _values(action: argparse.Action) -> list[str]:
@@ -80,22 +82,23 @@ def _abbreviation(option: str, longs: set[str]) -> str | None:
     return None
 
 
-def _cases():
-    cases = []
+def _long_options():
+    """(path, option, every long option of that parser) for each long option of the parser tree."""
+    out = []
     for path, parser in _walk(cli.build_parser()):
         longs = {s for a in parser._actions for s in a.option_strings if s.startswith("--")}
         for action in parser._actions:
             for option in action.option_strings:
-                if not option.startswith("--"):
-                    continue
-                abbrev = _abbreviation(option, longs)
-                if abbrev is not None:
-                    cases.append(pytest.param(path, option, abbrev,
-                                              id=" ".join(path + (option, abbrev)) or option))
-    return cases
+                if option.startswith("--"):
+                    out.append((path, option, longs))
+    return out
 
 
-CASES = _cases()
+LONG_OPTIONS = _long_options()
+# One abbreviation for each long option that has a proper prefix; a control for every long option, with or without.
+CASES = [pytest.param(path, option, _abbreviation(option, longs), id=" ".join(path + (option,)))
+         for path, option, longs in LONG_OPTIONS if _abbreviation(option, longs) is not None]
+CONTROLS = [pytest.param(path, option, id=" ".join(path + (option,))) for path, option, _ in LONG_OPTIONS]
 
 
 def _leaf(path: tuple[str, ...]) -> argparse.ArgumentParser:
@@ -159,6 +162,9 @@ def test_every_parser_constructed_under_src_sets_allow_abbrev_false():
 def test_the_cases_cover_the_parser_tree():
     assert len(CASES) > 100
     assert {c.values[0] for c in CASES} >= {path for path, _ in _walk(cli.build_parser())}
+    # every long option has a control, also the ones without a proper prefix such as verify-opening --n
+    assert len(CONTROLS) == len(LONG_OPTIONS) > len(CASES)
+    assert ("verify-opening", "--n") in {(c.values[0][0] if c.values[0] else "", c.values[1]) for c in CONTROLS}
 
 
 @pytest.mark.parametrize("path,option,abbrev", CASES)
@@ -171,8 +177,8 @@ def test_an_abbreviated_option_is_refused(path, option, abbrev):
     assert abbrev in err
 
 
-@pytest.mark.parametrize("path,option,abbrev", CASES)
-def test_the_full_option_still_applies(path, option, abbrev):
+@pytest.mark.parametrize("path,option", CONTROLS)
+def test_the_full_option_still_applies(path, option):
     leaf = _leaf(path)
     action = leaf._option_string_actions[option]
     argv = _argv(path, leaf, [option] + _values(action), skip=action)
