@@ -216,7 +216,7 @@ class TestSection34Library(_Paar):
         self.assertIsNone(r["effect_bytes_ok"])
         self.assertIsNone(r["bound_decision_ok"])
 
-    # step 4: the decision receipt "passed Section 3.2", the whole of it, at the relying party's T (3.1) and under the
+    # step 4: the decision receipt passes decision verify, its whole verdict, at the relying party's T (3.1) and under the
     # decisionMaker.id the relying party expects (step 8 of 3.2). Measured at e200c107: an expired decision and one
     # signed for another decision maker both gave bound_decision_ok True, because only signature, structure,
     # predicate type and derived subject of the decision's verdict were read.
@@ -228,7 +228,7 @@ class TestSection34Library(_Paar):
                 self.assertFalse(r["ok"])
 
     def test_without_t_the_decision_is_judged_at_the_wall_clock(self):
-        # The fixture's decision expired on 2026-07-09; at the wall clock it no longer passes Section 3.2.
+        # The fixture's decision expired on 2026-07-09; at the wall clock it no longer passes decision verify.
         r = self._verify(self._out(), now=None)
         self.assertIs(r["bound_decision_ok"], False)
 

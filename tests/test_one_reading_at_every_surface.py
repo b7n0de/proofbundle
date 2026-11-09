@@ -1105,7 +1105,7 @@ def _flaechen():
             expected_nonce=w("n"), policy=w({"relations": relationen}), related=w(verwandt),
             expected_executor_id=w("executor:runner-7"), effect_bytes=w(_SWEEP_WIRKUNG),
             decision_envelope=w(aus_dec_env), decision_public_key=w(_raw(_E)), case=w("executed"),
-            # T inside the bound decision's validity (2026-07-14T10:00:30Z), so that it passes Section 3.2 and the
+            # T inside the bound decision's validity (2026-07-14T10:00:30Z), so that it passes decision verify and the
             # expected decisionMaker.id and T reach the verdict (review 1 of the B1 to B4 series, finding 1).
             now=w(1784023230))),
         ("run_ledger.verify_run_ledger", lambda w: rl.verify_run_ledger(w(rl.emit_run_ledger(rl_pred, _T)), w(pub))),

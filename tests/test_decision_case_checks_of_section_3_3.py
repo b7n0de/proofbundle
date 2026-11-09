@@ -286,7 +286,7 @@ class TestCase3Executed(unittest.TestCase):
         r = verify_outcome_receipt(out, self.opub, strict=True, decision_envelope=dec, decision_public_key=self.dpub)
         self.assertIsNone(r["case_ok"])
 
-    # Case 3 asks the outcome to pass Section 3.4 against the decision, all of it, before the status (review 1 of
+    # Case 3 asks the outcome to pass the checks of Section 3.4 this verifier applies, before the status (review 1 of
     # the B1 to B4 series, finding 2). Measured at e200c107: the case read only the bound decision, its verdict and
     # the status, so each outcome below gave case_ok True, and the first three ok True as well.
     def _faellt(self, r):

@@ -651,7 +651,10 @@ def _gebundene_entscheidung(predicate: dict, envelope: Any, decision_key: Any, o
     the decision key (step 8 of Section 3.2, an input of Section 3.1); a bound decision without that expectation is
     refused. Review 1 of the B1 to B4 series, finding 1: at e200c107 only signature, structure, predicate type and
     derived subject were read from the verdict. Step 7 compares performedAt with the decision's times only, never
-    with T. Returns (whether every step holds, the reasons it does not, the decision predicate read here or None).
+    with T. This is the verdict of proofbundle's decision verifier, not the whole of Section 3.2: the rules that
+    verifier does not apply (decidedAt <= T, decisionType preActionAuthorization only, non-empty reason codes, the
+    draft's timestamp form) are not applied here either; docs/NON_CLAIMS.md names them.
+    Returns (whether every step holds, the reasons it does not, the decision predicate read here or None).
     """
     if envelope is None or decision_key is None:
         return False, ["a bound decision needs both the decision receipt and its key (Section 3.4, fail-closed)"], None
@@ -660,8 +663,8 @@ def _gebundene_entscheidung(predicate: dict, envelope: Any, decision_key: Any, o
     from .decision import DECISION_RECEIPT_PREDICATE_TYPE, _mikrosekunden, verify_decision_receipt  # noqa: PLC0415
     urteil = verify_decision_receipt(envelope, decision_key, strict=True, require_derived_subject=True, now=now)
     if urteil.get("ok") is not True or urteil.get("subject_derived_ok") is not True:
-        return False, ["the bound decision receipt does not pass Section 3.2 under the decision key at the evaluation "
-                       "time (fail-closed)"] + [f"bound decision: {render_safe(e, quote=False)}"
+        return False, ["the bound decision receipt does not pass decision verify under the decision key at the "
+                       "evaluation time (fail-closed)"] + [f"bound decision: {render_safe(e, quote=False)}"
                                                  for e in _as_list(urteil.get("errors"))], None
     try:
         _echt, body = dsse._verify_and_load(envelope, decision_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
@@ -897,8 +900,9 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
       the bytes MUST equal it (step 6). The first sentence of step 6, an executed outcome without effectDigest, stays
       the ``execution_proven`` warning here.
     - ``bound_decision_ok`` — ``decision_envelope`` with ``decision_public_key``: the decision receipt MUST pass
-      Section 3.2 under that key at the evaluation time ``now``, by the whole verdict of ``verify_decision_receipt``
-      (strict, derived subject, freshness included), and its decisionMaker.id MUST be ``decision_maker_id``, the
+      ``verify_decision_receipt`` under that key at the evaluation time ``now``, by its whole verdict (strict,
+      derived subject, freshness included; the draft rules that verifier does not apply are named in
+      docs/NON_CLAIMS.md), and its decisionMaker.id MUST be ``decision_maker_id``, the
       identifier the relying party expects (step 8 of Section 3.2; without it the binding is refused). Then
       decisionRef MUST be its content root and requestedActionDigest its parametersDigest (step 4), the two keys and
       the two identities MUST differ (step 5), and decidedAt <= performedAt < validity.expiresAt of the decision
@@ -906,11 +910,12 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
     - ``now`` — the evaluation time T of Section 3.1 in POSIX seconds, used for the bound decision only (no step of
       Section 3.4 compares the outcome with T). None reads the wall clock once; a value that is no POSIX-seconds
       integer in range fails the bound decision closed, never re-read from the wall clock.
-    - ``case_ok`` — ``case="executed"``, Case 3 of Section 3.3: the outcome passes Section 3.4 against the bound
-      decision, all of it, before its status is read: its structure and a subject that is the digest of its predicate
+    - ``case_ok`` — ``case="executed"``, Case 3 of Section 3.3: before its status is read, the outcome passes the
+      checks of Section 3.4 this verifier applies: its structure and a subject that is the digest of its predicate
       (steps 1 to 3), ``bound_decision_ok`` (steps 4, 5 and 7), the expected executor.id supplied and equal and a
       supplied trust pack permitting the key (step 5), a non-null effectDigest on an executed outcome and supplied
-      effect bytes that match it (step 6). Then the decision's verdict is ALLOW and the status executed.
+      effect bytes that match it (step 6). Then the decision's verdict is ALLOW and the status executed. The draft's
+      narrower field rules this verifier does not apply, such as its timestamp form, are not applied here either.
 
     Each is judged over authenticated bytes only; a False fails ``ok`` and blocks automation.
     """
@@ -1450,12 +1455,12 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                 "derivation (install proofbundle[eval]), fail-closed")
 
     # Case 3 of Section 3.3, executed (finding B3, vectors F17, F54): chosen by the relying party, never by the
-    # receipt. The outcome MUST pass Section 3.4 against the decision, all of it, and Section 3.4 is checked before the
+    # receipt. The outcome MUST pass the checks of Section 3.4 this verifier applies, and they are judged before the
     # status (review 1 of the B1 to B4 series, finding 2: at e200c107 the case read only the bound decision, its
     # verdict and the status, so an executed outcome without the expected executor or without effectDigest passed it).
     # Judged here, after the subject binding, over authenticated bytes only:
     #   steps 1 to 3  the outcome's structure, and a subject that is the digest of its predicate (step 2);
-    #   step 4, 5, 7  the bound decision (bound_decision_ok: Section 3.2 at T, binding, separation, time window);
+    #   step 4, 5, 7  the bound decision (bound_decision_ok: decision verify at T, binding, separation, window);
     #   step 5        the expected executor.id is supplied and equal, and a supplied trust pack permits the key;
     #   step 6        an executed outcome carries a non-null effectDigest (an actualActionDigest is none), and
     #                 supplied effect bytes match it.

@@ -75,6 +75,13 @@ With every input supplied, these stay outside:
 - **An evaluation time before `decidedAt`** (section 3.2 step 9) outside Case 1. The decision verifier compares
   the evaluation time with `validity.expiresAt` only, and so does the check of a decision an outcome is bound to;
   Case 1 checks approvedAt <= decidedAt <= T itself.
+- **The draft's narrower field rules** (section 3.2 step 7, section 3.4 step 3, section 3.8) where proofbundle's
+  own rules are wider: a `decisionType` other than `preActionAuthorization`, an empty string among
+  `decision.reasonCodes`, and a timestamp with more than six fraction digits or with second 60 pass the decision
+  and outcome verifiers, and so pass the check of a bound decision and the executed case. Case 1 reads its own
+  times in the draft's form.
+- **An evaluation time with a fraction of a second.** `--verification-time` takes a whole past second, on
+  `decision verify` and on `outcome verify` alike.
 - **A trust policy that permits the outcome-signing key to attest `executor.id`** (section 3.4 step 5), other
   than the relying party's own statement: `--executor-id` given beside `--pub` says that this key may attest that
   identifier. A Trust Pack binds `executor.keyId` to the key, not an identifier.

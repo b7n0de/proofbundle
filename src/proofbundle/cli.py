@@ -4045,7 +4045,7 @@ def build_parser() -> argparse.ArgumentParser:
                                "ALLOW and the outcome's status executed, after Section 3.4 holds. A failure exits 2")
     o_verify.add_argument("--verification-time", dest="verification_time", default=None, metavar="ISO8601",
                           help="the evaluation time T (ISO-8601 'Z', a whole past second) at which the --decision "
-                               "receipt must pass Section 3.2, its freshness included; without it the wall clock. No "
+                               "receipt must pass decision verify, its freshness included; without it the wall clock. No "
                                "step of Section 3.4 compares the outcome itself with T. A malformed value exits 2")
     o_verify.set_defaults(func=_cmd_outcome_verify)
 
