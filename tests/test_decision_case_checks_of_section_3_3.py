@@ -5,7 +5,7 @@ F54, F74, F76, F89). Measured on main 6f5955d1: proofbundle chose no case and to
 for a human approval passed with the wrong verdict, without user_approval, without or with a broken approval record,
 and with violated bounds; a declined receipt passed with ESCALATE or an executed outcome; and an outcome bound to an
 ESCALATE decision, or one with status failed, passed as an executed action. The relying party chooses the case, the
-receipt never does (Section 3.1).
+receipt never does; this rule stands in a coming revision of the draft.
 
 - Case 1, approval (``decision verify --case approval --approval PATH``): verdict ALLOW, reasonCodes contain
   user_approval, inputSnapshot holds exactly one entry named "approval record", the approval record bytes A are

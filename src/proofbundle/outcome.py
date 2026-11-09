@@ -675,7 +675,8 @@ def _gebundene_entscheidung(predicate: dict, envelope: Any, decision_key: Any, o
     derived subject were read from the verdict. Step 7 compares performedAt with the decision's times only, never
     with T. This is the verdict of proofbundle's decision verifier, not the whole of Section 3.2: the rules that
     verifier does not apply (decidedAt <= T, decisionType preActionAuthorization only, non-empty reason codes, the
-    draft's timestamp form) are not applied here either; docs/NON_CLAIMS.md gives measured examples.
+    narrower timestamp form of a coming revision of the draft) are not applied here either; docs/NON_CLAIMS.md
+    gives measured examples.
     Returns (whether every step holds, the reasons it does not, the decision predicate read here or None).
     """
     if envelope is None or decision_key is None:
@@ -933,7 +934,8 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
       identifier the relying party expects (step 8 of Section 3.2; without it the binding is refused). Then
       decisionRef MUST be its content root and requestedActionDigest its parametersDigest (step 4), the two keys and
       the two identities MUST differ (step 5), and decidedAt <= performedAt < validity.expiresAt of the decision
-      (step 7, fractions padded to six digits). One of the two without the other is False.
+      (step 7; the fractions are compared padded to six digits, a rule of a coming revision of the draft). One of
+      the two without the other is False.
     - ``now`` — the evaluation time T of Section 3.1 in POSIX seconds, used for the bound decision only (no step of
       Section 3.4 compares the outcome with T). None reads the wall clock once; a value that is no POSIX-seconds
       integer in range fails the bound decision closed, never re-read from the wall clock.
@@ -942,7 +944,8 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
       (steps 1 to 3), ``bound_decision_ok`` (steps 4, 5 and 7), the expected executor.id supplied and equal and a
       supplied trust pack permitting the key (step 5), a non-null effectDigest on an executed outcome and supplied
       effect bytes that match it (step 6). Then the decision's verdict is ALLOW and the status executed. The draft's
-      narrower field rules this verifier does not apply, such as its timestamp form, are not applied here either.
+      narrower field rules this verifier does not apply, such as the timestamp form of a coming revision, are not
+      applied here either.
 
     Each is judged over authenticated bytes only; a False fails ``ok`` and blocks automation.
     """
