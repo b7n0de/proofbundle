@@ -653,7 +653,7 @@ def _gebundene_entscheidung(predicate: dict, envelope: Any, decision_key: Any, o
     derived subject were read from the verdict. Step 7 compares performedAt with the decision's times only, never
     with T. This is the verdict of proofbundle's decision verifier, not the whole of Section 3.2: the rules that
     verifier does not apply (decidedAt <= T, decisionType preActionAuthorization only, non-empty reason codes, the
-    draft's timestamp form) are not applied here either; docs/NON_CLAIMS.md names them.
+    draft's timestamp form) are not applied here either; docs/NON_CLAIMS.md gives measured examples.
     Returns (whether every step holds, the reasons it does not, the decision predicate read here or None).
     """
     if envelope is None or decision_key is None:

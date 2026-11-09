@@ -4042,7 +4042,8 @@ def build_parser() -> argparse.ArgumentParser:
                                "under; required with --decision")
     o_verify.add_argument("--case", dest="case", default=None, metavar="CASE",
                           help="Case 3 of Section 3.3: executed (with --decision): the decision's verdict must be "
-                               "ALLOW and the outcome's status executed, after Section 3.4 holds. A failure exits 2")
+                               "ALLOW and the outcome's status executed, after the checks of Section 3.4 this verifier "
+                               "applies hold (docs/NON_CLAIMS.md names draft rules it does not apply). A failure exits 2")
     o_verify.add_argument("--verification-time", dest="verification_time", default=None, metavar="ISO8601",
                           help="the evaluation time T (ISO-8601 'Z', a whole past second) at which the --decision "
                                "receipt must pass decision verify, its freshness included; without it the wall clock. No "

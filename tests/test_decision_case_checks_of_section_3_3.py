@@ -15,7 +15,7 @@ receipt never does (Section 3.1).
 - Case 2, declined (``--case declined``): verdict DENY or REFUSE; an actionOutcome has status notAttempted, blocked
   or refused, and performedAt and outcomeRef absent or null.
 - Case 3, executed (``outcome verify --case executed`` with ``--decision``): the decision's verdict is ALLOW, and the
-  outcome passes Section 3.4 and has status executed.
+  outcome passes the checks of Section 3.4 this verifier applies and has status executed.
 
 unittest-style like tests/test_decision_cli.py."""
 from __future__ import annotations

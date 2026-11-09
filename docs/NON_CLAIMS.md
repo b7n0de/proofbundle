@@ -66,20 +66,30 @@ A verified Action Outcome does **not** prove:
 action bytes (section 3.2 step 10), the case the relying party chooses with the approval record bytes of Case 1
 (section 3.3), the expected `executor.id`, the effect bytes and the bound decision receipt with the expected
 `decisionMaker.id` and the evaluation time (section 3.4), and a consumption state with the copies of an approval the
-relying party received (section 4). A check whose input is not supplied is not performed. Section 3.1 requires the
-expected `executor.id` and, for Case 1, the approval record bytes, so a pass without them is not a pass of the
-draft's procedure.
+relying party received (section 4).
 
-With every input supplied, these stay outside:
+Without an input its check is not performed, with three exceptions: without an evaluation time the wall clock is read
+once; a chosen case without an input it requires fails (Case 1 without the approval record bytes, Case 3 without the
+bound decision receipt and its key, the expected `decisionMaker.id` or the expected `executor.id`); and a consumption
+state given without the approval case fails. Effect bytes stay optional in Case 3. Section 3.1 requires the expected
+`executor.id` and, for Case 1, the approval record bytes, so a pass without them is not a pass of the draft's
+procedure.
+
+These verifiers are not a complete implementation of the draft's procedure. Even with every input supplied, a
+receipt the draft rejects can pass them, and so can pass the check of a bound decision and the executed case: in
+places the draft's field rules (section 3.8) are narrower than proofbundle's own. Measured examples, not a complete
+list:
 
 - **An evaluation time before `decidedAt`** (section 3.2 step 9) outside Case 1. The decision verifier compares
   the evaluation time with `validity.expiresAt` only, and so does the check of a decision an outcome is bound to;
   Case 1 checks approvedAt <= decidedAt <= T itself.
-- **The draft's narrower field rules** (section 3.2 step 7, section 3.4 step 3, section 3.8) where proofbundle's
-  own rules are wider: a `decisionType` other than `preActionAuthorization`, an empty string among
-  `decision.reasonCodes`, and a timestamp with more than six fraction digits or with second 60 pass the decision
-  and outcome verifiers, and so pass the check of a bound decision and the executed case. Case 1 reads its own
-  times in the draft's form.
+- **Values the draft's field rules refuse:** a `decisionType` other than `preActionAuthorization`, an audience
+  entry that is no non-empty string, a JSON null inside `decision.obligations` or inside an outcome's
+  `validity.audience`, and a declined decision without `validity.expiresAt`.
+- **Timestamps outside the draft's form** in a field these verifiers read only for its RFC 3339 form, such as
+  `recordedAt` of a decision or of an outcome: more than six fraction digits, or second 60. The times they compare,
+  `decidedAt` and `validity.expiresAt` of a decision and `performedAt` of an outcome, are read in the draft's form
+  and fail with more than six fraction digits.
 - **An evaluation time with a fraction of a second.** `--verification-time` takes a whole past second, on
   `decision verify` and on `outcome verify` alike.
 - **A trust policy that permits the outcome-signing key to attest `executor.id`** (section 3.4 step 5), other
