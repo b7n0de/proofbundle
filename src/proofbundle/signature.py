@@ -169,6 +169,25 @@ def plain_bytes(value: Any) -> "bytes | None":
     return None
 
 
+def _signaturbytes_von(value: Any) -> "bytes | None":
+    """A signer's output read once as the exact bytes it holds, or None: the reading of `_ed25519_signatur_von`
+    without its length, for a producer whose signature has another length.
+
+    Codex pre-review 13 of the class fix after 6.5.0: `trust_pack.sign_trust_pack` checked an ML-DSA-65 signer's
+    output through ``len()`` of the value `pqsig.sign_mldsa` returned. ``bytes(...)`` there keeps a ``bytes``
+    subclass whose ``__bytes__`` returns itself, so an output that reported 3309 and stored 750,001 bytes was written.
+    The length a producer checks is the length of these exact bytes, and they are what it writes.
+    """
+    roh = _puffer_von(value)
+    if roh is None:
+        try:
+            with memoryview(value) as sicht:
+                roh = sicht.tobytes()
+        except (BufferError, TypeError, ValueError):
+            return None
+    return roh
+
+
 def _ed25519_signatur_von(value: Any) -> "bytes | None":
     """A signer's output as the 64 bytes of an Ed25519 signature, read once as the bytes it holds, or None.
 
@@ -196,14 +215,8 @@ def _ed25519_signatur_von(value: Any) -> "bytes | None":
     they are, so what the export returns cannot change after the check. A value that exports no buffer (a ``str``, an
     ``int``, a list, an object with only ``__bytes__``), a released view, and any length but 64 is None.
     """
-    roh = _puffer_von(value)
-    if roh is None:
-        try:
-            with memoryview(value) as sicht:
-                roh = sicht.tobytes()
-        except (BufferError, TypeError, ValueError):
-            return None
-    return roh if len(roh) == 64 else None
+    roh = _signaturbytes_von(value)
+    return roh if roh is not None and len(roh) == 64 else None
 
 
 @_ein_stand

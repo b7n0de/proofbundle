@@ -463,7 +463,7 @@ def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None 
     statement = build_trust_pack_statement(predicate, subject_name=subject_name, subject_sha256=subject_sha256)
     body = _rfc8785_bytes(statement)
     msg = dsse.pae(INTOTO_STATEMENT_PAYLOAD_TYPE, body)
-    from .signature import _ed25519_signatur_von  # noqa: PLC0415
+    from .signature import _ed25519_signatur_von, _signaturbytes_von  # noqa: PLC0415
     keys = _as_dict(predicate.get("keys"))
     signatures = []
     for kid, sk in paare:
@@ -475,8 +475,9 @@ def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None 
         kv = keys.get(kid)
         if isinstance(kv, dict) and kv.get("alg") == "mldsa65":
             from .pqsig import sign_mldsa  # noqa: PLC0415
-            sig = sign_mldsa(sk, msg)
-            if len(sig) != _SIG_RAW_LEN["mldsa65"]:
+            # Read once as the exact bytes it holds (Codex pre-review 13: a bytes subclass reported its own length).
+            sig = _signaturbytes_von(sign_mldsa(sk, msg))
+            if sig is None or len(sig) != _SIG_RAW_LEN["mldsa65"]:
                 raise TrustPackError(f"signer {kid!r} returned no {_SIG_RAW_LEN['mldsa65']}-byte ML-DSA-65 signature, "
                                      "so no pack is returned")
         else:
