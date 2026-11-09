@@ -2675,7 +2675,7 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             _err("cannot use --anchors: the file holds no anchor (JSON null or an empty list); a file named "
                  "with --anchors must hold the anchors to check, and a verify without anchors omits the option")
             return 2
-    # Step 10 of Section 3.2 of draft-gruszka-audit-decision-receipts-07 (finding B1, vector F5): the action bytes
+    # Step 10 of Section 3.2 of draft-gruszka-audit-decision-receipts-05 (finding B1, vector F5): the action bytes
     # the relying party holds, read as bytes from a regular file. `--action ''` names a file that cannot be read,
     # never no action; an empty FILE is an action whose bytes are empty and is checked like any other.
     # Section 3.3 (finding B3): the case the relying party chooses and, for the approval case, the approval record bytes
@@ -3038,7 +3038,7 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
             _err("cannot use --policy: the policy holds no relations rule, the only part of a policy an outcome "
                  "receipt is judged by; a verify without a policy omits the option")
             return 2
-    # Section 3.4 of draft-gruszka-audit-decision-receipts-07 (finding B2, vectors F6, F7, F8): the effect bytes (a
+    # Section 3.4 of draft-gruszka-audit-decision-receipts-05 (finding B2, vectors F6, F7, F8): the effect bytes (a
     # file, read as bytes; every content, the empty file included, is an effect), and the decision receipt the outcome
     # is bound to with its key. `--effect ''` and `--decision ''` name files that cannot be read, never no option;
     # --decision and --decision-pub come together or not at all.

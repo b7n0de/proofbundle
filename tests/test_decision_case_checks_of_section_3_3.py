@@ -1,4 +1,4 @@
-"""The checks per case of Section 3.3 of draft-gruszka-audit-decision-receipts-07.
+"""The checks per case of Section 3.3 of draft-gruszka-audit-decision-receipts-05.
 
 Finding B3 of the list of 2 November 2026 (vectors F9 and F14), and the vectors of B14 with the same cause (F17, F40 to
 F54, F74, F76, F89). Measured on main 6f5955d1: proofbundle chose no case and took no approval record, so a receipt

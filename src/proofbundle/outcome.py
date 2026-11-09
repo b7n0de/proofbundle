@@ -636,7 +636,7 @@ def _empty_result() -> dict:
         # verdict here (distinct from executor_role_trusted, which stays the trust_pack role gate).
         "policy_ok": None, "lineage_requirement_failed": None,
         "relations_policy_failed": None, "relations_policy_codes": None,
-        # Section 3.4 of draft-gruszka-audit-decision-receipts-07 (finding B2, vectors F6, F7, F8): the expected
+        # Section 3.4 of draft-gruszka-audit-decision-receipts-05 (finding B2, vectors F6, F7, F8): the expected
         # executor.id (step 5), the effect bytes (step 6) and the decision receipt the outcome is bound to (steps 4,
         # 5 and 7). Each is None when its input was not given.
         "executor_id_ok": None, "effect_bytes_ok": None, "bound_decision_ok": None,
@@ -662,7 +662,7 @@ def _finalize_failclosed(r: dict) -> dict:
 
 def _gebundene_entscheidung(predicate: dict, envelope: Any, decision_key: Any, outcome_key: Any,
                             expected_maker: "str | None", now: Any) -> "tuple[bool, list[str], dict | None]":
-    """Steps 4, 5 (the part against the decision) and 7 of Section 3.4 of draft-gruszka-audit-decision-receipts-07
+    """Steps 4, 5 (the part against the decision) and 7 of Section 3.4 of draft-gruszka-audit-decision-receipts-05
     against the decision receipt the outcome names (finding B2, vectors F8, F64, F66).
 
     Step 4 binds the outcome to the decision receipt "that passed Section 3.2", so the decision is verified first,
@@ -918,7 +918,7 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
     None of the receiverRefs/sequence additions change any field documented above them, or the aggregate
     ``ok`` — fully backward compatible with every existing caller.
 
-    The inputs of Section 3.4 of draft-gruszka-audit-decision-receipts-07 (finding B2 of 2 November 2026, vectors F6,
+    The inputs of Section 3.4 of draft-gruszka-audit-decision-receipts-05 (finding B2 of 2 November 2026, vectors F6,
     F7 and F8; additive, each None by default and then not judged):
 
     - ``executor_id_ok`` — ``expected_executor_id``: executor.id MUST equal it, compared by its characters (step 5).
@@ -1108,7 +1108,7 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                     "role separation violated — executor.id equals the decisionMaker id; whoever decides "
                     "must not witness their own execution (fail-closed)")
 
-        # Section 3.4 of draft-gruszka-audit-decision-receipts-07 (finding B2), over authenticated bytes only.
+        # Section 3.4 of draft-gruszka-audit-decision-receipts-05 (finding B2), over authenticated bytes only.
         # Step 5 (F6): executor.id MUST equal the expected identifier, compared by its characters; an expectation
         # that is no text never matches.
         if expected_executor_id is not None:
@@ -1187,7 +1187,7 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
             # party has pinned the pack to an anchor (_tp_pinned). Unpinned → not positive (fail-closed).
             _anchored = _tp_pinned is True
             # 6.6.0: the key attests only the executor ids the pack names for it (draft-gruszka-audit-decision-
-            # receipts-03 section 3.4 step 5). Before, an anchored executor key could sign under any executor.id
+            # receipts-05 section 3.4 step 5). Before, an anchored executor key could sign under any executor.id
             # it wrote and each such outcome was trusted. A pack that names no executorIds binds no id: None.
             if _member and _bound:
                 _ids = _attestierte_kennungen(trust_pack, _ex.get("keyId") if isinstance(_ex, dict) else None)

@@ -1,4 +1,4 @@
-"""Approvals are honoured at most once: Section 4 of draft-gruszka-audit-decision-receipts-07, checked against a
+"""Approvals are honoured at most once: Section 4 of draft-gruszka-audit-decision-receipts-05, checked against a
 consumption state the relying party supplies.
 
 Finding B4 of the list of 2 November 2026 (vectors F10, F13, F71, F77, F90), Owner choice A on OA-616feb8f26

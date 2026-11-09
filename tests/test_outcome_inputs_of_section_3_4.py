@@ -1,4 +1,4 @@
-"""The inputs Section 3.4 of draft-gruszka-audit-decision-receipts-07 gives the verifier of an outcome receipt.
+"""The inputs Section 3.4 of draft-gruszka-audit-decision-receipts-05 gives the verifier of an outcome receipt.
 
 Finding B2 of the list of 2 November 2026 (vectors F6, F7 and F8 of the draft's test package). Measured on main
 6f5955d1: ``outcome verify`` took neither the expected ``executor.id`` (step 5), nor effect bytes (step 6), nor the
