@@ -15,10 +15,11 @@ expected.result is "pass"; result "pass" counts as accept, any other result as r
 compared. The exit code of the verifier is not used. The script prints one line per case and a summary, and
 exits with 0 only if every case matches. It uses the Python standard library only.
 
-The answer is read strictly: standard output must be UTF-8, its first line ends at the first line feed (a carriage
-return before it is dropped), and that line must be exactly one JSON object with no member named twice. Any other
-first line, an object nested too deeply to read, and a step that is not valid text are no answer and so a
-mismatch; the run goes on with the next case.
+The answer is read strictly: the first line of standard output ends at the first line feed (a carriage return
+before it is dropped), must be UTF-8, and must be exactly one JSON object with no member named twice and none of the
+non-JSON constants NaN, Infinity and -Infinity. What follows the first line feed is not read. Any other first line,
+an object nested too deeply to read, and a step that is not valid text are no answer and so a mismatch; the run
+goes on with the next case.
 """
 import argparse
 import json
@@ -37,18 +38,22 @@ def _no_duplicates(pairs):
     return dict(pairs)
 
 
+def _no_constant(name):
+    raise ValueError(name + " is not JSON")
+
+
 def read_answer(stdout):
+    line = stdout.split(b"\n", 1)[0]
+    if line.endswith(b"\r"):
+        line = line[:-1]
     try:
-        text = stdout.decode("utf-8")
+        first = line.decode("utf-8")
     except UnicodeDecodeError:
-        return None, "output is not UTF-8"
-    first = text.split("\n", 1)[0]
-    if first.endswith("\r"):
-        first = first[:-1]
+        return None, "the first line is not UTF-8"
     if not first:
         return None, "no output"
     try:
-        ans = json.loads(first, object_pairs_hook=_no_duplicates)
+        ans = json.loads(first, object_pairs_hook=_no_duplicates, parse_constant=_no_constant)
     except (ValueError, RecursionError):
         return None, "first line is not one JSON object"
     if not isinstance(ans, dict) or ans.get("result") not in RESULTS:
