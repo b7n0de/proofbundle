@@ -3908,9 +3908,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     d_verify = dsub.add_parser(
         "verify", help="verify a decision receipt (crypto + structure; optional audience/nonce)",
-        description=("Exit codes: 0 crypto+structure OK · 1 crypto/verification failure · 2 malformed input or "
-                     "predicateType confusion. Without a decision policy the output shows POLICY: NOT_EVALUATED "
-                     "and never exits 3. A verified ALLOW receipt is a record of a decision, NOT an "
+        description=("Exit codes: 0 crypto+structure OK · 1 crypto/verification failure · 2 malformed input, "
+                     "predicateType confusion, or a requested binding or case that does not hold · 3 the trust "
+                     "policy is not satisfied, or the relying party refuses the approval under Section 4 "
+                     "(--consumed, --received). Without a decision policy the output shows POLICY: NOT_EVALUATED, "
+                     "and exit 3 then comes only from Section 4. A verified ALLOW receipt is a record of a decision, NOT an "
                      "authorization or bearer token — the executing system makes its own authorization "
                      "check. --aud/--nonce bind a receipt that CARRIES validity.audience/validity.nonce "
                      "to this context; a receipt without a validity object is not checked against them, "

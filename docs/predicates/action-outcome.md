@@ -145,8 +145,9 @@ override / tamper / malformed subject, fail-closed `matches = False`). See
 
 - Independent attestation of `executor.id` is NOT built. `verify_outcome_receipt(..., trust_pack=...)` checks
   `executor.keyId` against the pack's `outcomeExecutors` role and binds that key id to the signing key (§5.8);
-  a Trust Pack names no identifier per key, and no verify path compares `executor.id` with anything but
-  `decision_maker_id` (§5.5). An anchored executor key can therefore sign an outcome under any `executor.id`
+  a Trust Pack names no identifier per key, so no verify path binds `executor.id` to the signing key:
+  `expected_executor_id` (`--executor-id`) compares it with the identifier the relying party expects, and
+  `decision_maker_id` with the decision maker's (§5.5), both as statements the relying party makes. An anchored executor key can therefore sign an outcome under any `executor.id`
   it writes, and each such outcome reports `executor_role_trusted` True, so role separation holds only
   against a signer that keeps to its own name. `executor.id` is the outcome signer's own statement. The
   binding of an identifier per executor key, compared with `executor.id`, is scheduled for 6.6.0. A LIVE

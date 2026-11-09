@@ -68,24 +68,28 @@ action bytes (section 3.2 step 10), the case the relying party chooses with the 
 `decisionMaker.id` and the evaluation time (section 3.4), and a consumption state with the copies of an approval the
 relying party received (section 4).
 
-Without an input its check is not performed, with three exceptions: without an evaluation time the wall clock is read
-once; a chosen case without an input it requires fails (Case 1 without the approval record bytes, Case 3 without the
-bound decision receipt and its key, the expected `decisionMaker.id` or the expected `executor.id`); and a consumption
-state given without the approval case fails. Effect bytes stay optional in Case 3. Section 3.1 requires the expected
+Without an input its check is not performed. Some inputs depend on others, and a missing partner then fails the
+check instead of skipping it; for example a bound decision receipt needs its key and the expected
+`decisionMaker.id`, approval record bytes need the approval case, received copies need the consumption state, and a
+consumption state needs the approval case. A chosen case fails without an input it requires (Case 1 without the
+approval record bytes, Case 3 without the bound decision receipt and its key, the expected `decisionMaker.id` or the
+expected `executor.id`). Without an evaluation time the wall clock is read once. Effect bytes stay optional in
+Case 3. Section 3.1 requires the expected
 `executor.id` and, for Case 1, the approval record bytes, so a pass without them is not a pass of the draft's
 procedure.
 
 These verifiers are not a complete implementation of the draft's procedure. Even with every input supplied, a
-receipt the draft rejects can pass them, and so can pass the check of a bound decision and the executed case: in
-places the draft's field rules (section 3.8) are narrower than proofbundle's own. Measured examples, not a complete
-list:
+receipt the draft rejects can pass them: in places the draft's field rules (section 3.8) are narrower than
+proofbundle's own. Measured examples, not a complete list:
 
 - **An evaluation time before `decidedAt`** (section 3.2 step 9) outside Case 1. The decision verifier compares
   the evaluation time with `validity.expiresAt` only, and so does the check of a decision an outcome is bound to;
   Case 1 checks approvedAt <= decidedAt <= T itself.
 - **Values the draft's field rules refuse:** a `decisionType` other than `preActionAuthorization`, an audience
-  entry that is no non-empty string, a JSON null inside `decision.obligations` or inside an outcome's
-  `validity.audience`, and a declined decision without `validity.expiresAt`.
+  entry that is no non-empty string, and a JSON null inside `decision.obligations` or inside an outcome's
+  `validity.audience` pass the check of a bound decision and the executed case.
+- **A declined decision without `validity.expiresAt`** passes `decision verify` with the declined case. A bound
+  decision without it fails the binding, whose time window reads that field.
 - **Timestamps outside the draft's form** in a field these verifiers read only for its RFC 3339 form, such as
   `recordedAt` of a decision or of an outcome: more than six fraction digits, or second 60. The times they compare,
   `decidedAt` and `validity.expiresAt` of a decision and `performedAt` of an outcome, are read in the draft's form
