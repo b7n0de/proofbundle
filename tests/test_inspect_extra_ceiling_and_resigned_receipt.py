@@ -64,6 +64,11 @@ def test_integrations_says_verify_accepts_a_re_signed_receipt_and_names_the_pin(
     assert len(satz) == 1, satz
     assert "`proofbundle verify`" in satz[0], satz
     assert "--expect-issuer" in satz[0], satz
+    # Codex pre-review 1 of B32: the signature covers the signed payload, not the receipt's Merkle wrapper, which a
+    # coherent root rewrap changes without a key (THREAT_MODEL.md). The sentence names what is signed and claims no
+    # unchanged receipt.
+    assert "signed payload" in satz[0], satz
+    assert "unchanged" not in satz[0], satz
 
 
 def _run(argv):
