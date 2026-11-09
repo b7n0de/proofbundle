@@ -2,7 +2,8 @@
 
 An Action Outcome's `execution_proven` is by default a claim the EXECUTOR signs about itself. This closes
 the SELF-FIXABLE half: an optional, digest-bound `receiverRefs[]` (mirrors decision.py's `evidenceRefs[]`),
-an `assurance.classify_receiver_corroboration` wiring that can reach `EvidenceLevel.INDEPENDENTLY_ATTESTED`,
+an `assurance.classify_receiver_corroboration` wiring that is capped at `EvidenceLevel.CONTENT_RESOLVED`
+(`INDEPENDENTLY_ATTESTED` is not reachable, N47),
 an `outcomeReceivers` Trust Pack role, and `detect_outcome_sequence_gaps` for opted-in gap detection.
 
 The INHERENT half (proofbundle cannot itself make a receiving system SIGN an acknowledgement) is NOT built

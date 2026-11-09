@@ -1066,9 +1066,13 @@ def test_jeder_freigabeentscheidende_artefaktleser_geht_ueber_den_einen_pfad():
     quelle = (REPO / "scripts" / "audit_candidate_matrix.py").read_text(encoding="utf-8")
     m = _matrix_modul()
     entscheidend = {cid for cid, *_ in m.CHECKS} - set(m._INFORMATIVE_CHECKS)
-    assert {"C6.2", "C6.3", "C8.2", "C9.1"} <= entscheidend
+    assert {"C6.2", "C8.2", "C9.1"} <= entscheidend
     assert "C10.2" not in entscheidend, \
         "C10.2 ist wieder freigabeentscheidend, aber ihr Zulassungspfad wurde nicht mitgehaertet"
+    # Card OA-69770dad93 C: C6.3 is a named residual risk (decision of 2026-09-08, S21) that does not hold
+    # the tag. Its admission path stays hardened (loop below), but it must not decide readiness.
+    assert "C6.3" not in entscheidend, \
+        "C6.3 ist wieder freigabeentscheidend, gegen den Owner-Entscheid vom 08.09. (Karte OA-69770dad93 C)"
     for fn in ("c6_2_recorded_soak_clean", "c6_3_full_24h", "c8_2_differential_agrees"):
         koerper = _code_ohne_doku(quelle, fn)
         assert "_json_artifact(" not in koerper, f"{fn} liest noch am Zulassungspfad vorbei"
@@ -1102,6 +1106,9 @@ def test_das_inventar_stimmt_mit_checks_und_admission_fn_ueberein():
     # Und die konkrete, in Runde 2 verlangte Ausnahme steht wirklich sichtbar da:
     assert inventar["C10.2"]["release_deciding"] is False
     assert "C10.2" in m._INFORMATIVE_CHECKS
+    # The same for C6.3 after card OA-69770dad93 C: both, not only one of the two.
+    assert inventar["C6.3"]["release_deciding"] is False
+    assert "C6.3" in m._INFORMATIVE_CHECKS
 
 
 def test_c9_1_leitet_sein_urteil_nicht_mehr_aus_prosa_ab():

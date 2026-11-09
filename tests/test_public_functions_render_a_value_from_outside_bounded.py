@@ -613,6 +613,8 @@ _HAND_SEEDS = {
     "proofbundle._plain_value.plain_json": lambda tmp: [(({"a": [1, "x"]},),
                                                          {"what": "the value", "error": BundleFormatError})],
     "proofbundle._plain_value.plain_list": lambda tmp: [(([1, "x"],), {})],
+    # The approval record of Case 1 of Section 3.3 (finding B3), read by decision verify --approval.
+    "proofbundle._approval_record.read_approval_record": lambda tmp: [((b'{"approvalId":"a"}',), {})],
     "proofbundle._statement_payload.statement_type_problem": lambda tmp: [(
         ({"_type": "https://in-toto.io/Statement/v1"},), {})],
     # Public since pull request 379, the subject rule of the one Statement oracle and its emitter side.
@@ -620,6 +622,11 @@ _HAND_SEEDS = {
         ({"subject": [{"name": "x", "digest": {"sha256": "a" * 64}}]},), {})],
     "proofbundle._statement_payload.refuse_an_unwritable_subject": lambda tmp: [(
         ({"subject": [{"name": "x", "digest": {"sha256": "a" * 64}}]}, BundleFormatError), {})],
+    # Section 4 (finding B4): the readers of the approval identity, the consumption state and the received copies.
+    "proofbundle._approval_record.approval_identity": lambda tmp: [(({"approvalId": "a", "session": "s",
+                                                                      "actionDigest": {"sha256": "a" * 64}},), {})],
+    "proofbundle._approval_record.read_consumption_state": lambda tmp: [((b'{"current": []}',), {})],
+    "proofbundle._approval_record.read_received_copies": lambda tmp: [((b'[{"approvalId": "a"}]',), {})],
     "proofbundle._verdict.require_eval_claim": lambda tmp: [((_claim_of_the_test_key(),), {"wo": "sweep"})],
     "proofbundle._wire_b64.wire_value": lambda tmp: [(("AAAA",), {})],
     "proofbundle.sdjwt.issuer_key_fingerprint": lambda tmp: [(
