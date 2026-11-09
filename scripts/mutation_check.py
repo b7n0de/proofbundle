@@ -721,7 +721,7 @@ MUTATIONS = [
      '_INFORMATIVE_CHECKS = {"C1.2", "C1.3", "C6.3", "C9.2", "C10.2", "C10.3", "C10.4", "C10.5", "C11.3"}',
      '_INFORMATIVE_CHECKS = {"C1.2", "C1.3", "C6.3", "C9.2", "C10.3", "C10.4", "C10.5", "C11.3"}',
      "matrix: C10.2 wieder freigabeentscheidend hochgestuft", True),
-    # Karte OA-69770dad93 C: C6.3 ist informativ; still hochgestuft muss es rot werden.
+    # Card OA-69770dad93 C: C6.3 is informative; moving it back among the deciding rows must turn red.
     ("scripts/audit_candidate_matrix.py",
      '_INFORMATIVE_CHECKS = {"C1.2", "C1.3", "C6.3", "C9.2", "C10.2", "C10.3", "C10.4", "C10.5", "C11.3"}',
      '_INFORMATIVE_CHECKS = {"C1.2", "C1.3", "C9.2", "C10.2", "C10.3", "C10.4", "C10.5", "C11.3"}',

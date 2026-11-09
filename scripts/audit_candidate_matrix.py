@@ -2146,10 +2146,10 @@ def c6_3_full_24h():
     Aufzeichnung vor (diese Maschine ist keine Soak-Box), oder es liegt eine gueltige, aber KURZE
     vor (hier standen keine 24 Stunden zur Verfuegung).
 
-    INFORMATIV seit Karte OA-69770dad93 C (nach dem Release 6.5.0): der Owner-Entscheid vom 08.09.2026
-    (RESTRISIKO_600, S21) nennt den 24-Stunden-Soak ein benanntes Restrisiko, das den Tag nicht haelt.
-    Diese Zeile wird weiter gemessen und berichtet, entscheidet aber `audit_candidate_ready` nicht mehr
-    (``_INFORMATIVE_CHECKS``). Der Zulassungsweg bleibt derselbe.
+    INFORMATIVE since card OA-69770dad93 C, after the release 6.5.0: the decision of 2026-09-08
+    (RESTRISIKO_600, S21) names the 24-hour soak a residual risk that does not hold the tag. This row is
+    still measured and reported, but no longer decides `audit_candidate_ready` (``_INFORMATIVE_CHECKS``).
+    Its admission path is unchanged.
     """
     res = _soak_artifact()
     _EVIDENZ_ZUSTAND["C6.3"] = res["state"]
