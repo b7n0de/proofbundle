@@ -25,7 +25,10 @@ import sys
 import unittest
 from pathlib import Path
 
-FOLDER = Path(__file__).resolve().parent.parent / "interop" / "audit-decision-receipts-07"
+# The repository root by name, as tests/conftest.py derives repo-context modules: the sdist does not ship
+# interop/, and from an extracted sdist this module is then skipped as N/A instead of failing on a missing file.
+ROOT = Path(__file__).resolve().parents[1]
+FOLDER = ROOT / "interop" / "audit-decision-receipts-07"
 RUNNER = FOLDER / "run_cases.py"
 
 #: A verifier that prints the expected answer of the case file it is given, then whatever TAIL adds.
