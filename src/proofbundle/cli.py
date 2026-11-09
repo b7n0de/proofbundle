@@ -417,6 +417,9 @@ _COMMAND_GROUPS = (
         ("outcome", "action-outcome/v0.1: an action outcome  (experimental)"),
         ("relation-statement", "relation-statement/v0.1: retract or supersede  (experimental)"),
     )),
+    ("SCITT statements", (
+        ("scitt", "match a reference to a SCITT Signed Statement  (experimental)"),
+    )),
     ("Time anchors", (
         ("anchor", "package, verify and inspect external time anchors  (experimental)"),
     )),
@@ -3344,6 +3347,75 @@ def _cmd_relation_statement_inspect(args: argparse.Namespace) -> int:
     return 0
 
 
+# ── scitt match (6.6.0, draft-gruszka-scitt-statement-identification-03, EXPERIMENTAL) ──────────
+#: The schemes `scitt match` offers, the same as `scitt_statement_id.SCHEMES` (a test holds both equal). Written out
+#: here so that building the parser does not import the reader: only the command itself does.
+_SCITT_SCHEMES = ("ToBeSigned", "WholeBytes")
+#: The exit code of each match result. 0 is MATCH and nothing else: it says the digest of the scheme's bytes equals the
+#: reference, not that the signature verifies, the issuer is trusted or the statement is registered.
+_SCITT_MATCH_EXIT = {"MATCH": 0, "NO_MATCH": 1, "INDETERMINATE": 3}
+
+
+def _scitt_read(path, what: str) -> bytes:
+    """One input file of `scitt match`, read once as bytes under the input budget; `''` names a file that cannot be
+    read, never an input that is not supplied."""
+    try:
+        with _open_input(path, binary=True) as handle:
+            return _read_capped_bytes(handle)
+    except (ProofBundleError, OSError, ValueError) as exc:
+        raise ValueError(f"cannot read {what}: {exc}") from exc
+
+
+def _cmd_scitt_match(args: argparse.Namespace) -> int:
+    from .scitt_statement_id import HASHES, NoVerdict, match_statement  # noqa: PLC0415
+    try:
+        reference = _scitt_read(args.reference, "--reference")
+        candidate = _scitt_read(args.candidate, "the candidate")
+        aad = None if args.external_aad is None else _scitt_read(args.external_aad, "--external-aad")
+        detached = None if args.detached_payload is None else _scitt_read(args.detached_payload, "--detached-payload")
+        pub = None
+        if args.pub is not None:
+            pub = decode_b64(args.pub)
+            if len(pub) != 32:
+                raise ValueError("--pub must decode to the 32 bytes of an Ed25519 public key")
+        res = match_statement(reference, candidate, scheme=args.scheme, alg=args.alg, external_aad=aad,
+                              detached_payload=detached, public_key=pub)
+    except NoVerdict as exc:
+        if args.json:
+            print(json.dumps({"verdict": None, "error": str(exc)}))
+        else:
+            _err(exc)
+            print("=> NO VERDICT (exit 2): this reader does not read the input; it is not judged as matching or not")
+        return 2
+    except (ProofBundleError, OSError, ValueError, TypeError) as exc:
+        if args.json:
+            print(json.dumps({"verdict": None, "error": str(exc)}))
+        else:
+            _err(exc)
+        return 2
+    code = _SCITT_MATCH_EXIT[res["match"]]
+    if args.json:
+        print(json.dumps(res, indent=2))
+        return code
+
+    def _ja(v) -> str:
+        return {True: "yes", False: "no", None: "not evaluated"}[v]
+
+    print(f"SCHEME: {res['scheme']} (alg {res['alg']}, {HASHES[res['alg']][0]})")
+    print(f"REF_USABLE: {_ja(res['ref_usable'])}")
+    print(f"MATCH: {res['match']}")
+    print(f"IS_SCITT: {_ja(res['is_scitt'])}")
+    print(f"SIG_VALID: NOT_EVALUATED ({res['sig_valid_reason']})")
+    print(f"SIGNATURE: {_ja(res['signature'])}")
+    if res["digest"] is not None:
+        print(f"DIGEST: {res['digest']}")
+    for reason in res["reasons"]:
+        print(f"  - {_safe_line(str(reason))}")
+    print(f"=> {res['match']} (exit {code}). A match says the digest of the scheme's bytes equals the reference; it is "
+          "not a signature check, not issuer trust and not registration.")
+    return code
+
+
 def _cmd_policy_explain(args: argparse.Namespace) -> int:
     from .policy import PolicyError, explain_policy, load_policy, policy_warnings  # noqa: PLC0415
     from .policy_profiles import resolve_policy_source  # noqa: PLC0415
@@ -4117,6 +4189,49 @@ def build_parser() -> argparse.ArgumentParser:
     rs_inspect = rsub.add_parser("inspect", help="print a relation statement's predicate (no crypto verification)")
     rs_inspect.add_argument("receipt", help="path to a DSSE statement or a raw in-toto Statement")
     rs_inspect.set_defaults(func=_cmd_relation_statement_inspect)
+
+    # scitt (6.6.0, EXPERIMENTAL): the reader of draft-gruszka-scitt-statement-identification-03, Section 6.
+    scitt = sub.add_parser(
+        "scitt", allow_abbrev=False,
+        help="[EXPERIMENTAL] SCITT statement identification: match a reference to a candidate COSE_Sign1 "
+             "(draft-gruszka-scitt-statement-identification-03, Section 6)")
+    ssub = scitt.add_subparsers(dest="scitt_command", required=True)
+    s_match = ssub.add_parser(
+        "match", allow_abbrev=False,
+        help="report ref_usable, match, is_scitt and the signature of a candidate under one named scheme",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="Exit codes:\n"
+               "  0  MATCH: the digest of the scheme's bytes equals the reference. Nothing else: a MATCH may come\n"
+               "     with a signature that does not verify or without tag 18 (cases C6, C9 and C11 of the draft)\n"
+               "  1  NO_MATCH: the comparison was made and differs, or the candidate is not a statement under the\n"
+               "     read check of Section 6 while the reference is usable\n"
+               "  2  unreadable input or option, or no verdict: input this reader does not read (a map key it does\n"
+               "     not represent, input over its budget), never reported as matching or not\n"
+               "  3  INDETERMINATE: the reference is not usable for the scheme, or a needed input (external_aad, a\n"
+               "     detached payload) is not supplied\n"
+               "The scheme is named by you, never taken from the reference, and there is no fallback to another\n"
+               "scheme. sig_valid of Section 6 is reported as not evaluated, since this reader does not apply its\n"
+               "rule 2; SIGNATURE is Ed25519 under the profile of SPEC.md section 4a (docs/SCITT_STATEMENT_MATCH.md).")
+    s_match.add_argument("candidate", help="path to the candidate COSE_Sign1, bare or with tag 18, as binary CBOR")
+    s_match.add_argument("--reference", required=True, metavar="FILE",
+                         help="path to the reference, the CBOR array [alg, scheme, digest], as binary CBOR")
+    s_match.add_argument("--scheme", required=True, choices=_SCITT_SCHEMES,
+                         help="ToBeSigned (Section 5.1 of the draft) or WholeBytes (the digest of the candidate bytes "
+                              "as given, a local experimental scheme)")
+    s_match.add_argument("--alg", required=True, type=int, metavar="N",
+                         help="the scheme's hash function as a COSE algorithm number: -16 SHA-256, -43 SHA-384, -44 "
+                              "SHA-512, -17 SHA-512/256, -15 SHA-256/64, -18 SHAKE128, -45 SHAKE256, -14 SHA-1")
+    s_match.add_argument("--external-aad", dest="external_aad", default=None, metavar="FILE",
+                         help="the external_aad bytes for ToBeSigned; a file of 0 bytes is a supplied empty value. "
+                              "Without the option it is not supplied, and a ToBeSigned match is INDETERMINATE")
+    s_match.add_argument("--detached-payload", dest="detached_payload", default=None, metavar="FILE",
+                         help="the payload bytes for a candidate whose payload is nil; an embedded payload is used "
+                              "even when this is given")
+    s_match.add_argument("--pub", default=None, metavar="B64",
+                         help="the Ed25519 public key (base64 of 32 bytes) the SIGNATURE axis is checked under; "
+                              "without it SIGNATURE is not evaluated")
+    s_match.add_argument("--json", action="store_true", help="machine readable output")
+    s_match.set_defaults(func=_cmd_scitt_match)
 
     # ── anchor operations (OTS hardening + calendar-risk, EXPERIMENTAL, the [anchors] extra) ──
     anchor = sub.add_parser(
