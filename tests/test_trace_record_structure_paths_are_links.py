@@ -339,7 +339,10 @@ def test_a_wide_layer_under_a_600_mib_address_space_ends_in_a_verdict(tmp_path):
     raw = _wide_layer(200_000, 3_000)        # 233,931 bytes
     path = tmp_path / "record.json"
     path.write_bytes(raw)
-    env = dict(os.environ, PYTHONHASHSEED="0")
+    # The child imports the tree under test, never an installed proofbundle: a child does not inherit the
+    # parent's sys.path, and an interpreter with an older proofbundle installed (6.0.0 has no trace_record)
+    # would otherwise test that package or fail on its import.
+    env = dict(os.environ, PYTHONHASHSEED="0", PYTHONPATH=str(Path(__file__).resolve().parents[1] / "src"))
     done = subprocess.run([sys.executable, "-c", _CHILD, str(path), "600", json.dumps(JWK)],
                           capture_output=True, text=True, timeout=120, env=env)
     # At ac4129f7 the child printed MemoryError and exited 70.
