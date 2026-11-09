@@ -8,6 +8,10 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
+### Changed
+
+- **The `inspect` extra admits `inspect_ai` up to 0.3.288, and INTEGRATIONS.md says what `proofbundle verify` does with a re-signed receipt.** 0.3.282 to 0.3.288 were each run in a fresh environment against `tests/test_inspect_hook.py` and `tests/test_adapters.py`, as pyproject.toml records; the ceiling moves in the `inspect` extra, the `dev` extra and INTEGRATIONS.md together. INTEGRATIONS.md now says that `verify` checks a receipt against the key it carries, so a receipt changed and re-signed with another key verifies, and that `show-eval --expect-issuer` refuses it. `tests/test_inspect_extra_ceiling_and_resigned_receipt.py` holds the three ceilings to one number and to the newest measured bump, and holds the sentence to the code. No verdict changes.
+
 ## [6.5.0] - 2026-11-08
 
 6.5.0 is a feature release following 6.4.0. It adds `proofbundle verify-sigstore`, an offline verifier for GitHub Artifact Attestations and npm provenance, and the verifiers for eval-result v0.1, test-result v0.1 and SVR v0.1 statements now require the members their predicates require, in the forms those predicates give them. Every `rfc3339z` time field must name a real calendar instant, five walks over a JSON value keep their memory in proportion to the input, and the Bitcoin header map of the trust policy, `--bitcoin-header`, `--bundled-header`, the agent-review policy file and the SD-JWT bundle binding read their inputs strictly. The `[scitt]` extra and the dev pins take cbor2 6.1.5.
