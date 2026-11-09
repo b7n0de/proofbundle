@@ -157,7 +157,7 @@ def validate_outcome_predicate(predicate: Any, *, strict: bool = False) -> list[
             errors.append(f"{tp} must be an RFC3339 UTC 'Z' timestamp")
 
     # policyPurpose (optional): when present it MUST be exactly 'outcome' — a wrong purpose is a
-    # confusion/misrouting signal, fail-closed (the CLI maps this to exit 3).
+    # confusion/misrouting signal, fail-closed: a structure finding, so the CLI exits 2 before any policy is judged.
     if "policyPurpose" in predicate and predicate.get("policyPurpose") != _OUTCOME_POLICY_PURPOSE:
         errors.append(
             f"policyPurpose must be {_OUTCOME_POLICY_PURPOSE!r} for an outcome receipt, "

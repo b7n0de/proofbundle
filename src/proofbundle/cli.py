@@ -3133,7 +3133,8 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
                   "the effect was good, correct or desired.")
         else:
             print("\nThis receipt did NOT verify (crypto failure); nothing about the outcome is attested.")
-    # Exit contract mirrors decision verify: 1 crypto · 2 malformed/confusion/binding-mismatch · 3 policyPurpose.
+    # Exit contract mirrors decision verify: 1 crypto · 2 malformed/confusion/binding-mismatch, a wrong
+    # policyPurpose of the predicate included (a structure finding) · 3 a supplied trust policy not satisfied.
     if not result["crypto_ok"]:
         return 1
     if not result["structure_ok"]:
@@ -3916,10 +3917,11 @@ def build_parser() -> argparse.ArgumentParser:
                      "(--consumed, --received). Without a decision policy the output shows POLICY: NOT_EVALUATED, "
                      "and exit 3 then comes only from Section 4. A verified ALLOW receipt is a record of a decision, NOT an "
                      "authorization or bearer token — the executing system makes its own authorization "
-                     "check. --aud/--nonce bind a receipt that CARRIES validity.audience/validity.nonce "
-                     "to this context; a receipt without a validity object is not checked against them, "
-                     "so require their presence via a v0.2 policy's require_audience/require_nonce "
-                     "(see docs/NON_CLAIMS.md)."))
+                     "check. --aud/--nonce bind the receipt to this context: a receipt whose "
+                     "validity.audience does not hold the expected audience, or whose validity.nonce "
+                     "differs, fails (exit 2), and so does a receipt without a validity object; a v0.2 "
+                     "policy's require_audience/require_nonce require their presence even without "
+                     "--aud/--nonce (see docs/NON_CLAIMS.md)."))
     d_verify.add_argument("envelope", help="path to the DSSE decision receipt")
     d_verify.add_argument("--pub", required=True, help="issuer Ed25519 public key (base64) to verify against")
     d_verify.add_argument("--policy", default=None,

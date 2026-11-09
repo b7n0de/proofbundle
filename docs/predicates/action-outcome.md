@@ -48,7 +48,7 @@ action-outcome statement  (executor + status + effect + notProven; own detached 
 `decisionRef.sha256` is the **content root** of the referenced Decision Receipt — SHA-256 over its exact
 RFC-8785 canonical Statement bytes, never a re-canonicalized recomputation and never the bare predicate hash.
 `verify_outcome_receipt(..., expected_decision_ref=...)` fails closed when the embedded `decisionRef` does not
-equal the caller's expected content root (`decision_bound`). An optional `requestedActionDigest` pins the exact
+equal the caller's expected content root (`decision_bound`). The required `requestedActionDigest` pins the exact
 proposed action; `effectDigest` / `actualActionDigest` pin the observed effect. Neither predicate semantically
 mixes into the other.
 

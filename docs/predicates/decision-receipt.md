@@ -193,7 +193,8 @@ returns `None` on a valid one. Both accept `strict=True` for the strict-v0.1 rul
 
 ## 7. Verification
 
-`proofbundle decision verify <statement-or-envelope> [--pub KEY] [--policy trust_policy.json] [--json]`.
+`proofbundle decision verify <envelope> --pub KEY [--policy trust_policy.json] [--json]`, where `<envelope>` is the
+DSSE envelope of the receipt; a bare in-toto Statement carries no signature and does not verify.
 
 Order: crypto first, then (if a policy is supplied) policy over the crypto result. The structured result uses
 **snake_case** field names, each check independently reported, never silently `true`:
