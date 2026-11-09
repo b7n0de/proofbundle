@@ -17,18 +17,23 @@ exits with 0 only if every case matches. It uses the Python standard library onl
 
 The answer is read strictly: the first line of standard output ends at the first line feed (a carriage return
 before it is dropped), must be UTF-8, and must be exactly one JSON object with no member named twice and none of the
-non-JSON constants NaN, Infinity and -Infinity. What follows the first line feed is not read. Any other first line,
-an object nested too deeply to read, and a step that is not valid text are no answer and so a mismatch; the run
-goes on with the next case.
+non-JSON constants NaN, Infinity and -Infinity. Both members must be there: result one of the four values, step null
+for pass and otherwise one of the steps the README names, "3.2 step 1" to "3.2 step 10", "3.3 case 1" to "3.3 case
+3", "3.4 step 1" to "3.4 step 7", "3.5 third check" or "4 item N". Further members are allowed, and a number in them
+is read without a limit on its digits. What follows the first line feed is not read. Any other first line and an
+object nested too deeply to read are no answer and so a mismatch; the run goes on with the next case.
 """
 import argparse
+import decimal
 import json
 import math
 import os
+import re
 import subprocess
 import sys
 
 RESULTS = ("pass", "fail", "refuse", "auditor-fail")
+STEP = re.compile(r"3\.2 step (?:[1-9]|10)|3\.3 case [1-3]|3\.4 step [1-7]|3\.5 third check|4 item [1-9][0-9]*")
 
 
 def _no_duplicates(pairs):
@@ -53,19 +58,20 @@ def read_answer(stdout):
     if not first:
         return None, "no output"
     try:
-        ans = json.loads(first, object_pairs_hook=_no_duplicates, parse_constant=_no_constant)
+        ans = json.loads(first, object_pairs_hook=_no_duplicates, parse_constant=_no_constant,
+                         parse_int=decimal.Decimal)
     except (ValueError, RecursionError):
         return None, "first line is not one JSON object"
-    if not isinstance(ans, dict) or ans.get("result") not in RESULTS:
+    if not isinstance(ans, dict) or not isinstance(ans.get("result"), str) or ans["result"] not in RESULTS:
         return None, "no valid result"
-    step = ans.get("step")
-    if step is not None and not isinstance(step, str):
-        return None, "step is not a string or null"
-    if step is not None:
-        try:
-            step.encode("utf-8")
-        except UnicodeEncodeError:
-            return None, "step is not valid text"
+    if "step" not in ans:
+        return None, "no step member"
+    step = ans["step"]
+    if ans["result"] == "pass":
+        if step is not None:
+            return None, "step is not null for pass"
+    elif not isinstance(step, str) or not STEP.fullmatch(step):
+        return None, "step is not one of the steps the README names"
     return (ans["result"], step), ""
 
 
