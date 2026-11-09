@@ -39,6 +39,11 @@ EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 ACTION = b'{"publish":"release-4471"}\n'
 EFFECT = b'{"published":"release-4471","url":"https://example.org/r/4471"}\n'
 EXECUTOR = "forge:agent-42-bot"
+#: The decisionMaker.id of examples/decision_receipt_allow.json, the identifier the relying party expects (3.1).
+MAKER = "https://example.org/decision-platform/proofbundle-gate/v1"
+#: The evaluation time T the relying party supplies (3.1): 2026-07-09T11:17:00Z, inside the decision's validity.
+T_IM_FENSTER = 1783595820
+T_TEXT = "2026-07-09T11:17:00Z"
 
 
 def _run(argv):
@@ -91,7 +96,7 @@ class _Paar(unittest.TestCase):
 
     def _verify(self, env, **kw):
         args = {"expected_executor_id": EXECUTOR, "effect_bytes": EFFECT, "decision_envelope": self.dec,
-                "decision_public_key": self.dpub}
+                "decision_public_key": self.dpub, "decision_maker_id": MAKER, "now": T_IM_FENSTER}
         args.update(kw)
         return verify_outcome_receipt(env, self.opub, strict=True, **args)
 
@@ -170,7 +175,8 @@ class TestSection34Library(_Paar):
     def test_same_key_for_decision_and_outcome_fails(self):
         env = emit_outcome_receipt(_outcome_predicate(self.dec), self.ds)
         r = verify_outcome_receipt(env, self.dpub, strict=True, expected_executor_id=EXECUTOR, effect_bytes=EFFECT,
-                                   decision_envelope=self.dec, decision_public_key=self.dpub)
+                                   decision_envelope=self.dec, decision_public_key=self.dpub,
+                                   decision_maker_id=MAKER, now=T_IM_FENSTER)
         self.assertIs(r["bound_decision_ok"], False)
         self.assertFalse(r["ok"])
 
@@ -203,11 +209,47 @@ class TestSection34Library(_Paar):
     def test_not_judged_over_unauthenticated_bytes(self):
         other = generate_signer().public_key().public_bytes_raw()
         r = verify_outcome_receipt(self._out(), other, strict=True, expected_executor_id=EXECUTOR,
-                                   effect_bytes=EFFECT, decision_envelope=self.dec, decision_public_key=self.dpub)
+                                   effect_bytes=EFFECT, decision_envelope=self.dec, decision_public_key=self.dpub,
+                                   decision_maker_id=MAKER, now=T_IM_FENSTER)
         self.assertFalse(r["crypto_ok"])
         self.assertIsNone(r["executor_id_ok"])
         self.assertIsNone(r["effect_bytes_ok"])
         self.assertIsNone(r["bound_decision_ok"])
+
+    # step 4: the decision receipt "passed Section 3.2", the whole of it, at the relying party's T (3.1) and under the
+    # decisionMaker.id the relying party expects (step 8 of 3.2). Measured at e200c107: an expired decision and one
+    # signed for another decision maker both gave bound_decision_ok True, because only signature, structure,
+    # predicate type and derived subject of the decision's verdict were read.
+    def test_an_expired_decision_does_not_bind(self):
+        for now in (1783596000, 1783596001):              # T == validity.expiresAt 11:20:00Z, and one second after
+            with self.subTest(now=now):
+                r = self._verify(self._out(), now=now)
+                self.assertIs(r["bound_decision_ok"], False)
+                self.assertFalse(r["ok"])
+
+    def test_without_t_the_decision_is_judged_at_the_wall_clock(self):
+        # The fixture's decision expired on 2026-07-09; at the wall clock it no longer passes Section 3.2.
+        r = self._verify(self._out(), now=None)
+        self.assertIs(r["bound_decision_ok"], False)
+
+    def test_a_decision_of_another_decision_maker_does_not_bind(self):
+        p = _decision_predicate()
+        p["decisionMaker"]["id"] = "intruder-id"
+        dec = emit_decision_receipt(p, self.ds)
+        env = emit_outcome_receipt(_outcome_predicate(dec), self.os_)
+        r = self._verify(env, decision_envelope=dec)
+        self.assertIs(r["bound_decision_ok"], False)
+        self.assertFalse(r["ok"])
+
+    def test_a_bound_decision_needs_the_expected_decision_maker(self):
+        r = self._verify(self._out(), decision_maker_id=None)
+        self.assertIs(r["bound_decision_ok"], False)
+        self.assertFalse(r["ok"])
+
+    def test_a_malformed_t_does_not_bind(self):
+        for now in (True, 1.5, "1783595820", -10 ** 20):
+            with self.subTest(now=now):
+                self.assertIs(self._verify(self._out(), now=now)["bound_decision_ok"], False)
 
 
 class TestSection34Cli(_Paar):
@@ -228,7 +270,20 @@ class TestSection34Cli(_Paar):
 
     def _alle(self):
         return ["--executor-id", EXECUTOR, "--effect", str(self.effect), "--decision", str(self.decision),
-                "--decision-pub", base64.b64encode(self.dpub).decode()]
+                "--decision-pub", base64.b64encode(self.dpub).decode(), "--decision-maker-id", MAKER,
+                "--verification-time", T_TEXT]
+
+    def test_cli_expired_decision_exit_2(self):
+        # Without --verification-time the bound decision is judged at the wall clock, where it has expired.
+        alle = self._alle()
+        rc, out, _ = self._cli(self._out(), *alle[:-2])
+        self.assertEqual(rc, 2)
+        self.assertIn("BOUND_DECISION: FAIL", out)
+
+    def test_cli_verification_time_in_the_future_exit_2(self):
+        alle = self._alle()
+        rc, _, _ = self._cli(self._out(), *alle[:-1], "2999-01-01T00:00:00Z")
+        self.assertEqual(rc, 2)
 
     def test_cli_all_hold_exit_0(self):
         rc, out, err = self._cli(self._out(), *self._alle())
