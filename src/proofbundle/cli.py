@@ -3919,8 +3919,8 @@ def build_parser() -> argparse.ArgumentParser:
         "verify", help="verify a decision receipt (crypto + structure; optional audience/nonce)",
         description=("Exit codes: 0 crypto+structure OK · 1 crypto/verification failure · 2 malformed input, "
                      "predicateType confusion, an expired receipt, or a requested binding, action, case or "
-                     "lineage check that does not hold (expiry is judged last, so an expired receipt that "
-                     "fails the policy exits 3) · 3 the trust "
+                     "lineage check that does not hold (expiry is judged last, so an expired receipt whose "
+                     "only other failure is the policy exits 3) · 3 the trust "
                      "policy is not satisfied, or the relying party refuses the approval under Section 4 "
                      "(--consumed, --received). Without a decision policy the output shows POLICY: NOT_EVALUATED, "
                      "and exit 3 then comes only from Section 4. A verified ALLOW receipt is a record of a decision, NOT an "

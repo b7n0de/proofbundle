@@ -544,14 +544,17 @@ def build_decision_statement(predicate: dict, *, subject_name: str | None = None
     commitment to the decision: by DEFAULT sha256 over the RFC-8785 canonical predicate.
 
     **Caller-attested override (No-Overclaim, 6-lens review):** a caller-supplied `subject_sha256` /
-    `subject_name` is placed into `subject` verbatim and is NOT cross-checked against the predicate here;
-    `verify_decision_receipt` classifies it (`subject_binding`): a subject that is not the digest of the
-    predicate is EXTERNAL_ATTESTED, always warned, and fails only under `require_derived_subject`. So a
-    caller that overrides `subject_sha256` is self-attesting what the statement applies to — a generic
-    in-toto consumer that matches by `subject.digest` (rather than re-hashing the predicate) trusts that
-    value. Omit the override to keep the subject a true commitment to the signed predicate. Its form is
-    checked: an override the verifier would refuse (a sha256 that is not 64 lowercase hex characters)
-    raises here instead of being signed."""
+    `subject_name` is placed into `subject` verbatim and is NOT cross-checked against the predicate
+    here; `verify_decision_receipt` classifies it (`subject_binding`) once the signature verifies
+    and the RFC-8785 canonicalizer is available: a single subject that is not the digest of the
+    predicate is EXTERNAL_ATTESTED and warned, more than one subject is AMBIGUOUS and warned, and
+    only `require_derived_subject` turns a subject that is not derived, or one that cannot be
+    classified, into a failed subject binding. So a caller that overrides `subject_sha256` is
+    self-attesting what the statement applies to — a generic in-toto consumer that matches by
+    `subject.digest` (rather than re-hashing the predicate) trusts that value. Omit the override to
+    keep the subject a true commitment to the signed predicate. Its form is checked: an override the
+    verifier would refuse (a sha256 that is not 64 lowercase hex characters) raises here instead of
+    being signed."""
     predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
     predicate = _eine_kopie(predicate, DecisionReceiptError, "decision predicate")   # one reading (round 12)
     errs = validate_decision_predicate(predicate, strict=False)

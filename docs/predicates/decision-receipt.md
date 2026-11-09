@@ -117,7 +117,7 @@ RFC 3339 `Z` time, a non-empty `decision.reasonCodes` of strings, each of `polic
 of `decisionMaker`, `agent` and `principal`, the digest of each `inputSnapshot` entry, an undeclared
 member inside one of these objects) is one finding per member. A required member that is missing, or that
 is not an object where this section expects one, is that one finding, and the rules of its own members are
-not judged. An empty list of findings is a valid predicate. A JSON `null` is no finding at `actionOutcome.performedAt`
+not judged. An empty list of findings means the predicate is valid. A JSON `null` is no finding at `actionOutcome.performedAt`
 and `actionOutcome.outcomeRef`, where it states no time and no reference, nor at `decisionMaker.version`,
 whose form is not checked; at every other declared member, in both modes, it breaks that member's rule
 and is a finding.
@@ -226,7 +226,7 @@ Exit codes (the Phase B `verify` contract, with the refusal of Section 4 added t
 (`--consumed`, `--received`). The first check that fails decides, in this order: the signature (`1`), structure
 and predicateType (`2`), a requested audience or nonce (`2`), a required derived subject (`2`), a supplied anchor
 (`1`), the action bytes, the case and a requested lineage (`2`), the policy (`3`), Section 4 (`3`), and last the
-expiry (`2`). A receipt that is expired and fails the policy therefore exits `3`.
+expiry (`2`). A receipt that is expired and whose only other failure is the policy therefore exits `3`.
 Without `--policy`, output shows `POLICY: NOT_EVALUATED`, and exit 3 then comes only from Section 4; there is no
 bare context-free `OK`.
 
