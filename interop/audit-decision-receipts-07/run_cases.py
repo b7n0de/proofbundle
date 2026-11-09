@@ -17,11 +17,13 @@ exits with 0 only if every case matches. It uses the Python standard library onl
 
 The answer is read strictly: the first line of standard output ends at the first line feed (a carriage return
 before it is dropped), must be UTF-8, and must be exactly one JSON object with no member named twice and none of the
-non-JSON constants NaN, Infinity and -Infinity. Both members must be there: result one of the four values, step null
-for pass and otherwise one of the steps the README names, "3.2 step 1" to "3.2 step 10", "3.3 case 1" to "3.3 case
-3", "3.4 step 1" to "3.4 step 7", "3.5 third check" or "4 item N". A verifier that reports no step answers null for
-every result; --accept-reject measures it, and by result and step it matches only the cases whose expected result is
-pass. Further members are allowed, and a number in them is read without a limit on its digits. What follows the first line feed is not read. Any other first line and an
+non-JSON constants NaN, Infinity and -Infinity. Both members must be there: result one of the four values, and step
+either null or one of the steps the README names, "3.2 step 1" to "3.2 step 10", "3.3 case 1" to "3.3 case 3", "3.4
+step 1" to "3.4 step 7", "3.5 third check" or "4 item N"; a pass answers null. A verifier that reports no step answers
+null for every result: --accept-reject measures it, and by result and step it matches only the cases whose expected
+result is pass. Both modes check this form before they compare. In this the script reads more than the README asks,
+which names a step for every result other than pass. Further members are allowed, and a number in them is read
+without a limit on its digits. What follows the first line feed is not read. Any other first line and an
 object nested too deeply to read are no answer and so a mismatch; the run goes on with the next case.
 """
 import argparse
