@@ -71,6 +71,9 @@ ETABLIERER = {"is_bool", "require_bool_verdict", "_require_bool_verdict", "_requ
 #: Sites that read the field as a truth value and are allowed to, each with its reason. The key is
 #: (relative path, enclosing definition) so a line shift does not break the file.
 GRUNDLINIE = {
+    ("cli.py", "_show_signed_eval_receipt"):
+        "prints `passed` of a B that verify_signed_eval_receipt has just passed; its step 6 refuses a "
+        "`passed` that is not true or false, so the value printed is that verified bool, not a verdict.",
     ("intoto.py", "export_svr_dsse"):
         "runs AFTER decode_eval_claim, which now refuses a non-boolean `passed` at the verify "
         "boundary, so the value reaching this line is already a bool. Kept in the baseline rather "

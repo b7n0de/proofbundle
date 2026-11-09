@@ -202,7 +202,7 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.281']
 # opposite directions, so both are stated:
 #
 #   NO FAILURE WAS FOUND. Every one of mypy 1.8.0 / 1.11.2 / 1.15.0 / 1.18.2 / 2.0.0 / 2.1.0 /
-#   2.2.0 / 2.3.0 exits 0 over `src` (81 files; re-derived by
+#   2.2.0 / 2.3.0 exits 0 over `src` (82 files; re-derived by
 #   tests/test_shipped_comment_numbers.py) — across BOTH major versions. So the declared
 #   floor `>=1.8` is not a guess, it is verified. That is the honest state and this bound does
 #   not pretend otherwise: it is prospective, not a fix for something broken.
@@ -228,7 +228,9 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.281']
 #   (`src/proofbundle/_scitt_second_reader.py`) it became 80, and mypy **2.3.0** was re-run over the
 #   80 and exits 0. With the offline reader of Sigstore bundles for GitHub Artifact Attestations and npm
 #   provenance (`src/proofbundle/adapters/sigstore_bundle.py`) it became 81, and mypy **2.3.0** was
-#   re-run over the 81 and exits 0. The other seven versions were NOT re-run for any of the eleven new
+#   re-run over the 81 and exits 0. With the EXPERIMENTAL verifier of Signed Evaluation Receipts
+#   (`src/proofbundle/signed_eval_receipt.py`) it became 82, and mypy **2.3.0** was re-run over the 82 and
+#   exits 0. The other seven versions were NOT re-run for any of the twelve new
 #   files; that is the same boundary RESTRISIKO_610.md carries as SHIPPED-TOOL-VERDICT-NOT-RE-RUN-01,
 #   and it is stated here rather than absorbed into the sentence above.
 #
