@@ -187,8 +187,12 @@ def _ed25519_signatur_von(value: Any) -> "bytes | None":
     (pre-review 7). The producers read a signer's output with ``bytes(...)`` or wrote it where a buffer was taken, so
     a view that is not C-contiguous (renewal's ``bytes(ed.sign(content))`` took one) and an ``array.array`` carried a
     real signature before; `_puffer_von` refuses both because its concatenation needs contiguous storage. ``tobytes``
-    reads the exported buffer and runs no ``__bytes__`` of the value. A value that exports no buffer (a ``str``, an
-    ``int``, a list, an object with only ``__bytes__``), a released view, and any length but 64 is None.
+    reads the exported buffer once and runs no ``__bytes__`` of the value. It is not free of the caller's code: on
+    Python 3.12 and later a class written in Python can export a buffer, and then its ``__buffer__`` and
+    ``__release_buffer__`` run once here, and an error they raise other than the three below reaches the producer
+    (pre-review 8). The bytes read are copied, checked for their length and written as they are, so what the export
+    returns cannot change after the check. A value that exports no buffer (a ``str``, an ``int``, a list, an object
+    with only ``__bytes__``), a released view, and any length but 64 is None.
     """
     roh = _puffer_von(value)
     if roh is None:

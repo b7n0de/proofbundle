@@ -18,7 +18,13 @@ THE LIST, per call and not per file (pre-review 7): every `.sign(` call of the p
 outside the two ML-DSA sites must be the one argument of `_ed25519_signatur_von`. Its function must be listed, with
 exactly as many calls as it has. A missing reader in a file that has other readers, a second unread call inside a
 listed function and a new unlisted producer each fail `test_the_list_binds_every_ed25519_signing_call_to_the_reader`;
-the three mutation controls below show it on the real sources.
+the mutation controls below show it on the real sources. A reference to `.sign` that is not called on the spot (an
+alias such as ``weiter = signer.sign``, or ``getattr(signer, "sign")``) is refused anywhere in the package (pre-review
+8: a second signature through an alias passed the list and every generated case).
+
+THE COUNT, behind equal outputs (pre-review 8): a signer that returns the real signature on its first call and 750,001
+bytes on every later one must be asked exactly once, and the producer must write what the real key writes. A second
+signing call hidden behind an equal first output fails here even where the list cannot see it.
 
 OUT OF THIS CLASS, named: `checkpoint.cosign_checkpoint_mldsa` and `pqsig.sign_mldsa` sign with ML-DSA, whose signature has
 another length; they do not write an Ed25519 signature.
@@ -202,6 +208,15 @@ def _quellen():
     return {p.relative_to(SRC).as_posix(): p.read_text(encoding="utf-8") for p in sorted(SRC.rglob("*.py"))}
 
 
+def _funktion_von(knoten, eltern):
+    oben = knoten
+    while oben in eltern:
+        oben = eltern[oben]
+        if isinstance(oben, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return oben.name
+    return None
+
+
 def _sign_aufrufe(datei, text):
     """Every `.sign(` call of a source by AST, as ("file:innermost function", read by the reader)."""
     baum = ast.parse(text)
@@ -209,34 +224,43 @@ def _sign_aufrufe(datei, text):
     for k in ast.walk(baum):
         if not (isinstance(k, ast.Call) and isinstance(k.func, ast.Attribute) and k.func.attr == "sign"):
             continue
-        funktion, oben = None, k
-        while oben in eltern:
-            oben = eltern[oben]
-            if isinstance(oben, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                funktion = oben.name
-                break
         e = eltern.get(k)
         gelesen = (isinstance(e, ast.Call) and isinstance(e.func, ast.Name) and e.func.id == LESER
                    and len(e.args) == 1 and e.args[0] is k and not e.keywords)
-        yield f"{datei}:{funktion}", gelesen
+        yield f"{datei}:{_funktion_von(k, eltern)}", gelesen
+
+
+def _sign_ohne_aufruf(datei, text):
+    """Every reference to `.sign` that is not the callee of a call on the spot, and every getattr(x, "sign")."""
+    baum = ast.parse(text)
+    eltern = {kind: knoten for knoten in ast.walk(baum) for kind in ast.iter_child_nodes(knoten)}
+    ziele = {id(k.func) for k in ast.walk(baum) if isinstance(k, ast.Call)}
+    for k in ast.walk(baum):
+        alias = isinstance(k, ast.Attribute) and k.attr == "sign" and id(k) not in ziele
+        dynamisch = (isinstance(k, ast.Call) and isinstance(k.func, ast.Name) and k.func.id == "getattr"
+                     and len(k.args) >= 2 and isinstance(k.args[1], ast.Constant) and k.args[1].value == "sign")
+        if alias or dynamisch:
+            yield f"{datei}:{_funktion_von(k, eltern)}"
 
 
 def _befund(quellen):
     """What breaks the rule, per call: unread Ed25519 calls, unlisted functions, and counts off the list."""
     gelistet = {ort for _e, _f, ort in PRODUCERS.values()} | {HOLDER_PRODUCER[2]}
     erwartet = Counter({ort: 1 for ort in gelistet}) + Counter(AUSSERHALB)
-    gezaehlt, ungelesen = Counter(), []
+    gezaehlt, ungelesen, ohne_aufruf = Counter(), [], []
     for datei, text in quellen.items():
         for ort, gelesen in _sign_aufrufe(datei, text):
             gezaehlt[ort] += 1
             if ort not in AUSSERHALB and not gelesen:
                 ungelesen.append(ort)
+        ohne_aufruf.extend(_sign_ohne_aufruf(datei, text))
     return {"ungelesen": sorted(ungelesen),
             "nicht_gelistet": sorted(set(gezaehlt) - set(erwartet)),
-            "anzahl_falsch": sorted(ort for ort in erwartet if gezaehlt[ort] != erwartet[ort])}
+            "anzahl_falsch": sorted(ort for ort in erwartet if gezaehlt[ort] != erwartet[ort]),
+            "sign_ohne_aufruf": sorted(ohne_aufruf)}
 
 
-LEER = {"ungelesen": [], "nicht_gelistet": [], "anzahl_falsch": []}
+LEER = {"ungelesen": [], "nicht_gelistet": [], "anzahl_falsch": [], "sign_ohne_aufruf": []}
 
 
 def test_the_list_binds_every_ed25519_signing_call_to_the_reader():
@@ -271,3 +295,39 @@ def test_mutation_a_new_unlisted_producer_is_found_even_when_it_reads_its_output
     quellen = _quellen()
     quellen["dsse.py"] += "\n\ndef neu(signer):\n    return _ed25519_signatur_von(signer.sign(b\"x\"))\n"
     assert _befund(quellen) == {**LEER, "nicht_gelistet": ["dsse.py:neu"]}
+
+
+def test_mutation_a_second_signature_through_an_alias_is_found():
+    """Pre-review 8: the second signature of dsse.sign_envelope through ``weiter = signer.sign``."""
+    zeile = "    sig = _ed25519_signatur_von(signer.sign(pae(payload_type, body)))\n"
+    quellen = _mutiert("dsse.py", zeile, zeile + "    weiter = signer.sign\n    zweite = bytes(weiter(pae(payload_type, body)))\n")
+    assert _befund(quellen) == {**LEER, "sign_ohne_aufruf": ["dsse.py:sign_envelope"]}
+
+
+def test_mutation_a_signing_method_read_by_getattr_is_found():
+    zeile = "    sig = _ed25519_signatur_von(signer.sign(pae(payload_type, body)))\n"
+    quellen = _mutiert("dsse.py", zeile, zeile + '    zweite = getattr(signer, "sign")(pae(payload_type, body))\n')
+    assert _befund(quellen) == {**LEER, "sign_ohne_aufruf": ["dsse.py:sign_envelope"]}
+
+
+class _Zaehler:
+    """Returns the real signature on the first call and 750,001 bytes on every later call, and counts the calls."""
+
+    def __init__(self, schluessel):
+        self.schluessel = schluessel
+        self.aufrufe = 0
+
+    def sign(self, data):
+        self.aufrufe += 1
+        return self.schluessel.sign(data) if self.aufrufe == 1 else b"s" * 750_001
+
+    def public_key(self):
+        return self.schluessel.public_key()
+
+
+@pytest.mark.parametrize("name,erzeuge,fehler,signer_typ", FAELLE, ids=[f[0] for f in FAELLE])
+def test_every_producer_asks_its_signer_exactly_once(name, erzeuge, fehler, signer_typ):
+    schluessel = HOLDER if signer_typ is _HolderSigner else KEY
+    zaehler = _Zaehler(schluessel)
+    assert erzeuge(zaehler) == erzeuge(schluessel)
+    assert zaehler.aufrufe == 1
