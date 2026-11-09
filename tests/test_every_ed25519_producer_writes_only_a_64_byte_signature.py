@@ -4,23 +4,31 @@ THE CLASS, found by Codex in pre-reviews 5 and 6 of the class fix after 6.5.0: a
 what came back, unchecked, into something its own verifier reads under a budget or as one segment. A signer of
 another kind that returned 750,001 bytes gave a bundle (`emit_bundle`), a DSSE envelope (`dsse.sign_envelope`) or a
 Trust Pack (`sign_trust_pack`) that the verifier refuses at `string_len`, and 6,500,000 bytes gave a status list token
-past the segment bound. The sweep over every `.sign(` of the package found nine Ed25519 sites. Each now reads the
-output once through `signature._ed25519_signatur_von` and refuses, with the error it already uses, anything that is
-not 64 bytes.
+past the segment bound. The sweep over every `.sign(` of the package found twelve calls, ten of them Ed25519 sites
+(pre-review 7 counted them by AST). Each now reads the output once through `signature._ed25519_signatur_von` and
+refuses, with the error it already uses, anything that is not 64 bytes.
 
-THE GENERATOR, not a fixture per site: every producer below runs against the same odd outputs, and the same two
-controls must hold for each. A signer of another kind that returns the real signature, as bytes or as a
-``memoryview``, writes exactly what the real key writes (pre-review 6: the SD-JWT producers refused a view while the
-emitter took it). A new Ed25519 producer belongs in PRODUCERS; `test_the_list_names_every_ed25519_signing_site`
-fails until it is there.
+THE GENERATOR, not a fixture per site: every producer below runs against the same odd outputs, and the same
+controls must hold for each. A signer of another kind that returns the real signature in any buffer a producer took
+before, as bytes, a ``bytearray``, a ``memoryview``, a view that is not contiguous or an ``array.array``, writes
+exactly what the real key writes (pre-review 6: the SD-JWT producers refused a view while the emitter took it;
+pre-review 7: renewal took a strided view and every site an array, and the first reader refused both).
+
+THE LIST, per call and not per file (pre-review 7): every `.sign(` call of the package is read by AST, and each one
+outside the two ML-DSA sites must be the one argument of `_ed25519_signatur_von`. Its function must be listed, with
+exactly as many calls as it has. A missing reader in a file that has other readers, a second unread call inside a
+listed function and a new unlisted producer each fail `test_the_list_binds_every_ed25519_signing_call_to_the_reader`;
+the three mutation controls below show it on the real sources.
 
 OUT OF THIS CLASS, named: `checkpoint.cosign_checkpoint_mldsa` and `pqsig.sign_mldsa` sign with ML-DSA, whose signature has
 another length; they do not write an Ed25519 signature.
 """
 from __future__ import annotations
 
+import ast
 import base64
-import re
+from array import array
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -115,12 +123,50 @@ HOLDER_PRODUCER = (lambda s: present_with_key_binding(
     issue_sd_jwt(_claim(), KEY, root_b64="cm9vdA==", holder_public_key=_holder_raw()), s, iat=1792000000,
     aud="https://rp.example", nonce="n1"), ValueError, "sdjwt_issue.py:present_with_key_binding")
 
+def _gestaffelt(s):
+    """``s`` as a view that is not contiguous: every second byte of a buffer twice as long."""
+    speicher = bytearray(2 * len(s))
+    speicher[::2] = s
+    return memoryview(speicher)[::2]
+
+
+def _freigegeben(s):
+    sicht = memoryview(bytes(s))
+    sicht.release()
+    return sicht
+
+
+class _NurBytes:
+    """An object that exports no buffer and only answers ``bytes()`` (the first reader's ``bytes(...)`` ran it)."""
+
+    def __init__(self, s):
+        self.s = s
+
+    def __bytes__(self):
+        return bytes(self.s)
+
+
 ODD = {
     "750,001 bytes": lambda s: b"s" * 750_001,
     "65 bytes": lambda s: s + b"\x00",
     "63 bytes": lambda s: s[:63],
     "a str of 64 characters": lambda s: "s" * 64,
     "an int": lambda s: 64,
+    "a strided view of 65 bytes": lambda s: _gestaffelt(s + b"\x00"),
+    "an array of 63 bytes": lambda s: array("B", s[:63]),
+    "a released view": _freigegeben,
+    "a list of the 64 byte values": lambda s: list(s),
+    "an object with only __bytes__": _NurBytes,
+}
+
+#: The real signature in every buffer a producer took before the reader (pre-review 7).
+ECHTE_FORMEN = {
+    "bytes": lambda s: s,
+    "bytearray": bytearray,
+    "memoryview": memoryview,
+    "a strided view": _gestaffelt,
+    "an array of bytes": lambda s: array("B", s),
+    "an array of 32 two-byte items": lambda s: array("H", s),
 }
 
 
@@ -140,30 +186,88 @@ def test_an_output_that_is_no_64_byte_signature_is_refused(name, erzeuge, fehler
         erzeuge(signer_typ(ODD[odd]))
 
 
+@pytest.mark.parametrize("form", sorted(ECHTE_FORMEN))
 @pytest.mark.parametrize("name,erzeuge,fehler,signer_typ", FAELLE, ids=[f[0] for f in FAELLE])
-def test_control_the_real_signature_as_bytes_or_as_a_view_writes_what_the_real_key_writes(name, erzeuge, fehler,
-                                                                                          signer_typ):
-    echt = erzeuge(HOLDER if signer_typ is _HolderSigner else KEY)
-    assert erzeuge(signer_typ()) == echt
-    assert erzeuge(signer_typ(memoryview)) == echt
-    assert erzeuge(signer_typ(bytearray)) == echt
+def test_control_the_real_signature_in_any_buffer_writes_what_the_real_key_writes(name, erzeuge, fehler, signer_typ,
+                                                                                  form):
+    assert erzeuge(signer_typ(ECHTE_FORMEN[form])) == erzeuge(HOLDER if signer_typ is _HolderSigner else KEY)
 
 
-def test_the_list_names_every_ed25519_signing_site():
-    """Every `.sign(` in the package is a site of this list, or one of the two ML-DSA sites named above, or the
-    ML-DSA signer `pqsig.sign_mldsa`. A new site fails here until it reads its output through `_ed25519_signatur_von`."""
+#: The two ML-DSA sites: one `.sign(` call each, outside the Ed25519 rule (their signature has another length).
+AUSSERHALB = {"checkpoint.py:cosign_checkpoint_mldsa": 1, "pqsig.py:sign_mldsa": 1}
+LESER = "_ed25519_signatur_von"
+
+
+def _quellen():
+    return {p.relative_to(SRC).as_posix(): p.read_text(encoding="utf-8") for p in sorted(SRC.rglob("*.py"))}
+
+
+def _sign_aufrufe(datei, text):
+    """Every `.sign(` call of a source by AST, as ("file:innermost function", read by the reader)."""
+    baum = ast.parse(text)
+    eltern = {kind: knoten for knoten in ast.walk(baum) for kind in ast.iter_child_nodes(knoten)}
+    for k in ast.walk(baum):
+        if not (isinstance(k, ast.Call) and isinstance(k.func, ast.Attribute) and k.func.attr == "sign"):
+            continue
+        funktion, oben = None, k
+        while oben in eltern:
+            oben = eltern[oben]
+            if isinstance(oben, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                funktion = oben.name
+                break
+        e = eltern.get(k)
+        gelesen = (isinstance(e, ast.Call) and isinstance(e.func, ast.Name) and e.func.id == LESER
+                   and len(e.args) == 1 and e.args[0] is k and not e.keywords)
+        yield f"{datei}:{funktion}", gelesen
+
+
+def _befund(quellen):
+    """What breaks the rule, per call: unread Ed25519 calls, unlisted functions, and counts off the list."""
     gelistet = {ort for _e, _f, ort in PRODUCERS.values()} | {HOLDER_PRODUCER[2]}
-    ausserhalb = {"checkpoint.py:cosign_checkpoint_mldsa", "pqsig.py:sign_mldsa"}
-    gefunden = set()
-    for p in sorted(SRC.rglob("*.py")):
-        funktion = None
-        for zeile in p.read_text(encoding="utf-8").splitlines():
-            m = re.match(r"(?:async )?def (\w+)\(", zeile)
-            if m:
-                funktion = m.group(1)
-            if re.search(r"\.sign\(", zeile) and not zeile.lstrip().startswith("#"):
-                gefunden.add(f"{p.relative_to(SRC).as_posix()}:{funktion}")
-    assert gefunden == gelistet | ausserhalb, (sorted(gefunden - gelistet - ausserhalb), sorted((gelistet | ausserhalb) - gefunden))
-    for ort in gelistet:
-        datei, funktion = ort.split(":")
-        assert "_ed25519_signatur_von(" in (SRC / datei).read_text(encoding="utf-8"), ort
+    erwartet = Counter({ort: 1 for ort in gelistet}) + Counter(AUSSERHALB)
+    gezaehlt, ungelesen = Counter(), []
+    for datei, text in quellen.items():
+        for ort, gelesen in _sign_aufrufe(datei, text):
+            gezaehlt[ort] += 1
+            if ort not in AUSSERHALB and not gelesen:
+                ungelesen.append(ort)
+    return {"ungelesen": sorted(ungelesen),
+            "nicht_gelistet": sorted(set(gezaehlt) - set(erwartet)),
+            "anzahl_falsch": sorted(ort for ort in erwartet if gezaehlt[ort] != erwartet[ort])}
+
+
+LEER = {"ungelesen": [], "nicht_gelistet": [], "anzahl_falsch": []}
+
+
+def test_the_list_binds_every_ed25519_signing_call_to_the_reader():
+    """Twelve `.sign(` calls: each of the ten Ed25519 ones is the one argument of the reader, in a listed function
+    with exactly one call; the two ML-DSA ones stand where they are named."""
+    assert sum(1 for d, t in _quellen().items() for _ in _sign_aufrufe(d, t)) == 12
+    assert _befund(_quellen()) == LEER
+
+
+def _mutiert(datei, alt, neu):
+    quellen = _quellen()
+    assert quellen[datei].count(alt) == 1, alt
+    quellen[datei] = quellen[datei].replace(alt, neu)
+    return quellen
+
+
+def test_mutation_a_missing_reader_in_a_file_with_other_readers_is_found():
+    quellen = _mutiert("checkpoint.py", "sig = _ed25519_signatur_von(witness_signer.sign(",
+                       "sig = (witness_signer.sign(")
+    assert _befund(quellen)["ungelesen"] == ["checkpoint.py:cosign_checkpoint"]
+
+
+def test_mutation_a_second_unread_call_inside_a_listed_function_is_found():
+    zeile = "    sig = _ed25519_signatur_von(signer.sign(pae(payload_type, body)))\n"
+    quellen = _mutiert("dsse.py", zeile, zeile + "    zweite = signer.sign(pae(payload_type, body))\n")
+    befund = _befund(quellen)
+    assert befund["ungelesen"] == ["dsse.py:sign_envelope"]
+    assert befund["anzahl_falsch"] == ["dsse.py:sign_envelope"]
+
+
+def test_mutation_a_new_unlisted_producer_is_found_even_when_it_reads_its_output():
+    quellen = _quellen()
+    quellen["dsse.py"] += "\n\ndef neu(signer):\n    return _ed25519_signatur_von(signer.sign(b\"x\"))\n"
+    assert _befund(quellen) == {**LEER, "nicht_gelistet": ["dsse.py:neu"]}

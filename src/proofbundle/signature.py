@@ -181,10 +181,23 @@ def _ed25519_signatur_von(value: Any) -> "bytes | None":
     Read by `canonical._puffer_von`, the reader of the surfaces that took any bytes-like value: ``bytes``, a subclass
     and ``bytearray`` by their storage, and a ``memoryview`` by the buffer it already holds, so a signer that returns
     its signature as a view keeps working (pre-review 6: `plain_bytes`, the reader of a caller's key, refuses a view,
-    and the SD-JWT producers refused a valid signature with it). Any other value, and any length but 64, is None.
+    and the SD-JWT producers refused a valid signature with it).
+
+    Any other object that exports a buffer is read as the bytes of that buffer, once, by ``memoryview.tobytes``
+    (pre-review 7). The producers read a signer's output with ``bytes(...)`` or wrote it where a buffer was taken, so
+    a view that is not C-contiguous (renewal's ``bytes(ed.sign(content))`` took one) and an ``array.array`` carried a
+    real signature before; `_puffer_von` refuses both because its concatenation needs contiguous storage. ``tobytes``
+    reads the exported buffer and runs no ``__bytes__`` of the value. A value that exports no buffer (a ``str``, an
+    ``int``, a list, an object with only ``__bytes__``), a released view, and any length but 64 is None.
     """
     roh = _puffer_von(value)
-    return roh if roh is not None and len(roh) == 64 else None
+    if roh is None:
+        try:
+            with memoryview(value) as sicht:
+                roh = sicht.tobytes()
+        except (BufferError, TypeError, ValueError):
+            return None
+    return roh if len(roh) == 64 else None
 
 
 @_ein_stand
