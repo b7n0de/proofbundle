@@ -706,23 +706,6 @@ def _gebundene_entscheidung(predicate: dict, envelope: Any, decision_key: Any, o
     return not gruende, [g + ", fail-closed" for g in gruende], dp
 
 
-def _entscheidungs_verdict(envelope: Any, decision_key: Any) -> Any:
-    """The decision.verdict of the bound decision receipt, read from the bytes its signature covers under
-    ``decision_key``; None when it does not verify or carries none (Case 3 of Section 3.3)."""
-    if envelope is None or decision_key is None:
-        return None
-    from . import dsse  # noqa: PLC0415
-    from .budget import DEFAULT_BUDGET  # noqa: PLC0415
-    try:
-        echt, body = dsse._verify_and_load(envelope, decision_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
-        statement = load_statement_strict(body, budget=DEFAULT_BUDGET)
-    except (ProofBundleError, ValueError, UnicodeDecodeError):
-        return None
-    if not echt or not isinstance(statement, dict):
-        return None
-    return _as_dict(_as_dict(statement.get("predicate")).get("decision")).get("verdict")
-
-
 def _trust_pack_predicate_digest(predicate: Any) -> "str | None":
     """N45 (security-fix 6.2.0, nachbesserung to N43): the content root ``sha256(JCS(predicate))`` of the
     trust-pack PREDICATE passed to ``verify_outcome_receipt`` — the exact value ``trust_pack_is_pinned``'s
@@ -923,6 +906,11 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
     - ``now`` — the evaluation time T of Section 3.1 in POSIX seconds, used for the bound decision only (no step of
       Section 3.4 compares the outcome with T). None reads the wall clock once; a value that is no POSIX-seconds
       integer in range fails the bound decision closed, never re-read from the wall clock.
+    - ``case_ok`` — ``case="executed"``, Case 3 of Section 3.3: the outcome passes Section 3.4 against the bound
+      decision, all of it, before its status is read: its structure and a subject that is the digest of its predicate
+      (steps 1 to 3), ``bound_decision_ok`` (steps 4, 5 and 7), the expected executor.id supplied and equal and a
+      supplied trust pack permitting the key (step 5), a non-null effectDigest on an executed outcome and supplied
+      effect bytes that match it (step 6). Then the decision's verdict is ALLOW and the status executed.
 
     Each is judged over authenticated bytes only; a False fails ``ok`` and blocks automation.
     """
@@ -1056,6 +1044,8 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
     # here, before the block that reads the predicate: a signed statement whose predicate is no object skips that
     # block, and the relations gate below raised UnboundLocalError for it (second reading of 4be8f120, F2).
     _sw = None
+    # The predicate of the bound decision, from the one reading in _gebundene_entscheidung; Case 3 reads its verdict.
+    _entscheidung_p: "dict | None" = None
     if isinstance(predicate, dict) and r["crypto_ok"]:
         # decisionRef binding (replay against another decision fails).
         _dref = _as_dict(predicate.get("decisionRef")).get("sha256") if isinstance(predicate.get("decisionRef"), dict) else None
@@ -1115,26 +1105,6 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
             r["bound_decision_ok"], _gruende, _entscheidung_p = _gebundene_entscheidung(
                 predicate, decision_envelope, _entscheider, schluessel, _entscheider_id, now)
             r["errors"].extend(_gruende)
-        # Case 3 of Section 3.3, executed (finding B3, vectors F17, F54): chosen by the relying party, never by the
-        # receipt. The outcome passes Section 3.4 against the bound decision (bound_decision_ok), the decision's
-        # verdict is ALLOW, and the outcome's status is executed. Section 3.4 is judged first, as the draft says.
-        if case is not None:
-            _fall = _zeichen_von(case)
-            _gruende3: list[str] = []
-            if _fall != "executed":
-                _gruende3.append("the case of an outcome receipt must be 'executed' (Section 3.3)")
-            elif decision_envelope is None or _entscheider is None:
-                _gruende3.append("case executed needs the bound decision receipt and its key")
-            elif r["bound_decision_ok"] is not True:
-                _gruende3.append("the outcome does not pass Section 3.4 against the bound decision")
-            else:
-                if _entscheidungs_verdict(decision_envelope, _entscheider) != "ALLOW":
-                    _gruende3.append("the bound decision's verdict is not ALLOW")
-                if predicate.get("status") != "executed":
-                    _gruende3.append("the outcome's status is not executed")
-            r["case_ok"] = not _gruende3
-            r["errors"].extend(f"case executed: {g} (Section 3.3, fail-closed)" for g in _gruende3)
-
         # relation/v0.1 (EXPERIMENTAL, additive): evaluate the OPTIONAL relationships edges against
         # caller-attached targets (offline --with-related). Only over AUTHENTICATED bytes; NEVER feeds
         # the crypto verdict (lattice monotonicity) — a lineage FAIL surfaces via errors[] + policy.
@@ -1478,6 +1448,51 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
             r["errors"].append(
                 "require_derived_subject but RFC-8785 canonicalizer unavailable — cannot verify subject "
                 "derivation (install proofbundle[eval]), fail-closed")
+
+    # Case 3 of Section 3.3, executed (finding B3, vectors F17, F54): chosen by the relying party, never by the
+    # receipt. The outcome MUST pass Section 3.4 against the decision, all of it, and Section 3.4 is checked before the
+    # status (review 1 of the B1 to B4 series, finding 2: at e200c107 the case read only the bound decision, its
+    # verdict and the status, so an executed outcome without the expected executor or without effectDigest passed it).
+    # Judged here, after the subject binding, over authenticated bytes only:
+    #   steps 1 to 3  the outcome's structure, and a subject that is the digest of its predicate (step 2);
+    #   step 4, 5, 7  the bound decision (bound_decision_ok: Section 3.2 at T, binding, separation, time window);
+    #   step 5        the expected executor.id is supplied and equal, and a supplied trust pack permits the key;
+    #   step 6        an executed outcome carries a non-null effectDigest (an actualActionDigest is none), and
+    #                 supplied effect bytes match it.
+    # Then the decision's verdict is ALLOW (read from the one reading of the bound decision) and the status executed.
+    if case is not None and isinstance(predicate, dict) and r["crypto_ok"]:
+        _fall = _zeichen_von(case)
+        _gruende3: list[str] = []
+        if _fall != "executed":
+            _gruende3.append("the case of an outcome receipt must be 'executed' (Section 3.3)")
+        elif decision_envelope is None or _entscheider is None:
+            _gruende3.append("case executed needs the bound decision receipt and its key")
+        else:
+            _sb_klasse = r.get("subject_binding")
+            if r["structure_ok"] is not True:
+                _gruende3.append("the outcome does not pass steps 1 to 3 of Section 3.4 (its structure)")
+            if not (isinstance(_sb_klasse, dict) and _sb_klasse.get("matches") is True):
+                _gruende3.append("the outcome's subject is not the digest of its predicate (step 2 of Section 3.4)")
+            if r["bound_decision_ok"] is not True:
+                _gruende3.append("the outcome does not pass Section 3.4 against the bound decision (steps 4, 5, 7)")
+            if expected_executor_id is None:
+                _gruende3.append("case executed needs the expected executor.id (Section 3.1, step 5 of Section 3.4)")
+            elif r["executor_id_ok"] is not True:
+                _gruende3.append("executor.id is not the expected executor (step 5 of Section 3.4)")
+            if r["executor_role_trusted"] is False:
+                _gruende3.append("the trust pack does not permit the outcome key to attest executor.id (step 5 of "
+                                 "Section 3.4)")
+            if predicate.get("status") == "executed" and not _is_digest(predicate.get("effectDigest")):
+                _gruende3.append("an executed outcome carries no effectDigest (step 6 of Section 3.4)")
+            if r["effect_bytes_ok"] is False:
+                _gruende3.append("the effect bytes do not match effectDigest (step 6 of Section 3.4)")
+            if not _gruende3:
+                if _as_dict(_as_dict(_entscheidung_p).get("decision")).get("verdict") != "ALLOW":
+                    _gruende3.append("the bound decision's verdict is not ALLOW")
+                if predicate.get("status") != "executed":
+                    _gruende3.append("the outcome's status is not executed")
+        r["case_ok"] = not _gruende3
+        r["errors"].extend(f"case executed: {g} (Section 3.3, fail-closed)" for g in _gruende3)
 
     # WP-B (3.4.0): the relations trust-policy gate — enforced IDENTICALLY to the decision path
     # (require_relation_resolution, reject_superseded, relation_signer, require_relation_target) via the
