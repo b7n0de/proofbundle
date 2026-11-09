@@ -26,6 +26,13 @@ THE COUNT, behind equal outputs (pre-review 8): a signer that returns the real s
 bytes on every later one must be asked exactly once, and the producer must write what the real key writes. A second
 signing call hidden behind an equal first output fails here even where the list cannot see it.
 
+THE LENGTH, an expectation the producer cannot move (pre-review 9): equal outputs of two runs of the same producer say
+nothing when both runs write the same extra signature, for example through the ML-DSA helper with a second signer of
+its own. With the fixed inputs below, each producer's output has one length, measured over five key pairs before this
+test was written; the test holds every run, with the real key and with the counting signer, to that number. And the
+two ML-DSA helpers, which sign outside the Ed25519 rule, may be referred to only where they are today: one import in
+renewal.py and one call in renewal._sign_ats_content.
+
 OUT OF THIS CLASS, named: `checkpoint.cosign_checkpoint_mldsa` and `pqsig.sign_mldsa` sign with ML-DSA, whose signature has
 another length; they do not write an Ed25519 signature.
 """
@@ -33,6 +40,7 @@ from __future__ import annotations
 
 import ast
 import base64
+import json
 from array import array
 from collections import Counter
 from pathlib import Path
@@ -247,20 +255,47 @@ def _befund(quellen):
     """What breaks the rule, per call: unread Ed25519 calls, unlisted functions, and counts off the list."""
     gelistet = {ort for _e, _f, ort in PRODUCERS.values()} | {HOLDER_PRODUCER[2]}
     erwartet = Counter({ort: 1 for ort in gelistet}) + Counter(AUSSERHALB)
-    gezaehlt, ungelesen, ohne_aufruf = Counter(), [], []
+    gezaehlt, ungelesen, ohne_aufruf, mldsa = Counter(), [], [], Counter()
     for datei, text in quellen.items():
         for ort, gelesen in _sign_aufrufe(datei, text):
             gezaehlt[ort] += 1
             if ort not in AUSSERHALB and not gelesen:
                 ungelesen.append(ort)
         ohne_aufruf.extend(_sign_ohne_aufruf(datei, text))
+        mldsa.update(_mldsa_bezuege(datei, text))
     return {"ungelesen": sorted(ungelesen),
             "nicht_gelistet": sorted(set(gezaehlt) - set(erwartet)),
             "anzahl_falsch": sorted(ort for ort in erwartet if gezaehlt[ort] != erwartet[ort]),
-            "sign_ohne_aufruf": sorted(ohne_aufruf)}
+            "sign_ohne_aufruf": sorted(ohne_aufruf),
+            "mldsa_ausserhalb": sorted(f"{d}:{f}:{a}" for (d, f, a) in (mldsa - MLDSA_ERLAUBT) + (MLDSA_ERLAUBT - mldsa))}
 
 
-LEER = {"ungelesen": [], "nicht_gelistet": [], "anzahl_falsch": [], "sign_ohne_aufruf": []}
+LEER = {"ungelesen": [], "nicht_gelistet": [], "anzahl_falsch": [], "sign_ohne_aufruf": [], "mldsa_ausserhalb": []}
+
+#: The two helpers that sign with ML-DSA, outside the Ed25519 rule, and the only places that refer to them today.
+MLDSA_HELFER = ("sign_mldsa", "cosign_checkpoint_mldsa")
+MLDSA_ERLAUBT = Counter({("renewal.py", None, "import"): 1, ("renewal.py", "_sign_ats_content", "aufruf"): 1})
+
+
+def _mldsa_bezuege(datei, text):
+    """Every reference to an ML-DSA helper outside its own definition, as (file, function, kind)."""
+    baum = ast.parse(text)
+    eltern = {kind: knoten for knoten in ast.walk(baum) for kind in ast.iter_child_nodes(knoten)}
+    ziele = {id(k.func) for k in ast.walk(baum) if isinstance(k, ast.Call)}
+    # A helper imported under another name is followed under that name too.
+    namen = set(MLDSA_HELFER) | {a.asname for k in ast.walk(baum) if isinstance(k, ast.ImportFrom)
+                                 for a in k.names if a.name in MLDSA_HELFER and a.asname}
+    for k in ast.walk(baum):
+        if isinstance(k, ast.ImportFrom):
+            for a in k.names:
+                if a.name in MLDSA_HELFER:
+                    yield (datei, _funktion_von(k, eltern), "import" if a.asname is None else "import_als")
+        name = k.id if isinstance(k, ast.Name) else (k.attr if isinstance(k, ast.Attribute) else None)
+        if name in namen:
+            yield (datei, _funktion_von(k, eltern), "aufruf" if id(k) in ziele else "bezug")
+        if (isinstance(k, ast.Call) and isinstance(k.func, ast.Name) and k.func.id == "getattr" and len(k.args) >= 2
+                and isinstance(k.args[1], ast.Constant) and k.args[1].value in MLDSA_HELFER):
+            yield (datei, _funktion_von(k, eltern), "getattr")
 
 
 def test_the_list_binds_every_ed25519_signing_call_to_the_reader():
@@ -331,3 +366,36 @@ def test_every_producer_asks_its_signer_exactly_once(name, erzeuge, fehler, sign
     zaehler = _Zaehler(schluessel)
     assert erzeuge(zaehler) == erzeuge(schluessel)
     assert zaehler.aufrufe == 1
+
+
+def test_mutation_the_ml_dsa_helper_with_a_second_signer_is_found():
+    """Pre-review 9: dsse.sign_envelope appends a second signature through pqsig.sign_mldsa and a signer of its own."""
+    zeile = "    sig = _ed25519_signatur_von(signer.sign(pae(payload_type, body)))\n"
+    quellen = _mutiert("dsse.py", zeile, zeile + "    zweite = _sign_other(_SecondSigner(), pae(payload_type, body))\n")
+    quellen["dsse.py"] = "from .pqsig import sign_mldsa as _sign_other\n" + quellen["dsse.py"]
+    befund = _befund(quellen)
+    assert befund["mldsa_ausserhalb"] == ["dsse.py:None:import_als", "dsse.py:sign_envelope:aufruf"], befund
+    assert {k: v for k, v in befund.items() if k != "mldsa_ausserhalb"} == {k: v for k, v in LEER.items() if k != "mldsa_ausserhalb"}
+
+
+#: The length of each producer's output for the fixed inputs above, in bytes of its serialization (bytes as they are,
+#: str as UTF-8, a dict as compact sorted JSON), measured over five key pairs on 9 November 2026 before this test.
+ERWARTETE_LAENGE = {"emit_bundle": 404, "dsse.sign_envelope": 234, "sign_checkpoint": 177, "cosign_checkpoint": 302,
+                    "issue_status_list_token": 281, "issue_enclave_attestation": 285, "renewal ed25519": 104,
+                    "sign_trust_pack": 1039, "issue_sd_jwt": 593, "present_with_key_binding": 887}
+
+
+def _laenge(ausgabe):
+    if isinstance(ausgabe, (bytes, bytearray)):
+        return len(ausgabe)
+    if isinstance(ausgabe, str):
+        return len(ausgabe.encode("utf-8"))
+    return len(json.dumps(ausgabe, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
+
+
+@pytest.mark.parametrize("name,erzeuge,fehler,signer_typ", FAELLE, ids=[f[0] for f in FAELLE])
+def test_every_producer_writes_the_length_measured_before(name, erzeuge, fehler, signer_typ):
+    schluessel = HOLDER if signer_typ is _HolderSigner else KEY
+    assert set(ERWARTETE_LAENGE) == {f[0] for f in FAELLE}
+    assert _laenge(erzeuge(schluessel)) == ERWARTETE_LAENGE[name]
+    assert _laenge(erzeuge(_Zaehler(schluessel))) == ERWARTETE_LAENGE[name]
