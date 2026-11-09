@@ -14,9 +14,15 @@ expected.step. With --accept-reject a case matches when the verifier accepts exa
 expected.result is "pass"; result "pass" counts as accept, any other result as reject, and the step is not
 compared. The exit code of the verifier is not used. The script prints one line per case and a summary, and
 exits with 0 only if every case matches. It uses the Python standard library only.
+
+The answer is read strictly: standard output must be UTF-8, its first line ends at the first line feed (a carriage
+return before it is dropped), and that line must be exactly one JSON object with no member named twice. Any other
+first line, an object nested too deeply to read, and a step that is not valid text are no answer and so a
+mismatch; the run goes on with the next case.
 """
 import argparse
 import json
+import math
 import os
 import subprocess
 import sys
@@ -24,27 +30,55 @@ import sys
 RESULTS = ("pass", "fail", "refuse", "auditor-fail")
 
 
+def _no_duplicates(pairs):
+    names = [name for name, _ in pairs]
+    if len(set(names)) != len(names):
+        raise ValueError("a member is named twice")
+    return dict(pairs)
+
+
 def read_answer(stdout):
-    lines = stdout.decode("utf-8", "replace").splitlines()
-    if not lines:
+    try:
+        text = stdout.decode("utf-8")
+    except UnicodeDecodeError:
+        return None, "output is not UTF-8"
+    first = text.split("\n", 1)[0]
+    if first.endswith("\r"):
+        first = first[:-1]
+    if not first:
         return None, "no output"
     try:
-        ans = json.loads(lines[0])
-    except ValueError:
-        return None, "first line is not JSON"
+        ans = json.loads(first, object_pairs_hook=_no_duplicates)
+    except (ValueError, RecursionError):
+        return None, "first line is not one JSON object"
     if not isinstance(ans, dict) or ans.get("result") not in RESULTS:
         return None, "no valid result"
     step = ans.get("step")
     if step is not None and not isinstance(step, str):
         return None, "step is not a string or null"
+    if step is not None:
+        try:
+            step.encode("utf-8")
+        except UnicodeEncodeError:
+            return None, "step is not valid text"
     return (ans["result"], step), ""
+
+
+def timeout_seconds(value):
+    try:
+        t = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("not a number of seconds") from None
+    if not (math.isfinite(t) and 0 < t <= 86400):
+        raise argparse.ArgumentTypeError("must be above 0 and at most 86400 seconds")
+    return t
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--cases", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "cases"))
     ap.add_argument("--accept-reject", action="store_true")
-    ap.add_argument("--timeout", type=float, default=60.0)
+    ap.add_argument("--timeout", type=timeout_seconds, default=60.0)
     ap.add_argument("command", nargs=argparse.REMAINDER)
     a = ap.parse_args()
     cmd = a.command[1:] if a.command[:1] == ["--"] else a.command
