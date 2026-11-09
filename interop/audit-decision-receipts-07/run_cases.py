@@ -19,8 +19,9 @@ The answer is read strictly: the first line of standard output ends at the first
 before it is dropped), must be UTF-8, and must be exactly one JSON object with no member named twice and none of the
 non-JSON constants NaN, Infinity and -Infinity. Both members must be there: result one of the four values, step null
 for pass and otherwise one of the steps the README names, "3.2 step 1" to "3.2 step 10", "3.3 case 1" to "3.3 case
-3", "3.4 step 1" to "3.4 step 7", "3.5 third check" or "4 item N". Further members are allowed, and a number in them
-is read without a limit on its digits. What follows the first line feed is not read. Any other first line and an
+3", "3.4 step 1" to "3.4 step 7", "3.5 third check" or "4 item N". A verifier that reports no step answers null for
+every result; --accept-reject measures it, and by result and step it matches only the cases whose expected result is
+pass. Further members are allowed, and a number in them is read without a limit on its digits. What follows the first line feed is not read. Any other first line and an
 object nested too deeply to read are no answer and so a mismatch; the run goes on with the next case.
 """
 import argparse
@@ -70,8 +71,8 @@ def read_answer(stdout):
     if ans["result"] == "pass":
         if step is not None:
             return None, "step is not null for pass"
-    elif not isinstance(step, str) or not STEP.fullmatch(step):
-        return None, "step is not one of the steps the README names"
+    elif step is not None and (not isinstance(step, str) or not STEP.fullmatch(step)):
+        return None, "step is not null or one of the steps the README names"
     return (ans["result"], step), ""
 
 
