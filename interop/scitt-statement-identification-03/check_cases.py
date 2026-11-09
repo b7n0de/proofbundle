@@ -23,11 +23,14 @@ What it implements, all from Section 6 and Section 5.1 of the draft:
 - ToBeSigned is the deterministic encoding of ["Signature1", body_protected, external_aad, payload], where
   body_protected is the protected header byte string as received and a nil payload is replaced by the supplied
   detached payload. match compares the digest of ToBeSigned under the scheme's hash function with the reference.
+  An external_aad or a detached payload that is needed and not supplied (null) gives no ToBeSigned: match is
+  INDETERMINATE and sig_valid None, never a success (Section 4.1, A1, and Section 7).
 - sig_valid applies the four rules of Section 6 to the stated Ed25519 key: canonical A and R, A and R of order L,
   S below L, and the cofactorless equation S*B = R + k*A.
 
-Limits of this script, not of the draft: CBOR nested deeper than 200 levels and inputs over 1 MiB are not read and
-end the run with an error, not with a verdict.
+Limits of this script, not of the draft: it implements the ToBeSigned scheme of Section 5.1 only, so a case that
+names another scheme is an error, not a result; CBOR nested deeper than 200 levels and inputs over 1 MiB are not read
+and end the run with an error, not with a verdict.
 """
 import argparse
 import base64
@@ -39,6 +42,7 @@ import struct
 import sys
 
 DRAFT = "draft-gruszka-scitt-statement-identification-03"
+SCHEME_NAME = "ToBeSigned"
 MAX_DEPTH = 200
 MAX_BYTES = 1 << 20
 
@@ -415,7 +419,7 @@ def axes(inputs, rules="section6"):
     tagged, body_protected, payload, sig = read
     if payload is None:
         payload = detached
-    tbs = None if payload is None else to_be_signed(body_protected, aad, payload)
+    tbs = None if payload is None or aad is None else to_be_signed(body_protected, aad, payload)
     if not usable or tbs is None:
         match = "INDETERMINATE"
     else:
@@ -471,17 +475,21 @@ def case_inputs(raw, what):
     if (not isinstance(scheme, dict) or set(scheme) != {"alg", "name"} or type(scheme["alg"]) is not int
             or type(scheme["name"]) is not str):
         raise CaseError(what + ": scheme is not {alg, name}")
+    if scheme["name"] != SCHEME_NAME or scheme["alg"] not in HASHES:
+        raise CaseError(what + ": this checker implements the ToBeSigned scheme of Section 5.1 with a hash function of "
+                        "RFC 9054 only, not %r with alg %r" % (scheme["name"], scheme["alg"]))
     key = raw.get("stated_key")
     if not isinstance(key, dict) or set(key) != {"name", "public_key"}:
         raise CaseError(what + ": stated_key is not {name, public_key}")
     out = {"scheme": scheme, "public_key": _bytes(key["public_key"], what + " stated_key")}
-    for name in ("candidate", "reference", "external_aad"):
+    for name in ("candidate", "reference"):
         out[name] = _bytes(raw.get(name), what + " " + name)
         if out[name] is None:
             raise CaseError(what + ": " + name + " is missing")
-    if "detached_payload" not in raw:
-        raise CaseError(what + ": detached_payload is missing (null when not supplied)")
-    out["detached_payload"] = _bytes(raw["detached_payload"], what + " detached_payload")
+    for name in ("external_aad", "detached_payload"):
+        if name not in raw:
+            raise CaseError(what + ": " + name + " is missing (null when not supplied)")
+        out[name] = _bytes(raw[name], what + " " + name)
     if len(out["public_key"]) != 32:
         raise CaseError(what + ": the stated key is not 32 bytes")
     return out
@@ -512,8 +520,6 @@ def check_file(path):
             if name not in ("external_aad", "detached_payload"):
                 raise CaseError(label + ": a variant may change external_aad or detached_payload only")
             inputs[name] = _bytes(value, label + " " + name)
-            if name == "external_aad" and inputs[name] is None:
-                raise CaseError(label + ": external_aad cannot be absent")
         rules = v.get("rules", "section6")
         if rules not in RULES:
             raise CaseError(label + ": rules is not one of " + ", ".join(RULES))

@@ -2,12 +2,14 @@
 
 check_cases.py recomputes the four axes of Section 6 of draft-gruszka-scitt-statement-identification-03 for C1 to C14
 and for the five further results Appendix A.3 states in words; the folder holds 19 of 19. That alone could come from a
-checker that answers from the expected values, so each planted change below, to the input of one case or to the checker
-itself, must turn exactly the named check into a mismatch. tools/build_cases.py, run on the unmodified draft text the
+checker that answers from the expected values, so each planted change below, to one case (five to its inputs, one to its
+expected value) or to the checker itself, must turn exactly the named check into a mismatch. tools/build_cases.py, run on the unmodified draft text the
 folder carries, must write the case files byte for byte. The cryptography package, an independent Ed25519 verifier,
 must agree with the checker's signature rules on every case whose R and A have order L, and both must accept test 1 of
-RFC 8032 Section 7.1. Three inputs the draft names but no case carries, a text that is not UTF-8 and a repeated map key
-in the protected header and a signature whose S is not below L, must be refused as the draft says.
+RFC 8032 Section 7.1. Inputs the draft names but no case carries must be read as the draft says: a text that is not
+UTF-8 in either header, a repeated map key under the key equivalence of RFC 8949, a signature whose S is not below L,
+a key of order 1 that only rule 2 refuses, a supplied empty detached payload, an absent external_aad, and a scheme the
+checker does not implement, which is an error and never a result.
 """
 from __future__ import annotations
 
@@ -198,8 +200,7 @@ def test_a_case_file_whose_bytes_differ_from_their_hash_is_an_error_not_a_result
 
 CHECKER_DEFECTS = {
     "external_aad left out of ToBeSigned": (
-        'tbs = None if payload is None else to_be_signed(body_protected, aad, payload)',
-        'tbs = None if payload is None else to_be_signed(body_protected, b"", payload)', {"C7"}),
+        "to_be_signed(body_protected, aad, payload)", 'to_be_signed(body_protected, b"", payload)', {"C7"}),
     "tag 18 not read": ('"is_scitt": tagged, "sig_valid": sig_valid}', '"is_scitt": True, "sig_valid": sig_valid}',
                         {"C9"}),
     "a supplied payload used although the candidate carries one": (
@@ -247,12 +248,81 @@ RFC8032_TEST1 = {
 }
 
 
-def test_the_checker_s_ed25519_reproduces_rfc8032_test_1():
+def test_both_verifiers_reproduce_rfc8032_test_1():
+    from cryptography.exceptions import InvalidSignature  # noqa: PLC0415
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey  # noqa: PLC0415
     cc = _module()
     assert cc.public_key_from_seed(bytes.fromhex(RFC8032_TEST1["seed"])).hex() == RFC8032_TEST1["public"]
     pub, sig = bytes.fromhex(RFC8032_TEST1["public"]), bytes.fromhex(RFC8032_TEST1["signature"])
     assert cc.ed25519_rules(pub, sig, b"") is True
     assert cc.ed25519_rules(pub, sig, b"x") is False
+    Ed25519PublicKey.from_public_bytes(pub).verify(sig, b"")
+    with pytest.raises(InvalidSignature):
+        Ed25519PublicKey.from_public_bytes(pub).verify(sig, b"x")
+
+
+def test_rule_2_alone_refuses_a_key_of_order_1():
+    # A is the neutral element and R the base point with S = 1: S*B = R + k*A holds for any message, so only rule 2
+    # (A and R have order L and are not the neutral element) refuses it. With rule 2 left out it passes.
+    cc = _module()
+    neutral = (1).to_bytes(32, "little")
+    sig = cc._encode_point(cc.BASE) + (1).to_bytes(32, "little")
+    assert cc.ed25519_rules(neutral, sig, b"any message") is False
+    assert cc.ed25519_rules(neutral, sig, b"any message", rules="no-rule-2") is True
+
+
+def test_a_supplied_empty_detached_payload_is_a_payload():
+    # Section 5.1: a supplied detached payload takes the place of nil, an empty one included. C8 with b"" gives a
+    # ToBeSigned that is not the one of 01 and a signature not made over it.
+    cc = _module()
+    inputs = cc.case_inputs(_case(FOLDER, "C8")["inputs"], "C8")
+    assert cc.axes(dict(inputs, detached_payload=b"")) == {
+        "ref_usable": True, "match": "NO_MATCH", "is_scitt": True, "sig_valid": False}
+
+
+def test_an_absent_external_aad_is_never_a_match():
+    # A missing external context is not assumed empty (A.3.7, Section 7).
+    cc, inputs = _c1_inputs()
+    assert cc.axes(dict(inputs, external_aad=None)) == {
+        "ref_usable": True, "match": "INDETERMINATE", "is_scitt": True, "sig_valid": None}
+
+
+def test_a_scheme_the_checker_does_not_implement_is_an_error_not_a_result(tmp_path):
+    # Codex reading of 9 November 2026: C1 with the scheme "WholeBytes" and the reference of C14 matched, although the
+    # checker computes the ToBeSigned digest only.
+    folder = _copy(tmp_path)
+    case = _case(folder, "C1")
+    case["inputs"]["scheme"]["name"] = "WholeBytes"
+    case["inputs"]["reference"] = _case(folder, "C14")["inputs"]["reference"]
+    _put(folder, "C1", case)
+    p = _run(folder)
+    assert p.returncode == 1 and _mismatches(p) == {"C1.json"}, p.stdout[-600:]
+    assert "implements the ToBeSigned scheme of Section 5.1" in p.stdout
+
+
+@pytest.mark.parametrize("encoded, readable", [
+    (bytes.fromhex("a2" "01" "00" "f5" "00"), True),            # 1 and true are two keys
+    (bytes.fromhex("a2" "f90000" "00" "f98000" "00"), False),    # 0.0 and -0.0 are one key
+    (bytes.fromhex("a2" "f97e00" "00" "fa7fc00000" "00"), False),  # two NaNs with one significand are one key
+    (bytes.fromhex("a2" "01" "00" "3800" "00"), True),          # 1, and -1 in a longer head, are two keys
+], ids=["one-and-true", "zero-and-minus-zero", "nan-of-two-widths", "one-and-minus-one"])
+def test_map_keys_are_compared_under_rfc8949_equivalence(encoded, readable):
+    cc = _module()
+    if readable:
+        cc.decode_one(encoded)
+    else:
+        with pytest.raises(cc.NotWellFormed):
+            cc.decode_one(encoded)
+
+
+def test_a_text_that_is_not_utf8_in_the_unprotected_header_is_not_a_statement():
+    cc, inputs = _c1_inputs()
+    cand = inputs["candidate"]
+    unprotected = cc.decode_one(cand).value.value[1]
+    assert cand[unprotected.start:unprotected.end] == b"\xa0"
+    bent = cand[:unprotected.start] + bytes.fromhex("a1" "01" "61" "ff") + cand[unprotected.end:]
+    assert cc.axes(dict(inputs, candidate=bent)) == {
+        "ref_usable": True, "match": "NO_MATCH", "is_scitt": False, "sig_valid": None}
 
 
 def _signed_inputs():
