@@ -59,25 +59,49 @@ A verified Action Outcome does **not** prove:
   write any `executor.id`, and the outcome verifies with `executor_role_trusted` true. Role separation
   compares that statement with the decision maker's id (docs/predicates/action-outcome.md §5 and §7).
 
-## Steps of draft-gruszka-audit-decision-receipts-05 that proofbundle does not perform
+## Steps of draft-gruszka-audit-decision-receipts that proofbundle performs only with their inputs
 
-The offline verification of that draft (sections 3.1 to 3.4) names inputs that
 `proofbundle decision verify`, `proofbundle outcome verify`, `verify_decision_receipt` and
-`verify_outcome_receipt` do not take. Section 3.1 requires two of them, so a pass of proofbundle on such
-receipts is not a pass of the draft's procedure:
+`verify_outcome_receipt` take the inputs the offline verification of that draft names (sections 3.1 to 4): the
+action bytes (section 3.2 step 10), the case the relying party chooses with the approval record bytes of Case 1
+(section 3.3), the expected `executor.id`, the effect bytes and the bound decision receipt with the expected
+`decisionMaker.id` and the evaluation time (section 3.4), and a consumption state with the copies of an approval the
+relying party received (section 4).
 
-- **The expected `executor.id`** (section 3.1, section 3.4 step 5), and a trust policy that permits the
-  outcome-signing key to attest that identifier.
-- **The approval record bytes of Case 1** (section 3.3), with the bounds approvedAt <= decidedAt <= T <
-  validity.expiresAt <= validUntil.
+Without an input its check is not performed. Some inputs depend on others, and a missing partner then fails the
+check instead of skipping it; for example a bound decision receipt needs its key and the expected
+`decisionMaker.id`, approval record bytes need the approval case, received copies need the consumption state, and a
+consumption state needs the approval case. A chosen case fails without an input it requires (Case 1 without the
+approval record bytes, Case 3 without the bound decision receipt and its key, the expected `decisionMaker.id` or the
+expected `executor.id`). Without an evaluation time the wall clock is read once. Effect bytes stay optional in
+Case 3. Section 3.1 requires the expected
+`executor.id` and, for Case 1, the approval record bytes, so a pass without them is not a pass of the draft's
+procedure.
 
-Section 3.1 calls two more optional:
+These verifiers are not a complete implementation of the draft's procedure. Even with every input supplied, a
+receipt the draft rejects can pass them: in places the draft's field rules (section 3.8) are narrower than
+proofbundle's own. Measured examples, not a complete list:
 
-- **The effect bytes** (section 3.4 step 6). proofbundle reads `effectDigest` as a digest and compares it
-  with no bytes.
-- **The action bytes** (section 3.2 step 10). The decision verifiers take no action bytes.
-
-The expected `executor.id`, the approval record bytes and the effect bytes are scheduled for 6.6.0.
+- **An evaluation time before `decidedAt`** (section 3.2 step 9) outside Case 1. The decision verifier compares
+  the evaluation time with `validity.expiresAt` only, and so does the check of a decision an outcome is bound to;
+  Case 1 checks approvedAt <= decidedAt <= T itself.
+- **Values the draft's field rules refuse:** a `decisionType` other than `preActionAuthorization`, an audience
+  entry that is no non-empty string, and a JSON null inside `decision.obligations` or inside an outcome's
+  `validity.audience` pass the check of a bound decision and the executed case.
+- **A declined decision without `validity.expiresAt`** passes `decision verify` with the declined case. A bound
+  decision without it fails the binding, whose time window reads that field.
+- **Timestamps outside the draft's form** in a field these verifiers read only for its RFC 3339 form, such as
+  `recordedAt` of a decision or of an outcome: more than six fraction digits, or second 60. The times they compare,
+  `decidedAt` and `validity.expiresAt` of a decision and `performedAt` of an outcome, are read in the draft's form
+  and fail with more than six fraction digits.
+- **An evaluation time with a fraction of a second.** `--verification-time` takes a whole past second, on
+  `decision verify` and on `outcome verify` alike.
+- **A trust policy that permits the outcome-signing key to attest `executor.id`** (section 3.4 step 5), other
+  than the relying party's own statement: `--executor-id` given beside `--pub` says that this key may attest that
+  identifier. A Trust Pack binds `executor.keyId` to the key, not an identifier.
+- **Honouring an approval at most once** (section 4 items 1, 3 and 6). proofbundle reads a supplied consumption
+  state and never writes it; marking an approval consumed durably, and keeping the state, stay with the relying
+  party. A pass says only that the approval identity is not in the state given.
 
 ## TEE attestation bridge (experimental)
 

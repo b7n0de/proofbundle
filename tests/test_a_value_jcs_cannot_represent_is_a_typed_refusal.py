@@ -202,6 +202,7 @@ def _wrappers() -> dict:
     from proofbundle import (anchors, canonical, decision, evalclaim, intoto, outcome,  # noqa: PLC0415
                              relation_statement, run_ledger, sdjwt_issue, subject_binding, trust_pack,
                              verification_summary, verifier_block)
+    from proofbundle._approval_record import read_approval_record  # noqa: PLC0415
     from proofbundle._statement_payload import load_statement_strict  # noqa: PLC0415
     from proofbundle.adapters import _provenance, eee, trace_record  # noqa: PLC0415
     from proofbundle.errors import BundleFormatError  # noqa: PLC0415
@@ -235,6 +236,10 @@ def _wrappers() -> dict:
         ("_statement_payload", "load_statement_strict"): (
             lambda o: load_statement_strict(json.dumps(o).encode(), require_canonical=True),
             BundleFormatError),
+        # The approval record of Case 1 of Section 3.3 (finding B3) never raises: a value the canonicalizer refuses
+        # is a reason, and every reason it gives starts so (src/proofbundle/_approval_record.py).
+        ("_approval_record", "read_approval_record"): (
+            lambda o: read_approval_record(json.dumps(o).encode())[1], "the approval record is not"),
         # A producer helper that labels its fallback instead of refusing: the answer is a string.
         ("adapters._provenance", "config_hash"): (_provenance.config_hash, "sha256-sortkeys:"),
         ("adapters.eee", "_record_digest"): (eee._record_digest, "sha256-sortkeys:"),

@@ -48,7 +48,7 @@ action-outcome statement  (executor + status + effect + notProven; own detached 
 `decisionRef.sha256` is the **content root** of the referenced Decision Receipt — SHA-256 over its exact
 RFC-8785 canonical Statement bytes, never a re-canonicalized recomputation and never the bare predicate hash.
 `verify_outcome_receipt(..., expected_decision_ref=...)` fails closed when the embedded `decisionRef` does not
-equal the caller's expected content root (`decision_bound`). An optional `requestedActionDigest` pins the exact
+equal the caller's expected content root (`decision_bound`). The required `requestedActionDigest` pins the exact
 proposed action; `effectDigest` / `actualActionDigest` pin the observed effect. Neither predicate semantically
 mixes into the other.
 
@@ -145,17 +145,23 @@ override / tamper / malformed subject, fail-closed `matches = False`). See
 
 - Independent attestation of `executor.id` is NOT built. `verify_outcome_receipt(..., trust_pack=...)` checks
   `executor.keyId` against the pack's `outcomeExecutors` role and binds that key id to the signing key (§5.8);
-  a Trust Pack names no identifier per key, and no verify path compares `executor.id` with anything but
-  `decision_maker_id` (§5.5). An anchored executor key can therefore sign an outcome under any `executor.id`
+  a Trust Pack names no identifier per key, so no verify path binds `executor.id` to the signing key:
+  `expected_executor_id` (`--executor-id`) compares it with the identifier the relying party expects, and
+  `decision_maker_id` with the decision maker's (§5.5), both as statements the relying party makes. An anchored executor key can therefore sign an outcome under any `executor.id`
   it writes, and each such outcome reports `executor_role_trusted` True, so role separation holds only
   against a signer that keeps to its own name. `executor.id` is the outcome signer's own statement. The
   binding of an identifier per executor key, compared with `executor.id`, is scheduled for 6.6.0. A LIVE
   registry / DID anchor that DISCOVERS and fetches the right Trust Pack for a given executor automatically
   is further future work.
-- The outcome checks of draft-gruszka-audit-decision-receipts-05 that need an input proofbundle does not take
-  are NOT performed: `verify_outcome_receipt` and `proofbundle outcome verify` take no effect bytes to compare
-  with `effectDigest` (section 3.4 step 6) and no expected `executor.id` (section 3.4 step 5). Both inputs are
-  scheduled for 6.6.0; see `docs/NON_CLAIMS.md`.
+- The outcome checks of draft-gruszka-audit-decision-receipts that need an input run only when the relying party
+  supplies it: the expected `executor.id` (section 3.4 step 5, `expected_executor_id`, `--executor-id`), the
+  effect bytes (step 6, `effect_bytes`, `--effect`) and the bound decision receipt with its key and the expected
+  `decisionMaker.id` (steps 4, 5 and 7, `decision_envelope`, `decision_public_key`, `decision_maker_id`,
+  `--decision`, `--decision-pub`, `--decision-maker-id`). The bound decision is checked at the evaluation time
+  (`now`, `--verification-time`), and without one at the wall clock. The executed case (`case="executed"`,
+  `--case executed`) requires the expected `executor.id` and the bound decision with its key and the expected
+  `decisionMaker.id`; the effect bytes stay optional in it. Without these inputs a pass is not a pass of the
+  draft's procedure; see `docs/NON_CLAIMS.md`.
 - ~~Third-party corroboration of an outcome (the "overwhelmingly executor-self-attested" gap, Finding 16)~~
   — SELF-FIXABLE PART CLOSED: `receiverRefs[]` (digest-bound, mirrors `evidenceRefs[]`) +
   `assurance.classify_receiver_corroboration` (capped at `CONTENT_RESOLVED`; `INDEPENDENTLY_ATTESTED` is NOT

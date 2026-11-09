@@ -44,6 +44,10 @@ _T = Ed25519PrivateKey.from_private_bytes(b"\x07" * 32)
 _E = Ed25519PrivateKey.from_private_bytes(b"\x09" * 32)
 _A = Ed25519PrivateKey.from_private_bytes(b"\x0a" * 32)
 _W1 = Ed25519PrivateKey.from_private_bytes(b"\x0b" * 32)
+#: The action bytes the sweep's decision receipt binds (step 10 of Section 3.2, finding B1).
+_SWEEP_AKTION = b'{"sweep":"action"}'
+#: The effect bytes the sweep's outcome receipt binds (step 6 of Section 3.4, finding B2).
+_SWEEP_WIRKUNG = b'{"sweep":"effect"}'
 
 
 def _raw(k) -> bytes:
@@ -920,16 +924,50 @@ def _flaechen():
     svr_env = intoto.export_svr_dsse(ev_bundle, _T)
 
     dec_pred = json.loads((_WURZEL / "examples" / "decision_receipt_allow.json").read_text(encoding="utf-8"))
+    # Step 10 of Section 3.2 (finding B1): the decision binds action bytes the sweep holds, so that `action_bytes`
+    # reaches the verdict (the matching value passes, a change of it fails; tests/
+    # test_a_verdict_surface_holds_its_verdict_at_every_argument.py measures the reach on these calls).
+    import hashlib  # noqa: PLC0415
+    dec_pred["proposedAction"]["parametersDigest"] = {"sha256": hashlib.sha256(_SWEEP_AKTION).hexdigest()}
+    # Case 1 of Section 3.3 (finding B3): the decision holds a human approval the sweep passes as approval_record, at
+    # the sweep's evaluation time now=1_700_000_000 (2023-11-14T22:13:20Z), so that case and approval_record reach the
+    # verdict (the base case holds; any change of the case or of the record bytes fails it).
+    dec_pred["decision"]["reasonCodes"] = list(dec_pred["decision"]["reasonCodes"]) + ["user_approval"]
+    dec_pred["decidedAt"] = "2023-11-14T22:00:00Z"
+    dec_pred["validity"] = {"audience": ["rp"], "nonce": "n", "expiresAt": "2023-11-14T22:20:00Z"}
+    sweep_freigabe = decision._rfc8785_bytes({
+        "approvalId": "appr-sweep", "approver": dec_pred["principal"]["id"], "session": "sess-sweep",
+        "actionDigest": dict(dec_pred["proposedAction"]["parametersDigest"]),
+        "approvedAt": "2023-11-14T21:59:00Z", "validUntil": "2023-11-14T22:30:00Z"})
+    dec_pred["inputSnapshot"] = list(dec_pred["inputSnapshot"]) + [
+        {"name": "approval record", "digest": {"sha256": hashlib.sha256(sweep_freigabe).hexdigest()}}]
+    # Section 4 (finding B4, Owner choice A on OA-616feb8f26): a consumption state that holds another approval identity,
+    # not the one of the sweep's record, and the received copy of that record, so that consumed_state and
+    # received_copies reach the verdict (the base passes; a change of either bytes fails it).
+    sweep_verbrauch = json.dumps({"previous": [{"approvalId": "appr-other", "session": "sess-sweep",
+                                                "actionDigest": dict(dec_pred["proposedAction"]["parametersDigest"])}],
+                                  "current": []}).encode("utf-8")
+    sweep_kopien = json.dumps([json.loads(sweep_freigabe)]).encode("utf-8")
     dec_env = decision.emit_decision_receipt(dec_pred, _T)
     dec_validity = dec_pred.get("validity") or {}
     # Nachtrag 48/48b: the evaluate_decision_policy verdict surface judges this statement under the signer _T;
     # the result it is handed must be bound to exactly that statement + signer (a passing verify stamps it so).
     dec_policy_stmt = {"predicate": dec_pred, "predicateType": decision.DECISION_RECEIPT_PREDICATE_TYPE}
     dec_policy_result = bound_decision_result(dec_policy_stmt, _b64pub(_T))
-    out_pred = {"schemaVersion": "0.1.0", "outcomeId": "outcome-0001", "decisionRef": {"sha256": "a" * 64},
+    # Section 3.4 (finding B2): the decision the sweep's outcome is bound to, under its own key _E, with the times and
+    # the parametersDigest the outcome names, so that the decision inputs of verify_outcome_receipt reach the verdict.
+    import base64 as _b64  # noqa: PLC0415
+    aus_dec_pred = json.loads((_WURZEL / "examples" / "decision_receipt_allow.json").read_text(encoding="utf-8"))
+    aus_dec_pred["proposedAction"]["parametersDigest"] = {"sha256": "c" * 64}
+    aus_dec_pred["decidedAt"] = "2026-07-14T09:59:00Z"
+    aus_dec_pred["validity"] = {"audience": ["rp"], "nonce": "n", "expiresAt": "2026-07-14T10:05:00Z"}
+    aus_dec_env = decision.emit_decision_receipt(aus_dec_pred, _E)
+    aus_dec_wurzel = hashlib.sha256(_b64.b64decode(aus_dec_env["payload"])).hexdigest()
+    out_pred = {"schemaVersion": "0.1.0", "outcomeId": "outcome-0001", "decisionRef": {"sha256": aus_dec_wurzel},
                 "executor": {"id": "executor:runner-7", "keyId": "root-0"},
                 "requestedActionDigest": {"sha256": "c" * 64}, "status": "executed",
-                "performedAt": "2026-07-14T10:00:00Z", "effectDigest": {"sha256": "c" * 64}}
+                "performedAt": "2026-07-14T10:00:00Z",
+                "effectDigest": {"sha256": hashlib.sha256(_SWEEP_WIRKUNG).hexdigest()}}
     out_env = outcome.emit_outcome_receipt(out_pred, _T)
     rl_pred = {"schemaVersion": "0.1.0", "studyId": "study-0001", "runBudget": 5,
                "runs": rl.link_runs(["1" * 64, "2" * 64, "3" * 64], ["completed", "aborted", "completed"]),
@@ -1057,12 +1095,19 @@ def _flaechen():
         ("decision.verify_decision_receipt", lambda w: decision.verify_decision_receipt(
             w(dec_env), w(pub), expected_audience=w((dec_validity.get("audience") or ["x"])[0]),
             expected_nonce=w(dec_validity.get("nonce") or "n"), policy=w(dec_policy_relationen),
-            anchors=w(dec_anker), related=w(verwandt), rp_trust=w({}), now=w(1_700_000_000))),
+            anchors=w(dec_anker), related=w(verwandt), rp_trust=w({}), now=w(1_700_000_000),
+            action_bytes=w(_SWEEP_AKTION), case=w("approval"), approval_record=w(sweep_freigabe),
+            consumed_state=w(sweep_verbrauch), received_copies=w(sweep_kopien))),
         ("outcome.verify_outcome_receipt", lambda w: outcome.verify_outcome_receipt(
-            w(out_env), w(pub), expected_decision_ref=w("a" * 64), trust_pack=w(tp_pred),
+            w(out_env), w(pub), expected_decision_ref=w(aus_dec_wurzel), trust_pack=w(tp_pred),
             trust_pack_expected_genesis_digest=w("a" * 64), trust_pack_expected_root_keys=w(dict(tp_keys)),
-            decision_maker_id=w("maker:x"), expected_audience=w("rp"), expected_nonce=w("n"),
-            policy=w({"relations": relationen}), related=w(verwandt))),
+            decision_maker_id=w(aus_dec_pred["decisionMaker"]["id"]), expected_audience=w("rp"),
+            expected_nonce=w("n"), policy=w({"relations": relationen}), related=w(verwandt),
+            expected_executor_id=w("executor:runner-7"), effect_bytes=w(_SWEEP_WIRKUNG),
+            decision_envelope=w(aus_dec_env), decision_public_key=w(_raw(_E)), case=w("executed"),
+            # T inside the bound decision's validity (2026-07-14T10:00:30Z), so that it passes decision verify and the
+            # expected decisionMaker.id and T reach the verdict (review 1 of the B1 to B4 series, finding 1).
+            now=w(1784023230))),
         ("run_ledger.verify_run_ledger", lambda w: rl.verify_run_ledger(w(rl.emit_run_ledger(rl_pred, _T)), w(pub))),
         ("verification_summary.verify_verification_summary", lambda w: vs.verify_verification_summary(
             w(vs.emit_verification_summary(vs_pred, _T)), w(pub))),
