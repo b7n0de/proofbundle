@@ -1,8 +1,10 @@
 """Evidence bundle emitter (v0.2).
 
-Sign a payload with Ed25519 and anchor it as the last leaf of an RFC 6962
-Merkle tree, producing a bundle that ``verify_bundle`` accepts. This is the
-counterpart to the verifier: create the evidence here, check it anywhere with
+Sign a payload with Ed25519 and include it as the last leaf of an RFC 6962
+Merkle tree. Before signing, apply the structural budget used by
+``verify_bundle`` for dictionary input. This check does not validate an
+embedded SD-JWT or impose the byte limit of a serialized file. This is the
+counterpart to the verifier: create the evidence here, check it with
 ``proofbundle verify``, fully offline.
 
 The eval-receipt emitter that builds on this (``emit_eval_receipt``) lives in
@@ -115,8 +117,13 @@ def emit_bundle(
     """Produce a ``proofbundle/v0.1`` bundle for ``payload``.
 
     The payload is signed with ``signer`` and appended as the last leaf of an
-    RFC 6962 Merkle tree over ``prior_leaves + [payload]``. The returned dict is
-    accepted by :func:`proofbundle.verify_bundle`.
+    RFC 6962 Merkle tree over ``prior_leaves + [payload]``. Before signing, the complete bundle is
+    checked with the structural budget used by :func:`proofbundle.verify_bundle` for dictionary input.
+    Exceeding that budget raises ``BundleFormatError`` without creating a signature. This check does not
+    validate an embedded SD-JWT or impose the byte limit of a serialized file. It measures the signature and
+    the public key at the lengths of Ed25519, 64 and 32 bytes, because a signer's outputs exist only once it
+    is asked. A signer whose signature or public key has another length is refused with ``BundleFormatError``
+    after it was asked, and no bundle is returned.
 
     ``sd_jwt_vc`` is passed through verbatim if given (for example
     ``{"compact": "...", "issuer_public_key_b64": "..."}``). Its bytes belong to a foreign issuer and
@@ -143,16 +150,20 @@ def emit_bundle(
     index = len(leaves) - 1
     root = merkle.merkle_tree_hash(leaves)
     proof = merkle.inclusion_proof(leaves, index)
-    signature = signer.sign(payload)
 
+    # Placeholders of the fixed lengths of an Ed25519 public key and signature until the reading below has passed.
+    # The signer is not asked before that reading, and then in the order this function always had: sign, then read
+    # the public key (Codex thread 4219203464 on pull request 307, held by tests/test_merkle_accumulator.py). Equal
+    # lengths give the budget the same verdict as the real values.
+    signature: dict[str, str] = {
+        "alg": "ed25519",
+        "public_key_b64": _b64(bytes(32)),
+        "sig_b64": _b64(bytes(64)),
+    }
     bundle = {
         "schema": SCHEMA,
         "payload_b64": _b64(payload),
-        "signature": {
-            "alg": "ed25519",
-            "public_key_b64": _b64(_raw_pub(signer)),
-            "sig_b64": _b64(signature),
-        },
+        "signature": signature,
         "merkle": {
             "hash_alg": "sha256-rfc6962",
             "leaf_index": index,
@@ -163,4 +174,32 @@ def emit_bundle(
     }
     if sd_jwt_vc is not None:
         bundle["sd_jwt_vc"] = sd_jwt_vc
+    # THE STRUCTURAL BUDGET OF verify_bundle BEFORE THE SIGNATURE (the native-bundle neighbour of the 6.5.0 SD-JWT
+    # finding, review of the class fix, rounds 1 and 2). verify_bundle reads a bundle dict with
+    # `enforce_structural_budget` (string_len, json_nodes, json_depth, int_bits, all from DEFAULT_BUDGET) and
+    # refused a bundle this function had signed: a payload over 750,000 bytes gives a payload_b64 over 1,000,000
+    # characters. The same reading runs here before the signer is called, and a refusal is a BundleFormatError.
+    # The byte limit of a serialized file (load_bundle, input_bytes) is not this check's.
+    from ._strict_json import enforce_structural_budget  # noqa: PLC0415
+    from .errors import ProofBundleError  # noqa: PLC0415
+    try:
+        enforce_structural_budget(bundle)
+    except ProofBundleError as exc:
+        raise BundleFormatError(f"emit_bundle: the bundle is one verify_bundle cannot read, so it is not "
+                                f"signed: {exc}") from None
+    # THE PLACEHOLDERS HOLD ONLY FOR AN Ed25519 SIGNER (Codex pre-review 5 of the class fix): the reading above
+    # measured 64 signature bytes and 32 key bytes, and a signer of another kind could return any length after it,
+    # so a key of 750,001 bytes gave a bundle verify_bundle refuses. The lengths the reading assumed are checked on
+    # what the signer returns, read once as the bytes it holds; anything else is refused and no bundle is returned.
+    from .signature import _ed25519_signatur_von  # noqa: PLC0415
+    sig = _ed25519_signatur_von(signer.sign(payload))
+    if sig is None:
+        raise BundleFormatError("emit_bundle: the signer returned no 64-byte Ed25519 signature, so no bundle is "
+                                "returned")
+    signature["sig_b64"] = _b64(sig)
+    pub = _puffer_von(_raw_pub(signer))
+    if pub is None or len(pub) != 32:
+        raise BundleFormatError("emit_bundle: the signer's public key is no 32-byte Ed25519 key, so no bundle is "
+                                "returned")
+    signature["public_key_b64"] = _b64(pub)
     return bundle

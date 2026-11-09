@@ -31,7 +31,7 @@ from typing import Any, Optional
 
 from .canonical import _ein_stand, _plain_for_jcs, _puffer_von, _zeichen_von
 from .errors import BundleFormatError
-from .signature import verify_ed25519_pinned
+from .signature import _ed25519_signatur_von, verify_ed25519_pinned
 from ._wire_b64 import decode_b64_either
 
 __all__ = ["openssh_sha256_keyid", "pae", "sign_envelope", "verify_envelope"]
@@ -116,7 +116,10 @@ def sign_envelope(body: bytes, signer, *, payload_type: str, keyid: Optional[str
         raise BundleFormatError("DSSE keyid must be a string or None")
     keyid = _zeichen_von(keyid) if keyid is not None else None
     payload_type = typ_text
-    sig = signer.sign(pae(payload_type, body))
+    sig = _ed25519_signatur_von(signer.sign(pae(payload_type, body)))
+    if sig is None:
+        raise BundleFormatError("DSSE sign_envelope: the signer returned no 64-byte Ed25519 signature, so no "
+                                "envelope is returned")
     entry = {"sig": base64.b64encode(sig).decode("ascii")}
     if keyid is None:
         keyid = _default_keyid(signer)
