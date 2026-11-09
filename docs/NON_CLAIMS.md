@@ -55,9 +55,12 @@ The same discipline applies to the decision path. A verified Decision Receipt do
 A verified Action Outcome does **not** prove:
 
 - **That `executor.id` names the party that signed.** `executor.id` is the outcome signer's own
-  statement. A Trust Pack binds only `executor.keyId` to the signing key; an anchored executor key can
-  write any `executor.id`, and the outcome verifies with `executor_role_trusted` true. Role separation
-  compares that statement with the decision maker's id (docs/predicates/action-outcome.md §5 and §7).
+  statement unless a Trust Pack names it. Where the pack's entry for the executor key carries `executorIds`
+  (6.6.0), an outcome under another identifier fails with `EXECUTOR_ID_NOT_ATTESTED`; without `executorIds`
+  an anchored executor key can write any `executor.id`, and the outcome verifies with `executor_role_trusted`
+  true and the warning `EXECUTOR_ID_NOT_BOUND`. Even a named identifier is a permission the pack grants to the
+  key, not proof that the signer is that executor or observed its effect. Role separation compares
+  `executor.id` with the decision maker's id (docs/predicates/action-outcome.md §5 and §7).
 
 ## Steps of draft-gruszka-audit-decision-receipts that proofbundle performs only with their inputs
 
@@ -98,7 +101,9 @@ proofbundle's own. Measured examples, not a complete list:
   `decision verify` and on `outcome verify` alike.
 - **A trust policy that permits the outcome-signing key to attest `executor.id`** (section 3.4 step 5), other
   than the relying party's own statement: `--executor-id` given beside `--pub` says that this key may attest that
-  identifier. A Trust Pack binds `executor.keyId` to the key, not an identifier.
+  identifier. `verify_outcome_receipt` checks such a permission only when a Trust Pack is supplied and the
+  entry of the executor key carries `executorIds` (6.6.0); a pack without them binds `executor.keyId` to the key,
+  not an identifier.
 - **Honouring an approval at most once** (section 4 items 1, 3 and 6). proofbundle reads a supplied consumption
   state and never writes it; marking an approval consumed durably, and keeping the state, stay with the relying
   party. A pass says only that the approval identity is not in the state given.
