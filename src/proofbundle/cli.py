@@ -2858,7 +2858,8 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
                   "was correct, legal, safe, or that the action was executed.")
         else:
             print("\nThis receipt did NOT verify (crypto failure); nothing about the decision is attested.")
-    # Exit contract (Phase B): 1 crypto fail · 2 malformed/confusion · 3 crypto OK but policy not satisfied.
+    # Exit contract (Phase B): 1 crypto fail · 2 malformed/confusion, expiry, or a requested binding, action, case
+    # or lineage check that does not hold · 3 crypto OK but policy not satisfied, or the Section 4 refusal.
     if not result["crypto_ok"]:
         return 1
     if not result["structure_ok"]:
@@ -3909,7 +3910,8 @@ def build_parser() -> argparse.ArgumentParser:
     d_verify = dsub.add_parser(
         "verify", help="verify a decision receipt (crypto + structure; optional audience/nonce)",
         description=("Exit codes: 0 crypto+structure OK · 1 crypto/verification failure · 2 malformed input, "
-                     "predicateType confusion, or a requested binding or case that does not hold · 3 the trust "
+                     "predicateType confusion, an expired receipt, or a requested binding, action, case or "
+                     "lineage check that does not hold · 3 the trust "
                      "policy is not satisfied, or the relying party refuses the approval under Section 4 "
                      "(--consumed, --received). Without a decision policy the output shows POLICY: NOT_EVALUATED, "
                      "and exit 3 then comes only from Section 4. A verified ALLOW receipt is a record of a decision, NOT an "

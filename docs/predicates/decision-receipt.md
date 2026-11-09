@@ -155,10 +155,13 @@ The command does not reject an evaluation time before `decidedAt`, as required b
 Statement with two subject entries passes without `--require-derived-subject` and is rejected with that switch;
 Section 3.2 step 6 requires exactly one derived subject. Binding `decisionMaker.id` to the signing key requires an
 applicable `--policy`, as described in Section 9 below. The action, case and outcome checks of Section 3.2 step 10,
-Section 3.3 and Section 3.4 run only when the relying party supplies their inputs: `--action` for the action bytes,
-`--case` with `--approval` for the case it chooses, and on `outcome verify` `--executor-id`, `--effect`, `--decision`
-with `--decision-pub`, `--decision-maker-id` and `--verification-time` for the executor identity, the effect bytes
-and the bound decision. A command run without them does not perform those checks.
+Section 3.3 and Section 3.4 run only when the relying party asks for them. `--action` gives the action bytes, and
+without it they are not compared. `--case` chooses the case, and without it no case is checked; the approval case
+also needs `--approval` with the approval record bytes, and a record given under another case, or without a case,
+fails it. On `outcome verify`, `--executor-id` gives the expected executor identity and `--decision` with
+`--decision-pub` and `--decision-maker-id` binds the decision, and the executed case requires both; `--effect` adds
+the comparison of the effect bytes and stays optional. The bound decision is checked at `--verification-time`, and
+without it at the wall clock. `docs/NON_CLAIMS.md` names the inputs that depend on one another.
 
 For the F5 scenario in Appendix A.5 of revision 05, `proofbundle decision verify v2-declined-good.dsse.json --pub
 <gate-1 key> --strict --aud observer-1 --nonce dec-0002 --verification-time 2026-10-15T09:06:00Z` exits 0. This
@@ -211,9 +214,11 @@ relying-party concern, evaluated at that same one instant.
 `action_outcome_proven` is `false` (with a warning) when `actionOutcome.status = executed` without a
 signed/digest-bound `outcomeRef`.
 
-Exit codes (identical to the Phase B `verify` contract):
-`0` crypto OK (and policy OK if supplied) · `1` crypto/verification failure · `2` malformed input ·
-`3` crypto OK but policy not satisfied. Without `--policy`, output shows `POLICY: NOT_EVALUATED`; there is no
+Exit codes (the Phase B `verify` contract, with the refusal of Section 4 added to exit 3):
+`0` crypto OK (and policy OK if supplied) · `1` crypto/verification failure · `2` malformed input, an expired
+receipt, or a requested binding, action, case or lineage check that does not hold · `3` crypto OK but policy not
+satisfied, or the relying party refuses the approval under Section 4 of the draft (`--consumed`, `--received`).
+Without `--policy`, output shows `POLICY: NOT_EVALUATED`, and exit 3 then comes only from Section 4; there is no
 bare context-free `OK`.
 
 ### 7.1 hash binding (two-part rule, no re-serialization bug)
