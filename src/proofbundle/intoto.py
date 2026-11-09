@@ -765,6 +765,9 @@ _V01_REQUIRED_MEMBERS = ("verifier", "evaluatedAt", "suite", "claims", "sampleSi
 _V01_REQUIRED_COMMITMENTS = ("model", "dataset")
 #: The two parts of `suite` (docs/IN_TOTO_PROFILE.md, the v0.1 table: `{name, version}`).
 _V01_REQUIRED_SUITE = ("name", "version")
+#: The members of each claim entry (docs/IN_TOTO_PROFILE.md, the v0.1 table: `{metric, comparator, threshold,
+#: passed}`, with `passed` optional in v0.1).
+_V01_REQUIRED_CLAIM = ("metric", "comparator", "threshold")
 
 
 def _eval_result_v01_member_forms(predicate: dict) -> list:
@@ -817,7 +820,8 @@ def _eval_result_v01_statement_claim_fields(statement: dict, predicate: dict) ->
     attestation exists. Measured on main 647ed0a2: a signed v0.1 statement whose predicate carried none of these
     members verified ok=True and `proofbundle intoto --verify` printed PASS. The value of a present member is
     judged by the claim rule and, where the claim rule does not read it, by `_eval_result_v01_member_forms`; an
-    unknown member stays unread."""
+    unknown member stays unread. The members a claim object lacks are judged after all of these
+    (`_judge_v01_claim_members`), so every earlier reason keeps its place in the verdict."""
     gruende = [(f"predicate {m}", "is required by eval-result v0.1 and absent")
                for m in _V01_REQUIRED_MEMBERS if m not in predicate]
     commitments = predicate.get("commitments")
@@ -826,6 +830,52 @@ def _eval_result_v01_statement_claim_fields(statement: dict, predicate: dict) ->
                     for t in _V01_REQUIRED_COMMITMENTS if t not in commitments]
     gruende += _eval_result_v01_member_forms(predicate)
     return gruende + _eval_result_statement_claim_fields(statement, predicate)
+
+
+def _eval_result_v01_claim_members(predicate: dict) -> list:
+    """(label, reason) for each member a v0.1 claim object lacks. Each claim object must carry `metric`,
+    `comparator` and `threshold`; `passed` remains optional and must be boolean when present
+    (docs/IN_TOTO_PROFILE.md, the v0.1 table: "one or more {metric, comparator, threshold, passed}").
+
+    The claim rule judges the fields an entry carries, so `claims` [{}] verified (deep gate 6.5.0, iteration
+    1, measured again at ac4129f7). An entry that is no object stays the claim rule's reason.
+
+    JUDGED LAST, ON PURPOSE (review of the class fix, rounds 1 and 2): the verdict names the first reason, and
+    these reasons stood before the member forms and the claim fields, so a statement that was already
+    refused changed its reason. Measured at e1a684f8: `claims` [5, {}] gave `claims[1].metric` where
+    ac4129f7 gave `claims[0]: must be an object`, and a claim with comparator "==" and no threshold gave the
+    missing threshold where ac4129f7 gave the comparator. Existing rejection reasons keep their precedence;
+    these apply when the previous checks found no violation (`_judge_v01_claim_members`)."""
+    claims = predicate.get("claims")
+    if not isinstance(claims, list):
+        return []
+    return [(f"predicate claims[{i}].{t}", "is required by eval-result v0.1 and absent")
+            for i, eintrag in enumerate(claims) if isinstance(eintrag, dict)
+            for t in _V01_REQUIRED_CLAIM if t not in eintrag]
+
+
+def _judge_v01_claim_members(res: dict) -> dict:
+    """After `_judge_claim_fields` of a v0.1 statement: the first member a claim object lacks, only where no
+    earlier claim reason was found, as ``predicate_member_detail`` and appended to ``content_root_detail``.
+
+    A FIELD OF ITS OWN (review of the class fix, round 2): `proofbundle intoto --verify` prints
+    ``content_root_detail`` before the signature line, so a statement with a broken signature and a claim
+    without `metric` printed the new reason first, where ac4129f7 printed the signature reason first. The CLI
+    prints this one reason after the signature line; every reason it printed before keeps its place."""
+    res["predicate_member_detail"] = ""
+    statement = res.get("statement")
+    if res.get("predicate_claim_ok") is not True or not (
+            isinstance(statement, dict) and statement.get("predicateType") == EVAL_RESULT_PREDICATE_TYPE):
+        return res
+    predicate = statement.get("predicate", {})
+    teile = _eval_result_v01_claim_members(predicate) if isinstance(predicate, dict) else []
+    if teile:
+        grund = f"{teile[0][0]}: {teile[0][1]}"
+        res["predicate_claim_ok"] = False
+        res["ok"] = False
+        res["predicate_member_detail"] = grund
+        res["content_root_detail"] = (res["content_root_detail"] + "; " if res["content_root_detail"] else "") + grund
+    return res
 
 
 _CASE_LISTS = ("passedTests", "warnedTests", "failedTests")
@@ -1335,7 +1385,9 @@ def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
                             expected_predicate_type: Optional[str] = EVAL_RESULT_PREDICATE_TYPE) -> dict:
     """Verify a DSSE-signed eval-result attestation. Returns {ok, statement, predicate_type, signature_ok,
     predicate_type_ok, statement_ok, statement_detail, content_root_alg, content_root_ok,
-    content_root_detail, predicate_claim_ok, predicate_shape_ok, predicate_shape_detail}. `ok` is True
+    content_root_detail, predicate_claim_ok, predicate_shape_ok, predicate_shape_detail,
+    predicate_member_detail}; `predicate_member_detail` names the first member a v0.1 claim object lacks,
+    judged after every other claim reason, or is empty (`_judge_v01_claim_members`). `ok` is True
     iff the Ed25519 signature over the DSSE PAE verifies, payloadType is the pinned in-toto Statement
     media type, the payload is canonical for its DECLARED contentRootAlg (absent ⇒ legacy; ADR 0002),
     the statement has the in-toto Statement v1 layer (`_type`, and a subject whose every entry carries
@@ -1373,6 +1425,7 @@ def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
                                                         erwartet),
                                   EVAL_RESULT_PREDICATE_TYPE, _eval_result_statement_claim_fields)
         res["predicate_shape_ok"], res["predicate_shape_detail"] = None, ""
+        res["predicate_member_detail"] = ""
         return res
     binding_ok, alg, detail = _content_root_binding(statement, body)
     # The claim rule judges both versions: v0.2 carries claims[], sampleSize, commitments, suite, evaluatedAt,
@@ -1384,6 +1437,10 @@ def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
         _intoto_verify_result(ok, binding_ok, statement, alg, detail, erwartet),
         eigener_typ, (_eval_result_v02_statement_claim_fields if eigener_typ == EVAL_RESULT_V02_PREDICATE_TYPE
                       else _eval_result_v01_statement_claim_fields))
+    if eigener_typ == EVAL_RESULT_PREDICATE_TYPE:
+        _judge_v01_claim_members(res)
+    else:
+        res["predicate_member_detail"] = ""
     # THE CONTRACT FOLLOWS THE TYPE THE SIGNED STATEMENT DECLARES, not the type the caller expected: a
     # v0.2 statement is judged under v0.2 even when the caller opted out of the type check, and a v0.1
     # statement is never judged under v0.2. v0.1 gets no v0.2 shape (G2: old evidence stays verifiable

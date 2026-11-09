@@ -50,8 +50,9 @@ try:
 except ImportError:  # pragma: no cover - the [test] extra carries it; a bare install skips
     jsonschema = None
 
+from _ein_blatt_buendel import ein_blatt
 from proofbundle.bundle import verify_bundle
-from proofbundle.emit import emit_bundle, generate_signer
+from proofbundle.emit import generate_signer
 from proofbundle.evalclaim import (
     CLAIM_INVALID,
     CLAIM_VALID,
@@ -166,9 +167,12 @@ class _Basis(unittest.TestCase):
         self.basis = dict(claim)
 
     def _hand_signed(self, claim):
-        # Past emit_eval_receipt's own checks, straight to a correctly signed bundle.
+        # Past emit_eval_receipt's own checks, straight to a correctly signed bundle. Built by the shared one-leaf
+        # builder, not by emit_bundle: since the class fix after 6.5.0 emit_bundle refuses a bundle past the
+        # verifier's structural budget, and the limits case below asks the VERIFIER about such bundles. On an
+        # in-budget claim the builder writes what emit_bundle writes (test_ein_blatt_is_what_the_emitter_writes).
         roh = json.dumps(claim, sort_keys=True, separators=(",", ":")).encode()
-        return emit_bundle(roh, self.signer)
+        return ein_blatt(roh, self.signer)
 
 
 class TestTheCommitmentPatternAtTheVerifyBoundary(_Basis):

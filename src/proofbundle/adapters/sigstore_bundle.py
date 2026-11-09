@@ -319,8 +319,18 @@ def _dt_ns(dt: datetime) -> int:
     return calendar.timegm(dt.timetuple()) * 1_000_000_000 + dt.microsecond * 1000
 
 
+#: The last second a `datetime` can hold, 9999-12-31T23:59:59Z. A signed entry timestamp past it is refused.
+_LAST_DATE_SECONDS = 253_402_300_799
+
+
 def _iso(ns: int) -> str:
-    return datetime.fromtimestamp(ns // 1_000_000_000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    """Format a verified time for a diagnostic. If its integer-second timestamp cannot be represented by
+    `datetime`, report the seconds instead. This formatter does not validate the timestamp (review of the
+    class fix, rounds 1 and 2); `_verify_body` refuses a signed entry timestamp past `_LAST_DATE_SECONDS`."""
+    try:
+        return datetime.fromtimestamp(ns // 1_000_000_000, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    except (OverflowError, ValueError, OSError):
+        return f"{ns // 1_000_000_000} seconds after the epoch (past the range of a date)"
 
 
 def _parse_json_bytes(raw: bytes, what: str) -> Any:
@@ -481,10 +491,20 @@ def _read_leaf(der: bytes) -> _Leaf:
     """The leaf certificate read under Fulcio's certificate profile, or `_Fail("certificate", ...)`."""
     from cryptography import x509  # noqa: PLC0415
     from cryptography.x509.oid import ExtendedKeyUsageOID, ExtensionOID  # noqa: PLC0415
+    # EVERY FIELD READ BEFORE THE SIGNATURE IS READ HERE, inside the boundary (deep gate 6.5.0, iteration 1):
+    # decode the leaf subject, issuer name and validity times inside the certificate reader's failure
+    # boundary. These fields may fail when first accessed even after the DER certificate has loaded:
+    # cryptography decodes a Name only when it is first asked for, so a subject UTF8String with invalid
+    # UTF-8 raised a bare ValueError at the subject check further down, and a GeneralizedTime of year 0000
+    # parses as ASN.1 and raised "year 0 is out of range" at the end of this function. The issuer name is
+    # read here too (review of the class fix, round 1): undecoded, it surfaced only later, in the chain check.
     try:
         cert = x509.load_der_x509_certificate(der)
         exts = cert.extensions
         version = cert.version
+        subject_attributes = len(cert.subject)
+        len(cert.issuer)
+        not_before, not_after = _not_before(cert), _not_after(cert)
     except (ValueError, x509.DuplicateExtension, x509.InvalidVersion, x509.UnsupportedGeneralNameType) as exc:
         raise _Fail("certificate", f"the leaf certificate is not a well-formed X.509 certificate: {exc}") from None
     if version is not x509.Version.v3:
@@ -511,7 +531,7 @@ def _read_leaf(der: bytes) -> _Leaf:
         raise _Fail("certificate", "the leaf's key usage does not include digitalSignature")
     if ExtendedKeyUsageOID.CODE_SIGNING not in eku:
         raise _Fail("certificate", "the leaf's extended key usage does not include codeSigning")
-    if len(cert.subject) != 0:
+    if subject_attributes != 0:
         raise _Fail("certificate", "the leaf's subject is not empty; Fulcio names the identity in the SAN only")
     if not exts.get_extension_for_class(x509.SubjectAlternativeName).critical:
         raise _Fail("certificate", "the leaf's subject alternative name is not critical")
@@ -565,7 +585,7 @@ def _read_leaf(der: bytes) -> _Leaf:
     except (ValueError, UnsupportedAlgorithm) as exc:
         raise _Fail("unsupported", f"the leaf key is not one this module verifies with (ECDSA P-256, P-384, "
                                    f"Ed25519): {exc}") from None
-    nb, na = _dt_ns(_not_before(cert)), _dt_ns(_not_after(cert))
+    nb, na = _dt_ns(not_before), _dt_ns(not_after)
     if nb > na:
         raise _Fail("certificate", "the leaf's validity period is empty")
     return _Leaf(cert=cert, der=der, key=key, san=san, extensions=values, not_before=nb, not_after=na)
@@ -1180,7 +1200,13 @@ def _sct_problem(leaf: _Leaf, issuer: Any, ctlogs: Sequence[_Log]) -> Optional[s
         if log is None:
             tried.append(f"SCT from unknown log {sct.log_id.hex()[:16]}")
             continue
-        when = _dt_ns(sct.timestamp)
+        # Read inside a boundary: the 64-bit millisecond count becomes a datetime on its first reading, and
+        # one past year 9999 raised a bare ValueError out of verify_sigstore_bundle (measured at ac4129f7).
+        try:
+            when = _dt_ns(sct.timestamp)
+        except (ValueError, OverflowError):
+            tried.append(f"SCT from {log.base_url}: the SCT time is outside the range of a date")
+            continue
         if not log.valid_at(when):
             tried.append(f"SCT from {log.base_url} outside its validity")
             continue
@@ -1942,6 +1968,13 @@ def _verify_body(res: VerificationResult, prof: str, spec: Dict[str, Any], cfg: 
         if entry.set_signature is not None:
             if not _verify(log.key, entry.set_signature, _set_payload(entry)):
                 raise _Fail("tlog-set", f"{where}: the signed entry timestamp does not verify under {log.base_url}")
+            # A TIME THIS VERIFIER CANNOT WRITE AS A DATE IS NO TIME SOURCE (review of the class fix, round 2): before,
+            # a signed integratedTime past year 9999 raised from `_iso`; once `_iso` no longer raised, an npm-publish
+            # bundle with such a time and an open-ended log key verified, measured at b2a11647. The SCT time of the
+            # same class is a failed candidate; this one fails the check of the signed entry timestamp.
+            if entry.integrated_time > _LAST_DATE_SECONDS:
+                raise _Fail("tlog-set", f"{where}: integratedTime {entry.integrated_time} is past the range of a date "
+                                        "(year 9999), so it is no time this verifier compares")
             at = entry.integrated_time * 1_000_000_000
             if not log.valid_at(at):
                 raise _Fail("tlog-set", f"{where}: integratedTime {_iso(at)} is outside the log key's validity")

@@ -548,6 +548,23 @@ OWNER_TEXTS = {
 }
 
 
+#: Owner answer A on card OA-9155cc3dfe (2026-11-06): a beginning for people opens the plugin README (owner choice of the
+#: same evening, "as in the example"), and the former text follows unchanged under this heading. The owner's sentences of
+#: 2026-10-08 and 2026-11-02 open that section word for word, and the checks below read them there.
+TECHNICAL_DETAILS = "\n## Technical details\n\n"
+#: The first line after the title of the beginning for people, as the owner chose it.
+PEOPLE_FIRST_LINE = "**Ask your agent to check a receipt, and get a plain answer.**"
+
+
+def _technical_details() -> list[str]:
+    """The paragraphs of the plugin README from its section Technical details on, as the former text stands there."""
+    text = (PLUGIN / "README.md").read_text(encoding="utf-8")
+    assert text.count(TECHNICAL_DETAILS) == 1, "the plugin README has exactly one section Technical details"
+    head, rest = text.split(TECHNICAL_DETAILS)
+    assert head.split("\n\n")[1] == PEOPLE_FIRST_LINE, "the beginning for people opens the plugin README"
+    return rest.split("\n\n")
+
+
 def _descriptions() -> dict[str, str]:
     market = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
     found = {"3": market["description"], "4": market["plugins"][0]["description"]}
@@ -558,9 +575,10 @@ def _descriptions() -> dict[str, str]:
         for key, host in (("5", "Claude Code"), ("6", "Codex")):
             if line.startswith(f"| {host} | "):
                 found[key] = [c.strip() for c in line.strip("|").split(" | ")][1]
-    readme = (PLUGIN / "README.md").read_text(encoding="utf-8").split("\n\n")
-    # The owner's sentence of 2026-10-08 (what the user gets, one sentence) opens the README; text 7 follows it.
-    found["7"] = " ".join(readme[2].split())
+    readme = _technical_details()
+    # The owner's sentence of 2026-10-08 (what the user gets, one sentence) opens the section Technical details; text 7
+    # follows it (owner answer A on card OA-9155cc3dfe).
+    found["7"] = " ".join(readme[1].split())
     decisions = (PLUGIN / "DECISIONS.md").read_text(encoding="utf-8")
     d14 = decisions.split("## D14.", 1)[1].split("\n## ", 1)[0]
     found["11"] = " ".join(d14.split("Addendum (owner, 2026-09-30): ", 1)[1].split("\n\n", 1)[0].split())
@@ -575,8 +593,8 @@ def test_every_description_carries_the_owners_text_word_for_word():
     for key in ("5", "6"):
         assert found[key] == OWNER_TEXTS[key].rstrip("."), "a catalog cell ends without a period"
         assert not found[key].endswith(".")
-    assert found["7"].startswith(OWNER_TEXTS["7"] + " "), "the README's second paragraph is the owner's text"
-    opening = " ".join((PLUGIN / "README.md").read_text(encoding="utf-8").split("\n\n")[1].split())
+    assert found["7"].startswith(OWNER_TEXTS["7"] + " "), "the second paragraph of Technical details is the owner's text"
+    opening = " ".join(_technical_details()[0].split())
     # owner answer A on card OA-d9328036d3 (2026-11-02): after D134 the sentence names the Guard and the Stop hook's limit;
     # owner answer A on card OA-9f20d2ec84 (2026-11-02): and that under Codex the hooks run only once trusted (D13)
     assert opening.startswith("With proofbundle-guard installed beside this plugin (D134), and under Codex its hooks "
