@@ -41,6 +41,8 @@ T_GUT = 1784192460            # 2026-07-16T09:01:00Z, after decidedAt and before
 PRINCIPAL = "workload://example/ci-release"
 #: The decisionMaker.id of examples/decision_receipt_allow.json, the identifier the relying party expects (3.1).
 MAKER = "https://example.org/decision-platform/proofbundle-gate/v1"
+EXECUTOR = "forge:agent-42-bot"
+EFFECT = b'{"merged":"pull/4471"}\n'
 
 
 def _run(argv):
@@ -239,20 +241,22 @@ class TestCase3Executed(unittest.TestCase):
         self.dpub = self.ds.public_key().public_bytes_raw()
         self.opub = self.os_.public_key().public_bytes_raw()
 
-    def _paar(self, verdict="ALLOW", status="executed"):
+    def _paar(self, verdict="ALLOW", status="executed", effect=True, subject_sha256=None, **extra):
         dec = emit_decision_receipt(_entscheidung(verdict=verdict, reason=("policy.satisfied",)), self.ds)
         wurzel = hashlib.sha256(base64.b64decode(dec["payload"])).hexdigest()
-        out = emit_outcome_receipt({
-            "schemaVersion": "0.1.0", "outcomeId": "o-1", "decisionRef": {"sha256": wurzel},
-            "executor": {"id": "forge:agent-42-bot"},
-            "requestedActionDigest": {"sha256": hashlib.sha256(ACTION).hexdigest()}, "status": status,
-            "performedAt": "2026-07-16T09:01:00Z", "effectDigest": {"sha256": "e" * 64}}, self.os_)
-        return dec, out
+        p = {"schemaVersion": "0.1.0", "outcomeId": "o-1", "decisionRef": {"sha256": wurzel},
+             "executor": {"id": EXECUTOR},
+             "requestedActionDigest": {"sha256": hashlib.sha256(ACTION).hexdigest()}, "status": status,
+             "performedAt": "2026-07-16T09:01:00Z"}
+        if effect:
+            p["effectDigest"] = {"sha256": hashlib.sha256(EFFECT).hexdigest()}
+        p.update(extra)
+        return dec, emit_outcome_receipt(p, self.os_, subject_sha256=subject_sha256)
 
     def _case3(self, dec, out, **kw):
-        # The inputs of Section 3.1 for Case 3: T and the expected decisionMaker.id (the bound decision must pass
-        # Section 3.2, review 1 of the B1 to B4 series, finding 1).
-        args = {"decision_maker_id": MAKER, "now": T_GUT}
+        # The inputs of Section 3.1 for Case 3: T, the expected decisionMaker.id (the bound decision must pass
+        # Section 3.2, review 1 of the B1 to B4 series, finding 1) and the expected executor.id (finding 2).
+        args = {"decision_maker_id": MAKER, "now": T_GUT, "expected_executor_id": EXECUTOR}
         args.update(kw)
         return verify_outcome_receipt(out, self.opub, strict=True, decision_envelope=dec,
                                       decision_public_key=self.dpub, case="executed", **args)
@@ -281,6 +285,43 @@ class TestCase3Executed(unittest.TestCase):
         dec, out = self._paar(status="failed")
         r = verify_outcome_receipt(out, self.opub, strict=True, decision_envelope=dec, decision_public_key=self.dpub)
         self.assertIsNone(r["case_ok"])
+
+    # Case 3 asks the outcome to pass Section 3.4 against the decision, all of it, before the status (review 1 of
+    # the B1 to B4 series, finding 2). Measured at e200c107: the case read only the bound decision, its verdict and
+    # the status, so each outcome below gave case_ok True, and the first three ok True as well.
+    def _faellt(self, r):
+        self.assertIs(r["case_ok"], False, r["errors"])
+        self.assertFalse(r["ok"])
+
+    def test_executed_needs_the_expected_executor(self):                 # step 5, an input of Section 3.1
+        self._faellt(self._case3(*self._paar(), expected_executor_id=None))
+
+    def test_executed_needs_an_effect_digest(self):                      # step 6, first sentence
+        self._faellt(self._case3(*self._paar(effect=False)))
+
+    def test_an_actual_action_digest_is_no_effect_digest(self):
+        self._faellt(self._case3(*self._paar(effect=False, actualActionDigest={"sha256": "a" * 64})))
+
+    def test_executed_needs_a_subject_that_is_the_predicates_digest(self):   # step 2
+        self._faellt(self._case3(*self._paar(subject_sha256="b" * 64)))
+
+    def test_executed_with_another_executor_fails_the_case(self):        # step 5
+        self._faellt(self._case3(*self._paar(), expected_executor_id="forge:another-actor"))
+
+    def test_executed_with_other_effect_bytes_fails_the_case(self):      # step 6, second sentence
+        self._faellt(self._case3(*self._paar(), effect_bytes=b"other"))
+
+    def test_executed_with_matching_effect_bytes_holds(self):
+        r = self._case3(*self._paar(), effect_bytes=EFFECT)
+        self.assertIs(r["case_ok"], True, r["errors"])
+
+    def test_executed_with_an_executor_the_trust_pack_does_not_permit(self):   # step 5, the trust policy
+        self._faellt(self._case3(*self._paar(), trust_pack={}))
+
+    def test_a_failed_outcome_without_effect_digest_fails_on_its_status(self):
+        r = self._case3(*self._paar(status="failed", effect=False))
+        self._faellt(r)
+        self.assertTrue(any("status is not executed" in e for e in r["errors"]), r["errors"])
 
 
 class TestCaseCli(_Basis):
