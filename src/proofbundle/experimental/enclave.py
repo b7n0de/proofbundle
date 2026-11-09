@@ -240,4 +240,9 @@ def issue_enclave_attestation(binding: str, signer, *, profile: str, tier: str,
     except (ValueError, TypeError, RecursionError) as exc:
         raise BundleFormatError(f"attestation claims have no JSON form ({type(exc).__name__})") from exc
     signing_input = _b64url(json.dumps(header).encode()) + "." + _b64url(claims_json.encode())
-    return signing_input + "." + _b64url(signer.sign(signing_input.encode("ascii")))
+    from ..signature import _ed25519_signatur_von  # noqa: PLC0415
+    sig = _ed25519_signatur_von(signer.sign(signing_input.encode("ascii")))
+    if sig is None:
+        raise BundleFormatError("the attestation signer returned no 64-byte Ed25519 signature, so no attestation is "
+                                "returned")
+    return signing_input + "." + _b64url(sig)

@@ -2156,6 +2156,9 @@ _LENGTH_32 = {
     ("dsse.py", "openssh_sha256_keyid"): (1, "a key ID, a hash input of the signer's own key; nothing is "
                                              "accepted by it, and no verifier calls it (Z239 F3)"),
     ("dsse.py", "_default_keyid"): (1, "reads the signer's own key to name it; writes no key and accepts none"),
+    ("emit.py", "emit_bundle"): (1, "the signer's own key, checked for the 32 bytes the budget reading assumed "
+                                    "before it is written; the key of the private key it signs with (the sweep "
+                                    "list above)"),
     ("evalclaim.py", "_issuer_key_weakness"): (1, "followed by the rule"),
     ("evalclaim.py", "build_eval_claim"): (1, "a root, no key"),
     ("evalclaim.py", "_field_violation"): (1, "a root, no key (the samples root; D4, PR 300, moved this "
