@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ._schema_shapes import is_sha256_digest
 from ._strict_json import loads_strict
 from .errors import ProofBundleError
 
@@ -42,14 +43,21 @@ def read_approval_record(a_bytes: bytes) -> "tuple[Any, str | None]":
 
 def approval_identity(record: Any) -> "tuple[str, str, str] | None":
     """The identity of an approval (Section 4 item 2): (approvalId, actionDigest.sha256, session), or None when the
-    record does not carry them as non-empty strings and a digest object. Copies with other metadata share it."""
-    if not isinstance(record, dict):
+    record does not carry approvalId and session as non-empty strings and actionDigest in the digest form of
+    Section 3.2, an object whose only member is sha256, 64 lowercase hexadecimal digits. Copies with other metadata
+    share it.
+
+    Review 1 of the B1 to B4 series, finding 3: any non-empty string counted as the digest, so "xyz" or the real digest
+    in upper case read as an identity, and a consumption state holding such an entry counted as a complete view in
+    which the approval was not consumed. A malformed digest is no identity now, and the readers below refuse the
+    whole supplied set for it. Only a plain JSON object is read (its own type, not ``isinstance``), so no method of
+    the caller's value runs; the readers hand it the values ``loads_strict`` parsed."""
+    if type(record) is not dict:
         return None
     aid, ses, dig = record.get("approvalId"), record.get("session"), record.get("actionDigest")
-    sha = dig.get("sha256") if isinstance(dig, dict) and set(dig) == {"sha256"} else None
-    if not (isinstance(aid, str) and aid and isinstance(ses, str) and ses and isinstance(sha, str) and sha):
+    if not (type(aid) is str and aid and type(ses) is str and ses and type(dig) is dict and is_sha256_digest(dig)):
         return None
-    return aid, sha, ses
+    return aid, dig["sha256"], ses
 
 
 def read_consumption_state(state_bytes: bytes) -> "tuple[dict | None, str | None]":
@@ -82,7 +90,12 @@ def read_consumption_state(state_bytes: bytes) -> "tuple[dict | None, str | None
 
 
 def read_received_copies(copies_bytes: bytes) -> "tuple[list | None, str | None]":
-    """The received approval record copies as a list of objects, or (None, the reason)."""
+    """The received approval record copies as a list of objects, each with an approval identity, or (None, the reason).
+
+    Review 1 of the B1 to B4 series, finding 4: a copy that carried no identity was skipped by the caller, so ``[{}]``
+    and a copy with a malformed digest disappeared from the observed copies. Every copy must carry an identity now,
+    or the whole list is refused; whether a copy belongs to the approval checked is decided only after it is read
+    whole. Its validUntil is read by the caller, with the one time reader of the case checks."""
     from .canonical import _bytes_von  # noqa: PLC0415
     roh = _bytes_von(copies_bytes)   # read once, by what it stores; a value that is no bytes is a reason, not an error
     if roh is None:
@@ -93,4 +106,7 @@ def read_received_copies(copies_bytes: bytes) -> "tuple[list | None, str | None]
         return None, "the received copies do not parse (Section 4 item 2)"
     if not (isinstance(wert, list) and all(isinstance(x, dict) for x in wert)):
         return None, "the received copies are not an array of approval records (Section 4 item 2)"
+    for i, kopie in enumerate(wert):
+        if approval_identity(kopie) is None:
+            return None, f"received copy {i} carries no approval identity (Section 4 item 2)"
     return wert, None

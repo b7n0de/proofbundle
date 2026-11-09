@@ -1211,8 +1211,15 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
                         if _kgrund is not None:
                             _vgruende.append(_kgrund)
                         else:
-                            _bis += [_mikrosekunden(k.get("validUntil")) for k in (_gelesen or [])
-                                     if approval_identity(k) == _kennung]
+                            # Every copy is read whole before it is matched (review 1 of the B1 to B4 series, finding
+                            # 4): a copy of any identity whose validUntil is not readable refuses, never disappears.
+                            for _i, _k in enumerate(_gelesen or []):
+                                _k_bis = _mikrosekunden(_k.get("validUntil"))
+                                if _k_bis is None:
+                                    _vgruende.append(f"received copy {_i} carries no validUntil of the draft's form "
+                                                     "(item 2)")
+                                elif approval_identity(_k) == _kennung:
+                                    _bis.append(_k_bis)
                     _grenzen = [b for b in _bis if b is not None]
                     if len(_grenzen) != len(_bis) or _t_mikro is None:
                         _vgruende.append("a validUntil of the approval or its copies, or T, is not readable (item 2)")
