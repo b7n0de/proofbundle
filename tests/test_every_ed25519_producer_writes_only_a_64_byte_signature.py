@@ -37,7 +37,11 @@ THE CLOSURE of unread signing (pre-review 9 and 10): a function that holds a `.s
 ML-DSA helpers), and every function that calls or names such a function, passes a signer's output on unread. The test
 computes that closure over the package, imported aliases resolved, and holds every edge into it to the edges of today
 (`HUELLE_KANTEN`): renewal reaches the ML-DSA helper through `_sign_ats_content` and `_make_ats`, and the sequence
-builders reach those. Any new edge, an import, a call, an alias or getattr, is a finding.
+builders reach those. Any new edge, an import, a call, an alias or getattr, is a finding. The closure follows names,
+imports under other names and getattr with a literal name; it does not follow dynamic dispatch, such as the package's
+lazy `__getattr__` export or a module attribute that a callback sets (pre-review 11). Such forms are caught where they
+write: every producer's written signatures are read, and the archive timestamp is read in the sequences its public
+producers return, not only in the helper's pairs.
 
 OUT OF THIS CLASS, named: `checkpoint.cosign_checkpoint_mldsa` and `pqsig.sign_mldsa` sign with ML-DSA, whose signature has
 another length; they do not write an Ed25519 signature.
@@ -46,6 +50,7 @@ from __future__ import annotations
 
 import ast
 import base64
+import hashlib
 import json
 from array import array
 from collections import Counter
@@ -59,7 +64,8 @@ from proofbundle.emit import emit_bundle, generate_signer
 from proofbundle.errors import BundleFormatError
 from proofbundle.evalclaim import build_eval_claim, issuer_fingerprint
 from proofbundle.experimental.enclave import enclave_binding_for, issue_enclave_attestation
-from proofbundle.renewal import RenewalError, _sign_ats_content
+from proofbundle.renewal import (RenewalError, _sign_ats_content, build_initial_sequence, renew_hashtree,
+                                 renew_timestamp)
 from proofbundle.sdjwt_issue import issue_sd_jwt, present_with_key_binding
 from proofbundle.statuslist import issue_status_list_token
 from proofbundle.trust_pack import TrustPackError, sign_trust_pack
@@ -515,3 +521,36 @@ def test_every_producer_writes_the_signatures_its_format_holds(name, erzeuge, fe
     assert set(GESCHRIEBEN) == {f[0] for f in FAELLE}
     assert [len(s) for s in _geschrieben(name, erzeuge(schluessel))] == GESCHRIEBEN[name]
     assert [len(s) for s in _geschrieben(name, erzeuge(_Zaehler(schluessel)))] == GESCHRIEBEN[name]
+
+
+#: The data objects of the archive timestamp cases, and the three public producers that return a sequence. Each
+#: signs the ATS it adds with the signer given; the sequence a renewal starts from is signed with the real key.
+_DATEN = [hashlib.sha256(b"a").hexdigest(), hashlib.sha256(b"b").hexdigest()]
+
+
+def _anfang(signer):
+    return build_initial_sequence(_DATEN, hash_alg="sha256", time=1000, sig_alg="ed25519", signers={"ed25519": signer})
+
+
+FOLGEN = {
+    "build_initial_sequence": lambda s: _anfang(s),
+    "renew_timestamp": lambda s: renew_timestamp(_anfang(KEY), time=2000, sig_alg="ed25519", signers={"ed25519": s}),
+    "renew_hashtree": lambda s: renew_hashtree(_anfang(KEY), _DATEN, new_hash_alg="sha384", time=3000,
+                                               sig_alg="ed25519", signers={"ed25519": s}),
+}
+#: One 64-byte signature per ATS of the returned sequence.
+FOLGEN_GESCHRIEBEN = {"build_initial_sequence": [64], "renew_timestamp": [64, 64], "renew_hashtree": [64, 64]}
+
+
+def _folgen_signaturen(folge):
+    return [_b64(sig) for kette in folge for ats in kette for _alg, sig in ats.signatures]
+
+
+@pytest.mark.parametrize("name", sorted(FOLGEN))
+def test_the_archive_timestamp_sequences_hold_the_signatures_their_format_holds(name):
+    """Pre-review 11: the pairs of `_sign_ats_content` are not the output. The ATS that `_make_ats` builds and the
+    public producers return are, so they are read there, with the real key and with the counting signer."""
+    assert [len(s) for s in _folgen_signaturen(FOLGEN[name](KEY))] == FOLGEN_GESCHRIEBEN[name]
+    zaehler = _Zaehler(KEY)
+    assert [len(s) for s in _folgen_signaturen(FOLGEN[name](zaehler))] == FOLGEN_GESCHRIEBEN[name]
+    assert zaehler.aufrufe == 1
