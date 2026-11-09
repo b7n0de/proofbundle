@@ -7,8 +7,8 @@ Usage:
 DRAFT_TEXT is the plain text of the draft as the IETF archive serves it,
 https://www.ietf.org/archive/id/draft-gruszka-scitt-statement-identification-03.txt, with the SHA-256 below. The
 script reads every byte string from the hex of Appendix A and every change value from the words of Appendix A.3 and
-Section 6; the only constants in the code are those of the CBOR encoding (RFC 8949) and of COSE (RFC 9052: tag 18,
-header label kid). It applies the change each case states to a base statement of Appendix A.1, and stops unless the
+Section 6; the only constants in the code are those of the CBOR encoding (RFC 8949), of COSE (RFC 9052: tag 18,
+header label kid) and the DER prefix of an Ed25519 SubjectPublicKeyInfo (RFC 8410). It applies the change each case states to a base statement of Appendix A.1, and stops unless the
 result has exactly the length and the SHA-256 the case gives. It reads the expected axes from Table 2 of Section 6 and from the measured line of each case,
 and stops unless both agree. It writes cases/C1.json to cases/C14.json, base_statements.json and test_keys.json
 into OUT_DIR, and prints each check it made. It uses the Python standard library and check_cases.py of this folder.
@@ -294,49 +294,60 @@ def main():
                 c[cid] = stmts[sid][0]
     check(sorted(c, key=lambda k: int(k[1:])) == ["C1", "C2", "C10", "C13", "C14"],
           "C1, C2, C10, C13 and C14 name a base statement unchanged as their candidate")
-    # C3: a value in the payload of 01 replaced, signed again
+    def base(cid):
+        """The base statement the words of the case name for its candidate ("The candidate is statement 0N ...")."""
+        found = re.findall(r"The candidate is statement (0[123])\b", cases[cid]["flat"])
+        check(len(set(found)) == 1 and found[0] in stmts, "%s names its base statement" % cid)
+        return Cose(stmts[found[0]][0])
+
+    # C3: a value in the payload of the base replaced, signed again
+    b3 = base("C3")
     m = said("C3", r'with the (\w+) value "([^"]+)" in its payload replaced by "([^"]+)", the payload otherwise unchanged',
              "the value its payload changes")
-    doc = json.loads(payload01)
-    check(json.dumps(doc, separators=(",", ":")).encode() == payload01 and doc.get(m.group(1)) == m.group(2),
-          "C3: the payload of 01 is compact JSON whose %s is %s" % (m.group(1), m.group(2)))
+    doc = json.loads(b3.parts[2].value)
+    check(json.dumps(doc, separators=(",", ":")).encode() == b3.parts[2].value and doc.get(m.group(1)) == m.group(2),
+          "C3: the payload of its base is compact JSON whose %s is %s" % (m.group(1), m.group(2)))
     doc[m.group(1)] = m.group(3)
-    c3 = s01.splice(2, enc_bytes(json.dumps(doc, separators=(",", ":")).encode()))
+    c3 = b3.splice(2, enc_bytes(json.dumps(doc, separators=(",", ":")).encode()))
     c["C3"] = Cose(c3).splice(3, new_sig("C3"))
     # C4: a protected header parameter given another value, the header in the deterministic encoding, signed again
     m = said("C4", r'with the content type, header parameter (\d+), "([^"]+)" in place of "([^"]+)", the protected '
                    r'header in the deterministic encoding', "the header parameter it changes")
-    prot = s01.parts[0].value
+    b4 = base("C4")
+    prot = b4.parts[0].value
     old, new = enc_int(int(m.group(1))) + enc_text(m.group(3)), enc_int(int(m.group(1))) + enc_text(m.group(2))
     check(prot.count(old) == 1 and len(old) == len(new),
-          "C4: the protected header of 01 holds parameter %s once, and the new value keeps the order" % m.group(1))
-    c4 = s01.splice(0, enc_bytes(prot.replace(old, new)))
+          "C4: the protected header of its base holds parameter %s once, and the new value keeps the order" % m.group(1))
+    c4 = b4.splice(0, enc_bytes(prot.replace(old, new)))
     c["C4"] = Cose(c4).splice(3, new_sig("C4"))
     # C5: the unprotected header given one parameter in place of the empty map
     m = said("C5", r'with the unprotected header \{(-?\d+): "([^"]+)"\}, encoded deterministically, in place of the '
                    r'empty map', "the unprotected parameter it adds")
-    check(s01.parts[1].kind == "map" and not s01.parts[1].value, "C5: the unprotected header of 01 is the empty map")
-    c["C5"] = s01.splice(1, enc_head(5, 1) + enc_int(int(m.group(1))) + enc_text(m.group(2)))
+    b5 = base("C5")
+    check(b5.parts[1].kind == "map" and not b5.parts[1].value, "C5: the unprotected header of its base is the empty map")
+    c["C5"] = b5.splice(1, enc_head(5, 1) + enc_int(int(m.group(1))) + enc_text(m.group(2)))
     # C6, C7, C11: the signature replaced
     said("C6", r"with its signature replaced by this signature over the same Sig_structure under the (\w+) key",
          "the signature it replaces")
-    c["C6"] = s01.splice(3, new_sig("C6", "under the auditor key (hex):"))
+    c["C6"] = base("C6").splice(3, new_sig("C6", "under the auditor key (hex):"))
     said("C7", r"only the signature differs from 01", "that only the signature changes")
-    c["C7"] = s01.splice(3, new_sig("C7"))
+    c["C7"] = base("C7").splice(3, new_sig("C7"))
     said("C11", r"with its 64 signature bytes replaced by", "the signature bytes it replaces")
-    c["C11"] = s01.splice(3, new_sig("C11", "replaced by (hex):"))
+    c["C11"] = base("C11").splice(3, new_sig("C11", "replaced by (hex):"))
     # C8: the payload replaced by nil and the signature replaced
     said("C8", r"with its payload replaced by nil and its signature replaced by", "a nil payload and a new signature")
-    c["C8"] = Cose(s01.splice(2, ENC_NIL)).splice(3, new_sig("C8", "its signature replaced by (hex):"))
+    c["C8"] = Cose(base("C8").splice(2, ENC_NIL)).splice(3, new_sig("C8", "its signature replaced by (hex):"))
     # C9: without its first byte, the tag
     m = said("C9", r"without its first byte, ([0-9a-f]{2}), the tag 18", "the byte it removes")
-    check(s01.data[:1] == bytes.fromhex(m.group(1)) == TAG_18, "C9: the first byte of 01 is %s, tag 18" % m.group(1))
-    c["C9"] = s01.data[1:]
+    b9 = base("C9")
+    check(b9.data[:1] == bytes.fromhex(m.group(1)) == TAG_18, "C9: the first byte of its base is %s, tag 18" % m.group(1))
+    c["C9"] = b9.data[1:]
     # C12: the head of the array written with a one-byte length argument
     m = said("C12", r"the byte ([0-9a-f]{2}) after the tag, written as the two bytes ([0-9a-f]{2}) ([0-9a-f]{2})",
              "the head it rewrites")
-    check(s01.data[1:2] == bytes.fromhex(m.group(1)), "C12: the byte after the tag of 01 is %s" % m.group(1))
-    c["C12"] = s01.data[:1] + bytes.fromhex(m.group(2) + m.group(3)) + s01.data[2:]
+    b12 = base("C12")
+    check(b12.data[1:2] == bytes.fromhex(m.group(1)), "C12: the byte after the tag of its base is %s" % m.group(1))
+    c["C12"] = b12.data[:1] + bytes.fromhex(m.group(2) + m.group(3)) + b12.data[2:]
     check(sorted(c, key=lambda k: int(k[1:])) == ["C%d" % n for n in range(1, 15)], "every case has its candidate")
     for cid, data in c.items():
         check(len(data) == cases[cid]["length"], "%s: the candidate has %d bytes" % (cid, cases[cid]["length"]))
@@ -371,7 +382,7 @@ def main():
                     r"same four axes", "the payload it is also supplied with")
     v7 = said("C7", r"the same candidate bytes under the fixed empty external_aad rule: (match = \w+, sig_valid = \w+)",
               "its result under the empty external_aad rule")
-    v8 = said("C8", r"Supplied with the payload of statement 01 as its detached payload, the candidate gives "
+    v8 = said("C8", r"Supplied with the payload of statement (0[123]) as its detached payload, the candidate gives "
                     r"(ref_usable = \w+, match = \w+, is_scitt = \w+ and sig_valid = \w+)", "its result with the payload")
     v11 = said("C11", r"with rule 2 left out: the cofactorless equation gives sig_valid = (\w+), the cofactored "
                       r"equation gives sig_valid = (\w+)", "its results with rule 2 left out")
@@ -380,8 +391,9 @@ def main():
                 "change": {"detached_payload": obj(bytes(int(m1.group(1))))}, "expected": dict(cases["C1"]["measured"])}],
         "C7": [{"name": "under the fixed empty external_aad rule", "change": {"external_aad": obj(b"")},
                 "expected": axes_from(v7.group(1))}],
-        "C8": [{"name": "with the payload of statement 01 supplied as detached payload",
-                "change": {"detached_payload": obj(payload01)}, "expected": axes_from(v8.group(1).replace(" and ", ", "))}],
+        "C8": [{"name": "with the payload of statement %s supplied as detached payload" % v8.group(1),
+                "change": {"detached_payload": obj(Cose(stmts[v8.group(1)][0]).parts[2].value)},
+                "expected": axes_from(v8.group(2).replace(" and ", ", "))}],
         "C11": [{"name": "with rule 2 left out and the cofactorless equation", "rules": "no-rule-2",
                  "expected": {"sig_valid": {"True": True, "False": False}[v11.group(1)]}},
                 {"name": "with rule 2 left out and the cofactored equation", "rules": "no-rule-2-cofactored",

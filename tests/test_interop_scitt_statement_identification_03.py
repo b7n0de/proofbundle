@@ -287,6 +287,25 @@ def test_an_absent_external_aad_is_never_a_match():
         "ref_usable": True, "match": "INDETERMINATE", "is_scitt": True, "sig_valid": None}
 
 
+def test_an_external_aad_given_as_null_in_a_case_file_is_not_supplied(tmp_path):
+    # The same rule through the file form: C2 with external_aad null, and C1 with a variant that makes it null.
+    folder = _copy(tmp_path)
+    c2 = _case(folder, "C2")
+    c2["inputs"]["external_aad"] = None
+    c2["expected"] = {"ref_usable": True, "match": "INDETERMINATE", "is_scitt": True, "sig_valid": None}
+    _put(folder, "C2", c2)
+    c1 = _case(folder, "C1")
+    c1["variants"] = [{"name": "with no external_aad supplied", "change": {"external_aad": None},
+                       "expected": {"match": "INDETERMINATE", "sig_valid": None}}]
+    _put(folder, "C1", c1)
+    p = _run(folder)
+    assert p.returncode == 0, p.stdout[-600:]
+    assert _summary(p) == (19, 19, 14) and _mismatches(p) == set()
+    c2["expected"]["match"] = "NO_MATCH"
+    _put(folder, "C2", c2)
+    assert _mismatches(_run(folder)) == {"C2"}
+
+
 def test_a_scheme_the_checker_does_not_implement_is_an_error_not_a_result(tmp_path):
     # Codex reading of 9 November 2026: C1 with the scheme "WholeBytes" and the reference of C14 matched, although the
     # checker computes the ToBeSigned digest only.
