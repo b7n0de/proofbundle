@@ -219,7 +219,8 @@ def cc11_pending_justified_internal():
 
 
 def cc12_data_blocked_internal():
-    return not _acm_ready([("C2.1", acm.PASS), ("C6.3", acm.DATA_BLOCKED), ("EXT.1", acm.EXTERNAL)]), \
+    # C6.2, not C6.3: C6.3 is informative since card OA-69770dad93 C, and this case needs a deciding obligation.
+    return not _acm_ready([("C2.1", acm.PASS), ("C6.2", acm.DATA_BLOCKED), ("EXT.1", acm.EXTERNAL)]), \
         "internal DATA_BLOCKED withholds readiness"
 
 
@@ -231,7 +232,7 @@ def cc13_unknown_verdict():
 def cc14_negated_keyword_decoy():
     # the lexical checks are INFORMATIVE: a decoy PASS on them (incl. a negated-keyword sentence) plus a
     # single DATA_BLOCKED deciding check must still withhold readiness.
-    rows = [(cid, acm.PASS) for cid in acm._INFORMATIVE_CHECKS] + [("C6.3", acm.DATA_BLOCKED), ("EXT.1", acm.EXTERNAL)]
+    rows = [(cid, acm.PASS) for cid in acm._INFORMATIVE_CHECKS] + [("C6.2", acm.DATA_BLOCKED), ("EXT.1", acm.EXTERNAL)]
     return not _acm_ready(rows), "lexical decoys are informative -> cannot grant readiness"
 
 
