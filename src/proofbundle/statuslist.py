@@ -369,4 +369,9 @@ def issue_status_list_token(statuses: list, *, uri: str, signer, iat: int, bits:
     except (ValueError, TypeError, RecursionError) as exc:
         raise BundleFormatError(f"status list token claims have no JSON form ({type(exc).__name__})") from exc
     signing_input = _b64url(json.dumps(header).encode()) + "." + _b64url(payload_json.encode())
-    return signing_input + "." + _b64url(signer.sign(signing_input.encode("ascii")))
+    from .signature import _ed25519_signatur_von  # noqa: PLC0415
+    sig = _ed25519_signatur_von(signer.sign(signing_input.encode("ascii")))
+    if sig is None:
+        raise BundleFormatError("the status list signer returned no 64-byte Ed25519 signature, so no token is "
+                                "returned")
+    return signing_input + "." + _b64url(sig)

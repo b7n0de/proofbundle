@@ -30,7 +30,8 @@ from .budget import DEFAULT_BUDGET
 from .canonical import _ein_stand, _folge_von, _ganzzahl_von, _puffer_von, _zeichen_von
 from .errors import BundleFormatError, UnsupportedError
 from ._plain_value import plain_int
-from .signature import (TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness, plain_bytes, plain_text,
+from .signature import (TRUST_ANCHOR_REFUSAL, _ed25519_signatur_von, ed25519_trust_anchor_weakness,
+                        plain_bytes, plain_text,
                         verify_ed25519_pinned)
 # NUR der C2SP-Decoder: jedes base64-Feld dieses Moduls ist ein C2SP-Note-Feld (Wurzel,
 # Signaturzeile, vkey-Schluesselmaterial), und fuer die gilt die dokumentierte Ausnahme zur
@@ -308,7 +309,9 @@ def sign_checkpoint(origin: str, tree_size: int, root: bytes, signer, keyname: s
     keyname = _text_of(keyname, "checkpoint keyname")
     note = checkpoint_note(origin, tree_size, root)
     pubkey = signer.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
-    sig = signer.sign(note.encode("utf-8"))
+    sig = _ed25519_signatur_von(signer.sign(note.encode("utf-8")))
+    if sig is None:
+        raise BundleFormatError("the checkpoint signer returned no 64-byte Ed25519 signature, so no note is returned")
     kid = key_id(keyname, pubkey)
     sig_b64 = base64.b64encode(kid + sig).decode("ascii")
     sig_line = f"{EM_DASH} {keyname} {sig_b64}\n"
@@ -805,7 +808,10 @@ def cosign_checkpoint(signed_note: str, witness_signer, witness_name: str, times
     if not signed_note.endswith("\n"):
         raise BundleFormatError("signed note must end with a newline")
     pubkey = witness_signer.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
-    sig = witness_signer.sign(_cosigned_message(note_text, timestamp))
+    sig = _ed25519_signatur_von(witness_signer.sign(_cosigned_message(note_text, timestamp)))
+    if sig is None:
+        raise BundleFormatError("the witness signer returned no 64-byte Ed25519 signature, so no cosignature is "
+                                "returned")
     kid = cosign_key_id(witness_name, pubkey)
     blob = kid + timestamp.to_bytes(8, "big") + sig
     return signed_note + f"{EM_DASH} {witness_name} {base64.b64encode(blob).decode('ascii')}\n"

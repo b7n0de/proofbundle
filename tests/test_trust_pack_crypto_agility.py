@@ -26,6 +26,7 @@ from proofbundle.emit import generate_signer
 from proofbundle.pqsig import generate_mldsa
 from proofbundle.trust_pack import (
     INTOTO_STATEMENT_PAYLOAD_TYPE,
+    TrustPackError,
     build_trust_pack_statement,
     sign_trust_pack,
     validate_trust_pack_predicate,
@@ -198,6 +199,69 @@ class TestMldsaRootKeyVerifies(unittest.TestCase):
         r = verify_trust_pack(env, strict=True, now=_NOW)
         self.assertFalse(r["root_threshold_met"])
         self.assertIs(r["ok"], False, r)
+
+
+@unittest.skipUnless(_HAS_MLDSA, "needs cryptography with FIPS 204 (ML-DSA) support")
+class TestAnMldsaSignerWritesOnlyItsSignatureLength(unittest.TestCase):
+    """The producer reads an ML-DSA-65 signer's output by its key's algorithm: 3309 bytes, as FIPS 204 gives, and
+    nothing else is written (the circle of the class fix after 6.5.0: the 64-byte Ed25519 check refused every real
+    ML-DSA-65 signature, so the test class above failed)."""
+
+    class _Antwort:
+        def __init__(self, laenge):
+            self.laenge = laenge
+
+        def sign(self, msg):
+            return b"\x00" * self.laenge
+
+    def test_an_output_of_another_length_is_refused(self):
+        pred, _m_sk = TestMldsaRootKeyVerifies._pack()
+        for laenge in (0, 64, 3308, 3310, 750_001):
+            with self.subTest(laenge=laenge):
+                with self.assertRaises(TrustPackError):
+                    sign_trust_pack(pred, {"root-mldsa-0": self._Antwort(laenge)})
+
+    def test_the_length_is_read_from_the_storage_of_the_output(self):
+        # Codex pre-review 13: a bytes subclass whose __bytes__ returns itself survives `bytes(...)` in sign_mldsa, so a
+        # length check through its own __len__ passed 750,001 stored bytes, and the verifier refused the pack.
+        class Luegt(bytes):
+            def __bytes__(self):
+                return self
+
+            def __len__(self):
+                return 3309
+
+        class Antwort:
+            def __init__(self, laenge):
+                self.laenge = laenge
+
+            def sign(self, msg):
+                return Luegt(b"x" * self.laenge)
+
+        pred, _m_sk = TestMldsaRootKeyVerifies._pack()
+        with self.assertRaises(TrustPackError):
+            sign_trust_pack(pred, {"root-mldsa-0": Antwort(750_001)})
+        env = sign_trust_pack(pred, {"root-mldsa-0": Antwort(3309)})
+        self.assertIs(type(base64.b64decode(env["signatures"][0]["sig"])), bytes)
+        self.assertEqual(len(base64.b64decode(env["signatures"][0]["sig"])), 3309)
+
+    def test_control_a_real_signature_in_a_view_is_written_as_the_key_writes_it(self):
+        pred, m_sk = TestMldsaRootKeyVerifies._pack()
+
+        class Sicht:
+            def sign(self, msg):
+                return memoryview(m_sk.sign(msg))
+
+        env = sign_trust_pack(pred, {"root-mldsa-0": Sicht()})
+        self.assertIs(verify_trust_pack(env, strict=True, now=_NOW)["ok"], True)
+
+    def test_control_an_output_of_3309_bytes_is_written_and_a_real_one_verifies(self):
+        pred, m_sk = TestMldsaRootKeyVerifies._pack()
+        env = sign_trust_pack(pred, {"root-mldsa-0": self._Antwort(3309)})
+        self.assertEqual(len(base64.b64decode(env["signatures"][0]["sig"])), 3309)
+        self.assertIs(verify_trust_pack(env, strict=True, now=_NOW)["ok"], False)
+        self.assertIs(verify_trust_pack(sign_trust_pack(pred, {"root-mldsa-0": m_sk}), strict=True, now=_NOW)["ok"],
+                      True)
 
 
 class TestMldsaAlgDispatchAgainstAcvpVector(unittest.TestCase):
