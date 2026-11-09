@@ -17,8 +17,8 @@ The `inspect` extra installs `inspect_ai>=0.3.112,<=0.3.288`. Configure it throu
 key with a warning. `PROOFBUNDLE_OUT` selects a file or directory. `PROOFBUNDLE_METRIC` selects the metric,
 `PROOFBUNDLE_COMPARATOR` defaults to `>=`, and `PROOFBUNDLE_THRESHOLD` is required for receipt emission since
 5.0.0, with no default. The model and dataset stay salted commitments.
-`proofbundle verify` checks that a receipt is unchanged and signed by the key it carries, not whose key that is, so a
-receipt someone changed and re-signed with their own key also verifies; pin the issuer you expect with
+`proofbundle verify` checks the signed payload of a receipt against the public key the receipt carries, not whose key
+that is, so a receipt someone changed and re-signed with their own key also verifies; pin the issuer you expect with
 `proofbundle show-eval --expect-issuer ed25519:<key>`, which then exits 1.
 
 ## pytest (pytest11 plugin)
