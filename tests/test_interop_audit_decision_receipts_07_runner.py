@@ -10,7 +10,10 @@ that answers in one of these forms and must count as a mismatch, with the summar
 The control verifier answers with the expected member of each case and must still match 37 of 37. The third review
 (2026-11-09) found that an answer outside the form the README gives (a step for a pass, no step member, a step that is
 no step of the draft) still matched, that the count was read as a substring, so "10 of 37" passed for "0 of 37", and
-that an integer of more than 4300 digits in another member made a valid answer no answer.
+that an integer of more than 4300 digits in another member made a valid answer no answer. The fix for the form at
+first also refused a verifier that reports no step and answers null for every result, the form of the proofbundle
+adapter the archive's runs were made with, so proofbundle 6.5.0 fell from 22 to 9 of 37 under --accept-reject; a
+step-less answer is read again, and the control below holds it.
 """
 from __future__ import annotations
 
@@ -205,12 +208,35 @@ class TheStepsOfTheReadme(unittest.TestCase):
             with self.subTest(step=step):
                 self.assertIsNone(self._read("fail", step))
         self.assertIsNone(self._read("pass", "3.2 step 1"))
-        self.assertIsNone(self._read("fail", None))
+
+    def test_a_verifier_that_reports_no_step_answers_null(self):
+        for result in ("pass", "fail", "refuse", "auditor-fail"):
+            with self.subTest(result=result):
+                self.assertEqual(self._read(result, None), (result, None))
 
     def test_each_expected_step_of_the_cases_is_a_named_step(self):
         for e in _expected():
             with self.subTest(expected=e):
                 self.assertEqual(self._read(e["result"], e["step"]), (e["result"], e["step"]))
+
+
+class AVerifierWithoutStepsIsMeasuredByAcceptAndReject(unittest.TestCase):
+    """The answer of the archive's proofbundle adapter: the result, and step null whatever the result."""
+
+    CODE = ("import json, sys; e = json.load(open(sys.argv[-1], encoding='utf-8'))['expected']; "
+            "print(json.dumps({'result': e['result'], 'step': None}))")
+
+    def test_it_matches_every_case_under_accept_reject(self):
+        p = _run(self.CODE, "--accept-reject")
+        self.assertEqual(p.returncode, 0, p.stdout.decode("utf-8", "replace")[-300:])
+        self.assertEqual(_matches(p, ("--accept-reject",)), 37)
+
+    def test_it_matches_only_the_passes_by_result_and_step(self):
+        passes = sum(1 for e in _expected() if e["result"] == "pass")
+        self.assertTrue(0 < passes < 37)
+        p = _run(self.CODE)
+        self.assertEqual(p.returncode, 1)
+        self.assertEqual(_matches(p), passes)
 
 
 class ANumberInAnotherMemberIsRead(unittest.TestCase):
