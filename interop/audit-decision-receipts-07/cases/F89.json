@@ -1,0 +1,55 @@
+{
+ "derivation": [
+  "derived from V1-good",
+  "remove inputSnapshot[1]",
+  "evidenceRefs = the evidenceRefs of V3-decision"
+ ],
+ "draft": "draft-gruszka-audit-decision-receipts-07",
+ "expected": {
+  "result": "fail",
+  "step": "3.3 case 1"
+ },
+ "id": "F89",
+ "inputs": {
+  "T": "2026-10-15T09:01:00Z",
+  "approval_record": {
+   "base64": "eyJhY3Rpb25EaWdlc3QiOnsic2hhMjU2IjoiZGVjNTRmNzcxMzUyNDU0MDk3MzEwYWU0YmQ2NjA4YzAwNzBlYmViYjM5NTVjNmJlMDEzYzFiM2E4ZTMxMGJkMCJ9LCJhcHByb3ZhbElkIjoiYXBwci0wMDEiLCJhcHByb3ZlZEF0IjoiMjAyNi0xMC0xNVQwOTowMDowMFoiLCJhcHByb3ZlciI6InVzZXItMTIzIiwic2Vzc2lvbiI6InNlc3MtMSIsInZhbGlkVW50aWwiOiIyMDI2LTEwLTE1VDA5OjE1OjAwWiJ9",
+   "length": 231,
+   "sha256": "88e5b6d69b3e4bc250a42aeffea0414d406e5f04ba4f991ee432a78231da1170"
+  },
+  "case": "approval",
+  "consumption_state": null,
+  "decision": {
+   "action_bytes": {
+    "base64": "Z2l0IHB1c2ggb3JpZ2luIHJlZnMvaGVhZHMvdG9waWM6cmVmcy9oZWFkcy90b3BpYwo=",
+    "length": 50,
+    "sha256": "dec54f771352454097310ae4bd6608c0070ebebb3955c6be013c1b3a8e310bd0"
+   },
+   "envelope": {
+    "base64": "eyJwYXlsb2FkIjoiZXlKZmRIbHdaU0k2SW1oMGRIQnpPaTh2YVc0dGRHOTBieTVwYnk5VGRHRjBaVzFsYm5RdmRqRWlMQ0p3Y21Wa2FXTmhkR1VpT25zaVlXZGxiblFpT25zaWFXUWlPaUpoWjJWdWRDMDBNaUo5TENKa1pXTnBaR1ZrUVhRaU9pSXlNREkyTFRFd0xURTFWREE1T2pBd09qQTFXaUlzSW1SbFkybHphVzl1SWpwN0luSmxZWE52YmtOdlpHVnpJanBiSW5WelpYSmZZWEJ3Y205MllXd2lYU3dpZG1WeVpHbGpkQ0k2SWtGTVRFOVhJbjBzSW1SbFkybHphVzl1UTJoaGJtZGxRMjl1WkdsMGFXOXVjeUk2VzNzaVkyOXVaR2wwYVc5dVZIbHdaU0k2SW5KMWJHVkRhR0Z1WjJVaUxDSmtaWE5qY21sd2RHbHZiaUk2SW1FZ1kyaGhibWRsWkNCbllYUmxMQ0J0YjJSbElHOXlJSEoxYkdVZ2IyWWdkR2hsSUdkaGRHVWlmVjBzSW1SbFkybHphVzl1U1dRaU9pSmtaV010TURBd01TSXNJbVJsWTJsemFXOXVUV0ZyWlhJaU9uc2lhV1FpT2lKbllYUmxMVEVpZlN3aVpHVmphWE5wYjI1VWVYQmxJam9pY0hKbFFXTjBhVzl1UVhWMGFHOXlhWHBoZEdsdmJpSXNJbVYyYVdSbGJtTmxVbVZtY3lJNlczc2laR2xuWlhOMElqcDdJbk5vWVRJMU5pSTZJamhqWkRnME9XRTJaR05qWlRBNFlXVmxNek0wTlRFeFpEZGlNbVl6TVdNMU5HVTBOemc0T0RWa1pHRXhOemsxWkROak9HWTVOekprWkRCa05EZ3hNV01pZlN3aWNtVnNZWFJwYjI0aU9pSmxkbUZzZFdGMGFXOXVVbVZ6ZFd4MEluMWRMQ0pwYm5CMWRGTnVZWEJ6YUc5MElqcGJleUprYVdkbGMzUWlPbnNpYzJoaE1qVTJJam9pWkdWak5UUm1OemN4TXpVeU5EVTBNRGszTXpFd1lXVTBZbVEyTmpBNFl6QXdOekJsWW1WaVlqTTVOVFZqTm1KbE1ERXpZekZpTTJFNFpUTXhNR0prTUNKOUxDSnRaV1JwWVZSNWNHVWlPaUowWlhoMEwzQnNZV2x1SWl3aWJtRnRaU0k2SW1Gd2NISnZkbVZrSUdKNWRHVnpJbjFkTENKdWIzUkRhR1ZqYTJWa0lqcGJleUptYVdWc1pDSTZJbU52Ym5SbGJuUWlMQ0pwYlhCaFkzUWlPaUpoYmlCaGNIQnliM1psWkNCMFpYaDBJR05oYmlCaVpTQjNjbTl1WnlJc0luSmxZWE52YmlJNkluUm9aU0JuWVhSbElHUnZaWE1nYm05MElHcDFaR2RsSUhkb1pYUm9aWElnZEdobElIUmxlSFFnYVhNZ2RISjFaU0o5WFN3aWNHOXNhV041UW05MWJtUmhjbmtpT25zaVluVnVaR3hsVW1WMmFYTnBiMjRpT2lJeElpd2laR1ZqYVhOcGIyNVFZWFJvSWpvaWIzVjBZbTkxYm1RdFoyRjBaUzloYkd4dmR5MTNjbWwwWlNJc0luQnZiR2xqZVVScFoyVnpkQ0k2ZXlKemFHRXlOVFlpT2lJME16YzRPV0kwTVRreE5XRmxNR1psWW1Oa01UTXlOak5rTWprek1UQXhZV1kxWVdJd05ERmxZamRqTWpNMFpURmpZbVUyTWpWa05qTXhNamd4TldZMkluMHNJbkJ2YkdsamVVVnVaMmx1WlNJNkluQnliMjltWW5WdVpHeGxMWEJwYkc5MEwyZHBkR2gxWWkxM2NtbDBaU0lzSW5CdmJHbGplVWxrSWpvaWIzVjBZbTkxYm1RdFoyRjBaUzF5ZFd4bGN5SjlMQ0p3Y21sdVkybHdZV3dpT25zaWFXUWlPaUoxYzJWeUxURXlNeUo5TENKd2NtbDJZV041SWpwN0luSmhkMGx1Y0hWMGMwbHVZMngxWkdWa0lqcG1ZV3h6Wlgwc0luQnliM0J2YzJWa1FXTjBhVzl1SWpwN0ltRmpkR2x2YmxSNWNHVWlPaUpuYVhRdWNIVnphQ0lzSW0xbGRHaHZaQ0k2SW5keWFYUmxJaXdpY0dGeVlXMWxkR1Z5YzBScFoyVnpkQ0k2ZXlKemFHRXlOVFlpT2lKa1pXTTFOR1kzTnpFek5USTBOVFF3T1Rjek1UQmhaVFJpWkRZMk1EaGpNREEzTUdWaVpXSmlNemsxTldNMlltVXdNVE5qTVdJellUaGxNekV3WW1Rd0luMHNJblJoY21kbGRDSTZleUp1WVcxbElqb2lhSFIwY0hNNkx5OW5hWFF1WlhoaGJYQnNaUzloWTIxbEwzZHBaR2RsZEhNZ2NtVm1jeTlvWldGa2N5OTBiM0JwWXlJc0luVnlhU0k2SW1oMGRIQnpPaTh2WjJsMExtVjRZVzF3YkdVdllXTnRaUzkzYVdSblpYUnpJbjE5TENKelkyaGxiV0ZXWlhKemFXOXVJam9pTUM0eExqQWlMQ0owY21GalpVTnZiblJsZUhRaU9uc2ljR0Z5Wlc1MFNXUWlPaUpwYm5RdE1EQXlJaXdpZEhKaFkyVkpaQ0k2SW5SeVlXTmxMV0ZpWXlKOUxDSjJZV3hwWkdsMGVTSTZleUpoZFdScFpXNWpaU0k2V3lKdlluTmxjblpsY2kweElsMHNJbVY0Y0dseVpYTkJkQ0k2SWpJd01qWXRNVEF0TVRWVU1EazZNRFU2TURWYUlpd2libTl1WTJVaU9pSmtaV010TURBd01TSjlmU3dpY0hKbFpHbGpZWFJsVkhsd1pTSTZJbWgwZEhCek9pOHZZamR1TUdSbExtTnZiUzl3Y205dlptSjFibVJzWlM5d2NtVmthV05oZEdWekwyUmxZMmx6YVc5dUxYSmxZMlZwY0hRdmRqQXVNU0lzSW5OMVltcGxZM1FpT2x0N0ltUnBaMlZ6ZENJNmV5SnphR0V5TlRZaU9pSTFOR1ExTVRZellUTTBOVGs0WlRRNU5qVTVPV1E0WmpRNU9HUTNOalZqTXpKall6VXhOVGRsTnpjNFpqa3dNVEZpT0dJeE5HVTVNakE0TUdNNVlqWTFJbjBzSW01aGJXVWlPaUprWldOcGMybHZianBrWldNdE1EQXdNU0o5WFgwPSIsInBheWxvYWRUeXBlIjoiYXBwbGljYXRpb24vdm5kLmluLXRvdG8ranNvbiIsInNpZ25hdHVyZXMiOlt7ImtleWlkIjoiU0hBMjU2Ok5qWk1BZWxMcTlYT04zcHhWNXRSNWhaalg5OU5rUXl3NGdHSlNSYzJnUDgiLCJzaWciOiJHUUJEbjZsTkFDelFmVmVUcDVQdE13VXRmRnJZOU5XbGdQTEl6RkhrbHc3QjdRSnhKNEN0NHdRTFV4VmpKK0NIdFhabUlRS3ZVT2dpVE0vZ0Q5UkJDZz09In1dfQ==",
+    "length": 2638,
+    "sha256": "3ad856b6077a153bafe70b197059a7d1e10e413080ae0a891f116bedae88d9ca"
+   },
+   "expected_audience": "observer-1",
+   "expected_decision_maker": "gate-1",
+   "expected_nonce": "dec-0001",
+   "public_key": "TWfs75IN1In3CNI8TnyIOUHgtwilOPGcRFQLJ670CJc="
+  },
+  "held_receipts": null,
+  "outcome": null,
+  "trust_policy": {
+   "decision": {
+    "TWfs75IN1In3CNI8TnyIOUHgtwilOPGcRFQLJ670CJc=": [
+     "gate-1"
+    ]
+   },
+   "outcome": {
+    "4hDsi5TCL+A+9SB7k2l4EkY7XePUheE+zE9mBazt2Fs=": [
+     "forge:agent-42-bot"
+    ]
+   }
+  }
+ },
+ "procedure": "decision receipt",
+ "source": "test package"
+}
