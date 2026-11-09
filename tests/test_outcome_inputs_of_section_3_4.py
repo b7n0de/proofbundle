@@ -241,6 +241,18 @@ class TestSection34Library(_Paar):
         self.assertIs(r["bound_decision_ok"], False)
         self.assertFalse(r["ok"])
 
+    def test_the_bound_decision_maker_is_compared_exactly(self):
+        """The near-miss corpus of tests/_beinahe_treffer.py over the expected decisionMaker.id of the bound decision
+        (step 8 of Section 3.2, through Section 3.4): at the comparison itself and through the public argument,
+        which passes the value on, so neither a prefix, a case fold, a strip nor a normal form binds."""
+        from _beinahe_treffer import pruefe_exakt  # noqa: PLC0415
+        from proofbundle.outcome import _gebundene_entscheidung  # noqa: PLC0415
+        pred = _outcome_predicate(self.dec)
+        pruefe_exakt(lambda v: _gebundene_entscheidung(pred, self.dec, self.dpub, self.opub, expected_maker=v,
+                                                       now=T_IM_FENSTER)[0], MAKER, self)
+        env = self._out()
+        pruefe_exakt(lambda v: self._verify(env, decision_maker_id=v)["bound_decision_ok"] is True, MAKER, self)
+
     def test_a_bound_decision_needs_the_expected_decision_maker(self):
         r = self._verify(self._out(), decision_maker_id=None)
         self.assertIs(r["bound_decision_ok"], False)
