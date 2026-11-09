@@ -1276,9 +1276,8 @@ def _cmd_emit(args: argparse.Namespace) -> int:
 
     try:
         with open(args.payload_file, "rb") as handle:
-            # NOT capped (adversarial re-audit 3.6.2): this is `emit` — the operator signs their OWN payload, which
-            # may legitimately exceed the input_bytes verify budget; capping it would silently block a valid
-            # large-payload emit. The verify surfaces (untrusted third-party input) are the ones that are bounded.
+            # The payload is read here. Before signing, `emit_bundle` enforces the native bundle verifier's
+            # structural budget; an over-budget bundle is reported by `main` as malformed input with exit 2.
             payload = handle.read()
     except OSError as exc:   # `--payload-file ''` or a missing file: exit 2, not a raw traceback (verify lane V3)
         _err(f"cannot read --payload-file: {exc}")
@@ -2175,11 +2174,17 @@ def _dsse_verify_reasons(res: dict, envelope: object, shown: tuple) -> list:
     but the signature, its parts joined by "; ", and the parts `shown` printed are taken out of it as whole
     parts, so no reason is printed twice. The signature gets its own line wherever the DSSE check ran, which
     is every case but a payload rejected before it: then the verifier read no statement and no content-root
-    algorithm."""
+    algorithm.
+
+    A missing v0.1 claim member (`predicate_member_detail`) is printed after the signature line, not with
+    the other parts of `content_root_detail` (review of the class fix, round 2): it is the reason added after
+    v6.5.0, and with a broken signature it came first, where ac4129f7 printed the signature reason first.
+    Every reason the command printed before keeps its place."""
     from .intoto import INTOTO_STATEMENT_PAYLOAD_TYPE  # noqa: PLC0415
     reasons = []
     rest = res.get("content_root_detail") or ""
-    for part in (p for p in shown if p):
+    nachher = res.get("predicate_member_detail") or ""
+    for part in (p for p in shown + (nachher,) if p):
         if rest == part:
             rest = ""
         elif rest.startswith(part + "; "):
@@ -2197,6 +2202,8 @@ def _dsse_verify_reasons(res: dict, envelope: object, shown: tuple) -> list:
             reasons.append(f"payloadType {ptype!r} is not {INTOTO_STATEMENT_PAYLOAD_TYPE}")
         else:
             reasons.append("no signature verifies under the key given with --pub")
+    if nachher:
+        reasons.append(nachher)
     return reasons
 
 
