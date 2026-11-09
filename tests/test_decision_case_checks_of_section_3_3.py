@@ -39,6 +39,8 @@ EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
 ACTION = b'{"merge":"pull/4471"}\n'
 T_GUT = 1784192460            # 2026-07-16T09:01:00Z, after decidedAt and before expiresAt below
 PRINCIPAL = "workload://example/ci-release"
+#: The decisionMaker.id of examples/decision_receipt_allow.json, the identifier the relying party expects (3.1).
+MAKER = "https://example.org/decision-platform/proofbundle-gate/v1"
 
 
 def _run(argv):
@@ -248,8 +250,12 @@ class TestCase3Executed(unittest.TestCase):
         return dec, out
 
     def _case3(self, dec, out, **kw):
+        # The inputs of Section 3.1 for Case 3: T and the expected decisionMaker.id (the bound decision must pass
+        # Section 3.2, review 1 of the B1 to B4 series, finding 1).
+        args = {"decision_maker_id": MAKER, "now": T_GUT}
+        args.update(kw)
         return verify_outcome_receipt(out, self.opub, strict=True, decision_envelope=dec,
-                                      decision_public_key=self.dpub, case="executed", **kw)
+                                      decision_public_key=self.dpub, case="executed", **args)
 
     def test_executed_holds(self):
         r = self._case3(*self._paar())

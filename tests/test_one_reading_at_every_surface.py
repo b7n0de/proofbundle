@@ -1101,10 +1101,13 @@ def _flaechen():
         ("outcome.verify_outcome_receipt", lambda w: outcome.verify_outcome_receipt(
             w(out_env), w(pub), expected_decision_ref=w(aus_dec_wurzel), trust_pack=w(tp_pred),
             trust_pack_expected_genesis_digest=w("a" * 64), trust_pack_expected_root_keys=w(dict(tp_keys)),
-            decision_maker_id=w("maker:x"), expected_audience=w("rp"), expected_nonce=w("n"),
-            policy=w({"relations": relationen}), related=w(verwandt),
+            decision_maker_id=w(aus_dec_pred["decisionMaker"]["id"]), expected_audience=w("rp"),
+            expected_nonce=w("n"), policy=w({"relations": relationen}), related=w(verwandt),
             expected_executor_id=w("executor:runner-7"), effect_bytes=w(_SWEEP_WIRKUNG),
-            decision_envelope=w(aus_dec_env), decision_public_key=w(_raw(_E)), case=w("executed"))),
+            decision_envelope=w(aus_dec_env), decision_public_key=w(_raw(_E)), case=w("executed"),
+            # T inside the bound decision's validity (2026-07-14T10:00:30Z), so that it passes Section 3.2 and the
+            # expected decisionMaker.id and T reach the verdict (review 1 of the B1 to B4 series, finding 1).
+            now=w(1784023230))),
         ("run_ledger.verify_run_ledger", lambda w: rl.verify_run_ledger(w(rl.emit_run_ledger(rl_pred, _T)), w(pub))),
         ("verification_summary.verify_verification_summary", lambda w: vs.verify_verification_summary(
             w(vs.emit_verification_summary(vs_pred, _T)), w(pub))),

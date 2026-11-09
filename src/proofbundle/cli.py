@@ -3074,7 +3074,10 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
             expected_audience=args.aud, expected_nonce=args.nonce,
             require_derived_subject=args.require_derived_subject, related=related or None,
             policy=policy, expected_executor_id=getattr(args, "executor_id", None), effect_bytes=effect_bytes,
-            decision_envelope=decision_env, decision_public_key=decision_pub, case=getattr(args, "case", None))
+            decision_envelope=decision_env, decision_public_key=decision_pub, case=getattr(args, "case", None),
+            # The evaluation time T of Section 3.1 for the bound decision's Section 3.2 (review 1 of the B1 to B4
+            # series, finding 1), the one helper of decision verify: a whole past second in the 'Z' form, else exit 2.
+            now=_historical_now_posix(getattr(args, "verification_time", None)))
     except (ProofBundleError, OSError, ValueError) as exc:
         _err(exc)
         return 2
@@ -4040,6 +4043,10 @@ def build_parser() -> argparse.ArgumentParser:
     o_verify.add_argument("--case", dest="case", default=None, metavar="CASE",
                           help="Case 3 of Section 3.3: executed (with --decision): the decision's verdict must be "
                                "ALLOW and the outcome's status executed, after Section 3.4 holds. A failure exits 2")
+    o_verify.add_argument("--verification-time", dest="verification_time", default=None, metavar="ISO8601",
+                          help="the evaluation time T (ISO-8601 'Z', a whole past second) at which the --decision "
+                               "receipt must pass Section 3.2, its freshness included; without it the wall clock. No "
+                               "step of Section 3.4 compares the outcome itself with T. A malformed value exits 2")
     o_verify.set_defaults(func=_cmd_outcome_verify)
 
     o_inspect = osub.add_parser("inspect", help="print an outcome receipt's predicate (no crypto verification)")

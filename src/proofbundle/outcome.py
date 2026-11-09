@@ -638,36 +638,49 @@ def _finalize_failclosed(r: dict) -> dict:
     return r
 
 
-def _gebundene_entscheidung(predicate: dict, envelope: Any, decision_key: Any,
-                            outcome_key: Any) -> "tuple[bool, list[str]]":
+def _gebundene_entscheidung(predicate: dict, envelope: Any, decision_key: Any, outcome_key: Any,
+                            expected_maker: "str | None", now: Any) -> "tuple[bool, list[str], dict | None]":
     """Steps 4, 5 (the part against the decision) and 7 of Section 3.4 of draft-gruszka-audit-decision-receipts-07
-    against the decision receipt the outcome names (finding B2, vectors F8, F64, F66). The decision receipt is
-    verified first, under ``decision_key``: signature, strict structure, its own RFC 8785 form and a derived subject.
-    Its freshness at the evaluation time is judged by ``verify_decision_receipt`` on its own path, not here: step 7
-    compares performedAt with the decision's times only. Returns (whether every step holds, the reasons it does not).
+    against the decision receipt the outcome names (finding B2, vectors F8, F64, F66).
+
+    Step 4 binds the outcome to the decision receipt "that passed Section 3.2", so the decision is verified first,
+    under ``decision_key`` and at the relying party's evaluation time ``now`` (POSIX seconds; None reads the wall
+    clock once, in ``verify_decision_receipt``): strict, with a derived subject, and its whole verdict counts, ``ok``,
+    so an expired decision, one with a malformed ``now`` and one any other check of that verifier refuses does not
+    bind. Its decisionMaker.id MUST be ``expected_maker``, the identifier the relying party's trust policy binds to
+    the decision key (step 8 of Section 3.2, an input of Section 3.1); a bound decision without that expectation is
+    refused. Review 1 of the B1 to B4 series, finding 1: at e200c107 only signature, structure, predicate type and
+    derived subject were read from the verdict. Step 7 compares performedAt with the decision's times only, never
+    with T. Returns (whether every step holds, the reasons it does not, the decision predicate read here or None).
     """
     if envelope is None or decision_key is None:
-        return False, ["a bound decision needs both the decision receipt and its key (Section 3.4, fail-closed)"]
+        return False, ["a bound decision needs both the decision receipt and its key (Section 3.4, fail-closed)"], None
     from . import dsse  # noqa: PLC0415
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415
     from .decision import DECISION_RECEIPT_PREDICATE_TYPE, _mikrosekunden, verify_decision_receipt  # noqa: PLC0415
-    urteil = verify_decision_receipt(envelope, decision_key, strict=True, require_derived_subject=True)
-    if not (urteil.get("crypto_ok") is True and urteil.get("structure_ok") is True
-            and urteil.get("predicate_type_ok") is True and urteil.get("subject_derived_ok") is True):
-        return False, ["the bound decision receipt does not pass Section 3.2 under the decision key (signature, "
-                       "structure, canonical form or derived subject; fail-closed)"]
+    urteil = verify_decision_receipt(envelope, decision_key, strict=True, require_derived_subject=True, now=now)
+    if urteil.get("ok") is not True or urteil.get("subject_derived_ok") is not True:
+        return False, ["the bound decision receipt does not pass Section 3.2 under the decision key at the evaluation "
+                       "time (fail-closed)"] + [f"bound decision: {render_safe(e, quote=False)}"
+                                                 for e in _as_list(urteil.get("errors"))], None
     try:
         _echt, body = dsse._verify_and_load(envelope, decision_key, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
         statement = load_statement_strict(body, budget=DEFAULT_BUDGET)
     except (ProofBundleError, ValueError, UnicodeDecodeError):
-        return False, ["the bound decision receipt could not be read a second time (fail-closed)"]
+        return False, ["the bound decision receipt could not be read a second time (fail-closed)"], None
     wurzel = hashlib.sha256(body).hexdigest()
     if (not _echt or wurzel != urteil.get("verified_payload_digest") or not isinstance(statement, dict)
             or statement.get("predicateType") != DECISION_RECEIPT_PREDICATE_TYPE
             or not isinstance(statement.get("predicate"), dict)):
-        return False, ["the bound decision receipt read twice gave two answers (fail-closed)"]
+        return False, ["the bound decision receipt read twice gave two answers (fail-closed)"], None
     dp = statement["predicate"]
     gruende: list[str] = []
+    # step 8 of Section 3.2, through the input of Section 3.1: the decision maker the relying party expects
+    if expected_maker is None:
+        gruende.append("a bound decision needs the expected decisionMaker.id (Section 3.1, step 8 of Section 3.2)")
+    elif _as_dict(dp.get("decisionMaker")).get("id") != expected_maker:
+        gruende.append("decisionMaker.id of the bound decision is not the expected decision maker (step 8 of "
+                       "Section 3.2)")
     # step 4: the content root R and the requested action
     if _as_dict(predicate.get("decisionRef")).get("sha256") != wurzel:
         gruende.append("decisionRef is not the content root of the bound decision receipt (step 4)")
@@ -690,7 +703,7 @@ def _gebundene_entscheidung(predicate: dict, envelope: Any, decision_key: Any,
     elif not entschieden <= getan < ablauf:
         gruende.append("performedAt is not within decidedAt <= performedAt < validity.expiresAt of the bound "
                        "decision (step 7)")
-    return not gruende, [g + ", fail-closed" for g in gruende]
+    return not gruende, [g + ", fail-closed" for g in gruende], dp
 
 
 def _entscheidungs_verdict(envelope: Any, decision_key: Any) -> Any:
@@ -779,7 +792,7 @@ def verify_outcome_receipt_or_raise(envelope: dict, public_key: bytes, *, strict
                                     effect_bytes: bytes | None = None,
                                     decision_envelope: dict | None = None,
                                     decision_public_key: bytes | None = None,
-                                    case: str | None = None) -> dict:
+                                    case: str | None = None, now: int | None = None) -> dict:
     """Explicit-exception variant of :func:`verify_outcome_receipt`: raises :class:`BundleFormatError`
     when the payload is not a well-formed in-toto Statement, instead of returning a fail-closed verdict.
     Use :func:`verify_outcome_receipt` (never-raise) for untrusted input (PB-2026-0717-07). The explicit
@@ -794,7 +807,7 @@ def verify_outcome_receipt_or_raise(envelope: dict, public_key: bytes, *, strict
         evidence_resolver=evidence_resolver,
         receiver_attestation_resolver=receiver_attestation_resolver, related=related, policy=policy,
         expected_executor_id=expected_executor_id, effect_bytes=effect_bytes,
-        decision_envelope=decision_envelope, decision_public_key=decision_public_key, case=case,
+        decision_envelope=decision_envelope, decision_public_key=decision_public_key, case=case, now=now,
         _raise_on_malformed=True)
 
 
@@ -813,7 +826,7 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                            related: dict | None = None, policy: dict | None = None,
                            expected_executor_id: str | None = None, effect_bytes: bytes | None = None,
                            decision_envelope: dict | None = None, decision_public_key: bytes | None = None,
-                           case: str | None = None,
+                           case: str | None = None, now: int | None = None,
                            _raise_on_malformed: bool = False) -> dict:
     """Verify a DSSE-signed Outcome Receipt. Crypto first, then structure over the EXACT signed bytes.
 
@@ -900,12 +913,16 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
     - ``effect_bytes_ok`` — ``effect_bytes``: effectDigest MUST be present, whatever the status, and the SHA-256 of
       the bytes MUST equal it (step 6). The first sentence of step 6, an executed outcome without effectDigest, stays
       the ``execution_proven`` warning here.
-    - ``bound_decision_ok`` — ``decision_envelope`` with ``decision_public_key``: the decision receipt is verified
-      under that key (signature, strict structure, canonical form, derived subject); then decisionRef MUST be its
-      content root and requestedActionDigest its parametersDigest (step 4), the two keys and the two identities MUST
-      differ (step 5), and decidedAt <= performedAt < validity.expiresAt of the decision (step 7, fractions padded to
-      six digits). One of the two without the other is False. The decision's own freshness at the evaluation time
-      is not judged here; ``verify_decision_receipt`` judges it on its own path.
+    - ``bound_decision_ok`` — ``decision_envelope`` with ``decision_public_key``: the decision receipt MUST pass
+      Section 3.2 under that key at the evaluation time ``now``, by the whole verdict of ``verify_decision_receipt``
+      (strict, derived subject, freshness included), and its decisionMaker.id MUST be ``decision_maker_id``, the
+      identifier the relying party expects (step 8 of Section 3.2; without it the binding is refused). Then
+      decisionRef MUST be its content root and requestedActionDigest its parametersDigest (step 4), the two keys and
+      the two identities MUST differ (step 5), and decidedAt <= performedAt < validity.expiresAt of the decision
+      (step 7, fractions padded to six digits). One of the two without the other is False.
+    - ``now`` — the evaluation time T of Section 3.1 in POSIX seconds, used for the bound decision only (no step of
+      Section 3.4 compares the outcome with T). None reads the wall clock once; a value that is no POSIX-seconds
+      integer in range fails the bound decision closed, never re-read from the wall clock.
 
     Each is judged over authenticated bytes only; a False fails ``ok`` and blocks automation.
     """
@@ -970,6 +987,9 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
     # decision key as plain bytes (a value that is no bytes stays None and is refused below, never "not given").
     _wirkung = _bytes_von(effect_bytes) if effect_bytes is not None else None
     _entscheider = _bytes_von(decision_public_key) if decision_public_key is not None else None
+    # The expected decisionMaker.id, read once by its characters: the role separation below and the bound decision
+    # (step 8 of Section 3.2) judge the same value. One that is no text is no expectation (fail-closed in both).
+    _entscheider_id = _zeichen_von(decision_maker_id) if decision_maker_id is not None else None
 
     try:
         # PB-2026-0718-11 RE-GATE never-raise: dsse.verify_envelope / load_payload budget-check the payload
@@ -1059,7 +1079,7 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
             # a bool, a float or bytes never equals it and `!=` was vacuously True (verify lens on the
             # cross-check fix at bc3d275f: decision_maker_id=12345 beside executor.id "12345" gave
             # role_separation_ok and ok True, where the sibling expectations refuse a value that is no text).
-            _dm = _zeichen_von(decision_maker_id)
+            _dm = _entscheider_id
             r["role_separation_ok"] = bool(_exid) and _dm is not None and _exid != _dm
             if not r["role_separation_ok"]:
                 r["errors"].append(
@@ -1092,8 +1112,8 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
                     r["errors"].append("effect bytes do not match effectDigest (step 6 of Section 3.4, fail-closed)")
         # Steps 4, 5 and 7 (F8, F64, F66) against the decision receipt the outcome is bound to.
         if decision_envelope is not None or decision_public_key is not None:
-            r["bound_decision_ok"], _gruende = _gebundene_entscheidung(
-                predicate, decision_envelope, _entscheider, schluessel)
+            r["bound_decision_ok"], _gruende, _entscheidung_p = _gebundene_entscheidung(
+                predicate, decision_envelope, _entscheider, schluessel, _entscheider_id, now)
             r["errors"].extend(_gruende)
         # Case 3 of Section 3.3, executed (finding B3, vectors F17, F54): chosen by the relying party, never by the
         # receipt. The outcome passes Section 3.4 against the bound decision (bound_decision_ok), the decision's
