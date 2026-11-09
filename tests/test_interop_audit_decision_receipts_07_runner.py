@@ -77,11 +77,52 @@ class AMalformedAnswerDoesNotStopTheRun(unittest.TestCase):
         self.assertEqual(p.returncode, 1, p.stderr.decode("utf-8", "replace")[-400:])
         self.assertIn(b"0 of 37 cases match", p.stdout)
 
-    def test_a_lone_surrogate_in_the_step_is_a_mismatch(self):
-        p = _run("print('{\"result\": \"fail\", \"step\": \"\\\\ud800\"}')")
-        self.assertEqual(p.returncode, 1, p.stderr.decode("utf-8", "replace")[-400:])
-        self.assertIn(b"cases match", p.stdout)
-        self.assertNotIn(b"Traceback", p.stderr)
+    def test_a_lone_surrogate_in_the_step_is_no_answer(self):
+        # The expected result with a step that is a lone surrogate: an answer that normalised the step instead of
+        # refusing it would match every case under --accept-reject (review 2 of the folder).
+        code = ("import json, sys; e = json.load(open(sys.argv[-1], encoding='utf-8'))['expected']; "
+                "print(json.dumps({'result': e['result'], 'step': '\\ud800'}))")
+        for mode in ((), ("--accept-reject",)):
+            with self.subTest(mode=mode):
+                p = _run(code, *mode)
+                self.assertEqual(p.returncode, 1, p.stderr.decode("utf-8", "replace")[-400:])
+                self.assertIn(b"0 of 37 cases match", p.stdout)
+                self.assertNotIn(b"Traceback", p.stderr)
+
+
+class TheJsonConstantsOfPythonAreNoJson(unittest.TestCase):
+    def test_nan_and_infinity_in_a_member_are_no_answer(self):
+        for token in ("NaN", "Infinity", "-Infinity"):
+            code = ("import json, sys; e = json.load(open(sys.argv[-1], encoding='utf-8'))['expected']; "
+                    "print(json.dumps(e)[:-1] + ', \"x\": " + token + "}')")
+            for mode in ((), ("--accept-reject",)):
+                with self.subTest(token=token, mode=mode):
+                    p = _run(code, *mode)
+                    self.assertEqual(p.returncode, 1)
+                    self.assertIn(b"0 of 37 cases match", p.stdout)
+
+
+class OnlyTheFirstLineIsTheAnswer(unittest.TestCase):
+    """Positive controls: what follows the first line feed does not decide, and the line may end otherwise."""
+
+    def test_bytes_after_the_first_line_do_not_decide(self):
+        for tail in ("b'\\nnot utf-8: \\xff'", "b'\\nany log line'"):
+            for mode in ((), ("--accept-reject",)):
+                with self.subTest(tail=tail, mode=mode):
+                    p = _run(_ECHO.format(tail=tail), *mode)
+                    self.assertEqual(p.returncode, 0, p.stdout.decode("utf-8", "replace")[-300:])
+                    self.assertIn(b"37 of 37 cases match", p.stdout)
+
+    def test_a_crlf_line_and_an_unterminated_line_are_answers(self):
+        crlf = _ECHO.format(tail="b'\\r'")
+        ohne = ("import json, sys; e = json.load(open(sys.argv[-1], encoding='utf-8'))['expected']; "
+                "sys.stdout.buffer.write(json.dumps(e).encode('utf-8'))")
+        for name, code in (("crlf", crlf), ("unterminated", ohne)):
+            for mode in ((), ("--accept-reject",)):
+                with self.subTest(form=name, mode=mode):
+                    p = _run(code, *mode)
+                    self.assertEqual(p.returncode, 0, p.stdout.decode("utf-8", "replace")[-300:])
+                    self.assertIn(b"37 of 37 cases match", p.stdout)
 
 
 class ATimeoutMustBeAFiniteNumberOfSeconds(unittest.TestCase):
