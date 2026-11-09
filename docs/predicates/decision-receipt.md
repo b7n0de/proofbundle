@@ -154,16 +154,17 @@ draft-gruszka-audit-decision-receipts-05.
 The command does not reject an evaluation time before `decidedAt`, as required by Section 3.2 step 9. A
 Statement with two subject entries passes without `--require-derived-subject` and is rejected with that switch;
 Section 3.2 step 6 requires exactly one derived subject. Binding `decisionMaker.id` to the signing key requires an
-applicable `--policy`, as described in Section 9 below. The `decision verify` and `outcome verify` commands also do
-not perform the full action, case and outcome checks in Section 3.2 step 10, Section 3.3 and Section 3.4 steps 5 to
-7. Those outcome checks include executor identity, separation of keys and identifiers, result and effect checks, and
-the execution-time window.
+applicable `--policy`, as described in Section 9 below. The action, case and outcome checks of Section 3.2 step 10,
+Section 3.3 and Section 3.4 run only when the relying party supplies their inputs: `--action` for the action bytes,
+`--case` with `--approval` for the case it chooses, and on `outcome verify` `--executor-id`, `--effect`, `--decision`
+with `--decision-pub`, `--decision-maker-id` and `--verification-time` for the executor identity, the effect bytes
+and the bound decision. A command run without them does not perform those checks.
 
 For the F5 scenario in Appendix A.5 of revision 05, `proofbundle decision verify v2-declined-good.dsse.json --pub
 <gate-1 key> --strict --aud observer-1 --nonce dec-0002 --verification-time 2026-10-15T09:06:00Z` exits 0. This
 invocation does not receive the action bytes `a1` whose digest differs from `proposedAction.parametersDigest`. Exit 0
-therefore does not mean that those action bytes were compared with the receipt. The relying party must perform that
-comparison when action bytes are supplied for verification.
+therefore does not mean that those action bytes were compared with the receipt. Given with `--action`, the bytes are
+compared, and a digest that differs exits 2.
 
 See `examples/decision_receipt_{allow,deny,escalate}.json` and the wrapped Statement
 `examples/decision_receipt_with_eval_ref.intoto.json`. Machine schema:
