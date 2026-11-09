@@ -26,12 +26,18 @@ THE COUNT, behind equal outputs (pre-review 8): a signer that returns the real s
 bytes on every later one must be asked exactly once, and the producer must write what the real key writes. A second
 signing call hidden behind an equal first output fails here even where the list cannot see it.
 
-THE LENGTH, an expectation the producer cannot move (pre-review 9): equal outputs of two runs of the same producer say
-nothing when both runs write the same extra signature, for example through the ML-DSA helper with a second signer of
-its own. With the fixed inputs below, each producer's output has one length, measured over five key pairs before this
-test was written; the test holds every run, with the real key and with the counting signer, to that number. And the
-two ML-DSA helpers, which sign outside the Ed25519 rule, may be referred to only where they are today: one import in
-renewal.py and one call in renewal._sign_ats_content.
+THE WRITTEN SIGNATURES, an expectation the producer cannot move (pre-review 9 and 10): equal outputs of two runs of the
+same producer say nothing when both runs write the same extra signature, and a whole-output length says nothing about
+one signature's length, since padded base64 writes 64, 65 and 66 bytes in the same 88 characters. So each producer's
+output is read at the places its format puts signatures, each one is decoded, and their number and decoded lengths must
+be exactly what the format holds for one signer (`GESCHRIEBEN` below), with the real key and with the counting signer.
+The whole-output length, measured over five key pairs before the test was written, stays as a serialization check.
+
+THE CLOSURE of unread signing (pre-review 9 and 10): a function that holds a `.sign(` call outside the reader (the two
+ML-DSA helpers), and every function that calls or names such a function, passes a signer's output on unread. The test
+computes that closure over the package, imported aliases resolved, and holds every edge into it to the edges of today
+(`HUELLE_KANTEN`): renewal reaches the ML-DSA helper through `_sign_ats_content` and `_make_ats`, and the sequence
+builders reach those. Any new edge, an import, a call, an alias or getattr, is a finding.
 
 OUT OF THIS CLASS, named: `checkpoint.cosign_checkpoint_mldsa` and `pqsig.sign_mldsa` sign with ML-DSA, whose signature has
 another length; they do not write an Ed25519 signature.
@@ -255,47 +261,89 @@ def _befund(quellen):
     """What breaks the rule, per call: unread Ed25519 calls, unlisted functions, and counts off the list."""
     gelistet = {ort for _e, _f, ort in PRODUCERS.values()} | {HOLDER_PRODUCER[2]}
     erwartet = Counter({ort: 1 for ort in gelistet}) + Counter(AUSSERHALB)
-    gezaehlt, ungelesen, ohne_aufruf, mldsa = Counter(), [], [], Counter()
+    gezaehlt, ungelesen, ohne_aufruf = Counter(), [], []
+    kanten = _huelle_kanten(quellen)
     for datei, text in quellen.items():
         for ort, gelesen in _sign_aufrufe(datei, text):
             gezaehlt[ort] += 1
             if ort not in AUSSERHALB and not gelesen:
                 ungelesen.append(ort)
         ohne_aufruf.extend(_sign_ohne_aufruf(datei, text))
-        mldsa.update(_mldsa_bezuege(datei, text))
     return {"ungelesen": sorted(ungelesen),
             "nicht_gelistet": sorted(set(gezaehlt) - set(erwartet)),
             "anzahl_falsch": sorted(ort for ort in erwartet if gezaehlt[ort] != erwartet[ort]),
             "sign_ohne_aufruf": sorted(ohne_aufruf),
-            "mldsa_ausserhalb": sorted(f"{d}:{f}:{a}" for (d, f, a) in (mldsa - MLDSA_ERLAUBT) + (MLDSA_ERLAUBT - mldsa))}
+            "huelle_kanten_anders": sorted(f"{d}:{f}:{n}:{a}" for (d, f, n, a)
+                                           in (kanten - HUELLE_KANTEN) + (HUELLE_KANTEN - kanten))}
 
 
-LEER = {"ungelesen": [], "nicht_gelistet": [], "anzahl_falsch": [], "sign_ohne_aufruf": [], "mldsa_ausserhalb": []}
+LEER = {"ungelesen": [], "nicht_gelistet": [], "anzahl_falsch": [], "sign_ohne_aufruf": [], "huelle_kanten_anders": []}
 
-#: The two helpers that sign with ML-DSA, outside the Ed25519 rule, and the only places that refer to them today.
-MLDSA_HELFER = ("sign_mldsa", "cosign_checkpoint_mldsa")
-MLDSA_ERLAUBT = Counter({("renewal.py", None, "import"): 1, ("renewal.py", "_sign_ats_content", "aufruf"): 1})
+#: The edges into the closure of unread signing at this head, as (file, function, name in the closure, kind). Computed by
+#: `_huelle_kanten` on 9 November 2026 and written down here; a new edge is a finding, a missing one too.
+HUELLE_KANTEN = Counter({
+    ("__init__.py", None, "build_initial_sequence", "import"): 1,
+    ("__init__.py", None, "renew_hashtree", "import"): 1,
+    ("__init__.py", None, "renew_timestamp", "import"): 1,
+    ("renewal.py", None, "sign_mldsa", "import"): 1,
+    ("renewal.py", "build_initial_sequence", "_make_ats", "aufruf"): 1,
+    ("renewal.py", "renew_timestamp", "_make_ats", "aufruf"): 1,
+    ("renewal.py", "_make_ats", "_sign_ats_content", "aufruf"): 1,
+    ("renewal.py", "renew_hashtree", "_make_ats", "aufruf"): 1,
+    ("renewal.py", "_sign_ats_content", "sign_mldsa", "aufruf"): 1,
+})
 
 
-def _mldsa_bezuege(datei, text):
-    """Every reference to an ML-DSA helper outside its own definition, as (file, function, kind)."""
-    baum = ast.parse(text)
-    eltern = {kind: knoten for knoten in ast.walk(baum) for kind in ast.iter_child_nodes(knoten)}
-    ziele = {id(k.func) for k in ast.walk(baum) if isinstance(k, ast.Call)}
-    # A helper imported under another name is followed under that name too.
-    namen = set(MLDSA_HELFER) | {a.asname for k in ast.walk(baum) if isinstance(k, ast.ImportFrom)
-                                 for a in k.names if a.name in MLDSA_HELFER and a.asname}
-    for k in ast.walk(baum):
-        if isinstance(k, ast.ImportFrom):
-            for a in k.names:
-                if a.name in MLDSA_HELFER:
-                    yield (datei, _funktion_von(k, eltern), "import" if a.asname is None else "import_als")
-        name = k.id if isinstance(k, ast.Name) else (k.attr if isinstance(k, ast.Attribute) else None)
-        if name in namen:
-            yield (datei, _funktion_von(k, eltern), "aufruf" if id(k) in ziele else "bezug")
-        if (isinstance(k, ast.Call) and isinstance(k.func, ast.Name) and k.func.id == "getattr" and len(k.args) >= 2
-                and isinstance(k.args[1], ast.Constant) and k.args[1].value in MLDSA_HELFER):
-            yield (datei, _funktion_von(k, eltern), "getattr")
+def _huelle_kanten(quellen):
+    """The closure of functions that pass a signer's output on unread, and every edge into it.
+
+    Seed: each function with a `.sign(` call that is not the one argument of the reader. Then every function that calls,
+    names or imports a member, aliases resolved, joins, until nothing changes. Edges: each import, call, reference or
+    getattr of a member by name, with the file and the innermost function it stands in."""
+    baeume = {d: ast.parse(text) for d, text in quellen.items()}
+    eltern = {d: {kind: knoten for knoten in ast.walk(b) for kind in ast.iter_child_nodes(knoten)} for d, b in baeume.items()}
+    aliase = {d: {a.asname: a.name for k in ast.walk(b) if isinstance(k, ast.ImportFrom) for a in k.names if a.asname}
+              for d, b in baeume.items()}
+    huelle = set()
+    for d, b in baeume.items():
+        for k in ast.walk(b):
+            if isinstance(k, ast.Call) and isinstance(k.func, ast.Attribute) and k.func.attr == "sign":
+                e = eltern[d].get(k)
+                gelesen = (isinstance(e, ast.Call) and isinstance(e.func, ast.Name) and e.func.id == LESER
+                           and len(e.args) == 1 and e.args[0] is k)
+                f = _funktion_von(k, eltern[d])
+                if not gelesen and f:
+                    huelle.add(f)
+
+    def bezogene(d, b):
+        for k in ast.walk(b):
+            if isinstance(k, ast.ImportFrom):
+                for a in k.names:
+                    yield k, a.name, "import" if a.asname is None else "import_als"
+            name = k.id if isinstance(k, ast.Name) else (k.attr if isinstance(k, ast.Attribute) else None)
+            if name is not None:
+                yield k, aliase[d].get(name, name), None
+            if (isinstance(k, ast.Call) and isinstance(k.func, ast.Name) and k.func.id == "getattr" and len(k.args) >= 2
+                    and isinstance(k.args[1], ast.Constant) and isinstance(k.args[1].value, str)):
+                yield k, k.args[1].value, "getattr"
+
+    while True:
+        neu = set()
+        for d, b in baeume.items():
+            for k, name, _art in bezogene(d, b):
+                f = _funktion_von(k, eltern[d])
+                if name in huelle and f and f not in huelle:
+                    neu.add(f)
+        if not neu:
+            break
+        huelle |= neu
+    kanten = Counter()
+    for d, b in baeume.items():
+        ziele = {id(k.func) for k in ast.walk(b) if isinstance(k, ast.Call)}
+        for k, name, art in bezogene(d, b):
+            if name in huelle:
+                kanten[(d, _funktion_von(k, eltern[d]), name, art or ("aufruf" if id(k) in ziele else "bezug"))] += 1
+    return kanten
 
 
 def test_the_list_binds_every_ed25519_signing_call_to_the_reader():
@@ -373,9 +421,24 @@ def test_mutation_the_ml_dsa_helper_with_a_second_signer_is_found():
     zeile = "    sig = _ed25519_signatur_von(signer.sign(pae(payload_type, body)))\n"
     quellen = _mutiert("dsse.py", zeile, zeile + "    zweite = _sign_other(_SecondSigner(), pae(payload_type, body))\n")
     quellen["dsse.py"] = "from .pqsig import sign_mldsa as _sign_other\n" + quellen["dsse.py"]
-    befund = _befund(quellen)
-    assert befund["mldsa_ausserhalb"] == ["dsse.py:None:import_als", "dsse.py:sign_envelope:aufruf"], befund
-    assert {k: v for k, v in befund.items() if k != "mldsa_ausserhalb"} == {k: v for k, v in LEER.items() if k != "mldsa_ausserhalb"}
+    anders = _befund(quellen)["huelle_kanten_anders"]
+    assert "dsse.py:None:sign_mldsa:import_als" in anders, anders
+    assert "dsse.py:sign_envelope:sign_mldsa:aufruf" in anders, anders
+
+
+def test_mutation_the_renewal_wrapper_reached_from_another_producer_is_found():
+    """Pre-review 10: dsse.sign_envelope writes the unread output of renewal._sign_ats_content's ML-DSA branch."""
+    zeile = "    sig = _ed25519_signatur_von(signer.sign(pae(payload_type, body)))\n"
+    quellen = _mutiert("dsse.py", zeile, zeile + "    from .renewal import _sign_ats_content\n"
+                       "    zweite = _sign_ats_content(pae(payload_type, body), \"mldsa65\", {\"mldsa65\": signer})[0][1]\n")
+    anders = _befund(quellen)["huelle_kanten_anders"]
+    assert "dsse.py:sign_envelope:_sign_ats_content:import" in anders, anders
+    assert "dsse.py:sign_envelope:_sign_ats_content:aufruf" in anders, anders
+
+
+def test_the_closure_of_today_is_what_the_list_says():
+    """The closure computed at this head is exactly HUELLE_KANTEN, so the list cannot drift from the code unseen."""
+    assert _huelle_kanten(_quellen()) == HUELLE_KANTEN
 
 
 #: The length of each producer's output for the fixed inputs above, in bytes of its serialization (bytes as they are,
@@ -399,3 +462,56 @@ def test_every_producer_writes_the_length_measured_before(name, erzeuge, fehler,
     assert set(ERWARTETE_LAENGE) == {f[0] for f in FAELLE}
     assert _laenge(erzeuge(schluessel)) == ERWARTETE_LAENGE[name]
     assert _laenge(erzeuge(_Zaehler(schluessel))) == ERWARTETE_LAENGE[name]
+
+
+def _b64(s, url=False):
+    if url:
+        s = (s + "=" * (-len(s) % 4)).replace("-", "+").replace("_", "/")
+    return base64.b64decode(s, validate=True)
+
+
+def _jws_signatur(compact):
+    teile = compact.split(".")
+    assert len(teile) == 3, f"a compact JWS has three parts, not {len(teile)}"
+    return _b64(teile[2], url=True)
+
+
+def _notizsignaturen(note):
+    """The signature lines of a signed note: after the blank line, each line ends in its base64 signature."""
+    _text, _leer, zeilen = note.partition("\n\n")
+    return [_b64(z.split(" ")[-1]) for z in zeilen.splitlines() if z]
+
+
+def _geschrieben(name, ausgabe):
+    """The decoded signatures a producer wrote, read where its format puts them, independent of the producer's code."""
+    if name == "emit_bundle":
+        return [_b64(ausgabe["signature"]["sig_b64"])]
+    if name in ("dsse.sign_envelope", "sign_trust_pack"):
+        return [_b64(e["sig"]) for e in ausgabe["signatures"]]
+    if name in ("sign_checkpoint", "cosign_checkpoint"):
+        return _notizsignaturen(ausgabe)
+    if name in ("issue_status_list_token", "issue_enclave_attestation"):
+        return [_jws_signatur(ausgabe)]
+    if name == "renewal ed25519":
+        return [_b64(sig) for _alg, sig in ausgabe]
+    if name == "issue_sd_jwt":
+        return [_jws_signatur(ausgabe.split("~")[0])]
+    if name == "present_with_key_binding":
+        teile = ausgabe.split("~")
+        return [_jws_signatur(teile[0]), _jws_signatur(teile[-1])]
+    raise AssertionError(f"no reader for {name}")
+
+
+#: Decoded lengths of the signatures each format holds for one signer: an Ed25519 signature is 64 bytes; a note
+#: signature line carries a 4-byte key hash before it, a cosignature line a 4-byte key hash and an 8-byte time.
+GESCHRIEBEN = {"emit_bundle": [64], "dsse.sign_envelope": [64], "sign_checkpoint": [68], "cosign_checkpoint": [68, 76],
+               "issue_status_list_token": [64], "issue_enclave_attestation": [64], "renewal ed25519": [64],
+               "sign_trust_pack": [64], "issue_sd_jwt": [64], "present_with_key_binding": [64, 64]}
+
+
+@pytest.mark.parametrize("name,erzeuge,fehler,signer_typ", FAELLE, ids=[f[0] for f in FAELLE])
+def test_every_producer_writes_the_signatures_its_format_holds(name, erzeuge, fehler, signer_typ):
+    schluessel = HOLDER if signer_typ is _HolderSigner else KEY
+    assert set(GESCHRIEBEN) == {f[0] for f in FAELLE}
+    assert [len(s) for s in _geschrieben(name, erzeuge(schluessel))] == GESCHRIEBEN[name]
+    assert [len(s) for s in _geschrieben(name, erzeuge(_Zaehler(schluessel)))] == GESCHRIEBEN[name]
