@@ -12,12 +12,13 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from proofbundle import kbjwt
 from proofbundle.budget import DEFAULT_BUDGET
+from _lastdeckel import KOSTEN_JE_ELEMENT, gedeckelt  # noqa: E402  (LAUF11-L3: a load built from a budget is capped)
 from proofbundle.emit import generate_signer
 from proofbundle.evalclaim import build_eval_claim, issuer_fingerprint
 from proofbundle.sdjwt_issue import issue_sd_jwt, present_with_key_binding
 
 ROOT_B64 = "cm9vdA=="
-LIMIT = DEFAULT_BUDGET.string_len
+LIMIT = gedeckelt(DEFAULT_BUDGET.string_len, bytes_je_element=KOSTEN_JE_ELEMENT["string_len"])
 IAT = 1792000000
 
 

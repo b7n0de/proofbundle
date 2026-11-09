@@ -17,12 +17,13 @@ from __future__ import annotations
 import pytest
 
 from proofbundle.budget import DEFAULT_BUDGET
+from _lastdeckel import KOSTEN_JE_ELEMENT, gedeckelt  # noqa: E402  (LAUF11-L3: a load built from a budget is capped)
 from proofbundle.bundle import verify_bundle
 from proofbundle.emit import emit_bundle, generate_signer
 from proofbundle.errors import BundleFormatError
 
 #: The largest payload whose standard base64 has at most `string_len` characters (4 per 3 bytes).
-BOUND = DEFAULT_BUDGET.string_len // 4 * 3
+BOUND = gedeckelt(DEFAULT_BUDGET.string_len, bytes_je_element=KOSTEN_JE_ELEMENT["string_len"]) // 4 * 3
 
 
 class _Counting:
@@ -62,7 +63,7 @@ def test_a_payload_one_byte_over_the_bound_is_refused_before_signing(signer):
 def test_an_sd_jwt_vc_string_over_string_len_is_refused_before_signing(signer):
     counting = _Counting(signer)
     with pytest.raises(BundleFormatError, match="verify_bundle cannot read"):
-        emit_bundle(b"payload", counting, sd_jwt_vc={"compact": "c" * (DEFAULT_BUDGET.string_len + 1)})
+        emit_bundle(b"payload", counting, sd_jwt_vc={"compact": "c" * (gedeckelt(DEFAULT_BUDGET.string_len, bytes_je_element=KOSTEN_JE_ELEMENT["string_len"]) + 1)})
     assert counting.signed == 0
 
 

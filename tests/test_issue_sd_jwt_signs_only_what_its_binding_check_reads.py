@@ -27,13 +27,14 @@ import pytest
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from proofbundle.budget import DEFAULT_BUDGET
+from _lastdeckel import KOSTEN_JE_ELEMENT, gedeckelt  # noqa: E402  (LAUF11-L3: a load built from a budget is capped)
 from proofbundle.emit import generate_signer
 from proofbundle.evalclaim import build_eval_claim, issuer_fingerprint
 from proofbundle.sdjwt import verify_sd_jwt
 from proofbundle.sdjwt_issue import check_binds_bundle, issue_sd_jwt
 
 ROOT_B64 = "cm9vdA=="
-LIMIT = DEFAULT_BUDGET.string_len
+LIMIT = gedeckelt(DEFAULT_BUDGET.string_len, bytes_je_element=KOSTEN_JE_ELEMENT["string_len"])
 
 
 @pytest.fixture(scope="module")
