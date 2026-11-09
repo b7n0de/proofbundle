@@ -41,7 +41,7 @@ SHA-384, -44 SHA-512, -17 SHA-512/256, -15 SHA-256/64, -18 SHAKE128, -45 SHAKE25
 | `match` | MATCH or NO_MATCH when the comparison is made, INDETERMINATE when the reference is not usable or a needed input is not supplied |
 | `is_scitt` | the candidate passes the read check below and carries tag 18; a structural check, not conformance to the SCITT envelope profile |
 | `sig_valid` | always `null`, with `sig_valid_reason`: see Signature below |
-| `signature` | Ed25519 over the ToBeSigned under `--pub`, as proofbundle checks it; `null` without `--pub` or without a ToBeSigned, `false` for a signature that is not 64 bytes |
+| `signature` | Ed25519 over the ToBeSigned under `--pub`, as proofbundle checks it, decided in this order once the candidate passes the read check: `null` without `--pub`; `false` for a signature that is not 64 bytes, with or without a ToBeSigned; `null` for a 64-byte signature when there is no ToBeSigned; otherwise the library's result |
 | `digest` | the digest of the scheme's bytes, hex, or `null` |
 | `reasons` | why an axis is what it is |
 

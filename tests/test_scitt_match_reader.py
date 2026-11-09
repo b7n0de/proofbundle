@@ -176,6 +176,51 @@ def test_wholebytes_tells_c5_and_c12_from_statement_01_where_tobesigned_does_not
                                external_aad=b"")["match"] == "MATCH"
 
 
+#: The eight hash functions, written here from RFC 9054 and the IANA COSE Algorithms registry, not taken from the reader.
+INDEPENDENT_DIGESTS = {
+    -14: lambda b: hashlib.sha1(b).digest(),
+    -15: lambda b: hashlib.sha256(b).digest()[:8],
+    -16: lambda b: hashlib.sha256(b).digest(),
+    -17: lambda b: hashlib.new("sha512_256", b).digest(),
+    -18: lambda b: hashlib.shake_128(b).digest(32),
+    -43: lambda b: hashlib.sha384(b).digest(),
+    -44: lambda b: hashlib.sha512(b).digest(),
+    -45: lambda b: hashlib.shake_256(b).digest(64),
+}
+
+
+def _cbor_reference(alg: int, scheme: str, digest: bytes) -> bytes:
+    """The array [alg, scheme, digest] in the preferred encoding, for the negative algs and lengths used here."""
+    n = -1 - alg
+    head_alg = bytes([0x20 + n]) if n < 24 else bytes([0x38, n])
+    head_digest = bytes([0x40 + len(digest)]) if len(digest) < 24 else bytes([0x58, len(digest)])
+    return b"\x83" + head_alg + bytes([0x60 + len(scheme)]) + scheme.encode() + head_digest + digest
+
+
+@pytest.mark.parametrize("alg", sorted(INDEPENDENT_DIGESTS))
+@pytest.mark.parametrize("scheme", ["ToBeSigned", "WholeBytes"])
+def test_every_hash_function_matches_its_own_digest_and_no_other(tmp_path, alg, scheme):
+    i = _c("C1")
+    candidate = _bytes(i["candidate"])
+    covered = ORACLE.to_be_signed(ORACLE.read_candidate(candidate)[1], b"", ORACLE.read_candidate(candidate)[2]) \
+        if scheme == "ToBeSigned" else candidate
+    want = INDEPENDENT_DIGESTS[alg](covered)
+    code, res = _match(tmp_path, _cbor_reference(alg, scheme, want), candidate, scheme=scheme, alg=alg)
+    assert (code, res["ref_usable"], res["match"], res["digest"]) == (0, True, "MATCH", want.hex())
+    other = bytes([want[0] ^ 1]) + want[1:]
+    code, res = _match(tmp_path, _cbor_reference(alg, scheme, other), candidate, scheme=scheme, alg=alg)
+    assert (code, res["match"]) == (1, "NO_MATCH")
+
+
+def test_wholebytes_reads_the_candidate_before_it_hashes(tmp_path):
+    """A candidate that is not a statement is not one under WholeBytes either, even when the reference holds the
+    digest of exactly its bytes."""
+    candidate = b"\x00"
+    code, res = _match(tmp_path, _cbor_reference(-16, "WholeBytes", hashlib.sha256(candidate).digest()), candidate,
+                       scheme="WholeBytes", aad=None)
+    assert (code, res["ref_usable"], res["match"], res["is_scitt"], res["digest"]) == (1, True, "NO_MATCH", False, None)
+
+
 def _tagged(protected: bytes, unprotected: bytes, payload: bytes, signature: bytes) -> bytes:
     def bstr(b):
         return (bytes([0x40 + len(b)]) if len(b) < 24 else b"\x58" + bytes([len(b)])) + b
