@@ -37,7 +37,8 @@ THE CLOSURE of unread signing (pre-review 9 and 10): a function that holds a `.s
 ML-DSA helpers), and every function that calls or names such a function, passes a signer's output on unread. The test
 computes that closure over the package, imported aliases resolved, and holds every edge into it to the edges of today
 (`HUELLE_KANTEN`): renewal reaches the ML-DSA helper through `_sign_ats_content` and `_make_ats`, and the sequence
-builders reach those. Any new edge, an import, a call, an alias or getattr, is a finding. The closure follows names,
+builders reach those; `sign_trust_pack` reaches it for a root key declared `mldsa65` and checks the 3309 bytes of its
+output itself (the circle of the class fix found that the 64-byte check refused every ML-DSA-65 root key). Any new edge, an import, a call, an alias or getattr, is a finding. The closure follows names,
 imports under other names and getattr with a literal name; it does not follow dynamic dispatch, such as the package's
 lazy `__getattr__` export or a module attribute that a callback sets (pre-review 11). Such forms are caught where they
 write: every producer's written signatures are read, and the archive timestamp is read in the sequences its public
@@ -297,6 +298,8 @@ HUELLE_KANTEN = Counter({
     ("renewal.py", "_make_ats", "_sign_ats_content", "aufruf"): 1,
     ("renewal.py", "renew_hashtree", "_make_ats", "aufruf"): 1,
     ("renewal.py", "_sign_ats_content", "sign_mldsa", "aufruf"): 1,
+    ("trust_pack.py", "sign_trust_pack", "sign_mldsa", "import"): 1,
+    ("trust_pack.py", "sign_trust_pack", "sign_mldsa", "aufruf"): 1,
 })
 
 

@@ -62,6 +62,7 @@ _ALLOWED_TOP = set(_REQUIRED_ALWAYS) | set(_OPTIONAL)
 # (ML-DSA-65 PQ, 1952 bytes, FIPS 204) — and BOTH must verify (an attacker must forge both to forge the key).
 _KEY_ALGS = ("ed25519", "mldsa65", "hybrid-ed25519-mldsa65")
 _KEY_RAW_LEN = {"ed25519": 32, "mldsa65": 1952}  # raw public key byte length (FIPS 204 ML-DSA-65 = 1952 bytes)
+_SIG_RAW_LEN = {"ed25519": 64, "mldsa65": 3309}  # signature byte length (FIPS 204 ML-DSA-65 = 3309 bytes)
 _KEY_ALG_LABEL = {"mldsa65": "ML-DSA-65", "hybrid-ed25519-mldsa65": "Ed25519 (hybrid classical leg)"}
 
 # Finding 01 (2026-07 verify-layer hardening): automation_verdict.automation_summary's required_checks for
@@ -463,11 +464,25 @@ def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None 
     body = _rfc8785_bytes(statement)
     msg = dsse.pae(INTOTO_STATEMENT_PAYLOAD_TYPE, body)
     from .signature import _ed25519_signatur_von  # noqa: PLC0415
+    keys = _as_dict(predicate.get("keys"))
     signatures = []
     for kid, sk in paare:
-        sig = _ed25519_signatur_von(sk.sign(msg))
-        if sig is None:
-            raise TrustPackError(f"signer {kid!r} returned no 64-byte Ed25519 signature, so no pack is returned")
+        # THE OUTPUT IS READ BY THE ALGORITHM THE KEY DECLARES (circle of the class fix after 6.5.0): the check of 64
+        # Ed25519 bytes refused every ML-DSA-65 root key, whose signature has 3309 bytes, so no such pack could be
+        # signed. A key declared `mldsa65` signs through `pqsig.sign_mldsa`, as `renewal` does, and its output must have
+        # the 3309 bytes of FIPS 204; every other key writes the 64 bytes of an Ed25519 signature, the classical leg of
+        # a hybrid key included, as before.
+        kv = keys.get(kid)
+        if isinstance(kv, dict) and kv.get("alg") == "mldsa65":
+            from .pqsig import sign_mldsa  # noqa: PLC0415
+            sig = sign_mldsa(sk, msg)
+            if len(sig) != _SIG_RAW_LEN["mldsa65"]:
+                raise TrustPackError(f"signer {kid!r} returned no {_SIG_RAW_LEN['mldsa65']}-byte ML-DSA-65 signature, "
+                                     "so no pack is returned")
+        else:
+            sig = _ed25519_signatur_von(sk.sign(msg))
+            if sig is None:
+                raise TrustPackError(f"signer {kid!r} returned no 64-byte Ed25519 signature, so no pack is returned")
         signatures.append({"keyid": kid, "sig": base64.b64encode(sig).decode("ascii")})
     return {"payload": base64.b64encode(body).decode("ascii"),
             "payloadType": INTOTO_STATEMENT_PAYLOAD_TYPE, "signatures": signatures}
