@@ -8,6 +8,10 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
+### Changed
+
+- **The audit matrix reports the full 24-hour soak, row C6.3, as informative, as decided for the release on 2026-09-08.** `RESTRISIKO_600.md` (S21) and `RESTRISIKO_650.md` name the 24-hour soak a residual risk that runs beside the release and does not hold the tag, but `scripts/audit_candidate_matrix.py` still counted C6.3 among the release-deciding rows, so without a signed 24-hour run it reported the candidate as not ready. C6.3 now stands in `_INFORMATIVE_CHECKS` and its inventory row says `release_deciding: False`. Its reader is unchanged: it admits only signed, candidate-bound evidence, and an invalid artefact is still a FAIL in its row. C6.2, the recorded short soak on the same artefact, stays release-deciding. A test holds that C6.3 alone, without the 24-hour run, no longer withholds readiness, and a mutant that moves C6.3 back among the deciding rows turns the contract red.
+
 ## [6.5.0] - 2026-11-08
 
 6.5.0 is a feature release following 6.4.0. It adds `proofbundle verify-sigstore`, an offline verifier for GitHub Artifact Attestations and npm provenance, and the verifiers for eval-result v0.1, test-result v0.1 and SVR v0.1 statements now require the members their predicates require, in the forms those predicates give them. Every `rfc3339z` time field must name a real calendar instant, five walks over a JSON value keep their memory in proportion to the input, and the Bitcoin header map of the trust policy, `--bitcoin-header`, `--bundled-header`, the agent-review policy file and the SD-JWT bundle binding read their inputs strictly. The `[scitt]` extra and the dev pins take cbor2 6.1.5.

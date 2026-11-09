@@ -112,7 +112,17 @@ _EVIDENZ_ZUSTAND: dict[str, str] = {}
 # under time pressure — exactly the risk Auflage C6 warns against ("eine dokumentierte Ausnahme
 # darf nicht still dieselbe Freigabestaerke behalten"). So: informative, and said so here, in the
 # inventory (`EVIDENCE_ADMISSION_INVENTORY` below) and in the check's own docstring — never silent.
-_INFORMATIVE_CHECKS = {"C1.2", "C1.3", "C9.2", "C10.2", "C10.3", "C10.4", "C10.5", "C11.3"}
+#
+# C6.3 JOINED THIS SET after release 6.5.0, by owner choice C on card OA-69770dad93 (2026-11-05) —
+# the same kind of documented, visible downgrade. The owner decided on 2026-09-08 (RESTRISIKO_600.md,
+# S21) that the full 24-hour soak is a named residual risk: it runs beside the release, its result is
+# added later, and it is NOT a gate that holds the tag. The matrix still listed C6.3 as release-
+# deciding, so without a signed 24-hour run it reported "not ready" for a tag the owner had already
+# decided not to hold. Its reader is unchanged: it still admits only signed, candidate-bound evidence
+# through `_signed_versioned_artifact`, and an INVALID artefact is still FAIL in its row. What changed
+# is only that its row no longer decides `audit_candidate_ready`. C6.2, the recorded soak of minutes
+# on the same artefact, stays release-deciding.
+_INFORMATIVE_CHECKS = {"C1.2", "C1.3", "C6.3", "C9.2", "C10.2", "C10.3", "C10.4", "C10.5", "C11.3"}
 _KNOWN_VERDICTS = {PASS, PENDING, DATA_BLOCKED, EXTERNAL, FAIL, NOT_APPLICABLE}
 _EXTERNAL_CHECK_ID = "EXT.1"  # the ONE explicitly-external open audit
 
@@ -2135,6 +2145,11 @@ def c6_3_full_24h():
     Faelle sind hier DATA_BLOCKED, und beide sind Aussagen ueber die Umgebung: es liegt GAR KEINE
     Aufzeichnung vor (diese Maschine ist keine Soak-Box), oder es liegt eine gueltige, aber KURZE
     vor (hier standen keine 24 Stunden zur Verfuegung).
+
+    INFORMATIV seit Karte OA-69770dad93 C (nach dem Release 6.5.0): der Owner-Entscheid vom 08.09.2026
+    (RESTRISIKO_600, S21) nennt den 24-Stunden-Soak ein benanntes Restrisiko, das den Tag nicht haelt.
+    Diese Zeile wird weiter gemessen und berichtet, entscheidet aber `audit_candidate_ready` nicht mehr
+    (``_INFORMATIVE_CHECKS``). Der Zulassungsweg bleibt derselbe.
     """
     res = _soak_artifact()
     _EVIDENZ_ZUSTAND["C6.3"] = res["state"]
@@ -2863,7 +2878,9 @@ EVIDENCE_ADMISSION_INVENTORY = (
      "release_deciding": True},
     {"id": "C6.3", "property": "a full 24h soak artifact is present, attested and candidate-bound",
      "evidence_kind": "signed_versioned_artifact", "admission_fn": "c6_3_full_24h",
-     "release_deciding": True},
+     # Informative since card OA-69770dad93 C: the owner decision of 2026-09-08 (RESTRISIKO_600 S21)
+     # names the 24h soak a residual risk that does not hold the tag.
+     "release_deciding": False},
     {"id": "C8.2", "property": "Python<->Rust differential agrees on every recorded vector, "
                                 "population matches its own claim",
      "evidence_kind": "signed_versioned_artifact", "admission_fn": "c8_2_differential_agrees",

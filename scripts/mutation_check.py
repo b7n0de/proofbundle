@@ -718,9 +718,14 @@ MUTATIONS = [
      "    if False and (len(sdists) > 1 or len(wheels) > 1):",
      "matrix: Mehrdeutigkeit in dist/ wird nicht mehr abgewiesen", True),
     ("scripts/audit_candidate_matrix.py",
-     '_INFORMATIVE_CHECKS = {"C1.2", "C1.3", "C9.2", "C10.2", "C10.3", "C10.4", "C10.5", "C11.3"}',
-     '_INFORMATIVE_CHECKS = {"C1.2", "C1.3", "C9.2", "C10.3", "C10.4", "C10.5", "C11.3"}',
+     '_INFORMATIVE_CHECKS = {"C1.2", "C1.3", "C6.3", "C9.2", "C10.2", "C10.3", "C10.4", "C10.5", "C11.3"}',
+     '_INFORMATIVE_CHECKS = {"C1.2", "C1.3", "C6.3", "C9.2", "C10.3", "C10.4", "C10.5", "C11.3"}',
      "matrix: C10.2 wieder freigabeentscheidend hochgestuft", True),
+    # Karte OA-69770dad93 C: C6.3 ist informativ; still hochgestuft muss es rot werden.
+    ("scripts/audit_candidate_matrix.py",
+     '_INFORMATIVE_CHECKS = {"C1.2", "C1.3", "C6.3", "C9.2", "C10.2", "C10.3", "C10.4", "C10.5", "C11.3"}',
+     '_INFORMATIVE_CHECKS = {"C1.2", "C1.3", "C9.2", "C10.2", "C10.3", "C10.4", "C10.5", "C11.3"}',
+     "matrix: C6.3 wieder freigabeentscheidend hochgestuft", True),
 
     # D2-6 · das ausgeschlossene Signierskript zurueck in den sdist.
     ("MANIFEST.in",
