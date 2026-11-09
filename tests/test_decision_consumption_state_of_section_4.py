@@ -131,6 +131,58 @@ class TestConsumption(_Basis):
         self.assertIs(r["case_ok"], False)
         self.assertIsNone(r["consumption_ok"])
 
+    # The identity of item 2 in the form Section 3.2 gives a digest: approvalId and session non-empty strings, and
+    # actionDigest an object whose only member is sha256, 64 lowercase hexadecimal digits. A supplied entry or copy that
+    # is no such identity makes the supplied set unreadable, it never disappears from it (review 1 of the B1 to B4
+    # series, findings 3 and 4). Measured at e200c107: a consumed entry with the digest "xyz" or the real digest in
+    # upper case read as an identity, so the state counted as a complete view and the approval as NOT CONSUMED; and a
+    # received copy that is no identity, [{}] included, was skipped.
+    def _schlechte_digests(self):
+        echt = self.a["actionDigest"]["sha256"]
+        return ({"sha256": "xyz"}, {"sha256": echt.upper()}, {"sha256": echt, "x": 1}, {"sha256": echt[:-1]},
+                {"sha256": echt + "0"}, "sha256:" + echt, {"sha256": None}, {"SHA256": echt})
+
+    def test_a_malformed_identity_in_any_generation_refuses(self):
+        for generation in ("current", "rotated", "archived", "compacted"):
+            for dig in self._schlechte_digests():
+                with self.subTest(generation=generation, digest=dig):
+                    stand = {"current": []} if generation != "current" else {}
+                    stand[generation] = [dict(_kennung(self.a), actionDigest=dig)]
+                    r = self._v(consumed=_j(stand))
+                    self.assertIs(r["consumption_ok"], False)
+                    self.assertFalse(r["ok"])
+
+    def test_a_received_copy_that_is_no_identity_refuses(self):
+        kopien = [{}] + [dict(self.a, actionDigest=d, validUntil="2026-07-16T09:00:30Z")
+                         for d in self._schlechte_digests()]
+        for kopie in kopien:
+            with self.subTest(kopie=kopie):
+                r = self._v(consumed=_j([]), received=_j([kopie]))
+                self.assertIs(r["consumption_ok"], False)
+                self.assertFalse(r["ok"])
+
+    def test_a_received_copy_without_a_readable_bound_refuses(self):
+        # Every copy carries a validUntil of the draft's form, the copies of other identities as well: whether a copy
+        # bounds this approval is decided only after it is read whole.
+        for wert in (None, "2026-07-16 09:10:00Z", "soon", 5, "2026-07-16T09:10:00.0000001Z"):
+            for kopie in (dict(self.a, validUntil=wert), dict(self.a, session="sess-other", validUntil=wert)):
+                with self.subTest(kopie=kopie):
+                    r = self._v(consumed=_j([]), received=_j([kopie]))
+                    self.assertIs(r["consumption_ok"], False)
+        ohne = {k: v for k, v in self.a.items() if k != "validUntil"}
+        self.assertIs(self._v(consumed=_j([]), received=_j([dict(ohne, session="sess-other")]))["consumption_ok"], False)
+
+    def test_the_identity_reader_runs_no_method_of_the_value(self):
+        from proofbundle._approval_record import approval_identity
+
+        class _Laut(dict):
+            def get(self, *a, **k):
+                raise AssertionError("the reader ran get of the caller's value")
+
+        self.assertIsNone(approval_identity(_Laut(_kennung(self.a))))
+        self.assertEqual(approval_identity(_kennung(self.a)),
+                         (self.a["approvalId"], self.a["actionDigest"]["sha256"], self.a["session"]))
+
 
 class TestConsumptionCli(_Basis):
     def setUp(self):
@@ -170,6 +222,17 @@ class TestConsumptionCli(_Basis):
         kopie = dict(self.a, validUntil="2026-07-16T09:00:30Z")
         rc, _, _ = self._cli("--consumed", self._datei("c.json", _j([])), "--received", self._datei("r.json", _j([kopie])))
         self.assertEqual(rc, 3)
+
+    def test_cli_malformed_identity_exit_3(self):
+        eintrag = dict(_kennung(self.a), actionDigest={"sha256": self.a["actionDigest"]["sha256"].upper()})
+        rc, out, _ = self._cli("--consumed", self._datei("c.json", _j([eintrag])))
+        self.assertEqual(rc, 3)
+        self.assertIn("CONSUMPTION: REFUSE", out)
+
+    def test_cli_received_copy_that_is_no_identity_exit_3(self):
+        rc, out, _ = self._cli("--consumed", self._datei("c.json", _j([])), "--received", self._datei("r.json", _j([{}])))
+        self.assertEqual(rc, 3)
+        self.assertIn("CONSUMPTION: REFUSE", out)
 
     def test_cli_empty_values_exit_2(self):
         for extra in (["--consumed", ""], ["--consumed", self._datei("c.json", _j([])), "--received", ""]):
