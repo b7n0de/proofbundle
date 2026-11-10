@@ -522,7 +522,12 @@ CONFIG_HELD = [("git send-pack --mirror ../origin.git", "force", "tag"),
                ("git push --mirro{r..r..1} origin", "unread", "tag"),
                ("git commit --gpg-sig{n..n..1} -q -m x", "unread", "signatur"),
                # the program itself formed by a brace the gate does not model
-               ("gi{t..t..1} push --tags origin", "unread", "tag")]
+               ("gi{t..t..1} push --tags origin", "unread", "tag"),
+               # local review of 516d4490 (P1, open at main): a word bash forms from file names
+               ("/usr/bin/g[i]t push --mirror origin", "unread", "tag"),
+               ("/usr/bin/g[i]t push --tags origin", "unread", "tag"),
+               ("/usr/bin/g[i]t commit -S -q -m x", "unread", "signatur"),
+               ("touch ./--tags; git push --ta[g]s origin", "unread", "tag")]
 #: The named cost of that rule: a plain refspec set by configuration is held back although git opens no door with it.
 OVERCOUNT = [("git -c remote.origin.push=HEAD:refs/heads/main push origin", "force"),
              ("git -c remote.origin.pushurl=../origin.git push origin claude/x", "force"),
@@ -552,7 +557,9 @@ SPELLING_COUNTERS = ["git commit -s -m x", "git commit -qm x", "git commit -am x
                      # an expansion in a line that runs no door program is no door
                      "printf '%s\\n' \"$PWD\" > /dev/null",
                      # a brace without a comma or a range is a word of its own, also in a line of git
-                     "git log -1 --format='%H {x}'"]
+                     "git log -1 --format='%H {x}'",
+                     # a pattern in quotes and the test command [ are no words formed from file names
+                     "git log -1 --grep='fix*'", "[ -f README ] || git status --short"]
 
 
 def _git_oracle(tmp_path: pathlib.Path, line: str) -> set:

@@ -18193,7 +18193,55 @@ def _release_door_words(command: str) -> str | None:
         door = _release_unresolved_door(assembled)
         if door is not None:
             return door
+    # A WORD BASH FORMS FROM FILE NAMES (local review of 516d4490, open at main as well): `/usr/bin/g[i]t push --mirror
+    # z` runs git and mirrors, `touch ./--tags; git push --ta[g]s z` sends the tags, and the words name neither. A
+    # word with a pattern outside quotes (_release_glob_words) in a line of a door program, or one that may itself
+    # name a door program, is held back as the door unread, after every other reading, so a line keeps the door it
+    # names and D102 keeps its reading of a root or signer pattern.
+    globbed = _release_glob_words(continued)
+    if globbed:
+        names = [os.path.basename(w).lower() for w in _RELEASE_SPLIT.split(continued) if w]
+        sec = _secrets()
+        if any(n in _RELEASE_DOOR_PROGRAMS or (n.startswith("git-") and len(n) > 4) for n in names) or \
+                any(sec.may_match(os.path.basename(w).lower(), p) for w in globbed for p in _RELEASE_DOOR_PROGRAMS):
+            return "unread"
     return None
+
+
+def _release_glob_words(text: str) -> list[str]:
+    """The words of text that hold a pattern of bash's pathname expansion outside quotes and not escaped: a `*`, a `?`
+    that is no parameter (`$?`), or a `[` with a `]` after it in the same word. A word the shell assembles from such a
+    pattern is formed from the names of files, which the gate does not read."""
+    words: list[tuple[str, bool]] = []
+    cur: list[str] = []
+    glob, quote, i = False, "", 0
+
+    def close() -> None:
+        nonlocal cur, glob
+        if cur:
+            words.append(("".join(cur), glob))
+        cur, glob = [], False
+    while i < len(text):
+        c = text[i]
+        if quote != "'" and c == "\\" and i + 1 < len(text):
+            cur.append(text[i + 1])
+            i += 2
+            continue
+        if c in "'\"" and quote in ("", c):
+            quote = "" if quote else c
+            i += 1
+            continue
+        if not quote and (c.isspace() or c in ";&|()<>"):
+            close()
+            i += 1
+            continue
+        if not quote and (c == "*" or (c == "?" and not (cur and cur[-1] == "$")) or
+                          (c == "[" and "]" in text[i + 1:].split()[0] if text[i + 1:].split() else False)):
+            glob = True
+        cur.append(c)
+        i += 1
+    close()
+    return [w for w, g in words if g]
 
 
 #: What opens a context in which bash reads the quotes anew: a command substitution (an arithmetic one too), a
