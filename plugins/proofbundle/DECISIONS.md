@@ -5995,7 +5995,10 @@ now kept as cases). A line with that mark is held back also where the unread wor
 (`gi{t..t..1} push --tags z`). A word bash forms from file names is one too (local review of 516d4490, open at main
 as well: `/usr/bin/g[i]t push --mirror z` mirrors, `touch ./--tags; git push --ta[g]s z` sends the tags): a word with
 a pattern outside quotes in a line of a door program, or one that may itself name a door program, holds the line
-back as unread after every other reading, so D102 keeps its reading of a root or signer pattern. A program the line takes from a file,
+back as unread after every other reading, so D102 keeps its reading of a root or signer pattern. The pattern is
+read in every form the shell gives the line before it expands it (local review of f9c16c41, open at main as well):
+after the brace expansion (`/usr/bin/{g..g}[i]t`) and, where a program reads the text again
+(`bash -c '/usr/bin/g[i]t push --mirror z'`), without the quotes the outer shell removes. A program the line takes from a file,
 by PATH or GIT_EXEC_PATH, is not read here, as no text of a file the line runs is (_release_unresolved_door).
 `git push --signed` and its prefixes are the door of a signature, and so is a signing option given as the value of
 a word (`git -c branch.main.mergeOptions=-S merge topic`, `GIT_CONFIG_VALUE_0=-qS` for that key): the part after the

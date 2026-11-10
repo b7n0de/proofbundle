@@ -18198,9 +18198,17 @@ def _release_door_words(command: str) -> str | None:
     # word with a pattern outside quotes (_release_glob_words) in a line of a door program, or one that may itself
     # name a door program, is held back as the door unread, after every other reading, so a line keeps the door it
     # names and D102 keeps its reading of a root or signer pattern.
-    globbed = _release_glob_words(continued)
+    # The pattern is read in every form the shell gives the line before it expands it (local review of f9c16c41, open
+    # at main as well): after the brace expansion (`/usr/bin/{g..g}[i]t` is `/usr/bin/g[i]t`), and where a program reads
+    # the text again (`bash -c '/usr/bin/g[i]t push --mirror z'`), without the quotes the outer shell removes, as the
+    # gate reads the text of such a program the strict way (_release_assembled).
+    texts = [continued, _release_braced(continued)]
+    if any(os.path.basename(w).lower() in _RELEASE_TEXT_RUNNERS for w in _RELEASE_SPLIT.split(continued) if w):
+        texts += readings + [_release_braced(r) for r in readings]
+    texts = list(dict.fromkeys(texts))
+    globbed = [w for x in texts for w in _release_glob_words(x)]
     if globbed:
-        names = [os.path.basename(w).lower() for w in _RELEASE_SPLIT.split(continued) if w]
+        names = [os.path.basename(w).lower() for x in texts for w in _RELEASE_SPLIT.split(x) if w]
         sec = _secrets()
         if any(n in _RELEASE_DOOR_PROGRAMS or (n.startswith("git-") and len(n) > 4) for n in names) or \
                 any(sec.may_match(os.path.basename(w).lower(), p) for w in globbed for p in _RELEASE_DOOR_PROGRAMS):

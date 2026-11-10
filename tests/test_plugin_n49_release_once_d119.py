@@ -527,7 +527,13 @@ CONFIG_HELD = [("git send-pack --mirror ../origin.git", "force", "tag"),
                ("/usr/bin/g[i]t push --mirror origin", "unread", "tag"),
                ("/usr/bin/g[i]t push --tags origin", "unread", "tag"),
                ("/usr/bin/g[i]t commit -S -q -m x", "unread", "signatur"),
-               ("touch ./--tags; git push --ta[g]s origin", "unread", "tag")]
+               ("touch ./--tags; git push --ta[g]s origin", "unread", "tag"),
+               # local review of f9c16c41 (P1, open at main): a pattern the shell forms after the brace expansion, and
+               # one a program reads again
+               ("/usr/bin/{g..g}[i]t push --mirror origin", "unread", "tag"),
+               ("/usr/bin/{g..g}[i]t push --tags origin", "unread", "tag"),
+               ("/usr/bin/{g..g}[i]t commit -S -q -m x", "unread", "signatur"),
+               ("bash -c '/usr/bin/g[i]t push --mirror origin'", "unread", "tag")]
 #: The named cost of that rule: a plain refspec set by configuration is held back although git opens no door with it.
 OVERCOUNT = [("git -c remote.origin.push=HEAD:refs/heads/main push origin", "force"),
              ("git -c remote.origin.pushurl=../origin.git push origin claude/x", "force"),
@@ -559,7 +565,9 @@ SPELLING_COUNTERS = ["git commit -s -m x", "git commit -qm x", "git commit -am x
                      # a brace without a comma or a range is a word of its own, also in a line of git
                      "git log -1 --format='%H {x}'",
                      # a pattern in quotes and the test command [ are no words formed from file names
-                     "git log -1 --grep='fix*'", "[ -f README ] || git status --short"]
+                     "git log -1 --grep='fix*'", "[ -f README ] || git status --short",
+                     # a program that reads the text again, without a pattern in it
+                     "bash -c 'git status --short'"]
 
 
 def _git_oracle(tmp_path: pathlib.Path, line: str) -> set:
