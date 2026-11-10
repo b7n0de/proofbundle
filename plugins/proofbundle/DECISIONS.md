@@ -5979,9 +5979,11 @@ the gate cannot name; that stays with H2, named here as not covered by these wor
 Counter cases, each without a door before and after: commit -s, -qm, -am and --no-gpg-sign; push -u,
 --set-upstream, --no-signed and --no-force; a push behind `-c 'user.name=John Doe'`. Each line of the rule, but for
 `push --forc`, which git refuses, and a local `git tag`, whose tag no remote receives, also runs through real git in
-the tests, which shows that git signs, sends a tag, mirrors or forces the update. Not covered, and named: a git alias
-that names push, tag or commit under another word (`-c alias.p=push`, or one in the configuration of the repository
-or the person); not measured here.
+the tests, which shows that git signs, sends a tag, mirrors or forces the update. A subcommand under another name is
+held back where the line itself names it: an alias the line sets (`-c alias.p=push`) or the autocorrection it
+switches on (`-c help.autocorrect=immediate puhs --mirro z`, found by the local review of the eighth form, open at
+main as well) makes the line the door of a forced push. Not covered, and named: an alias or an autocorrection from
+the configuration of the repository or the person, which the words of the line do not show.
 Tests: tests/test_plugin_n49_release_once_d119.py (every spelling git takes).
 
 The grammar of these programs is read from their manuals (gpg 2.4 and the others as their authors document them); no

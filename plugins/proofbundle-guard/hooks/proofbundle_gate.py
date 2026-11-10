@@ -18353,6 +18353,13 @@ def _release_door_words_split(command: str) -> str | None:
     if any(_git_long_option(w, "force", "mirror") or (w.startswith("+") and len(w) > 1) or _git_short_bundle(w, "f")
            for w in after_push) or config_door == "force":
         return "force"
+    # A SUBCOMMAND UNDER ANOTHER NAME (local review of fac72793, 2026-11-10, open at main as well): an alias the line sets
+    # (`-c alias.p=push`) or the autocorrection it switches on (`-c help.autocorrect=immediate puhs --mirro z`) runs a
+    # push the words do not name, so its options go unread. Either one in the line's text holds the release back as a
+    # forced push; an alias or autocorrection from the person's own configuration is not visible here and stays named
+    # as not covered.
+    if git_like and re.search(r"(?i)\balias\.|help\.autocorrect", command):
+        return "force"
     if any(name == "git" and words[k] == "tag" for k, name in subs.items()) or "tag" in git_words or \
             "tag" in exec_path.values() or \
             any(_git_long_option(w, "tags", "follow-tags") or "tags/" in w or

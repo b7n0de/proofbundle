@@ -445,6 +445,9 @@ SPELLINGS = [
     (_TOPIC + "git -c branch.main.mergeOptions=--gpg merge --no-ff --no-edit topic", "signatur"),
     (_TOPIC + "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=branch.main.mergeOptions GIT_CONFIG_VALUE_0=-qS "
      "git merge --no-ff --no-edit topic", "signatur"),
+    # local review of fac72793 (P1, open at main): a push under another name, by the line's own autocorrection or alias
+    ("git -c help.autocorrect=immediate puhs --mirro origin", "force"),
+    ("git -c alias.p=push p --mirror origin", "force"),
 ]
 #: Lines main already read as doors, kept as cases: the reading of git's exec path must not take an option for a
 #: program (local review of 566b7d16, P1, a regression of the fourth form of this rule).
