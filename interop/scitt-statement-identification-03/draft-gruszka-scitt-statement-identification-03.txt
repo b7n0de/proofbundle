@@ -1,0 +1,1680 @@
+
+
+
+
+Network Working Group                                         K. Gruszka
+Internet-Draft                                                    b7n0de
+Intended status: Informational                           26 October 2026
+Expires: 29 April 2027
+
+
+  Requirements and Test Cases for Identifying SCITT Signed Statements
+            draft-gruszka-scitt-statement-identification-03
+
+Abstract
+
+   This document describes proposed requirements and test cases for
+   identifying SCITT Signed Statements.  It distinguishes reference
+   matching from statement retrieval, signature verification, issuer
+   authorization, and evidence of registration.  It examines how
+   alternative identification schemes treat changes to statement
+   encodings and registration context.  The requirements are input to
+   technical discussion and do not represent working group consensus.
+   This document does not define a common reference format, allocate a
+   COSE header parameter, or establish a relationship vocabulary.  Its
+   examples illustrate selected properties rather than demonstrate
+   interoperability between deployed transparency services.
+
+Status of This Memo
+
+   This Internet-Draft is submitted in full conformance with the
+   provisions of BCP 78 and BCP 79.
+
+   Internet-Drafts are working documents of the Internet Engineering
+   Task Force (IETF).  Note that other groups may also distribute
+   working documents as Internet-Drafts.  The list of current Internet-
+   Drafts is at https://datatracker.ietf.org/drafts/current/.
+
+   Internet-Drafts are draft documents valid for a maximum of six months
+   and may be updated, replaced, or obsoleted by other documents at any
+   time.  It is inappropriate to use Internet-Drafts as reference
+   material or to cite them other than as "work in progress."
+
+   This Internet-Draft will expire on 29 April 2027.
+
+Copyright Notice
+
+   Copyright (c) 2026 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents (https://trustee.ietf.org/
+   license-info) in effect on the date of publication of this document.
+
+
+
+Gruszka                   Expires 29 April 2027                 [Page 1]
+
+Internet-Draft     Identifying SCITT Signed Statements      October 2026
+
+
+   Please review these documents carefully, as they describe your rights
+   and restrictions with respect to this document.  Code Components
+   extracted from this document must include Revised BSD License text as
+   described in Section 4.e of the Trust Legal Provisions and are
+   provided without warranty as described in the Revised BSD License.
+
+Table of Contents
+
+   1.  Introduction  . . . . . . . . . . . . . . . . . . . . . . . .   3
+   2.  Conventions, Terminology and Scope  . . . . . . . . . . . . .   4
+     2.1.  Relationship to existing SCITT work . . . . . . . . . . .   5
+   3.  Use Cases . . . . . . . . . . . . . . . . . . . . . . . . . .   6
+   4.  Proposed Requirements . . . . . . . . . . . . . . . . . . . .   7
+     4.1.  A1.  A reference has an unambiguous target and matching
+           rule  . . . . . . . . . . . . . . . . . . . . . . . . . .   7
+     4.2.  A2.  A reference can be read without interpreting the
+           carrier's payload . . . . . . . . . . . . . . . . . . . .   7
+     4.3.  A3.  Matching a statement reference is independent of
+           registration  . . . . . . . . . . . . . . . . . . . . . .   8
+     4.4.  A4.  Acceptance test for A3 . . . . . . . . . . . . . . .   8
+     4.5.  A5.  Receipt-verification dependency  . . . . . . . . . .   8
+   5.  Design Alternatives and Trade-offs  . . . . . . . . . . . . .   9
+     5.1.  The ToBeSigned object, as used in the examples  . . . . .  10
+     5.2.  Offline is not the same as registration-independent
+           (A3)  . . . . . . . . . . . . . . . . . . . . . . . . . .  10
+   6.  Conformance and Illustrative Test Cases . . . . . . . . . . .  10
+   7.  Security Considerations . . . . . . . . . . . . . . . . . . .  14
+   8.  Privacy Considerations  . . . . . . . . . . . . . . . . . . .  15
+   9.  IANA Considerations . . . . . . . . . . . . . . . . . . . . .  15
+   10. Open Questions  . . . . . . . . . . . . . . . . . . . . . . .  15
+   11. Implementation Status . . . . . . . . . . . . . . . . . . . .  16
+   12. References  . . . . . . . . . . . . . . . . . . . . . . . . .  18
+     12.1.  Normative References . . . . . . . . . . . . . . . . . .  18
+     12.2.  Informative References . . . . . . . . . . . . . . . . .  19
+   Appendix A.  Illustrative Test Cases: Bytes and Keys  . . . . . .  20
+     A.1.  Base statements and the reference . . . . . . . . . . . .  21
+     A.2.  Test keys . . . . . . . . . . . . . . . . . . . . . . . .  22
+     A.3.  Cases . . . . . . . . . . . . . . . . . . . . . . . . . .  23
+       A.3.1.  C1 (requirement A1) . . . . . . . . . . . . . . . . .  23
+       A.3.2.  C2 (requirement A1) . . . . . . . . . . . . . . . . .  23
+       A.3.3.  C3 (requirement A1) . . . . . . . . . . . . . . . . .  23
+       A.3.4.  C4 (requirement A1) . . . . . . . . . . . . . . . . .  24
+       A.3.5.  C5 (requirement A4) . . . . . . . . . . . . . . . . .  24
+       A.3.6.  C6 (requirement A1) . . . . . . . . . . . . . . . . .  25
+       A.3.7.  C7 (requirement A1) . . . . . . . . . . . . . . . . .  25
+       A.3.8.  C8 (requirement A1) . . . . . . . . . . . . . . . . .  26
+       A.3.9.  C9 (requirement A1/RFC9943-6.1) . . . . . . . . . . .  26
+       A.3.10. C10 (requirement A1)  . . . . . . . . . . . . . . . .  27
+
+
+
+Gruszka                   Expires 29 April 2027                 [Page 2]
+
+Internet-Draft     Identifying SCITT Signed Statements      October 2026
+
+
+       A.3.11. C11 (requirement A1)  . . . . . . . . . . . . . . . .  27
+       A.3.12. C12 (requirement A4)  . . . . . . . . . . . . . . . .  27
+       A.3.13. C13 (requirement A1)  . . . . . . . . . . . . . . . .  28
+       A.3.14. C14 (requirement A1)  . . . . . . . . . . . . . . . .  28
+   Acknowledgments . . . . . . . . . . . . . . . . . . . . . . . . .  29
+   Provenance  . . . . . . . . . . . . . . . . . . . . . . . . . . .  29
+   Changes (to be removed before publication)  . . . . . . . . . . .  29
+     Since draft-gruszka-scitt-statement-identification-02 . . . . .  29
+     Since draft-gruszka-scitt-statement-identification-01 . . . . .  30
+     Since draft-gruszka-scitt-statement-identification-00 . . . . .  30
+   Author's Address  . . . . . . . . . . . . . . . . . . . . . . . .  30
+
+1.  Introduction
+
+   A Transparency Service in the Supply Chain Integrity, Transparency,
+   and Trust (SCITT) architecture [RFC9943] registers Signed Statements
+   and returns Receipts.  Applications increasingly need to refer to a
+   specific Signed Statement: an audit statement that refers to the
+   statement it audited, a correction that refers to the statement it
+   corrects, an evidence bundle that lists the statements it was built
+   from.  For such a reference to be usable, two implementations given
+   the reference and a candidate statement must reach the same
+   conclusion about whether they match.
+
+   This is harder than hashing some bytes.  The same logical Signed
+   Statement can be re-encoded, can gain or lose an unprotected header,
+   and can be registered in more than one Transparency Service, each
+   producing its own entry handle and Receipt.  A reference that is
+   meant to survive those changes must say exactly which differences
+   preserve identity and which do not, and must be interpretable without
+   first understanding the application payload of the statement that
+   carries it.
+
+   The need is not specific to any one product.  On 22 September 2026
+   one of the SCITT working group chairs asked on the scitt@ietf.org
+   list, "On statement IDs please bring all requirements you may have
+   for statement identification", and raised as an open question
+   "whether or not the statement ID should be cryptographically derived
+   from its log insertion or not" [SCITT-CHAIRS-20260922].  The chair
+   added that it has "pros and cons" and "will need real engagement to
+   get right".  This document is input to that discussion.
+
+
+
+
+
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                 [Page 3]
+
+Internet-Draft     Identifying SCITT Signed Statements      October 2026
+
+
+   This document states proposed requirements (Section 4), compares
+   candidate identification objects (Section 5), and works through a
+   small set of fully explained test cases (Section 6).  It takes a
+   position, independence of the reference-matching result from any
+   particular registration, and argues it with use and trade-offs rather
+   than asserting it as settled.  It does not propose a wire format, a
+   COSE header parameter, or a relationship vocabulary for
+   standardization.
+
+2.  Conventions, Terminology and Scope
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+   "OPTIONAL" in this document are to be interpreted as described in BCP
+   14 [RFC2119] [RFC8174] when, and only when, they appear in all
+   capitals, as shown here.
+
+   This document uses the SCITT terms Signed Statement, Transparency
+   Service and Receipt as defined in [RFC9943].  It adds the following
+   working terms and keeps them apart deliberately:
+
+   Statement reference:  Data that designates a target Signed Statement
+      together with the rule by which a candidate is judged to be that
+      target.
+
+   Identification scheme:  The rule a reference is read under: which
+      bytes are covered, which differences preserve identity, and, for a
+      digest-based scheme, the hash algorithm and the exact input bytes.
+
+   Reference matching:  The operation of deciding, given a reference and
+      a candidate statement, whether the candidate is the reference's
+      target under the named scheme.
+
+   Entry handle (Locator):  A Transparency-Service-local identifier of a
+      registration, such as an entry identifier returned by an API
+      [I-D.ietf-scitt-scrapi].  It locates an entry in one service; it
+      is not a portable statement identity.
+
+   Registration evidence:  A Receipt [RFC9942] that a statement was
+      registered.  It is distinct from a reference match.
+
+   Matching a reference is not the same as retrieving a statement,
+   verifying its signature, authorizing its Issuer, or proving it was
+   registered.  Keeping these apart is the central discipline of this
+   document.
+
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                 [Page 4]
+
+Internet-Draft     Identifying SCITT Signed Statements      October 2026
+
+
+2.1.  Relationship to existing SCITT work
+
+   This document is a requirements and test-case text, not a new
+   mechanism.  The following work is adjacent; the References identify
+   the revisions used.
+
+   The architecture [RFC9943] defines the Signed Statement envelope:
+   Section 6.1 requires CBOR tag 18, and Section 6.3 requires the
+   unprotected header to be an empty map before a statement is included
+   in a Statement Sequence.  It defines the statement, not a portable
+   identifier for one statement or the bytes a statement digest covers.
+
+   The Receipts document [RFC9942] defines Verifiable Data Structures
+   and their proofs; its Section 4.4.1 gives the registration
+   requirements for a VDS, and its Section 5.2.1 is the RFC9162_SHA256
+   Receipt of Inclusion.  Identity through a Receipt is scoped to a log
+   and a VDS construction, and Section 4.4.1 leaves each VDS to define
+   its own encoding and proofs.
+
+   The payload-binding draft [I-D.mih-sokolov-scitt-payload-binding]
+   gives, in its Section 9, a general typed-digest-reference information
+   model (type, purpose, digest_alg, digest) in which a carried digest
+   and a recomputed digest are comparable only under one established
+   referenced-artifact digest context, and in Sections 6 and 8 a derived
+   identifier and a statement-to-Receipt binding.  This document asks
+   the narrower question of the concrete context a SCITT Signed
+   Statement reference needs.
+
+   The framing-space measurement [I-D.templeman-scitt-framing-space] re-
+   emits one COSE_Sign1 object under six CBOR encoding freedoms: with or
+   without tag 18, definite or indefinite length for the outer array and
+   for the unprotected header map, and whole or chunked byte strings for
+   the protected header, the payload and the signature.  It reports 64
+   distinct octet sequences, 64 distinct digests over the transmitted
+   octets and one Sig_structure for all of them; a stock decoder
+   rejected none of them, and decoding and re-encoding changed 62 of
+   them.  Its Section 5 regards a digest over the transmitted octets as
+   the appropriate choice and notes that a service can reproduce such a
+   digest only if it keeps the octets it received rather than a re-
+   serialization of them.  The ToBeSigned rule of Section 5.1 gives one
+   value for all 64 encodings, because they share one Sig_structure.
+   The two rules identify different objects: a digest over the
+   transmitted octets names one serialization, and SHA-256 over
+   ToBeSigned names the signing input that the serializations share.
+   This document selects neither (Section 10).
+
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                 [Page 5]
+
+Internet-Draft     Identifying SCITT Signed Statements      October 2026
+
+
+   The protected-object-binding draft
+   [I-D.nobuo-scitt-protected-object-binding] defines Statement
+   References, Receipt References and Relationship Edges with an initial
+   relationship vocabulary (for example describes, measures, authorizes,
+   supersedes and revokes); it couples identification with that
+   vocabulary, whereas this document keeps matching separate from the
+   relationship it carries.
+
+   In SCRAPI [I-D.ietf-scitt-scrapi] Section 2.4, a GET on /entries/
+   followed by an EntryID answers with the Receipt (200), with 204 while
+   registration is still running, or with 404; that EntryID is an API
+   locator for one service, not a portable, registration-independent
+   statement identity.
+
+   The SCITT charter (charter-ietf-scitt-01, last updated 2026-03-18,
+   retrieved 2026-10-10) lists among its non-goals to "define data
+   formats for payload content" and asks the group to "reuse existing
+   work from IETF WGs such as COSE and RATS, as appropriate".  Where a
+   statement-identification requirement or a small profile belongs is
+   itself an open question (Section 10).
+
+3.  Use Cases
+
+   The following cases need different identification properties; they
+   motivate the requirements without selecting a scheme.
+
+   1.  Audit reference.  An auditor registers a statement that refers to
+       the statement it audited.  A reader must match the reference to
+       the audited statement even if the audited statement has since
+       been re-registered elsewhere.
+
+   2.  Correction reference.  An Issuer registers a later statement that
+       corrects an earlier one, keeping the same subject.  The subject
+       groups the two; the reference must still select the specific
+       earlier statement, not merely the subject.
+
+   3.  Offline evidence bundle.  A bundle lists the statements it was
+       built from and is checked by a relying party that holds the bytes
+       but queries no service.  Matching must not require a service
+       round-trip.
+
+   4.  Cross-service presence.  The same statement is registered in two
+       Transparency Services.  A reference that is meant to be portable
+       must designate the same statement across both, distinguishing
+       identity-bearing changes from encoding changes the scheme
+       excludes.
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                 [Page 6]
+
+Internet-Draft     Identifying SCITT Signed Statements      October 2026
+
+
+4.  Proposed Requirements
+
+   These requirements are proposed input, not working group consensus.
+   They are taken from an existing requirements note (see Section 11)
+   and are stated here with their differing roles made explicit: A1 and
+   A2 are properties of a reference, A3 is a design position, A4 is its
+   acceptance test, and A5 is a conditional dependency of schemes that
+   rely on a Receipt, not a fifth independent rule on every reference.
+
+   The BCP 14 keywords in A1 to A5 address a future identification
+   scheme or profile; they are not obligations this document places on
+   an existing protocol.  Where a requirement restates an existing
+   obligation it says so and cites it: the CBOR tag 18 of [RFC9943]
+   Section 6.1, the empty unprotected header of [RFC9943] Section 6.3,
+   and the VDS registration requirements of [RFC9942] Section 4.4.1 are
+   existing obligations this document relies on, not new ones.
+
+4.1.  A1.  A reference has an unambiguous target and matching rule
+
+   Given a reference and a candidate Signed Statement, a verifier can
+   decide whether they match under a named identification scheme.  The
+   scheme states which differences preserve identity, including
+   differences in signatures, headers and encodings.  For a digest-based
+   scheme it also defines the hash algorithm, the input bytes, and their
+   encoding.  These definitions MAY be supplied by a profile rather than
+   repeated in each reference.
+
+   The Issuer and Subject pair groups related statements but does not
+   select an individual statement from that group ([RFC9943] Section 6
+   uses iss and sub to identify the Artifact; the architecture defines
+   no statement identifier).  Acceptance: two implementations using the
+   same scheme agree on matching and non-matching candidate vectors;
+   missing inputs or unsupported rules cannot produce a successful
+   match; a ToBeSigned scheme must specify external_aad and the source
+   of any detached payload.
+
+4.2.  A2.  A reference can be read without interpreting the carrier's
+      payload
+
+   A verifier can locate and interpret a reference without interpreting
+   the application payload of the Signed Statement that carries it.
+   Recomputing a target digest may still require the target's payload
+   bytes; that is a property of the target, not of reading the reference
+   from the carrier.  This is a proposed scope choice: without it,
+   extracting a reference could require payload-specific parsing or
+   decryption of the carrier.
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                 [Page 7]
+
+Internet-Draft     Identifying SCITT Signed Statements      October 2026
+
+
+4.3.  A3.  Matching a statement reference is independent of registration
+
+   Proposed requirement: matching a reference to a candidate does not
+   depend on registration with a particular Transparency Service or on a
+   particular insertion event.  Service-local entry handles and Receipts
+   may coexist with the reference and may differ.
+
+   This is one proposed answer to that open question.  It is a design
+   position, argued from the offline-bundle and cross-service use cases,
+   not a claim that a log-derived identifier cannot work.  A log-
+   dependent identifier does not by itself prevent offline verification
+   when the needed bytes, keys and trust anchors are already held; the
+   property asked for here is independence from the registration
+   context, not offline capability in general (Section 5.2).
+
+4.4.  A4.  Acceptance test for A3
+
+   Under the same identification scheme, registration in either of two
+   Transparency Services preserves the identity A1 defines.  The test
+   must distinguish identity-bearing changes from changes the scheme
+   explicitly excludes.  Section 11 reports one local measurement with
+   two implementations; one of them is an archived emulator whose
+   receipts are not COSE Receipts, so it is not a test of two
+   Transparency Services in the sense of A4.  The illustrative cases of
+   Section 6 apply local transformations that a registration may cause
+   (an added unprotected parameter, C5; a changed outer encoding, C12)
+   and show which leave the chosen identity unchanged.  The tag-removal
+   case (C9) is a negative format control, not evidence of successful
+   registration in two services.
+
+4.5.  A5.  Receipt-verification dependency
+
+   Where identification depends on a leaf hash or a Receipt, the
+   selected Verifiable Data Structure specification MUST define the
+   entry-to-leaf transformation, serialization and tree hashing
+   sufficiently for independent implementations to reproduce the result.
+   This is a dependency of such schemes and of interoperable Receipt
+   verification, not a fifth independent requirement on every reference.
+   [RFC9942] Section 4.4.1 states that "Each VDS specification applying
+   for inclusion in this registry MUST define how to encode the VDS
+   identifier and its Proof Types in CBOR" and that "Each specification
+   MUST define how to produce and consume the supported Proof Types";
+   its Section 5.2.1 is the Receipt of Inclusion of the specific
+   RFC9162_SHA256 construction, which begins "In a signed proof, the
+   payload is the Merkle Tree root that corresponds to the log at size
+   tree-size".  Different VDS constructions differ in their leaf and
+   node hashing (for example the 0x00/0x01 prefixes of [RFC9162]
+   Section 2.1.1); that difference does not make either construction
+
+
+
+Gruszka                   Expires 29 April 2027                 [Page 8]
+
+Internet-Draft     Identifying SCITT Signed Statements      October 2026
+
+
+   ambiguous.  The illustrative cases in Section 6 do not test leaf
+   hashing or Receipts.
+
+5.  Design Alternatives and Trade-offs
+
+   The central design decision is not the hash algorithm but the
+   identification object: which differences count as identity-changing.
+   The following is the authors' analysis of candidate objects; it is
+   not a selection.
+
+    +=================+===================+===========================+
+    | Identification  | Possible benefit  | Price to be settled       |
+    | object          |                   |                           |
+    +=================+===================+===========================+
+    | Whole           | Simple exact byte | Transport or envelope     |
+    | transmitted     | identity          | changes produce different |
+    | object bytes    |                   | values even when other    |
+    |                 |                   | checks still pass         |
+    +-----------------+-------------------+---------------------------+
+    | An explicitly   | Equal treatment   | Extra rules, cost, and    |
+    | defined         | of selected       | the risk of diverging     |
+    | canonical       | encoding variants | normalization             |
+    | object encoding |                   |                           |
+    +-----------------+-------------------+---------------------------+
+    | The COSE        | Binds to the      | Does not itself identify  |
+    | signing input   | actually signed   | the signature value or    |
+    | ToBeSigned      | content and its   | the unprotected envelope; |
+    |                 | signature context | external inputs must be   |
+    |                 |                   | available and fixed       |
+    +-----------------+-------------------+---------------------------+
+    | The payload     | Fits when the     | Issuer, header and        |
+    | only            | content, not the  | signature differences are |
+    |                 | signed assertion, | not necessarily           |
+    |                 | is meant          | distinguished             |
+    +-----------------+-------------------+---------------------------+
+    | A VDS leaf or   | Close tie to a    | Depends on the VDS        |
+    | service entry   | concrete          | construction or the       |
+    |                 | registration      | service context           |
+    +-----------------+-------------------+---------------------------+
+
+                                  Table 1
+
+   For COSE, [RFC9052] Section 4.3 (externally supplied data) and
+   Section 4.4 (the Sig_structure) are the relevant definitions, and
+   Section 9 constrains the CBOR encoding.  A successful signature
+   verification does not by itself fix which universal statement
+   identity an application should use.
+
+
+
+
+Gruszka                   Expires 29 April 2027                 [Page 9]
+
+Internet-Draft     Identifying SCITT Signed Statements      October 2026
+
+
+5.1.  The ToBeSigned object, as used in the examples
+
+   The examples in Section 6 use SHA-256 over ToBeSigned, the
+   Sig_structure ["Signature1", body_protected, external_aad, payload]
+   of [RFC9052] Sections 4.4 and 9, with the payload embedded.  When the
+   payload field of a candidate is nil, the detached payload supplied
+   with the case takes its place, an empty one included, as for detached
+   content in [RFC9052] Sections 4.1 and 4.2; a detached payload
+   supplied for a candidate that carries a payload is not used (C1).
+   The scheme names external_aad as an explicit input: it is the empty
+   byte string unless a specific case states otherwise, and a case that
+   signs over a non-empty external_aad lists those exact bytes
+   (Appendix A) and applies them to both matching and signature
+   verification.  The body_protected value is the original protected-
+   header byte string, not a decoded and re-encoded map.  This object
+   names a class of signed inputs: it excludes the signature value, the
+   unprotected header and the outer wrapper, so changes confined to
+   those parts preserve it, and it does not normalize the bytes inside
+   the protected header or payload.  It is used here as one illustrative
+   rule.  This document does not propose it as the statement identity
+   defined by the architecture; [RFC9943] defines no such identity, and
+   a later profile is free to choose a different object.
+
+5.2.  Offline is not the same as registration-independent (A3)
+
+   A scheme can be checked offline when the needed bytes, keys and trust
+   assumptions are already held; a service-dependent identifier is not
+   online merely because it is service-dependent.  A3 therefore argues
+   for independence from the registration context, not for a blanket
+   impossibility of offline checking of other models.
+
+6.  Conformance and Illustrative Test Cases
+
+   Each check is reported on separate axes: ref_usable indicates whether
+   the reference is well-formed and compatible with the named scheme;
+   match is MATCH or NO_MATCH when the comparison can be completed, and
+   INDETERMINATE when the reference is unusable or a required input is
+   absent; sig_valid indicates whether the candidate's signature
+   verifies under the stated key; and is_scitt indicates whether the
+   candidate is a tagged COSE_Sign1 ([RFC9943] Section 6.1 requires CBOR
+   tag 18).  A match establishes none of signature validity, issuer
+   trust, payload truth, or registration.
+
+   For the cases of this document, a reference is the array [alg,
+   scheme, digest] of Appendix A, with exactly these three elements.  It
+   is well-formed when alg is an integer (CBOR major type 0 or 1) that
+   names a hash function in the COSE Algorithms registry, scheme is a
+   text string, and digest is a byte string of that hash function's
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 10]
+
+Internet-Draft     Identifying SCITT Signed Statements      October 2026
+
+
+   output length.  It is compatible with the named scheme when its alg
+   and scheme equal those of the scheme.  Any other reference has
+   ref_usable False.  In these cases the named scheme is the ToBeSigned
+   scheme of Section 5.1, with alg -16 (SHA-256) and scheme
+   "ToBeSigned", except in C10, where its alg is -44 (SHA-512).  The
+   references of C10, C13 and C14 are therefore not usable.  A reference
+   is read as one CBOR data item with nothing after it; its
+   deterministic encoding is not required.
+
+   A candidate is read as a COSE_Sign1 ([RFC9052] Section 4.2), bare or
+   with tag 18: an array of exactly four elements: the protected header,
+   a byte string that is empty or encodes one map; the unprotected
+   header, a map; the payload, a byte string or nil; and the signature,
+   a byte string.  For these illustrative axes, this read check covers
+   only the outer tag, the array shape, the stated element types and the
+   basic CBOR validity rules below.  It does not validate header labels
+   or header parameter semantics.  The is_scitt axis reports this
+   structural check with tag 18, not complete conformance to the SCITT
+   envelope profile.  The candidate and its protected header are each
+   one CBOR data item that is well-formed and valid under [RFC8949]
+   Section 5.3.1: every text string is valid UTF-8, and no map holds two
+   keys that are equal under the key equivalence of [RFC8949]
+   Section 5.6.1, so that the integer 1 and true are two keys and 0.0
+   and -0.0 are one.  Whether the content of a tag inside the COSE_Sign1
+   is valid for that tag ([RFC8949] Section 5.3.2) is not checked; the
+   data items inside a tag are checked like any other data item.  The
+   deterministic encoding is not required.  A candidate that breaks any
+   of this, for example with a text string that is not valid UTF-8 in
+   either header, is not a statement: its is_scitt is False and its
+   sig_valid is None, not evaluated; its match is NO_MATCH under a
+   usable reference and INDETERMINATE under an unusable one.
+
+   The sig_valid axis is computed with one rule for every case. n*P is
+   the point P multiplied by the integer n.  A is the 32-byte public key
+   of the stated key, derived from its seed in Appendix A.2 as in
+   [RFC8032] Section 5.1.5; R is the first and S the second 32 bytes of
+   the 64-byte signature, S read as a little-endian integer; B' is the
+   base point and L the order of B' ([RFC8032] Section 5.1); and
+   ToBeSigned is the object of Section 5.1 of this document with the
+   case's external_aad and payload. sig_valid is True if and only if all
+   four rules hold:
+
+   1.  A and R are canonical encodings: decoding each as in [RFC8032]
+       Section 5.1.3 succeeds.
+
+   2.  A and R have order L: L*A and L*R are the neutral element, and A
+       and R are not the neutral element.
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 11]
+
+Internet-Draft     Identifying SCITT Signed Statements      October 2026
+
+
+   3.  S is below L.
+
+   4.  With k = SHA-512(R || A || ToBeSigned) read as a little-endian
+       integer and reduced modulo L, the cofactorless equation S*B' = R
+       + k*A holds.  R enters the hash exactly as received, A as its
+       32-byte encoding.
+
+   After the candidate passes the read checks above, a signature that is
+   not 64 bytes gives sig_valid False.  Otherwise, if the payload is
+   absent and not supplied, there is no ToBeSigned and sig_valid is
+   None, not evaluated (C8).  Otherwise, evaluate the four rules above.
+
+   Because A and R have order L, the cofactorless equation of rule 4 and
+   the cofactored equation 8*S*B' = 8*R + 8*k*A of [RFC8032]
+   Section 5.1.7 accept exactly the same signatures.  This document
+   defines individual verification only.  A randomized batch result MUST
+   NOT substitute for checking all four rules for each signature.  Case
+   C11 has an R of mixed order, for which the two equations differ; rule
+   2 refuses it before either is checked.  The rule fixes the sig_valid
+   axis of these cases only; the match axis does not depend on it.
+
+   The cases use three synthetic signed statements about one subject and
+   the reference between them, under the ToBeSigned scheme of
+   Section 5.1.  Each case is checked against the reference given in
+   Appendix A.1, except C13 and C14, which change the reference as
+   Appendix A.3 states.  The bytes, or the changes that give them, the
+   keys and the per-case results are in Appendix A; the keys are pure
+   test keys.  The fixtures use the fully specified Ed25519 algorithm
+   (COSE algorithm -19); the source package uses EdDSA (-8).
+   Identification is independent of the signature algorithm.
+
+   +===+===+==========+===============+========+=========+============+
+   |ID |Req|ref_usable| match         |is_scitt|sig_valid|What it     |
+   |   |   |          |               |        |         |shows       |
+   +===+===+==========+===============+========+=========+============+
+   |C1 |A1 |True      | MATCH         |True    |True     |positive    |
+   |   |   |          |               |        |         |control     |
+   +---+---+----------+---------------+--------+---------+------------+
+   |C2 |A1 |True      | NO_MATCH      |True    |True     |subject     |
+   |   |   |          |               |        |         |grouping is |
+   |   |   |          |               |        |         |not single  |
+   |   |   |          |               |        |         |identity    |
+   +---+---+----------+---------------+--------+---------+------------+
+   |C3 |A1 |True      | NO_MATCH      |True    |True     |changed     |
+   |   |   |          |               |        |         |target      |
+   |   |   |          |               |        |         |payload     |
+   +---+---+----------+---------------+--------+---------+------------+
+   |C4 |A1 |True      | NO_MATCH      |True    |True     |changed     |
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 12]
+
+Internet-Draft     Identifying SCITT Signed Statements      October 2026
+
+
+   |   |   |          |               |        |         |protected   |
+   |   |   |          |               |        |         |header      |
+   +---+---+----------+---------------+--------+---------+------------+
+   |C5 |A4 |True      | MATCH         |True    |True     |added       |
+   |   |   |          |               |        |         |unprotected |
+   |   |   |          |               |        |         |parameter   |
+   |   |   |          |               |        |         |(envelope)  |
+   +---+---+----------+---------------+--------+---------+------------+
+   |C6 |A1 |True      | MATCH         |True    |False    |signature   |
+   |   |   |          |               |        |         |replaced,   |
+   |   |   |          |               |        |         |same signed |
+   |   |   |          |               |        |         |input       |
+   +---+---+----------+---------------+--------+---------+------------+
+   |C7 |A1 |True      | NO_MATCH      |True    |True     |non-empty   |
+   |   |   |          |               |        |         |external_aad|
+   +---+---+----------+---------------+--------+---------+------------+
+   |C8 |A1 |True      | INDETERMINATE |True    |None     |detached    |
+   |   |   |          |               |        |         |payload not |
+   |   |   |          |               |        |         |supplied    |
+   +---+---+----------+---------------+--------+---------+------------+
+   |C9 |A1 |True      | MATCH         |False   |True     |tag 18      |
+   |   |   |          |               |        |         |removed     |
+   +---+---+----------+---------------+--------+---------+------------+
+   |C10|A1 |False     | INDETERMINATE |True    |True     |scheme/     |
+   |   |   |          |               |        |         |algorithm   |
+   |   |   |          |               |        |         |mismatch    |
+   +---+---+----------+---------------+--------+---------+------------+
+   |C11|A1 |True      | MATCH         |True    |False    |R of mixed  |
+   |   |   |          |               |        |         |order       |
+   +---+---+----------+---------------+--------+---------+------------+
+   |C12|A4 |True      | MATCH         |True    |True     |outer       |
+   |   |   |          |               |        |         |encoding    |
+   |   |   |          |               |        |         |changed, tag|
+   |   |   |          |               |        |         |18 kept     |
+   +---+---+----------+---------------+--------+---------+------------+
+   |C13|A1 |False     | INDETERMINATE |True    |True     |31-byte     |
+   |   |   |          |               |        |         |digest: not |
+   |   |   |          |               |        |         |well-formed |
+   +---+---+----------+---------------+--------+---------+------------+
+   |C14|A1 |False     | INDETERMINATE |True    |True     |other scheme|
+   |   |   |          |               |        |         |name: not   |
+   |   |   |          |               |        |         |compatible  |
+   +---+---+----------+---------------+--------+---------+------------+
+
+                                 Table 2
+
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 13]
+
+Internet-Draft     Identifying SCITT Signed Statements      October 2026
+
+
+   The following cases illustrate the scope and limits of the chosen
+   identity rule.  Case C5 adds one unprotected parameter after signing:
+   the ToBeSigned digest and the signature are unchanged while the
+   whole-object digest changes, so a whole-bytes identifier and a
+   ToBeSigned identifier disagree exactly where a registration may
+   rewrite the envelope.  Case C12 keeps tag 18 and every element of
+   statement 01 and writes the head of the four-element array with a
+   one-byte length argument (98 04 in place of 84), which is well-formed
+   but not the preferred encoding: as in C5, the ToBeSigned reference
+   matches and the signature verifies while the whole-object digest
+   changes.  C9 reports MATCH under the illustrative ToBeSigned rule and
+   is_scitt = False because tag 18 is absent; it is a negative format
+   control, not evidence of successful registration in two services.
+   Case C8 withholds a detached payload: a missing input yields
+   INDETERMINATE, never a match.  Case C6 replaces the signature with
+   one from another key over the same signing input: the ToBeSigned
+   reference still matches, but the signature does not verify under the
+   stated key, which is why the two axes are reported separately.
+
+   An empty check set is not a PASS: a case for which no axis could be
+   evaluated is reported as INDETERMINATE, not as a match.
+
+7.  Security Considerations
+
+   This section considers the attacker and the risks this work raises,
+   in the spirit of [RFC3552].  A successful reference match is not a
+   trust decision.  It does not establish that the candidate's signature
+   is valid, that its Issuer is authorized, that its payload is true, or
+   that it was registered.  Relying parties MUST keep these results
+   separate and MUST NOT treat a match as any of them.  Collapsing them
+   into a single boolean is the main foreseeable misuse.
+
+   The identification object determines the attack surface.  A whole-
+   bytes identifier changes under any envelope rewrite, so a party
+   expecting stability may fail to match a legitimately re-registered
+   statement.  A ToBeSigned identifier is stable across such rewrites
+   but, by construction, does not distinguish two objects that share a
+   signing input and differ only in the signature value or unprotected
+   header; a party that needs to pin the exact signature instance needs
+   a whole-object identifier instead.  A scheme MUST state external_aad
+   and the source of any detached payload; a missing input MUST NOT
+   silently become an empty input or a successful match, and a mismatch
+   between a scheme's declared algorithm and a reference's algorithm
+   MUST NOT fall back silently.
+
+   Tag discipline matters: a generic COSE_Sign1 without CBOR tag 18 is
+   not a SCITT Signed Statement ([RFC9943] Section 6.1), and a test that
+   drops the tag MUST NOT be presented as a valid SCITT case.  A stable
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 14]
+
+Internet-Draft     Identifying SCITT Signed Statements      October 2026
+
+
+   reference shows only that a designated statement exists and matches;
+   it does not show that no newer relevant statement has appeared, so a
+   reference match MUST NOT be read as current validity or as
+   completeness of a history.
+
+   A verifier that recomputes a target digest reads externally supplied
+   bytes; large, deeply nested, or cyclically referenced inputs can
+   exhaust resources.  An implementation should bound the input size and
+   nesting it will process rather than hashing unbounded input, and
+   should treat a set of references as a list to check, not a graph to
+   traverse.
+
+   Digest-based identification depends on the collision and second-
+   preimage resistance of the selected hash algorithm.
+
+8.  Privacy Considerations
+
+   A stable, portable reference is a correlator.  The same identifier
+   appearing in two contexts links them.  Schemes and deployments SHOULD
+   consider whether a reference needs to be stable across services at
+   all, and whether salted or context-scoped references are more
+   appropriate where linkage is a concern.  The subject identifier in a
+   statement groups statements about one Artifact and is itself a
+   correlator independent of the reference scheme.
+
+   A digest is not by itself a confidentiality mechanism.  When the
+   covered content is drawn from a small or well-known set of
+   possibilities, a party that holds the reference can confirm a guess
+   by hashing each candidate and comparing, even if the target statement
+   is never disclosed.  A scheme that intends a reference to hide its
+   target needs enough entropy in the covered content (for example a
+   salt) that this guessing attack is infeasible.
+
+9.  IANA Considerations
+
+   This document has no IANA actions.  It allocates no COSE header
+   parameter and defines no registry.  The COSE header label -70001 used
+   by the examples in Appendix A is in the Private Use range of the COSE
+   Header Parameters registry (integer values less than -65536); it is a
+   local convention of the example package, not a requested or assigned
+   value.
+
+10.  Open Questions
+
+   Concrete feedback is sought on the following.
+
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 15]
+
+Internet-Draft     Identifying SCITT Signed Statements      October 2026
+
+
+   1.  The identification object.  Should a SCITT statement reference
+       bind to ToBeSigned, to a canonical object encoding, to the whole
+       object bytes, or to a VDS leaf; and should the choice be fixed by
+       the architecture or left to profiles?
+
+   2.  Registration derivation.  That open question stands: should a
+       statement identifier be cryptographically derived from its log
+       insertion, and what are the trade-offs against a registration-
+       independent identifier (A3)?
+
+   3.  Venue.  Whether statement-identification requirements, or a small
+       profile, belong in the SCITT architecture, in a Receipts or
+       payload-binding document, or in a separate document; the
+       charter's payload-format non-goal (Section 2.1) bears on this.
+
+   4.  Relationship vocabulary.  This document deliberately excludes
+       one; whether the identification work needs any relationship terms
+       at all is open.
+
+11.  Implementation Status
+
+   This section is given per [RFC7942] and is to be removed by the RFC
+   Editor before publication.
+
+   An open-source project, proofbundle, carries the requirements note
+   this document is drawn from and a small synthetic example package, at
+   commit eb1b7eeb28a4f77a4fe9fb1eadc21be0fb03746d (files
+   docs/scitt/statement_identification/requirements.md and the package
+   under docs/scitt/statement_identification/package/).  That package
+   signs three synthetic statements and checks the ToBeSigned references
+   between them offline with a CBOR library and a general cryptography
+   library.  The illustrative examples here sign with the fully-
+   specified Ed25519 algorithm -19 of [RFC9864]; the package at that
+   commit uses EdDSA -8, which [RFC9864] lists as deprecated, and the
+   ToBeSigned identification does not depend on the signature algorithm.
+   The three example signatures were decoded and verified independently
+   in this work by decoding the COSE_Sign1 with a CBOR library and
+   verifying the Ed25519 signature over the Sig_structure with a general
+   cryptography library. pycose 1.1.0, the COSE library present in the
+   run environment, cannot decode algorithm -19; no other independent
+   COSE library was available, so whether a second COSE library decodes
+   and verifies -19 was not tested.  The examples were generated and
+   checked with cbor2 5.4.6 and cryptography 41.0.7.  The illustrative
+   cases of Section 6 and Appendix A were generated and checked in this
+   work; the fixtures are synthetic and the keys are test keys.
+
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 16]
+
+Internet-Draft     Identifying SCITT Signed Statements      October 2026
+
+
+   On 2026-10-12, the checker of that package as merged into the main
+   branch of proofbundle, at commit
+   3611eb73fca16cf68ef47af00fd5193f733bc552, was applied to cases C1 to
+   C12 of Section 6 with the bytes of Appendix A: its own reading,
+   ToBeSigned, signature and digest functions gave all four axes of the
+   table for nine cases directly and for C10 with the scheme and the
+   reference algorithm exchanged, because the package takes no scheme as
+   input; it has no external_aad input and gives for C7 the result under
+   the fixed empty external_aad rule that the case also records, and it
+   refuses C8, whose payload is nil, as malformed.  A further checker,
+   written from the published text of this document alone, reproduced
+   the four axes of 11 of the 12 cases directly and those of C10 in that
+   mirrored form, as it also takes no scheme as input, and showed no
+   deviation over 30237 generated inputs (measured on 2026-10-12).
+
+   One own measurement motivates the choice of hash input under A1 and
+   is reported here as a measured fact, not an endorsement.  Against a
+   locally run transparency ledger (microsoft/scitt-ccf-ledger at commit
+   00101f76, CCF 7.0.17), of 62 registered rows, 39 had a SHA-256 of the
+   submitted bytes that differed from the data-hash in the returned
+   Receipt, because the service sets the unprotected header to an empty
+   map and rewrites the outer encoding before inclusion.  This
+   measurement shows why a reference scheme must specify whether it
+   covers submitted bytes or the representation included in the
+   Statement Sequence; it does not by itself show that the identifier
+   depends on the service or insertion event.  The corpus matrix is in
+   the proofbundle repository at
+   tools/scitt_ccf_external/differential_corpus_round3/README.md (freeze
+   commit c5ff0a72e28aa087eecd3e2b426577be3cf2a80f) and the replay at
+   tools/scitt_ccf_external/replay_earlier_build/results_table.md
+   (commit 3ca368164b68a09a863f7ec12b2f9fa1b21123ec).  Only the
+   repository evidence is cited here.
+
+   A local check on 2026-10-12 used seven inclusion receipts and their
+   Transparent Statements from three instances of the same ledger.  Each
+   receipt signature verified over the recomputed root with its
+   corresponding service key and failed with the other two keys.  In
+   these inputs, data-hash was SHA-256 over the tagged COSE_Sign1 bytes
+   with the unprotected header replaced by an empty map and the
+   remaining bytes unchanged.  It differed from the digest of the
+   Transparent Statement and from that of the corresponding encoding
+   without tag 18.  Pull request 31 for the CCF Receipt profile, at
+   revision d04ddffe [CCF-DATA-HASH], proposes this hash input and a
+   comparison against the data-hash in each inclusion proof.  That
+   proposal is work in progress.  These observations illustrate A1; they
+   do not establish registration-independent identification or satisfy
+   the two-service acceptance test of A4.
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 17]
+
+Internet-Draft     Identifying SCITT Signed Statements      October 2026
+
+
+   A second local measurement, on 2026-10-11, follows use case 4 with
+   two implementations and no hosted service: the ledger above, and
+   scitt-community/scitt-api-emulator at commit
+   6e6776070a1adf7298c9427871f15a8f087be73d, an archived emulator run in
+   its CCF tree mode.  Its dependency rkvst-archivist is no longer
+   published; only its unused RKVST mode needs it, and the measurement
+   replaced that import by a stub.  The test statements were S, a COSE
+   Hash Envelope with an X.509 chain and alg -7; S2, the ToBeSigned of S
+   signed again; and S3, S with another sub.  The ledger registered all
+   three, and S a second time under another entry identifier.  Each
+   returned Transparent Statement kept the protected header, payload and
+   signature of what was submitted, while its bytes differed.  The
+   ToBeSigned reference of Section 6 matched S, S2 and the second
+   registration of S, and did not match S3.  The emulator refused S, S2
+   and S3, because it requires a content type parameter (label 3) and a
+   CWT Claims parameter under label 14.  With both added, and the
+   statements signed again, it registered them and returned the
+   submitted bytes unchanged; the ToBeSigned matches were the same, and
+   its receipts are not COSE Receipts.  For one statement registered at
+   both implementations, the ToBeSigned reference was equal and the
+   entry identifiers differed.
+
+   This information is given per [RFC7942] and does not constitute
+   endorsement.
+
+12.  References
+
+12.1.  Normative References
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119, March 1997,
+              <https://www.rfc-editor.org/info/rfc2119>.
+
+   [RFC8032]  Josefsson, S. and I. Liusvaara, "Edwards-Curve Digital
+              Signature Algorithm (EdDSA)", RFC 8032, January 2017,
+              <https://www.rfc-editor.org/info/rfc8032>.
+
+   [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC
+              2119 Key Words", BCP 14, RFC 8174, May 2017,
+              <https://www.rfc-editor.org/info/rfc8174>.
+
+   [RFC8949]  Bormann, C. and P. Hoffman, "Concise Binary Object
+              Representation (CBOR)", STD 94, RFC 8949, December 2020,
+              <https://www.rfc-editor.org/info/rfc8949>.
+
+   [RFC9052]  Schaad, J., "CBOR Object Signing and Encryption (COSE):
+              Structures and Process", STD 96, RFC 9052, August 2022,
+              <https://www.rfc-editor.org/info/rfc9052>.
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 18]
+
+Internet-Draft     Identifying SCITT Signed Statements      October 2026
+
+
+   [RFC9864]  Jones, M. B. and O. Steele, "Fully-Specified Algorithms
+              for JSON Object Signing and Encryption (JOSE) and CBOR
+              Object Signing and Encryption (COSE)", RFC 9864, October
+              2025, <https://www.rfc-editor.org/info/rfc9864>.
+
+   [RFC9943]  Birkholz, H., Delignat-Lavaud, A., Fournet, C., Deshpande,
+              Y., and S. Lasker, "An Architecture for Trustworthy and
+              Transparent Digital Supply Chains", RFC 9943, June 2026,
+              <https://www.rfc-editor.org/info/rfc9943>.
+
+12.2.  Informative References
+
+   [CCF-DATA-HASH]
+              "Define data-hash preimage and require inclusion proof
+              validation", pull request 31 in ietf-wg-scitt/draft-ietf-
+              scitt-receipts-ccf-profile, revision d04ddffe, Work in
+              Progress, accessed 12 October 2026, <https://github.com/
+              ietf-wg-scitt/draft-ietf-scitt-receipts-ccf-profile/
+              pull/31>, <https://github.com/ietf-wg-scitt/draft-ietf-
+              scitt-receipts-ccf-profile/commit/d04ddffe>.
+
+   [I-D.ietf-scitt-scrapi]
+              Birkholz, H., Geater, J., and A. Delignat-Lavaud, "Supply
+              Chain Integrity, Transparency, and Trust (SCITT) Reference
+              APIs", Work in Progress, Internet-Draft, draft-ietf-scitt-
+              scrapi-11, 26 June 2026,
+              <https://datatracker.ietf.org/doc/draft-ietf-scitt-
+              scrapi/11/>.
+
+   [I-D.mih-sokolov-scitt-payload-binding]
+              Mih, S. and A. Sokolov, "Canonicalization Declaration for
+              SCITT Signed Statements", Work in Progress, Internet-
+              Draft, draft-mih-sokolov-scitt-payload-binding-06, 26
+              October 2026, <https://datatracker.ietf.org/doc/draft-mih-
+              sokolov-scitt-payload-binding/06/>.
+
+   [I-D.nobuo-scitt-protected-object-binding]
+              Aoki, N., "SCITT Statement Relationship and Protected
+              Object Binding", Work in Progress, Internet-Draft, draft-
+              nobuo-scitt-protected-object-binding-00, 6 July 2026,
+              <https://datatracker.ietf.org/doc/draft-nobuo-scitt-
+              protected-object-binding/00/>.
+
+
+
+
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 19]
+
+Internet-Draft     Identifying SCITT Signed Statements      October 2026
+
+
+   [I-D.templeman-scitt-framing-space]
+              Templeman, N., "Measuring the CBOR Framing Space of
+              COSE_Sign1 Data-Hash Pre-images", Work in Progress,
+              Internet-Draft, draft-templeman-scitt-framing-space-01, 27
+              September 2026, <https://datatracker.ietf.org/doc/draft-
+              templeman-scitt-framing-space/01/>.
+
+   [RFC3552]  Rescorla, E. and B. Korver, "Guidelines for Writing RFC
+              Text on Security Considerations", BCP 72, RFC 3552, July
+              2003, <https://www.rfc-editor.org/info/rfc3552>.
+
+   [RFC7942]  Sheffer, Y. and A. Farrel, "Improving Awareness of Running
+              Code: The Implementation Status Section", BCP 205,
+              RFC 7942, July 2016,
+              <https://www.rfc-editor.org/info/rfc7942>.
+
+   [RFC9162]  Laurie, B., Messeri, E., and R. Stradling, "Certificate
+              Transparency Version 2.0", RFC 9162, December 2021,
+              <https://www.rfc-editor.org/info/rfc9162>.
+
+   [RFC9942]  Steele, O., Birkholz, H., Delignat-Lavaud, A., and C.
+              Fournet, "CBOR Object Signing and Encryption (COSE)
+              Receipts", RFC 9942, June 2026,
+              <https://www.rfc-editor.org/info/rfc9942>.
+
+   [SCITT-CHAIRS-20260922]
+              Geater, J., "[SCITT] Re: SCITT WG: IETF 127 Agenda
+              Planning", 22 September 2026,
+              <https://mailarchive.ietf.org/arch/msg/scitt/
+              BPmxsdV7RDQx3qxgdCjOUwuFNZU/>.
+
+Appendix A.  Illustrative Test Cases: Bytes and Keys
+
+   All byte strings are hex.  Each of the three base statements is a
+   tagged COSE_Sign1 (first byte 0xd2, CBOR tag 18) signed with the
+   fully-specified Ed25519 algorithm (COSE algorithm -19, [RFC9864]).
+   The private-use label carries a list of references; in these examples
+   the list holds exactly one, the array [-16, "ToBeSigned", digest],
+   which references statement 01, and the digest is SHA-256 over the
+   ToBeSigned of statement 01.  The test keys are pure test keys given
+   as fixed seeds and MUST NOT be used for any real statement.
+
+
+
+
+
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 20]
+
+Internet-Draft     Identifying SCITT Signed Statements      October 2026
+
+
+A.1.  Base statements and the reference
+
+   All three statements share the subject pkg:generic/example-
+   widget@1.0.0.  COSE header label -70001 (Private Use) carries a list
+   of references; in these examples the list holds exactly one, [-16,
+   "ToBeSigned", digest], which references statement 01, and its digest
+   is SHA-256 over the ToBeSigned of 01.
+
+   *  Reference digest (SHA-256 over ToBeSigned of 01):
+      c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc
+
+   *  01 ToBeSigned SHA-256:
+      c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc
+
+   Statement 01 (iss https://issuer.example; 330 bytes; SHA-256
+   9c7253617b9fe51ba25eb0f957dadea493ca03e98c4a81806237757f13d054c6):
+
+   d284587ba4013203706170706c69636174696f6e2f6a736f6e0458200e6e86cd
+   20c07df4e95cb4a07a286192d29fc74567b41e726f1c7f7bd202eb5b0fa30176
+   68747470733a2f2f6973737565722e6578616d706c65027820706b673a67656e
+   657269632f6578616d706c652d77696467657440312e302e30061a68ce7b20a0
+   58867b226172746966616374223a226578616d706c652d7769646765742d312e
+   302e302e7461722e677a222c226c6963656e7365223a224d4954222c22736861
+   323536223a223630376536633165366333356463633962373730646535646139
+   3262393639373034613336366434363839373261386235356431613063333264
+   623334613732227d58401fb31a6df345f1c1840d878bd4b4acedb6612956916e
+   4b4550c5b6479289ed36f41cb604c8ab743dc2eb9fbda7fecfb896b3d444ba30
+   e591e663093a4eeb8104
+
+   Statement 02 (iss https://auditor.example, refers to 01; 365 bytes;
+   SHA-256
+   c4758ea9ae4d85461a93ee1dbb302fb698c922b1fbcb4139ebc706e3aeccbebd):
+
+   d28458aba50132036a746578742f706c61696e045820a2820b29631a0e52ec5d
+   be41f948a9e5725c6b8d8c0346bd3ef5483cab27de580fa3017768747470733a
+   2f2f61756469746f722e6578616d706c65027820706b673a67656e657269632f
+   6578616d706c652d77696467657440312e302e30061a68ce7b203a0001117081
+   832f6a546f42655369676e65645820c3f5f13764679b9f77918bb52782480bc2
+   22be5ae4bce37f51384a6b1faa9dbca058795468652061727469666163742064
+   696765737420696e20746865207265666572656e6365642073746174656d656e
+   7420776173207265636f6d707574656420616e64206d6174636865732e205468
+   697320617564697420636f7665727320746865207265666572656e6365642062
+   79746573206f6e6c792e0a5840702de547d0247fd14444d31f0130c7d9b16c01
+   68f43988c19320e5a6e37264c617a086d8a117a8c4e44ece4fe17da69ae2527d
+   b8cbb9a709be4a271047016b03
+
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 21]
+
+Internet-Draft     Identifying SCITT Signed Statements      October 2026
+
+
+   Statement 03 (iss https://issuer.example, refers to 01; 450 bytes;
+   SHA-256
+   f5afbb3b0c7d822b00741e5eacd9128b723922bf3cad6ed5a3ab00e884b58e99):
+
+   d28458b0a5013203706170706c69636174696f6e2f6a736f6e0458200e6e86cd
+   20c07df4e95cb4a07a286192d29fc74567b41e726f1c7f7bd202eb5b0fa30176
+   68747470733a2f2f6973737565722e6578616d706c65027820706b673a67656e
+   657269632f6578616d706c652d77696467657440312e302e30061a68ce7b203a
+   0001117081832f6a546f42655369676e65645820c3f5f13764679b9f77918bb5
+   2782480bc222be5ae4bce37f51384a6b1faa9dbca058c97b2261727469666163
+   74223a226578616d706c652d7769646765742d312e302e302e7461722e677a22
+   2c226c6963656e7365223a224170616368652d322e30222c226e6f7465223a22
+   546865206c6963656e736520696e20746865207265666572656e636564207374
+   6174656d656e74207761732077726f6e672e222c22736861323536223a223630
+   3765366331653663333564636339623737306465356461393262393639373034
+   613336366434363839373261386235356431613063333264623334613732227d
+   584032cc26dcf624b14ff15e1f307898d9a287559ca388b78227283e4dee5fea
+   9b04a3fb86cf0b12d553b791a210bff7e7478efe147f99c05f69b0d11e6a0766
+   ae0b
+
+A.2.  Test keys
+
+   PURE TEST KEYS given as fixed seeds.  They MUST NOT be used for any
+   real statement.
+
+   issuer:
+
+   *  Ed25519 seed (hex, 32 bytes):
+      51bdccce75df50a4bcee21a2f730ccdcd4917a0a4d20dd2ab3d2e5ffad3f6fd3
+
+   *  kid (hex, SHA-256 of the SubjectPublicKeyInfo):
+      0e6e86cd20c07df4e95cb4a07a286192d29fc74567b41e726f1c7f7bd202eb5b
+
+   auditor:
+
+   *  Ed25519 seed (hex, 32 bytes):
+      2a8b1161e212cc24681c06e6d7486daa0910253e54903d41ae964aaee2bfc681
+
+   *  kid (hex, SHA-256 of the SubjectPublicKeyInfo):
+      a2820b29631a0e52ec5dbe41f948a9e5725c6b8d8c0346bd3ef5483cab27de58
+
+
+
+
+
+
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 22]
+
+Internet-Draft     Identifying SCITT Signed Statements      October 2026
+
+
+A.3.  Cases
+
+   Each case below gives its candidate as a base statement of
+   Appendix A.1 or as a stated change to one, together with the
+   candidate's length and SHA-256, so that a reader can rebuild the
+   exact bytes the case was run on and confirm them; a change that needs
+   new signature bytes gives them in full.  C13 and C14 keep the
+   candidate of C1 and give their changed reference in full.  In every
+   case the stated key of Section 6 is the issuer key of Appendix A.2,
+   whose kid every candidate carries in its protected header.  The
+   expected axes are in the table of Section 6; the measured axes are
+   given here.
+
+A.3.1.  C1 (requirement A1)
+
+   Unchanged reference and candidate (the reference target 01).
+
+   *  candidate SHA-256 (whole COSE_Sign1):
+      9c7253617b9fe51ba25eb0f957dadea493ca03e98c4a81806237757f13d054c6
+      (330 bytes)
+
+   *  measured: ref_usable = True, match = MATCH, is_scitt = True,
+      sig_valid = True
+
+   The candidate is statement 01 of Appendix A.1.
+
+   Supplied together with a detached payload, for example 32 zero bytes,
+   the candidate gives the same four axes: its payload field is not nil,
+   so the supplied payload is not used (Section 5.1).
+
+A.3.2.  C2 (requirement A1)
+
+   Same issuer and subject, different statement (03): subject grouping
+   does not select 01.
+
+   *  candidate SHA-256 (whole COSE_Sign1):
+      f5afbb3b0c7d822b00741e5eacd9128b723922bf3cad6ed5a3ab00e884b58e99
+      (450 bytes)
+
+   *  measured: ref_usable = True, match = NO_MATCH, is_scitt = True,
+      sig_valid = True
+
+   The candidate is statement 03 of Appendix A.1.
+
+A.3.3.  C3 (requirement A1)
+
+   Changed target payload (re-signed): ToBeSigned differs.
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 23]
+
+Internet-Draft     Identifying SCITT Signed Statements      October 2026
+
+
+   *  candidate SHA-256 (whole COSE_Sign1):
+      63723353fdf05662cfcc618e8b47fd4142dce4a71e84b61a6bdbdde988e837ab
+      (339 bytes)
+
+   *  measured: ref_usable = True, match = NO_MATCH, is_scitt = True,
+      sig_valid = True
+
+   The candidate is statement 01 with the license value "MIT" in its
+   payload replaced by "BSD-3-Clause", the payload otherwise unchanged,
+   signed again under the issuer key.  Signature (hex):
+
+   a7cd3cb04606ed9a99f7105b489cd67f424fcc0993964eefc170600d37214794
+   ded3d2e84d1309727cb4a9d550ea0729af7a283453794ea2ad0d023d1e824307
+
+A.3.4.  C4 (requirement A1)
+
+   Changed protected header (content type), re-signed: ToBeSigned
+   differs.
+
+   *  candidate SHA-256 (whole COSE_Sign1):
+      65eb1e45177add009aef819b438c910aae934c3a05b7966ef73614e11ff07bcc
+      (330 bytes)
+
+   *  measured: ref_usable = True, match = NO_MATCH, is_scitt = True,
+      sig_valid = True
+
+   The candidate is statement 01 with the content type, header parameter
+   3, "application/cbor" in place of "application/json", the protected
+   header in the deterministic encoding, signed again under the issuer
+   key.  Signature (hex):
+
+   6e32c4cb930f0a80529f3c9494ddcf140e0cefa61d5e26a16f8959cbddd6dc3b
+   7555affb55bec79d8cef0a4d710cd16057aa364924e3e7867966bb03e5764c04
+
+A.3.5.  C5 (requirement A4)
+
+   Added one unprotected parameter after signing (tag 18 kept):
+   ToBeSigned and signature unchanged, whole-object digest changes.
+
+   *  candidate SHA-256 (whole COSE_Sign1):
+      fbab2b2b1c572ca374458ba2590fa5ca0da056a6ce47666f7220f1bca4250ab8
+      (355 bytes)
+
+   *  measured: ref_usable = True, match = MATCH, is_scitt = True,
+      sig_valid = True
+
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 24]
+
+Internet-Draft     Identifying SCITT Signed Statements      October 2026
+
+
+   The candidate is statement 01 with the unprotected header {-70002:
+   "added after signing"}, encoded deterministically, in place of the
+   empty map; its protected header, payload and signature are those of
+   01.
+
+A.3.6.  C6 (requirement A1)
+
+   Same ToBeSigned, signature replaced with one from a different key:
+   matches the ToBeSigned reference, but does not verify under the
+   issuer key.
+
+   *  candidate SHA-256 (whole COSE_Sign1):
+      f8bf927260ae6d9c6edadeb79e0295e39dc30341b21b1a61d6cf31b35d778bf8
+      (330 bytes)
+
+   *  measured: ref_usable = True, match = MATCH, is_scitt = True,
+      sig_valid = False
+
+   The candidate is statement 01 with its signature replaced by this
+   signature over the same Sig_structure under the auditor key (hex):
+
+   15d271c055a0f391bcec610607a951fa312ef917892ff6528dc362a074b63a48
+   67d95424ae1904e7b353bf11fb13e05a276032747c52d7db0ddb953f89e3c60e
+
+A.3.7.  C7 (requirement A1)
+
+   Target signed over a non-empty external_aad.  The scheme applies the
+   supplied AAD bytes (given below) to both reference matching and
+   signature verification, so the empty-external_aad reference does not
+   match while the signature verifies.  The same candidate bytes under
+   the fixed empty-external_aad rule are reported separately below.  A
+   missing external context is not assumed empty.
+
+   *  candidate SHA-256 (whole COSE_Sign1):
+      0a5390069e431e6dd83764ee276b28f69d34986a9e64d82f05ef3322bc66d61c
+      (330 bytes)
+
+   *  external_aad (hex, 17 bytes): 6374783a6465706c6f796d656e742d3432
+
+   *  measured: ref_usable = True, match = NO_MATCH, is_scitt = True,
+      sig_valid = True
+
+   *  the same candidate bytes under the fixed empty external_aad rule:
+      match = MATCH, sig_valid = False
+
+   The candidate is statement 01 signed again under the issuer key over
+   the Sig_structure with the external_aad below; only the signature
+   differs from 01.  Signature (hex):
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 25]
+
+Internet-Draft     Identifying SCITT Signed Statements      October 2026
+
+
+   57a8f8450fa4e8449619d980fc34d38ad07f02f2c618029be54102abfe430f90
+   5522a26a4013dae2ed3e093f199e127dc8e1a558a071192eac406a813ab97f04
+
+A.3.8.  C8 (requirement A1)
+
+   Detached payload (payload field is nil) and the detached bytes are
+   not supplied: the match is INDETERMINATE, never a success.
+
+   *  candidate SHA-256 (whole COSE_Sign1):
+      7ceb07265f8b803a1ff96924da0b3a48b8355ec9daed0a9a31cd36cddaf34fdb
+      (195 bytes)
+
+   *  measured: ref_usable = True, match = INDETERMINATE, is_scitt =
+      True, sig_valid = None
+
+   *  note: detached payload not supplied; a missing input is never a
+      match
+
+   The candidate is statement 01 with its payload replaced by nil and
+   its signature replaced by (hex):
+
+   efdb7c7670bd56d96454ded2a7d92934b75edc092e9e9538aa16dd088ab74c1d
+   2831555b36abf6f9c13549d25eb07951880731bf2b52acd42c4e98237bdbdb0e
+
+   These signature bytes were made under the issuer key over
+   ["Signature1", body_protected, external_aad, payload] with an empty
+   external_aad and nil as the payload.  That array is not a
+   Sig_structure of [RFC9052] Section 4.4, where the payload is a byte
+   string; the case does not use the bytes, because with the payload
+   absent and not supplied, sig_valid is not evaluated (Section 6).
+
+   Supplied with the payload of statement 01 as its detached payload,
+   the candidate gives ref_usable = True, match = MATCH, is_scitt = True
+   and sig_valid = False: its ToBeSigned is that of 01, which the
+   signature bytes above were not made over, so rule 4 fails.
+
+A.3.9.  C9 (requirement A1/RFC9943-6.1)
+
+   Tag 18 removed, nothing else changed: the ToBeSigned digest still
+   matches, but the object is not a tagged COSE_Sign1, so it is not a
+   valid SCITT Signed Statement (RFC 9943 Section 6.1 requires tag 18).
+
+   *  candidate SHA-256 (whole COSE_Sign1):
+      c205d745619c3087ad1f83f6c1f7883f4fff616f8f90ecbe64c4aa08854b28e6
+      (329 bytes)
+
+   *  measured: ref_usable = True, match = MATCH, is_scitt = False,
+      sig_valid = True
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 26]
+
+Internet-Draft     Identifying SCITT Signed Statements      October 2026
+
+
+   The candidate is statement 01 without its first byte, d2, the tag 18.
+
+A.3.10.  C10 (requirement A1)
+
+   The scheme names SHA-512 (-44), while the reference carries SHA-256
+   (-16), so ref_usable is False and match is INDETERMINATE; no fallback
+   is performed.
+
+   *  candidate SHA-256 (whole COSE_Sign1):
+      9c7253617b9fe51ba25eb0f957dadea493ca03e98c4a81806237757f13d054c6
+      (330 bytes)
+
+   *  measured: ref_usable = False, match = INDETERMINATE, is_scitt =
+      True, sig_valid = True
+
+   The candidate is statement 01 of Appendix A.1, as in C1.
+
+A.3.11.  C11 (requirement A1)
+
+   Statement 01 with its 64 signature bytes replaced: R is a canonical
+   encoding of a point of mixed order, and S is below L.  Rule 2 refuses
+   R, so sig_valid is False while the ToBeSigned reference matches.
+   With rule 2 left out, the cofactored equation holds and the
+   cofactorless equation does not.
+
+   *  candidate SHA-256 (whole COSE_Sign1):
+      d1e77e708d759c9b393e93708968887df1ef0e56872166877f68d4ff9e43afe1
+      (330 bytes)
+
+   *  measured: ref_usable = True, match = MATCH, is_scitt = True,
+      sig_valid = False
+
+   *  with rule 2 left out: the cofactorless equation gives sig_valid =
+      False, the cofactored equation gives sig_valid = True
+
+   The candidate is statement 01 with its 64 signature bytes replaced by
+   (hex):
+
+   9599999999999999999999999999999999999999999999999999999999999999
+   2d5ac5acb4933c1790098a56557795abf48a9f65f4636552659e0a89d2a3110d
+
+A.3.12.  C12 (requirement A4)
+
+   Statement 01 with the head of its four-element array written with a
+   one- byte length argument (98 04 in place of 84), tag 18 kept and
+   every element unchanged: the outer encoding changes, ToBeSigned and
+   signature do not, and the whole-object digest changes.
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 27]
+
+Internet-Draft     Identifying SCITT Signed Statements      October 2026
+
+
+   *  candidate SHA-256 (whole COSE_Sign1):
+      f868bef38c6bf945c845b1dd327bc82b0cd71493b68fe4c11761fde6f4f6d988
+      (331 bytes)
+
+   *  measured: ref_usable = True, match = MATCH, is_scitt = True,
+      sig_valid = True
+
+   The candidate is statement 01 with the head of its array, the byte 84
+   after the tag, written as the two bytes 98 04.
+
+A.3.13.  C13 (requirement A1)
+
+   The reference is that of Appendix A.1 with the last byte of its
+   digest removed.  Its alg, -16, names SHA-256, whose output is 32
+   bytes, so a digest of 31 bytes makes the reference not well-formed:
+   ref_usable is False and match is INDETERMINATE.  The 31 bytes are not
+   compared with a part of the computed digest.
+
+   *  candidate SHA-256 (whole COSE_Sign1):
+      9c7253617b9fe51ba25eb0f957dadea493ca03e98c4a81806237757f13d054c6
+      (330 bytes)
+
+   *  measured: ref_usable = False, match = INDETERMINATE, is_scitt =
+      True, sig_valid = True
+
+   The candidate is statement 01 of Appendix A.1, as in C1.  The
+   reference, encoded as in statements 02 and 03, is (46 bytes, hex):
+
+   832f6a546f42655369676e6564581fc3f5f13764679b9f77918bb52782480bc2
+   22be5ae4bce37f51384a6b1faa9d
+
+A.3.14.  C14 (requirement A1)
+
+   The reference is that of Appendix A.1 with the scheme "WholeBytes" in
+   place of "ToBeSigned".  It is well-formed, but its scheme is not that
+   of the named scheme, so it is not compatible: ref_usable is False and
+   match is INDETERMINATE.  No fallback to another scheme is performed.
+
+   *  candidate SHA-256 (whole COSE_Sign1):
+      9c7253617b9fe51ba25eb0f957dadea493ca03e98c4a81806237757f13d054c6
+      (330 bytes)
+
+   *  measured: ref_usable = False, match = INDETERMINATE, is_scitt =
+      True, sig_valid = True
+
+   The candidate is statement 01 of Appendix A.1, as in C1.  The
+   reference, encoded as in statements 02 and 03, is (47 bytes, hex):
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 28]
+
+Internet-Draft     Identifying SCITT Signed Statements      October 2026
+
+
+   832f6a57686f6c6542797465735820c3f5f13764679b9f77918bb52782480bc2
+   22be5ae4bce37f51384a6b1faa9dbc
+
+Acknowledgments
+
+   The author used AI tools to help draft this document and to generate
+   and cross-check its examples.  The author reviewed the entire text
+   and is responsible for it.
+
+   Citing adjacent work in the References does not imply that its
+   authors endorse this document.
+
+Provenance
+
+   The requirements in Section 4 are drawn from the requirements note at
+   the commit cited in Section 11.  The illustrative cases in Appendix A
+   were generated for this document; Section 11 separately identifies
+   the sources of the reported measurement.
+
+Changes (to be removed before publication)
+
+Since draft-gruszka-scitt-statement-identification-02
+
+   *  Section 2.1 cites the framing-space measurement
+      [I-D.templeman-scitt-framing-space] and states that a digest over
+      the transmitted octets and the ToBeSigned rule of Section 5.1
+      identify different objects.
+
+   *  Appendix A gives each case as a base statement or as a stated
+      change to one, with the length and SHA-256 of the candidate; apart
+      from the bytes that a stated change names, a case gives bytes in
+      full only for new signature bytes and for inputs that Appendices
+      A.1 and A.2 do not contain, such as the external_aad of C7 and the
+      references of C13 and C14.  C8 says what its signature bytes were
+      made over, and the opening of Appendix A.3 names the stated key of
+      Section 6 for every case.  Section 5.1 states which payload enters
+      ToBeSigned when a detached payload is supplied, and C1 and C8 show
+      it.  Cases C1 to C12, their candidates and their expected results
+      are unchanged.
+
+   *  Section 6 defines, for the cases of this document only, when a
+      reference is well-formed and when it is compatible with the named
+      scheme.  Cases C13, a digest of 31 bytes, and C14, the scheme
+      "WholeBytes", are added, each with ref_usable False and match
+      INDETERMINATE.  Section 11 and the earlier Changes item on its
+      measurement now name cases C1 to C12, the cases that measurement
+      covered.
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 29]
+
+Internet-Draft     Identifying SCITT Signed Statements      October 2026
+
+
+   *  [I-D.mih-sokolov-scitt-payload-binding] is cited as revision -06;
+      Section 2.1 follows its section numbers.
+
+Since draft-gruszka-scitt-statement-identification-01
+
+   *  In requirement A2, "may" is no longer written in capitals;
+      recomputing a target digest is not a permission in the sense of
+      BCP 14.
+
+   *  Requirement A5 says that the illustrative cases in Section 6 do
+      not test leaf hashing or Receipts.
+
+   *  Section 11 adds the measurement of the package on the main branch
+      of its repository against cases C1 to C12 of Section 6, and the
+      result of a further checker written from the text.
+
+   *  Section 11 adds a local check of inclusion receipts from three
+      instances of the ledger and cites pull request 31 of the CCF
+      Receipt profile [CCF-DATA-HASH].
+
+   *  The Open Items section is removed.  The references were checked
+      against the published documents on 2026-10-12; Open Question 2
+      stays in Section 10.
+
+   *  This appendix is added.
+
+Since draft-gruszka-scitt-statement-identification-00
+
+   *  Case C12 (requirement A4) is added: statement 01 with the head of
+      its array written with a one-byte length argument, so that the
+      ToBeSigned reference matches and the signature verifies while the
+      whole-object digest changes.  Its bytes are in Appendix A.
+
+   *  Section 11 adds a second local measurement, on 2026-10-11, with
+      two implementations, the ledger and an archived emulator.
+      Section 4.4 refers to it and to cases C5 and C12, and states that
+      the emulator's receipts are not COSE Receipts, so the measurement
+      is not a test of two Transparency Services.
+
+Author's Address
+
+   Konrad Gruszka
+   b7n0de
+   Germany
+   Email: kontakt@b7n0de.com
+
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 30]
