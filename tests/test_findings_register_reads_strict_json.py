@@ -57,8 +57,18 @@ def _verify(text: str, anchor: str = PUB_B64) -> dict:
         return FR.verify_and_count(Path(td), expected_version="6.3.1", authorised_pubkeys={anchor})
 
 
+#: The member each case writes twice, counted in the text as the precondition.
+MEMBER_TWICE = {"open findings before": "findings", "open findings after": "findings", "status twice": "status",
+                "severity twice": "severity", "signature member twice": "sig_b64"}
+
+
 def _twice(kind: str) -> str:
-    whole = json.dumps(_register())
+    """The register with one member twice, built ONCE. Building it twice read the clock twice: at a second boundary
+    the two `generated_at` differed, the signature of the second build stood nowhere in the first, `replace` changed
+    nothing, and the precondition still held, because it compared with a third build (CI of pull request 504,
+    test 3.11, 2026-11-09T20:00:48Z; one fixed clock passes, a clock one second further on each call fails)."""
+    register = _register()
+    whole = json.dumps(register)
     if kind == "open findings before":
         return '{"findings":' + OPEN_P1 + ',' + whole[1:]
     if kind == "open findings after":
@@ -67,15 +77,14 @@ def _twice(kind: str) -> str:
         return whole.replace('"status": "closed"', '"status": "open", "status": "closed"')
     if kind == "severity twice":
         return whole.replace('"severity": "P1"', '"severity": "P0", "severity": "P1"')
-    signature = _register()["signature"]["sig_b64"]
+    signature = register["signature"]["sig_b64"]
     return whole.replace(f'"sig_b64": "{signature}"', f'"sig_b64": "AAAA", "sig_b64": "{signature}"')
 
 
-@pytest.mark.parametrize("kind", ["open findings before", "open findings after", "status twice", "severity twice",
-                                  "signature member twice"])
+@pytest.mark.parametrize("kind", sorted(MEMBER_TWICE))
 def test_a_register_with_a_member_twice_is_refused(kind):
     text = _twice(kind)
-    assert text != json.dumps(_register()), "precondition: the member stands twice"
+    assert text.count(f'"{MEMBER_TWICE[kind]}"') == 2, "precondition: the member stands twice in the text"
     r = _verify(text)
     assert r["ok"] is False and "duplicate JSON key" in r["reason"], r
 
