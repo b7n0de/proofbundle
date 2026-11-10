@@ -49,6 +49,7 @@ from __future__ import annotations
 from collections import Counter
 
 import hashlib
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -190,14 +191,11 @@ def _installed_record_rows(package_dir: Path):
     # Only the interpreter's own cache, `__pycache__`, stays outside; a real directory is walked, not judged.
     genannt = {zeile.split("\0", 1)[0] for zeile in rows}
     try:
-        for p in package_dir.rglob("*"):
-            teile = p.relative_to(package_dir).parts
-            if _INTERPRETER_CACHE in teile or (p.is_dir() and not p.is_symlink()):
-                continue
-            if f"{IMPLEMENTATION}/{'/'.join(teile)}" not in genannt:
+        for p in _eintraege(package_dir, "package", verzeichnislinks_ablehnen=True):
+            if f"{IMPLEMENTATION}/{'/'.join(p.relative_to(package_dir).parts)}" not in genannt:
                 return None
-    except (OSError, ValueError):
-        return None
+    except (OSError, ValueError, VerifierBlockError):
+        return None   # an unlistable directory or a link to a directory: the source-tree path names the refusal
     return rows or None
 
 
@@ -211,6 +209,34 @@ def _innerhalb(p: Path, wurzel: Path) -> bool:
         return False
 
 
+def _eintraege(wurzel: Path, was: str, *, verzeichnislinks_ablehnen: bool):
+    """Every entry below `wurzel` that is not a directory, by one walk that stops at the first directory it cannot
+    list; the interpreter's cache is not walked, and a link to a directory is not followed.
+
+    A WALK THAT DROPS AN ERROR MEASURES PART OF THE TREE (fifth local review, 6e3d4d72, P1): `Path.rglob` swallows the
+    `PermissionError` of a directory it cannot list, and a package directory that can be searched but not listed (mode
+    0111) still lets the importer take `signature/__init__.py` in place of `signature.py`, while both build
+    measurements stayed the same; the vector set read its cases the same way. The third-party verifier of the release
+    gate refuses that case since its external review (R2-5); this walk is the same rule here. With
+    `verzeichnislinks_ablehnen`, a link to a directory is refused, as the package needs (see `_source_tree_rows`); the
+    corpus keeps its own rules for links."""
+    def _halt(fehler: OSError):
+        raise VerifierBlockError(
+            f"a directory of the {was} cannot be listed ({fehler.filename}: {fehler.strerror}) -- a measurement over "
+            "the rest is no measurement of the tree")
+    for ort, verzeichnisse, dateien in os.walk(wurzel, onerror=_halt, followlinks=False):
+        basis = Path(ort)
+        if verzeichnislinks_ablehnen:
+            for name in verzeichnisse:
+                if (basis / name).is_symlink():
+                    raise VerifierBlockError(
+                        f"{(basis / name).relative_to(wurzel).as_posix()} is a link to a directory -- it decides which "
+                        "code a name imports and is no file of the tree, so a tree carrying it has no identity of its own")
+        verzeichnisse[:] = sorted(v for v in verzeichnisse if v != _INTERPRETER_CACHE and not (basis / v).is_symlink())
+        for name in sorted(dateien):
+            yield basis / name
+
+
 def _source_tree_rows(package_dir: Path) -> list[str]:
     # EVERY FILE OF THE TREE IS A MEMBER, NOT ONLY THE ONES A LIST OF SUFFIXES NAMES (local reviews of
     # 9b0181cf, 643a33b5 and aa578913, each P1). The rows took `.py`, `.json` and `.typed`, and each review
@@ -222,13 +248,7 @@ def _source_tree_rows(package_dir: Path) -> list[str]:
     # hold, and one inside chooses which code a name imports (`signature -> _bad`) while every file stays the
     # same. A package needs no link to a directory.
     rows: list[str] = []
-    for p in sorted(package_dir.rglob("*")):
-        if _INTERPRETER_CACHE in p.relative_to(package_dir).parts:
-            continue
-        if p.is_symlink() and p.is_dir():
-            raise VerifierBlockError(
-                f"{p.relative_to(package_dir).as_posix()} is a link to a directory -- it decides which code a name "
-                "imports and is no file of the tree, so a tree carrying it has no identity of its own")
+    for p in _eintraege(package_dir, "package", verzeichnislinks_ablehnen=True):
         if not p.is_file():
             continue
         if not _innerhalb(p, package_dir):
@@ -306,8 +326,8 @@ def measure_vector_set(conformance_dir: "Path | str") -> dict:
     # like the corpus without it. Helper directories without `case.json` stay outside the set.
     benannt = set(aufgeloest)
     fremd = sorted({p.parent.resolve().relative_to(root.resolve()).as_posix()
-                    for p in root.rglob("case.json")
-                    if "__pycache__" not in p.parts and p.parent.resolve() not in benannt
+                    for p in _eintraege(root, "corpus", verzeichnislinks_ablehnen=False)
+                    if p.name == "case.json" and p.parent.resolve() not in benannt
                     and _innerhalb(p.parent, root)})
     if fremd:
         raise VerifierBlockError("the corpus carries case directories the manifest does not name: "
@@ -319,8 +339,8 @@ def measure_vector_set(conformance_dir: "Path | str") -> dict:
             raise VerifierBlockError(f"conformance manifest names a case directory that is absent or "
                                      f"outside the corpus: {rel}")
         gefunden = False
-        for p in sorted(d.rglob("*")):
-            if not p.is_file() or "__pycache__" in p.parts:
+        for p in _eintraege(d, "corpus", verzeichnislinks_ablehnen=False):
+            if not p.is_file():
                 continue
             if not _innerhalb(p, root):
                 raise VerifierBlockError(

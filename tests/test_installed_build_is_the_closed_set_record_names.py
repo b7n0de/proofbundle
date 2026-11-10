@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import importlib.machinery
 import importlib.metadata as im
+import json
+import os
 import py_compile
+import stat
 import subprocess
 import sys
 
@@ -155,3 +158,56 @@ def test_the_source_tree_is_every_file_but_the_interpreter_cache(tmp_path, monke
         assert gemessen["digest"] != basis["digest"] and gemessen["files"] == basis["files"] + 1, name
         (pkg / name).unlink()
     assert VB.measure_build(pkg)["digest"] == basis["digest"], "each plant taken out, the tree measures as before"
+
+
+def _nur_durchsuchbar(ordner):
+    """Mode 0111: the directory can be searched but not listed. Returns False where this user can list it anyway
+    (root), measured, so a case built on it would not exist here."""
+    ordner.chmod(stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    try:
+        os.listdir(ordner)
+    except PermissionError:
+        return True
+    return False
+
+
+def test_a_package_directory_that_cannot_be_listed_has_no_identity(tmp_path, monkeypatch):
+    """Fifth local review of 6e3d4d72 (P1): `Path.rglob` swallowed the error of a directory it could not list, and
+    `signature/` in mode 0111 still lets the importer take its `__init__.py` in place of `signature.py`; both build
+    measurements stayed the same. The walk now stops there, as the third-party verifier of the release gate does
+    since its review R2-5."""
+    pkg = _install(tmp_path, monkeypatch)
+    ordner = pkg / "signature"
+    ordner.mkdir()
+    (ordner / "__init__.py").write_text("def verify_ed25519(*a):\n    return True\n")
+    try:
+        if not _nur_durchsuchbar(ordner):
+            pytest.skip("this user can list a directory without its read bit (root?): the case does not exist here")
+        assert _importiert(pkg.parent) == "True", "the hidden package is not imported; the case would prove nothing"
+        with pytest.raises(VB.VerifierBlockError, match="cannot be listed"):
+            VB.measure_build(pkg)
+    finally:
+        ordner.chmod(stat.S_IRWXU)
+    assert VB.measure_build(pkg)["source"] == "source-tree", "listable again, the extra package is measured"
+
+
+def test_a_corpus_directory_that_cannot_be_listed_is_no_vector_set(tmp_path):
+    """The same walk read the vector set: a case directory, or a directory with an unnamed `case.json`, that cannot be
+    listed left the digest and the count of the rest. Both refuse now; listable again, the corpus measures."""
+    root = tmp_path / "c"
+    root.mkdir()
+    (root / "manifest.json").write_text(json.dumps({"schema": "proofbundle.conformance.manifest.v1", "cases": ["a"]}))
+    (root / "a").mkdir()
+    (root / "a" / "case.json").write_text(json.dumps({"caseId": "a"}))
+    (root / "a" / "tief").mkdir()
+    (root / "a" / "tief" / "vector.json").write_text("{}")
+    assert VB.measure_vector_set(root)["cases"] == 1, "positive control"
+    for ordner in (root / "a" / "tief", root / "a"):
+        try:
+            if not _nur_durchsuchbar(ordner):
+                pytest.skip("this user can list a directory without its read bit (root?): the case does not exist here")
+            with pytest.raises(VB.VerifierBlockError, match="cannot be listed"):
+                VB.measure_vector_set(root)
+        finally:
+            ordner.chmod(stat.S_IRWXU)
+    assert VB.measure_vector_set(root)["cases"] == 1
