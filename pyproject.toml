@@ -179,7 +179,19 @@ test = ["pytest>=7", "hypothesis>=6", "PyYAML>=6", "jsonschema>=4", "sd-jwt>=0.1
 # package built from the branch, no mocks): the two files run together, 22 passed, nothing skipped,
 # nothing failed, in every one of the six versions. Measured at 4480c5d7 and again at e1b835a0,
 # which reads the early stop as the library writes it and binds a count only when the log set it.
-inspect = ['inspect_ai>=0.3.112,<=0.3.281']
+#
+# 2026-11-09, THE MEASURED BUMP 0.3.281 -> 0.3.288 (B32). The line "0.3.282 and later are UNMEASURED" above was true
+# until this paragraph. 0.3.288 is the newest release on PyPI that day (`pip index versions inspect_ai`, 2026-11-09).
+# Each of 0.3.281 to 0.3.288 in its own FRESH venv on python 3.11.18, 0.3.288 again on 3.12.3 and 3.13.18, with this
+# package as a wheel built from 6b63cda8, no mocks, with the commands of 2026-10-16 above:
+#   * entry-point discovery finds `proofbundle` and it loads, `ProofbundleHooks` is a `Hooks` subclass, the API
+#     still has 17 `on_*` methods, and `on_task_end` is among them
+#   * the two test files, run together: 22 passed, nothing skipped, nothing failed, in every version and
+#     interpreter named here
+# 0.3.282 to 0.3.288 require python >=3.11 like 0.3.281, so a 3.10 install still resolves 0.3.280. The changelogs of
+# 0.3.282 to 0.3.288 were NOT read for this bump: what is admitted is what was run.
+# The ceiling still stays a ceiling: 0.3.289 and later are UNMEASURED and therefore excluded.
+inspect = ['inspect_ai>=0.3.112,<=0.3.288']
 # ruff is bounded, but the bound is no longer what protects this repo — `[tool.ruff.lint] select`
 # is (see that section). The cap `<0.16` that stood here from 2026-07-31 to 2026-08-07 bought time
 # to find out WHY 0.16 turned a green tree red. It is now measured, and it was never our code:
@@ -248,7 +260,7 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.281']
 # optional `slhdsa` import really is unused there. With the project's own dependency present, all
 # eight versions pass. A floor claim is only worth the environment it was measured in.
 dev = ["pytest>=7", "ruff>=0.5,<0.18", "jsonschema>=4", "mypy>=1.8,<3", "build>=1", "hypothesis>=6",
-       "rfc8785>=0.1.4", "sd-jwt>=0.10", "PyYAML>=6", 'inspect_ai>=0.3.112,<=0.3.281',
+       "rfc8785>=0.1.4", "sd-jwt>=0.10", "PyYAML>=6", 'inspect_ai>=0.3.112,<=0.3.288',
        "cbor2==6.1.5"]
 
 [project.urls]
