@@ -101,7 +101,7 @@ Tatsache eine Falschaussage, deshalb stehen sie ausdrücklich **nicht** unter de
 
 - `CHANGELOG.md` — alle `## [X.Y.Z]`-Überschriften und die Prosa darunter
 - `INTEGRATIONS.md:75,91` — „sample-count provenance **since** v3.7.0"
-- `CROSS_IMPLEMENTATION_REPORT.md:86`, `docs/readiness_pack/differential_matrix.md:24`,
+- `CROSS_IMPLEMENTATION_REPORT.md:88`, `docs/readiness_pack/differential_matrix.md:24`,
   `docs/readiness_pack/rust_parity_scope.md:27` — „56/56 **as of** v3.7.0"
 - `docs/release_scope/3.7.1.md` — Planung der **nächsten** Fassung, keine Aussage über die aktuelle
 - `audit_artifacts/370/` — eingefrorene Artefakte einer vergangenen Fassung

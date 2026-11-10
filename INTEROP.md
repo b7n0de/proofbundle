@@ -1,5 +1,7 @@
 # Interoperability — where proofbundle sits, honestly
 
+**How proofbundle relates to OpenSSF Model Signing, CycloneDX, in-toto, Rekor and other neighbours.** This page is for anyone choosing between these tools or combining them. proofbundle complements these tools and formats through mappings and selected integrations, including a DSSE-signed in-toto test-result export. For each neighbour, the page says what it covers and what proofbundle adds.
+
 proofbundle answers exactly one question: **did this model pass a stated eval threshold, verifiably,
 without revealing the model or the data.** This document maps it against adjacent standards and marks
 what is deliberately out of scope. No claim here implies proofbundle implements any of these specs.
