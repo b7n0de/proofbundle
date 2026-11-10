@@ -397,6 +397,8 @@ def test_the_services_record_takes_a_release_once_even_for_two_requests_at_a_tim
 # alone, a short one inside a bundle, and a push's targets also from its configuration; each line below passed a
 # release at 5bdf225d, and each runs here once more through real git, which shows that git does what the door names.
 
+#: A branch topic with a commit of its own, so that a merge into main makes a merge commit the oracle can see signed.
+_TOPIC = "git switch -q -c topic && git commit -q -m t && git switch -q main && "
 SPELLINGS = [
     ("git commit -qS -m x", "signatur"), ("git commit -aS -m x", "signatur"), ("git commit --gpg -m x", "signatur"),
     ("git commit --gpg-s -m x", "signatur"), ("git commit --gpg=k -m x", "signatur"),
@@ -438,6 +440,11 @@ SPELLINGS = [
     # local review of 566b7d16 (P1): a push started from git's exec path with a short tag name
     ("$(git --exec-path)/git-push ../origin.git v1", "tag"),
     ("$(git --exec-path)/git-push ../origin.git v1:another", "tag"),
+    # local review of 38fdfcb3 (P1, open at main): a signing option given as the value of branch.<name>.mergeOptions
+    (_TOPIC + "git -c branch.main.mergeOptions=-S merge --no-ff --no-edit topic", "signatur"),
+    (_TOPIC + "git -c branch.main.mergeOptions=--gpg merge --no-ff --no-edit topic", "signatur"),
+    (_TOPIC + "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=branch.main.mergeOptions GIT_CONFIG_VALUE_0=-qS "
+     "git merge --no-ff --no-edit topic", "signatur"),
 ]
 #: Lines main already read as doors, kept as cases: the reading of git's exec path must not take an option for a
 #: program (local review of 566b7d16, P1, a regression of the fourth form of this rule).
@@ -465,7 +472,8 @@ WORDS_ONLY = [("git push --forc origin claude/x", "force"), ("git -c 'user.name=
 SPELLING_COUNTERS = ["git commit -s -m x", "git commit -qm x", "git commit -am x", "git commit --no-gpg-sign -m x",
                      "git push -u origin claude/x", "git push --set-upstream origin claude/x",
                      "git push --no-signed origin claude/x", "git push --no-force origin claude/x",
-                     "git -c 'user.name=John Doe' push origin claude/x"]
+                     "git -c 'user.name=John Doe' push origin claude/x",
+                     _TOPIC + "git -c branch.main.mergeOptions=--no-ff merge --no-edit topic"]
 
 
 def _git_oracle(tmp_path: pathlib.Path, line: str) -> set:

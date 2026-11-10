@@ -5959,7 +5959,10 @@ them, now kept as cases); a push started from the exec path is at least the door
 read it; push.followTags in the line's text is the door of a tag, and any key of
 remote.<name>.push or remote.<name>.mirror in the line's text is the door of a forced push, whatever its value and
 wherever it is set (-c, git config, GIT_CONFIG_PARAMETERS, GIT_CONFIG_KEY_<n>, --config-env in either form).
-`git push --signed` and its prefixes are the door of a signature. A release frees less, never more.
+`git push --signed` and its prefixes are the door of a signature, and so is a signing option given as the value of
+a word (`git -c branch.main.mergeOptions=-S merge topic`, `GIT_CONFIG_VALUE_0=-qS` for that key): the part after the
+first `=` of a word is read as a word of its own for the signature (local review of the seventh form, open at main
+as well). A release frees less, never more.
 
 Why no value of remote.<name>.push is read: the first two forms of this rule took the value from the line and freed a
 plain refspec, and the local reviews of each found a value git reads otherwise (by an index or another variable, the

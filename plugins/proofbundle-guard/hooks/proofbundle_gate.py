@@ -18346,6 +18346,10 @@ def _release_door_words_split(command: str) -> str | None:
     # run although git mirrors, sends the tags and signs with the owner's key. A long option counts in every prefix
     # (`_git_long_option`), a short one in every bundle (`_git_short_bundle`), and a push's configuration counts too.
     config_door = _git_push_config_door(command) if git_like else None
+    # AN OPTION GIVEN AS A VALUE IS READ AS AN OPTION (local review of 38fdfcb3, 2026-11-10, open at main as well):
+    # `git -c branch.main.mergeOptions=-S merge topic` signs the merge, and so does GIT_CONFIG_VALUE_<n>=-S for that key.
+    # The part after the first `=` of a word is read as a word of its own for the signature.
+    values = [w.split("=", 1)[1] for w in words if "=" in w]
     if any(_git_long_option(w, "force", "mirror") or (w.startswith("+") and len(w) > 1) or _git_short_bundle(w, "f")
            for w in after_push) or config_door == "force":
         return "force"
@@ -18373,7 +18377,7 @@ def _release_door_words_split(command: str) -> str | None:
     if any(n in _RELEASE_SIGNERS for n in names) or ("ssh-keygen" in names and "-Y" in words and "sign" in words) or \
             ("openssl" in names and any(w in ("-sign", "sign") for w in words)) or \
             (git_like and any(_git_short_bundle(w, "S") or _git_long_option(w, "gpg-sign") or
-                                    "gpgsign" in w.lower() for w in words)) or \
+                              "gpgsign" in w.lower() for w in words + values)) or \
             any(_git_long_option(w, "signed") for w in after_push):
         # `-qS` and `-aS` sign as `-S` does, `--gpg` and `--gpg-s` as `--gpg-sign` does, and `git push --signed` (also
         # `--sign`) signs the push certificate with the owner's key.
