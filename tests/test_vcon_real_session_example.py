@@ -261,16 +261,59 @@ class TheRecordedSessionExample(unittest.TestCase):
                 "gh pr comment 1 ", 'gh pr comment 1 "$(git push origin --delete main)" ', 1)
         self._escalated_call_changed(change)
 
+    def test_k4_a_line_continuation_inside_the_comment_fails(self):
+        """Close the quotes before the first newline of the body, put backslash and newline outside them, reopen. shlex
+        reads the same eight words, the shell drops backslash and newline, so the bytes passed to --body are not the
+        bytes of parametersDigest (found by Codex on a191d436)."""
+        def change(call):
+            call["body"]["command"] = call["body"]["command"].replace("\n", "'\\\n'", 1)
+        self._escalated_call_changed(change)
+
     def test_shell_syntax_finds_what_a_shell_would_run_or_expand(self):
         refused = ["a ; b", "a | b", "a && b", "a > f", "a < f", "a\nb", "a `b`", 'a "$x"', 'a "`b`"', "a $(b)",
-                   "a 'b", 'a "b', "a *", "a #c", "a ~", "a {x,y}", "a (b)", "a \\"]
-        plain = ["gh pr comment 1", "a 'b;c|d`$(e)'", 'a "b c;d|e"', "a b\\'c", "a 'it'\\''s'", 'a "b\\$c"']
+                   "a 'b", 'a "b', "a *", "a #c", "a ~", "a {x,y}", "a (b)", "a \\",
+                   # a backslash the shell reads otherwise than shlex
+                   "a 'x'\\\n'y'", "a \\\nb", 'a "b\\$c"', 'a "b\\`c"', 'a "b\\\nc"']
+        plain = ["gh pr comment 1", "a 'b;c|d`$(e)'", 'a "b c;d|e"', "a b\\'c", "a 'it'\\''s'", 'a "b\\"c"',
+                 'a "b\\\\c"', 'a "b\\ac"', "a b\\;c"]
         for c in refused:
             with self.subTest(refused=c):
                 self.assertIsNotNone(self.ck.shell_syntax(c))
         for c in plain:
             with self.subTest(plain=c):
                 self.assertIsNone(self.ck.shell_syntax(c))
+
+    def test_a_command_the_check_lets_pass_has_the_words_bash_reads(self):
+        """The class behind the line-continuation finding: K4 digests the words shlex reads, the shell runs the words
+        it reads. For every command shell_syntax lets pass, both must be the same words. The oracle is bash itself,
+        asked for the arguments it would hand to a function, over every way to join up to three fragments, and over
+        the escalated command of the record."""
+        import itertools
+        import shlex
+        import shutil
+        import subprocess
+        bash = shutil.which("bash")
+        if bash is None:
+            self.skipTest("no bash to ask")
+
+        def words_of_bash(c):
+            r = subprocess.run([bash, "-c", 'f(){ printf "%s\\0" "$@"; }; f ' + c], capture_output=True, check=True)
+            return r.stdout.decode("utf-8").split("\0")[:-1]
+        fragments = ["a", "'b c'", '"d e"', "\\'", '"\\""', '"\\\\"', "x\\ y", "'it'\\''s'", '"\\a"', "\\\n", '"\\$"',
+                     '"\\`"', '"\\\n"', "\\;", "'\n'", '"f\ng"']
+        joined = set()
+        for n in (1, 2, 3):
+            for parts in itertools.product(fragments, repeat=n):
+                joined.add(" ".join(("a",) + parts))
+                joined.add("a " + "".join(parts))
+        escalated = self._event(self.vcon, self._op("ESCALATE"), "tool-invocation")["body"]["command"]
+        joined.add(escalated)
+        passed = sorted(c for c in joined if self.ck.shell_syntax(c) is None)
+        self.assertIn(escalated, passed)
+        self.assertGreater(len(passed), 1000)
+        for c in passed:
+            with self.subTest(command=c):
+                self.assertEqual(shlex.split(c, posix=True), words_of_bash(c))
 
     def test_k4_a_comment_on_another_pull_request_fails(self):
         """The receipt names its target, pull request 1 of the demonstration repository."""

@@ -17,9 +17,9 @@ K3 the verdict is ESCALATE or DENY and the policy-decision fits it (ESCALATE per
    agent.id is the agent party of
    that decision, principal.id the person, and decisionMaker.id the party that contributed the attachment.
 K4 for ESCALATE, the call stands once, at or after its decision, as a Bash call whose command is exactly
-   gh pr comment N --repo OWNER/NAME --body TEXT with no shell syntax beyond words and quotes, so it runs nothing else;
-   the pull request it names is the target of the receipt, and the SHA-256 of TEXT, read with shlex in POSIX mode, is
-   parametersDigest. For DENY, no tool event of the operation stands in the vCon, and no JSON value in it equals the
+   gh pr comment N --repo OWNER/NAME --body TEXT with no shell syntax beyond words and quotes, so it runs nothing else,
+   and no backslash the shell reads otherwise than shlex; the pull request it names is the target of the receipt, and
+   the SHA-256 of TEXT, read with shlex in POSIX mode, is parametersDigest. For DENY, no tool event of the operation stands in the vCon, and no JSON value in it equals the
    denied arguments the transcript holds.
 K5 what the guard told the agent for each operation, next to the verdict it signed. This is reported as an observation,
    not as a pass or a fail: in this session the note to the agent begins with NOT MEASURED where the receipt says
@@ -87,9 +87,12 @@ PLAIN = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_./:
 
 def shell_syntax(command: str):
     """(offset, character) of the first place where a POSIX shell would do more than split words at spaces and remove
-    quotes, or None. Inside single quotes every character is literal; a backslash outside them makes the next character
-    literal; inside double quotes $ and the backquote still expand; outside quotes only PLAIN characters, the space and
-    the quoting itself are plain."""
+    quotes, or would read the words otherwise than shlex in POSIX mode reads them, or None. Inside single quotes every
+    character is literal. Outside quotes a backslash makes the next character literal, except a newline: the shell drops
+    backslash and newline as a line continuation, shlex keeps the newline. Inside double quotes the shell lets a
+    backslash escape $, the backquote and the newline, shlex keeps the backslash before them, so the digest of shlex's
+    word would not be the digest of the bytes the shell passes; such a backslash is refused. $ and the backquote
+    themselves still expand. Outside quotes only PLAIN characters, the space and the quoting itself are plain."""
     quote, i = None, 0
     while i < len(command):
         c = command[i]
@@ -97,7 +100,8 @@ def shell_syntax(command: str):
             if c == "'":
                 quote = None
         elif c == "\\":
-            if i + 1 == len(command):
+            following = command[i + 1] if i + 1 < len(command) else None
+            if following is None or following == "\n" or (quote == '"' and following in "$`"):
                 return i, c
             i += 1
         elif quote == '"':
