@@ -215,7 +215,7 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
                         errors.append(f"keys[{kid!r}].{f} is not an allowed field")
                 # executorIds (6.6.0): the executor identifiers this key attests in an action outcome. The
                 # pack named no identifier per key, so an anchored executor key could sign under any
-                # executor.id it wrote (draft-gruszka-audit-decision-receipts-03 section 3.4 step 5).
+                # executor.id it wrote (draft-gruszka-audit-decision-receipts-05 section 3.4 step 5).
                 if "executorIds" in kv and not _executor_ids_wohlgeformt(kv["executorIds"]):
                     errors.append(f"keys[{kid!r}].executorIds must be a non-empty list of distinct non-empty "
                                   f"executor id strings (at most {DEFAULT_BUDGET.witnesses})")
