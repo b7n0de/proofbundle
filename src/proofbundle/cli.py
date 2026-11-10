@@ -3504,7 +3504,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="proofbundle",
         description="Emit and verify portable cryptographic evidence bundles, offline.",
         formatter_class=_TopHelpFormatter,
-        epilog=_grouped_epilog(),
+        epilog=_grouped_epilog(), allow_abbrev=False,
     )
     parser.add_argument("--version", action=_VersionAction)
     sub = parser.add_subparsers(dest="command", required=True, metavar="<command>")
@@ -3520,7 +3520,7 @@ def build_parser() -> argparse.ArgumentParser:
                "  3  CRYPTO OK but a supplied --policy was NOT satisfied, or a --require-anchor\n"
                "     requirement was NOT met\n"
                "Without --policy the output shows 'POLICY: NOT_EVALUATED' and without --require-anchor\n"
-               "the receipt's anchors are not evaluated at all — verify makes NO trust decision on its own.")
+               "the receipt's anchors are not evaluated at all — verify makes NO trust decision on its own.", allow_abbrev=False)
     verify.add_argument("bundle", help="path to the bundle JSON file")
     verify.add_argument("--json", action="store_true", help="machine readable output")
     verify.add_argument("--matrix", action="store_true",
@@ -3613,21 +3613,21 @@ def build_parser() -> argparse.ArgumentParser:
                              "header is never trusted. Without it a required OTS anchor is unmet (exit 3)")
     verify.set_defaults(func=_cmd_verify)
 
-    emit = sub.add_parser("emit", help="sign and anchor a payload into a bundle")
+    emit = sub.add_parser("emit", help="sign and anchor a payload into a bundle", allow_abbrev=False)
     emit.add_argument("--payload-file", required=True, help="file whose bytes become the payload")
     emit.add_argument("--out", required=True, help="path to write the bundle JSON")
     emit.add_argument("--key", help="use an existing 32 byte raw Ed25519 seed file")
     emit.add_argument("--new-key", help="generate a signing key and save it to this file")
     emit.set_defaults(func=_cmd_emit)
 
-    emit_eval = sub.add_parser("emit-eval", help="emit a signed eval receipt from a claim JSON")
+    emit_eval = sub.add_parser("emit-eval", help="emit a signed eval receipt from a claim JSON", allow_abbrev=False)
     emit_eval.add_argument("--claim", required=True, help="path to the eval-claim JSON")
     emit_eval.add_argument("--out", required=True, help="path to write the receipt bundle JSON")
     emit_eval.add_argument("--key", help="use an existing 32 byte raw Ed25519 seed file")
     emit_eval.add_argument("--new-key", help="generate a signing key and save it to this file")
     emit_eval.set_defaults(func=_cmd_emit_eval)
 
-    show_eval = sub.add_parser("show-eval", help="verify an eval receipt and print the claim")
+    show_eval = sub.add_parser("show-eval", help="verify an eval receipt and print the claim", allow_abbrev=False)
     show_eval.add_argument("receipt", help="path to the eval receipt bundle JSON")
     show_eval.add_argument("--context", dest="context", default=None,
                            help="require the receipt's signed context_binding to equal this (cross-context replay guard)")
@@ -3649,7 +3649,7 @@ def build_parser() -> argparse.ArgumentParser:
     show_eval.set_defaults(func=_cmd_show_eval)
 
     verify_proof = sub.add_parser(
-        "verify-proof", help="verify a C2SP .tlog-proof file offline (v1.3)")
+        "verify-proof", help="verify a C2SP .tlog-proof file offline (v1.3)", allow_abbrev=False)
     verify_proof.add_argument("proof", help="path to the .tlog-proof file")
     verify_proof.add_argument("--payload-file", required=True,
                               help="file with the exact logged leaf bytes (the bundle payload)")
@@ -3667,7 +3667,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     hf_token = sub.add_parser(
         "hf-token",
-        help="pack a receipt into a pb1. token for HF eval_results, or verify one (v1.4)")
+        help="pack a receipt into a pb1. token for HF eval_results, or verify one (v1.4)", allow_abbrev=False)
     hf_token.add_argument("bundle_or_token",
                           help="bundle JSON path (emit) or pb1. token / token file (--verify)")
     hf_token.add_argument("--verify", action="store_true",
@@ -3676,7 +3676,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     challenge = sub.add_parser(
         "audit-challenge",
-        help="derive k audit indices from a samples root (v1.5; supply --nonce for real audits)")
+        help="derive k audit indices from a samples root (v1.5; supply --nonce for real audits)", allow_abbrev=False)
     challenge.add_argument("root", help="the receipt's samples root (base64)")
     challenge.add_argument("n", type=int, help="committed sample count")
     challenge.add_argument("k", type=int, help="number of samples to challenge")
@@ -3690,7 +3690,7 @@ def build_parser() -> argparse.ArgumentParser:
     challenge.set_defaults(func=_cmd_audit_challenge)
 
     verify_opening = sub.add_parser(
-        "verify-opening", help="verify one sample opening against a samples root (v1.5)")
+        "verify-opening", help="verify one sample opening against a samples root (v1.5)", allow_abbrev=False)
     verify_opening.add_argument("opening", help="opening JSON file (index/disclosure/proof_b64)")
     verify_opening.add_argument("--root", required=True, help="the receipt's samples root (base64)")
     verify_opening.add_argument("--n", required=True, type=int, help="committed sample count")
@@ -3699,7 +3699,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     verify_enclave = sub.add_parser(
         "verify-enclave",
-        help="[EXPERIMENTAL v2.0] verify a TEE Attestation Result (EAT) bound to a receipt")
+        help="[EXPERIMENTAL v2.0] verify a TEE Attestation Result (EAT) bound to a receipt", allow_abbrev=False)
     verify_enclave.add_argument("eat", help="path to the EAT (compact JWS) file")
     verify_enclave.add_argument("--receipt", required=True, help="the receipt bundle JSON the EAT must bind")
     verify_enclave.add_argument("--verifier-key", required=True,
@@ -3726,7 +3726,7 @@ def build_parser() -> argparse.ArgumentParser:
                "     policy hash, subject, transcript hash)\n"
                "Trust comes only from the options: the record's own cnf key, policy hash and time are\n"
                "never trusted on their own. A verified record is evidence for a policy, never a decision,\n"
-               "and never safeForAutomation: revocation and platform evidence are not checked.")
+               "and never safeForAutomation: revocation and platform evidence are not checked.", allow_abbrev=False)
     verify_trace.add_argument("record", help="path to the record: a compact JWS or a JSON object with an "
                                              "embedded Ed25519 signature")
     verify_trace.add_argument("--key", action="append", required=True, metavar="JWK_FILE",
@@ -3764,7 +3764,7 @@ def build_parser() -> argparse.ArgumentParser:
                "Trust comes only from the options: nothing is fetched, and nothing the bundle says about\n"
                "itself is trusted. Profiles: github-artifact-attestation, npm-provenance, npm-publish.\n"
                "A verified attestation is evidence for a policy, never safeForAutomation: revocation and\n"
-               "log consistency over time are not checked (docs/SIGSTORE_BUNDLE_VERIFIER.md).")
+               "log consistency over time are not checked (docs/SIGSTORE_BUNDLE_VERIFIER.md).", allow_abbrev=False)
     verify_sigstore.add_argument("bundle", help="path to the Sigstore bundle (JSON)")
     verify_sigstore.add_argument("--trusted-root", dest="trusted_root", required=True, metavar="FILE",
                                  help="the trusted_root.json of the Sigstore instance you trust")
@@ -3794,14 +3794,14 @@ def build_parser() -> argparse.ArgumentParser:
     demo = sub.add_parser(
         "demo",
         help="run the whole trust story in memory (pip-only, offline): honest receipt verifies, "
-             "six tampers fail, a swapped sample is caught")
+             "six tampers fail, a swapped sample is caught", allow_abbrev=False)
     demo.add_argument("--json", action="store_true", help="machine readable output")
     demo.set_defaults(func=_cmd_demo)
 
     intoto = sub.add_parser(
         "intoto",
         help="[PROPOSED] export an eval receipt as a DSSE-signed in-toto eval-result attestation "
-             "(in-toto/attestation#565), or verify one with --verify")
+             "(in-toto/attestation#565), or verify one with --verify", allow_abbrev=False)
     intoto.add_argument("receipt", help="the eval receipt bundle JSON (export) or the attestation JSON (--verify)")
     intoto.add_argument("--out", help="path to write the DSSE attestation JSON (export)")
     intoto.add_argument("--key", help="issuer's 32 byte raw Ed25519 seed file to sign the attestation")
@@ -3829,7 +3829,7 @@ def build_parser() -> argparse.ArgumentParser:
     svr = sub.add_parser(
         "svr",
         help="[PROPOSED] emit an in-toto Summary Verification Result (svr/v0.1) for a PASSING receipt, "
-             "or verify one with --verify")
+             "or verify one with --verify", allow_abbrev=False)
     svr.add_argument("receipt", help="the eval receipt bundle JSON (emit) or the SVR JSON (--verify)")
     svr.add_argument("--out", help="path to write the SVR attestation JSON (emit)")
     svr.add_argument("--key", help="the verifier's 32 byte raw Ed25519 seed file to sign the SVR")
@@ -3841,19 +3841,19 @@ def build_parser() -> argparse.ArgumentParser:
     svr.set_defaults(func=_cmd_svr)
 
     policy_cmd = sub.add_parser(
-        "policy", help="inspect a trust policy: explain its effective pins, lint for vacuousness")
+        "policy", help="inspect a trust policy: explain its effective pins, lint for vacuousness", allow_abbrev=False)
     psub = policy_cmd.add_subparsers(dest="policy_command", required=True)
     _profile_help = ("path to a trust-policy JSON, OR the name of a packaged profile (WP3, "
                      "see docs/POLICY_PROFILES.md) such as strict-eval-v1 — a real file of the "
                      "same name always wins over a packaged profile")
     p_explain = psub.add_parser(
-        "explain", help="list the effective pins a trust policy makes (what POLICY: OK will mean)")
+        "explain", help="list the effective pins a trust policy makes (what POLICY: OK will mean)", allow_abbrev=False)
     p_explain.add_argument("policy", help=_profile_help)
     p_explain.add_argument("--json", action="store_true", help="machine readable output")
     p_explain.set_defaults(func=_cmd_policy_explain)
     p_lint = psub.add_parser(
         "lint", help="fail (exit 1) on a WIRKUNGSLOSE policy that would produce a vacuous "
-                     "POLICY: OK; --strict also fails on attributes-to-nobody")
+                     "POLICY: OK; --strict also fails on attributes-to-nobody", allow_abbrev=False)
     p_lint.add_argument("policy", help=_profile_help)
     p_lint.add_argument("--strict", action="store_true",
                         help="promote warnings (attributes to nobody) to lint failures")
@@ -3861,7 +3861,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_lint.set_defaults(func=_cmd_policy_lint)
     p_list = psub.add_parser(
         "list-profiles", help="list the named trust-policy profiles shipped with this package (WP3); "
-                              "canonical template names first, deprecated aliases marked")
+                              "canonical template names first, deprecated aliases marked", allow_abbrev=False)
     p_list.add_argument("--json", action="store_true", help="machine readable output")
     p_list.set_defaults(func=_cmd_policy_list_profiles)
     p_inst = psub.add_parser(
@@ -3874,7 +3874,7 @@ def build_parser() -> argparse.ArgumentParser:
                "    --output org-strict-eval-v1.json\n"
                "The result pins the issuer key(s), sets requiresIdentityOverlay=false, and is\n"
                "deploymentReady=true only when every required field is filled (an authenticated-root\n"
-               "template also needs --expected-root-file). Exit 0 on success, 2 on any error.")
+               "template also needs --expected-root-file). Exit 0 on success, 2 on any error.", allow_abbrev=False)
     p_inst.add_argument("template", help="a template profile name, e.g. strict-eval-template-v1 "
                                          "(deprecated aliases resolve with a warning)")
     p_inst.add_argument("--issuer-key", action="append", required=True, metavar="FILE",
@@ -3896,7 +3896,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     prereg = sub.add_parser(
         "prereg",
-        help="hash an eval protocol file to commit to it BEFORE the run (--check verifies a receipt)")
+        help="hash an eval protocol file to commit to it BEFORE the run (--check verifies a receipt)", allow_abbrev=False)
     prereg.add_argument("protocol", help="path to the protocol/plan file to hash")
     prereg.add_argument("--check", metavar="RECEIPT",
                         help="verify the protocol matches a receipt's prereg_sha256 instead of hashing")
@@ -3905,7 +3905,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     evalcard = sub.add_parser(
         "evalcard",
-        help="hash an external Eval Card document to reference it from a claim (--check verifies a receipt)")
+        help="hash an external Eval Card document to reference it from a claim (--check verifies a receipt)", allow_abbrev=False)
     evalcard.add_argument("card", help="path to the Eval Card document to hash")
     evalcard.add_argument("--check", metavar="RECEIPT",
                           help="verify the card matches a receipt's evaluation_card_sha256 instead of hashing")
@@ -3913,14 +3913,14 @@ def build_parser() -> argparse.ArgumentParser:
     evalcard.set_defaults(func=_cmd_evalcard)
 
     # decision-receipt/v0.1 predicate (vendored). Nested group: init / emit / verify / inspect.
-    decision = sub.add_parser("decision", help="decision-receipt/v0.1: init/emit/verify/inspect an agent decision")
+    decision = sub.add_parser("decision", help="decision-receipt/v0.1: init/emit/verify/inspect an agent decision", allow_abbrev=False)
     dsub = decision.add_subparsers(dest="decision_command", required=True)
 
-    d_init = dsub.add_parser("init", help="print a template decision predicate (fill in and sign with 'decision emit')")
+    d_init = dsub.add_parser("init", help="print a template decision predicate (fill in and sign with 'decision emit')", allow_abbrev=False)
     d_init.add_argument("--out", default=None, help="write the template to a file instead of stdout")
     d_init.set_defaults(func=_cmd_decision_init)
 
-    d_emit = dsub.add_parser("emit", help="sign a decision predicate into a DSSE receipt")
+    d_emit = dsub.add_parser("emit", help="sign a decision predicate into a DSSE receipt", allow_abbrev=False)
     d_emit.add_argument("predicate", help="path to the decision predicate JSON")
     d_emit.add_argument("--out", required=True, help="output path for the signed decision receipt")
     d_emit.add_argument("--key", help="load an existing Ed25519 signing key from file")
@@ -3941,7 +3941,7 @@ def build_parser() -> argparse.ArgumentParser:
                      "validity.audience does not hold the expected audience, or whose validity.nonce "
                      "differs, fails (exit 2), and so does a receipt without a validity object; a v0.2 "
                      "policy's require_audience/require_nonce require their presence even without "
-                     "--aud/--nonce (see docs/NON_CLAIMS.md)."))
+                     "--aud/--nonce (see docs/NON_CLAIMS.md)."), allow_abbrev=False)
     d_verify.add_argument("envelope", help="path to the DSSE decision receipt")
     d_verify.add_argument("--pub", required=True, help="issuer Ed25519 public key (base64) to verify against")
     d_verify.add_argument("--policy", default=None,
@@ -4001,19 +4001,19 @@ def build_parser() -> argparse.ArgumentParser:
                                "one time; without it the wall clock. An expired/unreadable expiresAt exits 2")
     d_verify.set_defaults(func=_cmd_decision_verify)
 
-    d_inspect = dsub.add_parser("inspect", help="print a decision receipt's predicate (no crypto verification)")
+    d_inspect = dsub.add_parser("inspect", help="print a decision receipt's predicate (no crypto verification)", allow_abbrev=False)
     d_inspect.add_argument("receipt", help="path to a DSSE receipt or a raw in-toto Statement")
     d_inspect.set_defaults(func=_cmd_decision_inspect)
 
     # ── Action Outcome Receipt (3.2.0, action-outcome/v0.1, EXPERIMENTAL) ──
-    outcome = sub.add_parser("outcome", help="action-outcome/v0.1 (EXPERIMENTAL): init/emit/verify/inspect an action outcome")
+    outcome = sub.add_parser("outcome", help="action-outcome/v0.1 (EXPERIMENTAL): init/emit/verify/inspect an action outcome", allow_abbrev=False)
     osub = outcome.add_subparsers(dest="outcome_command", required=True)
 
-    o_init = osub.add_parser("init", help="print a template outcome predicate (fill in and sign with 'outcome emit')")
+    o_init = osub.add_parser("init", help="print a template outcome predicate (fill in and sign with 'outcome emit')", allow_abbrev=False)
     o_init.add_argument("--out", default=None, help="write the template to a file instead of stdout")
     o_init.set_defaults(func=_cmd_outcome_init)
 
-    o_emit = osub.add_parser("emit", help="sign an outcome predicate into a DSSE receipt")
+    o_emit = osub.add_parser("emit", help="sign an outcome predicate into a DSSE receipt", allow_abbrev=False)
     o_emit.add_argument("predicate", help="path to the outcome predicate JSON")
     o_emit.add_argument("--out", required=True, help="output path for the signed outcome receipt")
     o_emit.add_argument("--key", help="load an existing Ed25519 signing key from file")
@@ -4027,7 +4027,7 @@ def build_parser() -> argparse.ArgumentParser:
                      "/ decision-binding or role-separation mismatch. --expected-decision-ref binds the outcome "
                      "to a specific decision content root (replay across decisions fails). --decision-maker-id "
                      "enforces role separation (executor must differ from the decision maker). status=executed "
-                     "without an effect/actual digest is a self-asserted claim, not proof of the effect."))
+                     "without an effect/actual digest is a self-asserted claim, not proof of the effect."), allow_abbrev=False)
     o_verify.add_argument("envelope", help="path to the DSSE outcome receipt")
     o_verify.add_argument("--pub", required=True, help="executor Ed25519 public key (base64) to verify against")
     o_verify.add_argument("--expected-decision-ref", dest="expected_decision_ref", default=None,
@@ -4076,7 +4076,7 @@ def build_parser() -> argparse.ArgumentParser:
                                "step of Section 3.4 compares the outcome itself with T. A malformed value exits 2")
     o_verify.set_defaults(func=_cmd_outcome_verify)
 
-    o_inspect = osub.add_parser("inspect", help="print an outcome receipt's predicate (no crypto verification)")
+    o_inspect = osub.add_parser("inspect", help="print an outcome receipt's predicate (no crypto verification)", allow_abbrev=False)
     o_inspect.add_argument("receipt", help="path to a DSSE receipt or a raw in-toto Statement")
     o_inspect.set_defaults(func=_cmd_outcome_inspect)
 
@@ -4085,14 +4085,14 @@ def build_parser() -> argparse.ArgumentParser:
     relstmt = sub.add_parser(
         "relation-statement",
         help="relation-statement/v0.1 (EXPERIMENTAL): init/emit/verify/inspect a standalone signed "
-             "relation OVER a target receipt (retract/supersede without touching the original)")
+             "relation OVER a target receipt (retract/supersede without touching the original)", allow_abbrev=False)
     rsub = relstmt.add_subparsers(dest="relation_statement_command", required=True)
 
-    rs_init = rsub.add_parser("init", help="print a template relation-statement predicate (fill in and sign with 'emit')")
+    rs_init = rsub.add_parser("init", help="print a template relation-statement predicate (fill in and sign with 'emit')", allow_abbrev=False)
     rs_init.add_argument("--out", default=None, help="write the template to a file instead of stdout")
     rs_init.set_defaults(func=_cmd_relation_statement_init)
 
-    rs_emit = rsub.add_parser("emit", help="sign a relation-statement predicate into a DSSE statement")
+    rs_emit = rsub.add_parser("emit", help="sign a relation-statement predicate into a DSSE statement", allow_abbrev=False)
     rs_emit.add_argument("predicate", help="path to the relation-statement predicate JSON")
     rs_emit.add_argument("--out", required=True, help="output path for the signed relation statement")
     rs_emit.add_argument("--key", help="load an existing Ed25519 signing key from file")
@@ -4107,7 +4107,7 @@ def build_parser() -> argparse.ArgumentParser:
                      "retracts statement never invalidates the target's crypto — it sets a visible "
                      "state; reject_retracted/reject_superseded turn continued automated use of the "
                      "target into an exit-3 block. Whether the issuer MAY declare the relation is a "
-                     "relying-party policy decision (relation_signer pin)."))
+                     "relying-party policy decision (relation_signer pin)."), allow_abbrev=False)
     rs_verify.add_argument("envelope", help="path to the DSSE relation statement")
     rs_verify.add_argument("--pub", required=True, help="issuer Ed25519 public key (base64) to verify against")
     rs_verify.add_argument("--json", action="store_true", help="machine readable output")
@@ -4127,7 +4127,7 @@ def build_parser() -> argparse.ArgumentParser:
                                 "to the predicate — rejects a self-attested/rehung subject override")
     rs_verify.set_defaults(func=_cmd_relation_statement_verify)
 
-    rs_inspect = rsub.add_parser("inspect", help="print a relation statement's predicate (no crypto verification)")
+    rs_inspect = rsub.add_parser("inspect", help="print a relation statement's predicate (no crypto verification)", allow_abbrev=False)
     rs_inspect.add_argument("receipt", help="path to a DSSE statement or a raw in-toto Statement")
     rs_inspect.set_defaults(func=_cmd_relation_statement_inspect)
 
@@ -4136,7 +4136,7 @@ def build_parser() -> argparse.ArgumentParser:
         "anchor",
         help="external time-anchor operations (EXPERIMENTAL): package an UPGRADED OpenTimestamps proof "
              "into a self-contained, calendar-independent evidence pack; verify one OFFLINE; inspect "
-             "the lifecycle and the calendars carrying it")
+             "the lifecycle and the calendars carrying it", allow_abbrev=False)
     ansub = anchor.add_subparsers(dest="anchor_command", required=True)
 
     a_up = ansub.add_parser(
@@ -4148,7 +4148,7 @@ def build_parser() -> argparse.ArgumentParser:
                      "3 proof not upgraded yet (PENDING — upgrading embeds the Bitcoin block-header "
                      "path and needs the OpenTimestamps client after a Bitcoin confirmation, which is "
                      "time-gated; run `ots upgrade` first). The pack verifies OFFLINE against a "
-                     "relying-party Bitcoin header — no calendar needed."))
+                     "relying-party Bitcoin header — no calendar needed."), allow_abbrev=False)
     a_up.add_argument("--proof", required=True, help="path to the detached OpenTimestamps proof (.ots)")
     a_up.add_argument("--target-file", dest="target_file", default=None,
                       help="the exact bytes that were stamped; its SHA-256 is the canonical root the "
@@ -4180,7 +4180,7 @@ def build_parser() -> argparse.ArgumentParser:
                      "pack) · 2 malformed input · 3 pending or upgraded-without-a-relying-party-header "
                      "(honest not-pass). The pack's OWN bundled header is producer-controlled evidence "
                      "and is never trusted (WP-A1); supply your own header from a pruned Bitcoin node "
-                     "or a trusted checkpoint."))
+                     "or a trusted checkpoint."), allow_abbrev=False)
     a_vp.add_argument("pack", help="path to the evidence pack JSON")
     # Nachtrag 32 (the High): bind the timestamp to the target the relying party means. Exactly one of these is
     # REQUIRED; the expected root is computed/decoded INDEPENDENTLY and compared to the pack's canonicalRoot
@@ -4202,7 +4202,7 @@ def build_parser() -> argparse.ArgumentParser:
     a_in = ansub.add_parser(
         "inspect",
         help="print the lifecycle state (pending/upgraded/self-contained) and the calendars/operators "
-             "carrying an OpenTimestamps proof (.ots) or evidence pack — transparency, no crypto trust")
+             "carrying an OpenTimestamps proof (.ots) or evidence pack — transparency, no crypto trust", allow_abbrev=False)
     a_in.add_argument("path", help="path to a detached OTS proof (.ots) or an evidence pack JSON")
     a_in.add_argument("--json", action="store_true", help="machine readable output")
     a_in.set_defaults(func=_cmd_anchor_inspect)
