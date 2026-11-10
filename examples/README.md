@@ -1,5 +1,29 @@
 # Examples
 
+**Small offline programs that make a receipt and check it.**
+
+Each example runs from a checkout without network and shows one way to create or verify evidence, from a test run, an eval log, a transparency log proof or an AI agent session in a vCon. The table below says what each one shows and which optional extra it needs.
+
+## Try it
+
+Without a checkout, the package's own demo shows the whole idea in one command.
+
+```sh
+pip install proofbundle
+proofbundle demo
+```
+
+It verifies an honest receipt, catches six kinds of tampering and a swapped sample, and exits with code 0 only when every check held.
+
+## Good to know
+
+- A passing check confirms only the signature and integrity properties checked for that receipt, not that a reported result is true. A pass alone does not establish that you should trust the signer; that takes a public key you obtained from a source you trust.
+- Some examples need an optional extra, such as `[inspect]` or `[pq]`.
+
+The [technical details](#technical-details) follow below, with every example, what it shows and how to run it.
+
+## Technical details
+
 Each example is offline and self-contained. Run from a checkout with `PYTHONPATH=src python
 examples/<file>` (or `make examples` to run all that need no optional extras). Expected tail is
 `=> OK` / exit 0 unless noted.

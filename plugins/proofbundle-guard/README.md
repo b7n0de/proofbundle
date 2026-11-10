@@ -1,5 +1,19 @@
 # proofbundle-guard
 
+**The pre-push gate and the done check of proofbundle, for the house profile of b7n0de.**
+
+This plugin holds the hooks that check a push, or the end of an agent's turn, against the evidence a repository declares. It is a preview meant for the owner's machines, and no public catalog lists it. To verify receipts, install [proofbundle](../proofbundle/README.md) instead; it registers no hook.
+
+## Good to know
+
+- The gate is an early warning, not a security boundary.
+- A hook that cannot run blocks the call.
+- Status is Preview, house profile only, in Claude Code and in Codex. Codex runs the hooks only after you trust them, and a run with a real model is not yet measured.
+
+The [technical details](#technical-details) follow below, with what the plugin registers and how the owner's machines install it.
+
+## Technical details
+
 The Guard Preview of [proofbundle](../proofbundle/README.md) in the house profile of b7n0de, as a plugin of its own
 (D134 in [the plugin's decisions](../proofbundle/DECISIONS.md)). It is meant for the owner's machines. To verify
 receipts and evidence bundles, install proofbundle; it registers no hook.
