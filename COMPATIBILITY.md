@@ -1,5 +1,7 @@
 # Compatibility and deprecation
 
+**What a version step of proofbundle may change, and what it may not.** This page is for anyone who builds on the Python API, the command line or the receipt format. It names the public interface, what counts as breaking, how long a deprecated element stays and which parts are experimental. The release gate that applies it is in [RELEASE.md](RELEASE.md).
+
 What SemVer means here concretely, what counts as a breaking change, how long a deprecated thing
 stays, and which parts are exempt because they are labelled EXPERIMENTAL.
 

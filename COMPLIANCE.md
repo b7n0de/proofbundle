@@ -1,5 +1,7 @@
 # Compliance profile — using proofbundle receipts as tamper-evident evaluation records
 
+**How proofbundle receipts relate to the EU AI Act, ISO logging work and the NIST AI RMF, and what they do not cover.** This page is for engineering and compliance teams. A receipt is a tamper-evident record of an evaluation result and can support evidence retention, but it does not make a system compliant, and this page is not legal advice. What a receipt does not establish is in [THREAT_MODEL.md](THREAT_MODEL.md).
+
 **Status:** informative mapping, v1.3 (2026-07-02). **This is not legal advice**, and a receipt
 alone does not make a system compliant. This document maps what a proofbundle receipt *technically
 provides* onto the record-keeping language of the EU AI Act, ISO/IEC logging work, and the NIST AI
