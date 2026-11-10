@@ -52,3 +52,47 @@ def test_the_library_is_the_one_reading(tmp_path):
     for name in ("pre_tag_audit_gate.py", "verify_pre_tag_receipt.py"):
         text = (SCRIPTS / name).read_text(encoding="utf-8")
         assert ".receipt_json(" in text, name
+
+
+def _ordner(tmp_path: Path) -> Path:
+    ordner = tmp_path / "audit_artifacts" / "500"
+    ordner.mkdir(parents=True)
+    (ordner / "pre_tag_receipt_5.0.0.json").write_text('{"schema": "x"}')
+    return ordner
+
+
+def test_a_link_in_the_receipt_folder_is_rejected_by_the_gate(tmp_path):
+    """Local review of 9f5d5eec (P2): the gate read a committed link to a regular receipt as that receipt, so it counted
+    one receipt twice, while the third-party verifier reads the link text from the commit and rejected it."""
+    ordner = _ordner(tmp_path)
+    (ordner / "pre_tag_receipt_5.0.0-alias.json").symlink_to("pre_tag_receipt_5.0.0.json")
+    kandidaten = {pfad: (receipt, grund) for pfad, receipt, grund in _gate()._receipt_candidates(tmp_path, "5.0.0")}
+    assert kandidaten["audit_artifacts/500/pre_tag_receipt_5.0.0.json"] == ({"schema": "x"}, None)
+    receipt, grund = kandidaten["audit_artifacts/500/pre_tag_receipt_5.0.0-alias.json"]
+    assert receipt is None and "symbolic link" in grund, grund
+
+
+def test_a_subdirectory_the_gate_cannot_list_is_a_rejected_candidate(tmp_path):
+    """The walk of the gate dropped the error of a subdirectory it could not list (mode 0111), so a candidate in it was
+    neither verified nor rejected; the third-party verifier reads the commit's tree and sees it."""
+    import os
+    import stat
+    ordner = _ordner(tmp_path)
+    versteck = ordner / "unter"
+    versteck.mkdir()
+    (versteck / "kaputt.json").write_text("{ broken")
+    versteck.chmod(stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    try:
+        try:
+            os.listdir(versteck)
+        except PermissionError:
+            pass
+        else:
+            pytest.skip("this user can list a directory without its read bit (root?): the case does not exist here")
+        kandidaten = _gate()._receipt_candidates(tmp_path, "5.0.0")
+        assert any(receipt is None and "cannot be listed" in (grund or "") for _p, receipt, grund in kandidaten), \
+            kandidaten
+    finally:
+        versteck.chmod(stat.S_IRWXU)
+    kandidaten = _gate()._receipt_candidates(tmp_path, "5.0.0")
+    assert [p for p, receipt, _g in kandidaten if receipt is None] == ["audit_artifacts/500/unter/kaputt.json"]

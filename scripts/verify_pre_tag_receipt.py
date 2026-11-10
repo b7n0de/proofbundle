@@ -1339,6 +1339,12 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
                 f"the committed path is {art}, not a receipt file; present-but-unusable is a finding, as in "
                 "the gate" if art else "not readable from the commit: no blob at that path in the commit's tree")})
             continue
+        if eintraege.get(rel, (None, None, None))[2] == "120000":
+            # A LINK IS NO RECEIPT, in both readers (local review of 9f5d5eec, P2): its blob is the link text, while
+            # the gate followed a link on disk to the file it names and counted that receipt twice.
+            rejected.append({"path": rel, "reason": "the committed path is a symbolic link, not a receipt file; a "
+                                                    "receipt is a regular file, as in the gate"})
+            continue
         try:
             receipt = lib.receipt_json(blob)       # one reading with the gate: strict UTF-8, no member twice
         except (UnicodeDecodeError, ValueError) as exc:

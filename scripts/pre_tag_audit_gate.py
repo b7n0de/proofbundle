@@ -249,7 +249,27 @@ def _receipt_candidates(repo: Path, version: str) -> list:
     out: list = []
     if not scoped.is_dir():
         return out
-    for f in sorted(scoped.rglob("*.json")):
+    # ONE WALK THAT NAMES WHAT IT CANNOT LIST, AND A LINK IS NO RECEIPT (local reviews of 6e3d4d72 and 9f5d5eec,
+    # 2026-11-10). `rglob` dropped the error of a subdirectory it could not list, so a candidate in it was neither
+    # verified nor rejected, while the third-party verifier reads the commit's tree and sees it. And a committed link to
+    # a regular receipt was read through, so the gate counted one receipt twice where the verifier, which reads the link
+    # text from the commit, rejected it. Both readers now judge the folder alike: a directory that cannot be listed and a
+    # symbolic link are rejected candidates.
+    gefunden: list = []
+    unlistbar: list = []
+    for ort, verzeichnisse, dateien in os.walk(scoped, onerror=unlistbar.append, followlinks=False):
+        gefunden += [Path(ort) / n for n in verzeichnisse + dateien if n.endswith(".json")]
+    for fehler in unlistbar:
+        ort = Path(fehler.filename) if fehler.filename else scoped
+        out.append((str(ort.relative_to(repo)) if ort.is_relative_to(repo) else str(ort), None,
+                    f"a directory of the receipt folder cannot be listed ({fehler.strerror}) — a candidate in it "
+                    "cannot be judged, which is a finding, never the leniency reserved for absence"))
+    for f in sorted(gefunden):
+        if f.is_symlink() and f.is_file():
+            out.append((str(f.relative_to(repo)), None,
+                        "receipt path is a symbolic link — a receipt is a regular file, and the third-party verifier "
+                        "reads the link itself from the commit, not the file it points to"))
+            continue
         if not f.is_file():
             # NICHT-REGULAER IST EBENFALLS REJECTED (deep gate Lauf 9, L5-600-PRETAG-NONREG-01, P2).
             # Der Absatz oben schloss am 05.09.2026 den UNLESBAREN Beleg — und liess die Zeile

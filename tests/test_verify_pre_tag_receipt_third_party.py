@@ -331,6 +331,28 @@ class TestContract1_NoValidReceiptFails:
         urteil = json.loads(tor.stdout)
         assert (urteil["ok"], urteil["state"]) == (False, "rejected"), tor.stdout[-400:]
 
+    def test_a_link_named_like_a_receipt_beside_a_valid_one_is_rejected_by_both_readers(self, welt):
+        """Local review of 9f5d5eec (P2): a committed link `pre_tag_receipt_v5.0.0-alias.json` to the valid receipt lies
+        outside the binding by its name. The gate read through the link and counted the receipt twice, verified; this
+        verifier read the link text from the commit and rejected it, NOT_VERIFIED. Both reject a link now, so the gate
+        on the same checkout, the oracle, gives the same verdict."""
+        repo, env, _priv, _kand, _commit = welt
+        echte = _receipt_path(repo)
+        (echte.parent / "pre_tag_receipt_v5.0.0-alias.json").symlink_to(echte.name)
+        _git(["add", "audit_artifacts/500/"], repo)
+        _git(["commit", "-q", "-m", "a link beside the receipt"], repo)
+        assert _git(["ls-files", "-s", "audit_artifacts/500/pre_tag_receipt_v5.0.0-alias.json"], repo).startswith(
+            "120000"), "precondition: the link is committed as a link"
+        rc, res, roh = _verify(repo, env, _head(repo))
+        assert rc == 1 and res["verdict"] == "NOT_VERIFIED", roh
+        assert len(res["verified"]) == 1, roh
+        assert [x["path"] for x in res["rejected"]] == ["audit_artifacts/500/pre_tag_receipt_v5.0.0-alias.json"], roh
+        assert "symbolic link" in res["reason"], res["reason"]
+        tor = _run([sys.executable, "scripts/pre_tag_audit_gate.py", "--repo", ".", "--version", "5.0.0", "--json"],
+                   repo, env)
+        urteil = json.loads(tor.stdout)
+        assert (urteil["ok"], urteil["state"]) == (False, "rejected"), tor.stdout[-400:]
+
 
 class TestContract2_ReceiptForAnotherCommitFails:
     def test_the_receipt_of_the_previous_commit_does_not_cover_a_later_one(self, welt):
