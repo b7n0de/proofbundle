@@ -4,7 +4,7 @@ docs/predicates/action-outcome.md section 7 listed the independent attestation o
 binding as closed, while the check bound only `executor.keyId` to the signing key: a Trust Pack named no identifier per
 key. Measured at main e1fec863: one key in outcomeExecutors, anchored by the genesis digest, signed two outcomes that
 differ only in `executor.id`, and both verified with `executor_role_trusted` True and `ok` True.
-draft-gruszka-audit-decision-receipts-03 section 3.4 step 5 asks that the trust policy permit the outcome-signing key to
+draft-gruszka-audit-decision-receipts-05 section 3.4 step 5 asks that the trust policy permit the outcome-signing key to
 attest the identifier the outcome names.
 
 A key entry of a Trust Pack may now carry `executorIds`, the identifiers that key attests. When it does, an outcome whose

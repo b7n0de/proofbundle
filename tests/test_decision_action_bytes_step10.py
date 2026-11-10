@@ -1,4 +1,4 @@
-"""Step 10 of Section 3.2 of draft-gruszka-audit-decision-receipts-07: where the relying party supplies the action
+"""Step 10 of Section 3.2 of draft-gruszka-audit-decision-receipts-05: where the relying party supplies the action
 bytes, their SHA-256 MUST equal ``proposedAction.parametersDigest.sha256``.
 
 Finding B1 of the list of 2 November 2026 (vector F5 of the draft's test package: the good receipt V2 with the

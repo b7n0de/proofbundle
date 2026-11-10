@@ -1,4 +1,4 @@
-"""The approval record of Case 1 of Section 3.3 of draft-gruszka-audit-decision-receipts-07 (finding B3).
+"""The approval record of Case 1 of Section 3.3 of draft-gruszka-audit-decision-receipts-05 (finding B3).
 
 The relying party supplies the approval record bytes A; the decision receipt binds them by the digest of its one
 inputSnapshot entry named "approval record". A is read here strictly (one JSON value, no duplicate member name) and
