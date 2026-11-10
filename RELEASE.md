@@ -1,5 +1,7 @@
 # Release checklist
 
+**How a proofbundle release is prepared, tagged and published, and how anyone can check a published release.** This page is for maintainers who cut a release and for anyone who wants to verify one. The artifact on PyPI is the exact artifact the release workflow attested. The last section says what the verification commands establish and what they do not.
+
 proofbundle ships supply-chain provenance for itself (the same idea the tool verifies). The one
 non-negotiable invariant: **the artifact published to PyPI is the exact artifact that was
 attested** — the release workflow builds once, attests those bytes, and gates the PyPI upload on

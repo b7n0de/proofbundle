@@ -1,5 +1,7 @@
 # proofbundle format specification — `proofbundle/v0.1`
 
+**The normative description of the proofbundle/v0.1 evidence-bundle format.** This page is for anyone who writes a second verifier or needs the exact rules a bundle must follow. It defines the fields, the order of the checks and the optional layers, and section 7a says what a bundle attests and what it does not. A short overview for readers is in the [README](README.md).
+
 Revision: 2026-07-13
 
 This is the normative description of the `proofbundle/v0.1` evidence-bundle format.
