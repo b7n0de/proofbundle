@@ -184,11 +184,15 @@ def _installed_record_rows(package_dir: Path):
     # `signature.py`, and the listing, the digest and `report` stayed those of the wheel. The installed build
     # is the closed set RECORD names; bytecode is not the build, as above. Anything else makes the tree
     # measure as what it is, `source-tree`.
+    # A LINK AND BYTECODE OUTSIDE THE CACHE ARE MEMBERS TOO (second local review, 9b0181cf, P1): a link
+    # `signature` to a directory elsewhere and a `signature/__init__.pyc` without its source each import in
+    # place of `signature.py`, and the first form of this check skipped every directory and every `.pyc`.
+    # Only the interpreter's own cache, `__pycache__`, stays outside; a real directory is walked, not judged.
     genannt = {zeile.split("\0", 1)[0] for zeile in rows}
     try:
         for p in package_dir.rglob("*"):
             teile = p.relative_to(package_dir).parts
-            if "__pycache__" in teile or p.suffix in (".pyc", ".pyo") or p.is_dir():
+            if "__pycache__" in teile or (p.is_dir() and not p.is_symlink()):
                 continue
             if f"{IMPLEMENTATION}/{'/'.join(teile)}" not in genannt:
                 return None
@@ -208,9 +212,24 @@ def _innerhalb(p: Path, wurzel: Path) -> bool:
 
 
 def _source_tree_rows(package_dir: Path) -> list[str]:
+    # WHAT PYTHON CAN IMPORT FROM THE TREE IS PART OF ITS IDENTITY (second local review, 9b0181cf, P1): the
+    # rows took `.py`, `.json` and `.typed` only, so an extension module or bytecode outside `__pycache__`,
+    # which the importer loads in place of a `.py` of the same name, left the digest as it was; and a link to a
+    # directory was skipped, so the code behind it was never measured. Every suffix the importer knows counts
+    # now, and a link to a directory outside the tree is refused like a file link that leaves it.
+    import importlib.machinery  # noqa: PLC0415
+    einfuhr = tuple(importlib.machinery.all_suffixes())
     rows: list[str] = []
     for p in sorted(package_dir.rglob("*")):
-        if not p.is_file() or "__pycache__" in p.parts or p.suffix not in _SOURCE_TREE_SUFFIXES:
+        if "__pycache__" in p.relative_to(package_dir).parts:
+            continue
+        if p.is_symlink() and p.is_dir():
+            if not _innerhalb(p, package_dir):
+                raise VerifierBlockError(
+                    f"{p.relative_to(package_dir).as_posix()} is a link to a directory outside the package "
+                    "directory -- code behind a link that leaves the tree cannot be part of the tree's identity")
+            continue
+        if not p.is_file() or not (p.suffix in _SOURCE_TREE_SUFFIXES or p.name.endswith(einfuhr)):
             continue
         if not _innerhalb(p, package_dir):
             raise VerifierBlockError(
