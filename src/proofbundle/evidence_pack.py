@@ -51,6 +51,17 @@ _PACK_MEMBERS = frozenset({
     "type", "packVersion", "canonicalRoot", "proof", "selfContained", "provenCalendars",
     "provenCalendarOperators", "operatorRedundancy", "bundledHeaderEvidence", "declaredCalendars",
     "declaredCalendarOperators", "declaredCalendarsVerified", "frozen"})
+#: EVERY PACK VERSION A RELEASE WROTE IS ITS OWN CLOSED SET (2026-11-10). proofbundle 3.2.0 to 3.3.0
+#: wrote `packVersion` v0.1 with `calendars` and `calendarRedundancy`; since 3.6.0 the builder writes
+#: v0.2 and exactly `_PACK_MEMBERS`, measured on the builder's source at every tag. Judging every pack
+#: against the v0.2 set alone turned a pack that a released version built, and that main verified by its
+#: proof, into `malformed_pack`. A pack is judged against the set of ITS version: the old pack stays
+#: readable, and a member of the other version, an unknown version or a foreign member is still refused.
+_PACK_FORMATS = {
+    "v0.1": frozenset({"type", "packVersion", "canonicalRoot", "proof", "selfContained", "calendars",
+                       "calendarRedundancy", "bundledHeaderEvidence", "frozen"}),
+    _PACK_VERSION: _PACK_MEMBERS,
+}
 
 
 def _as_dict(v):
@@ -201,15 +212,19 @@ def verify_evidence_pack(pack: dict, *, rp_trust: Optional[dict] = None,
     if not isinstance(pack, dict):
         return {"ok": False, "warn": False, "status": "malformed_pack",
                 "detail": f"evidence pack must be a JSON object, got {type(pack).__name__}"}
-    fremd = sorted((k for k in pack if k not in _PACK_MEMBERS), key=repr)
+    if pack.get("type") != _PACK_TYPE:
+        return {"ok": False, "warn": False, "status": "malformed_pack",
+                "detail": f"evidence pack type is {pack.get('type')!r}, not {_PACK_TYPE!r}"}
+    version = pack.get("packVersion")
+    erlaubt = _PACK_FORMATS.get(version) if isinstance(version, str) else None
+    if erlaubt is None:
+        return {"ok": False, "warn": False, "status": "malformed_pack",
+                "detail": f"evidence pack packVersion is {version!r}, not one of {sorted(_PACK_FORMATS)!r}"}
+    fremd = sorted((k for k in pack if k not in erlaubt), key=repr)
     if fremd:
         return {"ok": False, "warn": False, "status": "malformed_pack",
-                "detail": "evidence pack carries member(s) the pack format does not have: "
+                "detail": f"evidence pack {version} carries member(s) its pack format does not have: "
                           + ", ".join(repr(k) for k in fremd)}
-    for feld, soll in (("type", _PACK_TYPE), ("packVersion", _PACK_VERSION)):
-        if pack.get(feld) != soll:
-            return {"ok": False, "warn": False, "status": "malformed_pack",
-                    "detail": f"evidence pack {feld} is {pack.get(feld)!r}, not {soll!r}"}
     try:
         proof = decode_b64(pack["proof"])
         canonical_root = decode_b64(pack["canonicalRoot"])

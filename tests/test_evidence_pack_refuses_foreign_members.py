@@ -6,7 +6,6 @@ never writes was carried along unread, so a pack of another type or version, or 
 member, came back with the verdict of its proof. A container check names its members and refuses
 foreign ones, each by repr.
 """
-import base64
 import hashlib
 import unittest
 
@@ -32,6 +31,22 @@ def _pack():
     DetachedTimestampFile(OpSHA256(), ts).serialize(ctx)
     return build_evidence_pack(_ROOT, ctx.getbytes(), declared_calendars=["https://x.example"],
                                bundled_headers={"800000": "00" * 32})
+
+
+#: What `build_evidence_pack` of proofbundle 3.2.0 to 3.3.0 wrote, read from its source at each tag
+#: (the dict literal assigned to `pack` and every `pack[...] =`), 2026-11-10. Since 3.6.0 it writes v0.2.
+_V01_MEMBERS = frozenset({"type", "packVersion", "canonicalRoot", "proof", "selfContained", "calendars",
+                          "calendarRedundancy", "bundledHeaderEvidence", "frozen"})
+
+
+def _pack_v01():
+    """A pack in the form the 3.2.0 to 3.3.0 builder wrote, around the same proof as `_pack`."""
+    neu = _pack()
+    alt = {k: neu[k] for k in ("type", "canonicalRoot", "proof", "selfContained", "bundledHeaderEvidence",
+                               "frozen")}
+    alt.update({"packVersion": "v0.1", "calendars": sorted(neu["provenCalendars"]),
+                "calendarRedundancy": len(neu["provenCalendars"])})
+    return alt
 
 
 @unittest.skipUnless(_OTS, "needs proofbundle[anchors] (opentimestamps)")
@@ -75,6 +90,38 @@ class TheVerifierRefusesWhatTheBuilderDoesNotWrite(unittest.TestCase):
                          "declaredCalendarsVerified", "frozen"):
             pack.pop(optional)
         self.assertEqual(verify_evidence_pack(pack)["status"], "pending")
+
+    def test_a_pack_that_version_3_2_built_stays_readable(self):
+        """proofbundle 3.2.0 to 3.3.0 wrote packVersion v0.1 with `calendars` and `calendarRedundancy`,
+        measured on the builder's source at every tag on 2026-11-10. main verified such a pack by its
+        proof, and the closed set of v0.2 alone turned it into malformed_pack. A pack is judged against
+        the set of its own version."""
+        from proofbundle.evidence_pack import verify_evidence_pack
+        self.assertEqual(verify_evidence_pack(_pack_v01())["status"], "pending")
+
+    def test_the_v0_1_set_is_the_one_the_released_builder_wrote(self):
+        from proofbundle.evidence_pack import _PACK_FORMATS
+        self.assertEqual(_PACK_FORMATS["v0.1"], _V01_MEMBERS)
+        self.assertEqual(set(_pack_v01()), _V01_MEMBERS)
+
+    def test_each_version_is_its_own_closed_set(self):
+        """The sets are not merged into one: every member that only the OTHER version has is foreign
+        to a pack of this version, and is named."""
+        from proofbundle.evidence_pack import _PACK_FORMATS, verify_evidence_pack
+        bauer = {"v0.1": _pack_v01, "v0.2": _pack}
+        self.assertEqual(sorted(bauer), sorted(_PACK_FORMATS))
+        alle = frozenset().union(*_PACK_FORMATS.values())
+        geprueft = 0
+        for version, menge in _PACK_FORMATS.items():
+            for name in sorted(alle - menge):
+                with self.subTest(version=version, member=name):
+                    pack = bauer[version]()
+                    pack[name] = True
+                    res = verify_evidence_pack(pack)
+                    self.assertEqual(res["status"], "malformed_pack", res)
+                    self.assertIn(repr(name), res["detail"])
+                    geprueft += 1
+        self.assertGreater(geprueft, 0, "the two versions must differ, else this test checks nothing")
 
 
 if __name__ == "__main__":
