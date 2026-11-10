@@ -18326,7 +18326,8 @@ def _release_door_words_split(command: str) -> str | None:
     # git sends the tag. push and tag count at any place after a git word now; a release frees less, never more.
     git_from = min((i for i, name in enumerate(names) if name == "git"), default=None)
     git_words = words[git_from + 1:] if git_from is not None else []
-    pushed += [git_from + 1 + i for i, w in enumerate(git_words) if w == "push"]
+    # send-pack and http-push push as push does, with --force, --mirror and --signed (local review of 56e79b09).
+    pushed += [git_from + 1 + i for i, w in enumerate(git_words) if w in ("push", "send-pack", "http-push")]
     after_push = words[min(pushed) + 1:] if pushed else []
     if any(w == "--admin" or w.startswith("--admin=") for w in words):
         return "admin"
@@ -18339,8 +18340,10 @@ def _release_door_words_split(command: str) -> str | None:
            for w in after_push) or config_door == "force":
         return "force"
     if any(name == "git" and words[k] == "tag" for k, name in subs.items()) or "tag" in git_words or \
-            any(_git_long_option(w, "tags", "follow-tags") or "refs/tags/" in w for w in after_push) or \
-            config_door == "tag":
+            any(_git_long_option(w, "tags", "follow-tags") or "refs/tags/" in w or
+                ("*" in w and not w.startswith("-")) for w in after_push) or config_door == "tag":
+        # a wildcard refspec (`'refs/*:refs/*'`) takes the tags along; a short tag name (`git push z v1`) is read by
+        # house rule H2 from the repository (house_tag_out), which these words do not see
         # `tag` after git is the subcommand, or the `tag <name>` of a push's refspecs (`git push z tag v1`)
         return "tag"
     if any(name == "gh" and words[k] == "release" for k, name in subs.items()) or \

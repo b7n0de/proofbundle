@@ -5947,7 +5947,8 @@ The rule now (_git_long_option, _git_short_bundle, _git_push_config_door): a lon
 can take, the ambiguous ones included; a short option counts in every bundle that holds it, also after a letter that
 takes the rest as its value; push and tag count at any place after a git word, since a quoted option value with a
 blank (`git -c 'user.name=John Doe' push --tag z`) shifts the subcommand in the split words, and `tag <name>` in a
-push's refspecs sends a tag; push.followTags in the line's text is the door of a tag, and any key of
+push's refspecs sends a tag, and so does a wildcard refspec (`'refs/*:refs/*'`); git send-pack and git
+http-push are read as push is, with --force, --mirror and --signed; push.followTags in the line's text is the door of a tag, and any key of
 remote.<name>.push or remote.<name>.mirror in the line's text is the door of a forced push, whatever its value and
 wherever it is set (-c, git config, GIT_CONFIG_PARAMETERS, GIT_CONFIG_KEY_<n>, --config-env in either form).
 `git push --signed` and its prefixes are the door of a signature. A release frees less, never more.
@@ -5958,6 +5959,10 @@ last of two assignments, `.push=` inside a quoted remote name, an expansion insi
 short name git expands to a tag as in `remote.z.push=v1`). A refspec is resolved against the repository and the
 environment, which this rule sees neither of. The named cost: a plain refspec set by configuration is held back
 although git opens no door with it; three such lines are cases of the tests.
+
+A short tag name (`git push z v1`, `v1:another`) is not read from the words: house rule H2 reads it from the
+repository (house_tag_out), and D119 takes that reason as the door of a tag; measured on 2026-11-10 at the third local
+review, decide() named house_tag_out for both lines.
 
 Counter cases, each without a door before and after: commit -s, -qm, -am and --no-gpg-sign; push -u,
 --set-upstream, --no-signed and --no-force; a push behind `-c 'user.name=John Doe'`. Each line of the rule, but for

@@ -425,10 +425,16 @@ SPELLINGS = [
     ("git push origin tag v1", "tag"),
     ("git -c 'user.name=John Doe' push --tag origin claude/x", "tag"),
     ("git -c 'user.name=John Doe' push --mir origin", "force"),
+    # local review of 56e79b09 (two P1): a wildcard refspec, and send-pack with its force, mirror and signature
+    ("git push origin 'refs/*:refs/*'", "tag"),
+    ("git send-pack --force ../origin.git HEAD:refs/heads/main", "force"),
+    ("git send-pack --signed ../origin.git HEAD:refs/heads/fresh", "signatur"),
 ]
 #: A refspec set by configuration is held back as a forced push whatever it says (the reader resolves no value against
-#: the repository); here git sends a tag with it, the third entry is the door git opens.
-CONFIG_HELD = [("git -c 'remote.origin.push=refs/tags/*:refs/tags/*' push origin", "force", "tag"),
+#: the repository), and `send-pack --mirror` is read as the mirror it is; here git sends a tag with each, and the
+#: third entry is the door git opens (send-pack --mirror does not force the diverged main, measured).
+CONFIG_HELD = [("git send-pack --mirror ../origin.git", "force", "tag"),
+               ("git -c 'remote.origin.push=refs/tags/*:refs/tags/*' push origin", "force", "tag"),
                ("KIND=tags; git -c remote.origin.push=HEAD:refs/$KIND/v2 push origin", "force", "tag"),
                ("git -c remote.origin.push=v1 push origin", "force", "tag")]
 #: The named cost of that rule: a plain refspec set by configuration is held back although git opens no door with it.
