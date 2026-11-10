@@ -18309,7 +18309,12 @@ def _git_push_config_door(text: str) -> str | None:
 
 
 def _release_door_words_split(command: str) -> str | None:
-    words = [w for w in _RELEASE_SPLIT.split(command) if w]
+    words = []
+    for word in (w for w in _RELEASE_SPLIT.split(command) if w):
+        # A PROGRAM OF GIT'S EXEC PATH IS ITS SUBCOMMAND (local review of e64f9ef5, 2026-11-10): git-push, git-send-pack,
+        # git-commit and git-tag run as `git push` and the others do, so `/usr/lib/git-core/git-push --mirro z` mirrors.
+        base = os.path.basename(word)
+        words += ["git", base[4:]] if base.lower().startswith("git-") and len(base) > 4 else [word]
     # A program name is compared without case: a file system without case (macOS) finds /usr/bin/sudo for `SUDO`.
     names = [os.path.basename(w).lower() for w in words]
     subs = {}   # the index of the subcommand of each git and gh word: the first word after its options
@@ -18340,10 +18345,11 @@ def _release_door_words_split(command: str) -> str | None:
            for w in after_push) or config_door == "force":
         return "force"
     if any(name == "git" and words[k] == "tag" for k, name in subs.items()) or "tag" in git_words or \
-            any(_git_long_option(w, "tags", "follow-tags") or "refs/tags/" in w or
+            any(_git_long_option(w, "tags", "follow-tags") or "tags/" in w or
                 ("*" in w and not w.startswith("-")) for w in after_push) or config_door == "tag":
-        # a wildcard refspec (`'refs/*:refs/*'`) takes the tags along; a short tag name (`git push z v1`) is read by
-        # house rule H2 from the repository (house_tag_out), which these words do not see
+        # a wildcard refspec (`'refs/*:refs/*'`) takes the tags along, and so does a name below tags/ (`tags/v1`); a
+        # short tag name of a push (`git push z v1`) is read by house rule H2 from the repository (house_tag_out),
+        # which these words do not see
         # `tag` after git is the subcommand, or the `tag <name>` of a push's refspecs (`git push z tag v1`)
         return "tag"
     if any(name == "gh" and words[k] == "release" for k, name in subs.items()) or \
@@ -18366,6 +18372,10 @@ def _release_door_words_split(command: str) -> str | None:
         # `-qS` and `-aS` sign as `-S` does, `--gpg` and `--gpg-s` as `--gpg-sign` does, and `git push --signed` (also
         # `--sign`) signs the push certificate with the owner's key.
         return "signatur"
+    if any(words[k] in ("send-pack", "http-push") for k in pushed):
+        # H2 does not read send-pack or http-push, and their refspecs may name a tag by its short name (local review of
+        # e64f9ef5: `git send-pack ../z.git v1` sends the tag v1), so each of them is the door of a tag
+        return "tag"
     if any(n in _RELEASE_ROOT for n in names):
         return "root"
     if any(name == "gh" and words[k] == "pr" and words[k + 1:k + 2] == ["merge"] for k, name in subs.items()) and \

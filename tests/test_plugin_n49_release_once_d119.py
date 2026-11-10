@@ -429,6 +429,12 @@ SPELLINGS = [
     ("git push origin 'refs/*:refs/*'", "tag"),
     ("git send-pack --force ../origin.git HEAD:refs/heads/main", "force"),
     ("git send-pack --signed ../origin.git HEAD:refs/heads/fresh", "signatur"),
+    # local review of e64f9ef5 (two P1): a short tag name of send-pack, a name below tags/, and git's exec path
+    ("git send-pack ../origin.git v1", "tag"), ("git send-pack ../origin.git v1:another", "tag"),
+    ("git push origin tags/v1", "tag"), ("git push origin tags/v1:another", "tag"),
+    ("$(git --exec-path)/git-push --mirro origin", "force"),
+    ("$(git --exec-path)/git-send-pack --force ../origin.git HEAD:refs/heads/main", "force"),
+    ("$(git --exec-path)/git-commit -qS -m x", "signatur"),
 ]
 #: A refspec set by configuration is held back as a forced push whatever it says (the reader resolves no value against
 #: the repository), and `send-pack --mirror` is read as the mirror it is; here git sends a tag with each, and the
@@ -444,7 +450,8 @@ OVERCOUNT = [("git -c remote.origin.push=HEAD:refs/heads/main push origin", "for
               "git push origin", "force")]
 #: No oracle runs these: git refuses `push --forc` as ambiguous, and a tag made locally does not reach the remote the
 #: oracle reads. Both still hold a release back.
-WORDS_ONLY = [("git push --forc origin claude/x", "force"), ("git -c 'user.name=John Doe' tag v2", "tag")]
+WORDS_ONLY = [("git push --forc origin claude/x", "force"), ("git -c 'user.name=John Doe' tag v2", "tag"),
+              ("/usr/lib/git-core/git-push --force origin HEAD:refs/heads/main", "force")]
 SPELLING_COUNTERS = ["git commit -s -m x", "git commit -qm x", "git commit -am x", "git commit --no-gpg-sign -m x",
                      "git push -u origin claude/x", "git push --set-upstream origin claude/x",
                      "git push --no-signed origin claude/x", "git push --no-force origin claude/x",

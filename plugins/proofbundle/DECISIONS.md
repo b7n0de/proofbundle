@@ -5947,8 +5947,11 @@ The rule now (_git_long_option, _git_short_bundle, _git_push_config_door): a lon
 can take, the ambiguous ones included; a short option counts in every bundle that holds it, also after a letter that
 takes the rest as its value; push and tag count at any place after a git word, since a quoted option value with a
 blank (`git -c 'user.name=John Doe' push --tag z`) shifts the subcommand in the split words, and `tag <name>` in a
-push's refspecs sends a tag, and so does a wildcard refspec (`'refs/*:refs/*'`); git send-pack and git
-http-push are read as push is, with --force, --mirror and --signed; push.followTags in the line's text is the door of a tag, and any key of
+push's refspecs sends a tag, and so does a wildcard refspec (`'refs/*:refs/*'`) and a name below tags/
+(`tags/v1`); git send-pack and git http-push are read as push is, with --force, --mirror and --signed, and each of
+them is at least the door of a tag, since house rule H2 does not read them and they take a tag by its short name
+(`git send-pack ../z.git v1`); a program of git's exec path is its subcommand (`/usr/lib/git-core/git-push --mirro
+z`, `git-commit -qS`); push.followTags in the line's text is the door of a tag, and any key of
 remote.<name>.push or remote.<name>.mirror in the line's text is the door of a forced push, whatever its value and
 wherever it is set (-c, git config, GIT_CONFIG_PARAMETERS, GIT_CONFIG_KEY_<n>, --config-env in either form).
 `git push --signed` and its prefixes are the door of a signature. A release frees less, never more.
@@ -5962,7 +5965,8 @@ although git opens no door with it; three such lines are cases of the tests.
 
 A short tag name (`git push z v1`, `v1:another`) is not read from the words: house rule H2 reads it from the
 repository (house_tag_out), and D119 takes that reason as the door of a tag; measured on 2026-11-10 at the third local
-review, decide() named house_tag_out for both lines.
+review, decide() named house_tag_out for both lines. The words alone do not read a short tag name of a push whose directory
+the gate cannot name; that stays with H2, named here as not covered by these words.
 
 Counter cases, each without a door before and after: commit -s, -qm, -am and --no-gpg-sign; push -u,
 --set-upstream, --no-signed and --no-force; a push behind `-c 'user.name=John Doe'`. Each line of the rule, but for
