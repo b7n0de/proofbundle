@@ -2,7 +2,7 @@
 
 **The pre-push gate and the done check of proofbundle, for the house profile of b7n0de.**
 
-This plugin holds the hooks that check a push, or the end of an agent's turn, against the evidence a repository declares. It is a preview meant for the owner's machines, and no public catalog lists it. To verify receipts, install [proofbundle](../proofbundle/README.md) instead; it registers no hook.
+This plugin holds the hooks that check a push, or the end of an agent's turn, against the evidence a repository declares. It is a preview meant for the owner's machines and is not listed in any plugin catalog. To verify receipts, install [proofbundle](../proofbundle/README.md) instead; it registers no hook.
 
 ## Good to know
 
