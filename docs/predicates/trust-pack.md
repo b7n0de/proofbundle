@@ -63,7 +63,7 @@ invalidating every signature over the pack (no separate alg-confusion surface, u
 non-empty strings: the `executor.id` values that key attests in an Action Outcome. `verify_outcome_receipt`
 compares the outcome's `executor.id` with that list for the key named by `executor.keyId` (`executor_id_bound`,
 see `action-outcome.md` §5, check 8). One key may attest several identifiers, because an outcome signer may be an
-observer of more than one executor (draft-gruszka-audit-decision-receipts-03, section 3.1). A key entry without
+observer of more than one executor (draft-gruszka-audit-decision-receipts-05, section 3.1). A key entry without
 `executorIds` binds no identifier, and `executor.id` then stays the signer's own statement. A named identifier
 is a permission the pack grants to the key, not proof that the signer is that executor.
 

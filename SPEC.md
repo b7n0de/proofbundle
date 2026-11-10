@@ -911,15 +911,16 @@ DECLARED_UNRESOLVED / FAIL / NOT_EVALUATED) rather than leaving replacement invi
   an unknown predicate member is malformed (exit 2), as is every other finding of the
   default-mode validation of the receipt under verification; and a present `validity.expiresAt` of the
   receipt under verification is judged at one evaluation time, `--verification-time` when given,
-  else the wall clock (expired is exit 2); `relation-statement verify` takes no `--verification-time`
+  else the wall clock (expired is exit 2 when no earlier check has decided the exit; the order is in
+  `docs/predicates/decision-receipt.md` §7); `relation-statement verify` takes no `--verification-time`
   (giving it is a usage error); `outcome verify` takes it only as the evaluation time at which a bound
   `--decision` is verified, and both judge the lifetime of a `--policy` at the verifier's wall clock. An attached target is verified STANDALONE by its own
   signature under its key, its `payloadType` and the statement oracle of
   `docs/predicates/relation.md` §4; its own `validity.expiresAt` is not judged. The edges of the
   receipt under verification are judged once its signature verifies, whatever else its validation
-  finds: a foreign `predicateType`, an unknown member or another finding, and an expired `validity`
-  make it malformed (exit 2), and `lineage` is still reported as its edges give it; under a signature
-  that fails (exit 1) the report's `lineage` is `null`.
+  finds: a foreign `predicateType`, an unknown member or another finding make it malformed (exit 2), an
+  expired `validity` fails its freshness check, and `lineage` is still reported as its edges give it;
+  under a signature that fails (exit 1) the report's `lineage` is `null`.
 
 ### Trust-policy hook (trust-policy v0.2, section `relations`)
 
