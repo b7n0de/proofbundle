@@ -60,11 +60,12 @@ semantically mixes into the other.
 
 > Interop caveat (No-Overclaim): the content root is SHA-256 over the *exact transmitted* payload bytes and is
 > never recomputed by re-canonicalizing. For the eval-result ⇄ decision-receipt composition to match
-> byte-for-byte, the evidence side must emit its Statement in the same RFC-8785 canonical form. The current
-> eval-result in-toto export path canonicalizes with `json.dumps(sort_keys=True)`, which is **not** full
-> RFC-8785 (it diverges on number formatting and non-ASCII / mixed-case keys). Unifying both predicates on one
-> `statement_content_root` primitive is a tracked follow-up; until then a cross-predicate content-root match is
-> only guaranteed when the evidence was itself emitted RFC-8785-canonically.
+> byte-for-byte, the evidence side must emit its Statement in the same RFC-8785 canonical form. The eval-result
+> in-toto export does so by default and declares it inside the signed payload as
+> `contentRootAlg: "jcs-sha256-v1"`. A Statement without `contentRootAlg` (the receipts of 2.0.0, or one
+> re-emitted in the named legacy mode `legacy-sortkeys-json-v0`) is serialized with `json.dumps(sort_keys=True)`,
+> which is **not** full RFC-8785 (it diverges on number formatting and non-ASCII / mixed-case keys), and a
+> cross-predicate content-root match is not guaranteed for it.
 
 ## 4. Predicate type and payload
 
@@ -116,7 +117,7 @@ RFC 3339 `Z` time, a non-empty `decision.reasonCodes` of strings, each of `polic
 of `decisionMaker`, `agent` and `principal`, the digest of each `inputSnapshot` entry, an undeclared
 member inside one of these objects) is one finding per member. A required member that is missing, or that
 is not an object where this section expects one, is that one finding, and the rules of its own members are
-not judged. An empty list is a valid predicate. A JSON `null` is no finding at `actionOutcome.performedAt`
+not judged. An empty list of findings means the predicate is valid. A JSON `null` is no finding at `actionOutcome.performedAt`
 and `actionOutcome.outcomeRef`, where it states no time and no reference, nor at `decisionMaker.version`,
 whose form is not checked; at every other declared member, in both modes, it breaks that member's rule
 and is a finding.
@@ -197,28 +198,35 @@ returns `None` on a valid one. Both accept `strict=True` for the strict-v0.1 rul
 DSSE envelope of the receipt; a bare in-toto Statement carries no signature and does not verify.
 
 Order: crypto first, then (if a policy is supplied) policy over the crypto result. The structured result uses
-**snake_case** field names, each check independently reported, never silently `true`:
+**snake_case** field names, each check independently reported, never silently `true`; among them:
 
 ```
 structure_ok, crypto_ok, signer_trusted, predicate_type_ok, policy_ok, evidence_bound,
 audience_ok, nonce_ok, freshness_ok, anchors_ok, action_outcome_proven, warnings[], errors[]
 ```
 
-Non-applicable checks are `null`. `freshness_ok` is `null` **only when `validity.expiresAt` is absent** —
-there is then no statement expiry to judge. When `validity.expiresAt` **is** present it is judged (since
+Non-applicable checks are `null`. `freshness_ok` is judged only over authenticated bytes: it is `null` when the
+signature does not verify or the predicate is not an object. Otherwise it is `null` only when `validity.expiresAt`
+is absent and the evaluation time is valid, since there is then no statement expiry to judge. An evaluation time
+that is not a POSIX-seconds integer in range (the library argument `now`) makes it `false`, whether or not the
+receipt declares an expiry. When `validity.expiresAt` **is** present it is judged (since
 6.2.0) at one evaluation time: `true` or `false` against `--verification-time` (a past UTC `Z` instant)
 when that option is given, otherwise against the verifier's wall clock; it is `false` (expired) when the
 evaluation time is at or after `validity.expiresAt`, so the instant itself is already expired. A `false` folds into `ok` (the
-receipt is not OK) and the CLI exits `2`; an unreadable or JSON-`null` `expiresAt` is fail-closed the same
+receipt is not OK) and the CLI exits `2` when no earlier check has decided the exit; an unreadable or JSON-`null` `expiresAt` is fail-closed the same
 way, never silently treated as "no expiry". The lifecycle of an attached `--policy` is a separate,
 relying-party concern, evaluated at that same one instant.
 `action_outcome_proven` is `false` (with a warning) when `actionOutcome.status = executed` without a
 signed/digest-bound `outcomeRef`.
 
 Exit codes (the Phase B `verify` contract, with the refusal of Section 4 added to exit 3):
-`0` crypto OK (and policy OK if supplied) · `1` crypto/verification failure · `2` malformed input, an expired
-receipt, or a requested binding, action, case or lineage check that does not hold · `3` crypto OK but policy not
-satisfied, or the relying party refuses the approval under Section 4 of the draft (`--consumed`, `--received`).
+`0` crypto OK (and policy OK if supplied) · `1` crypto/verification failure, or a supplied anchor that fails ·
+`2` malformed input, an expired receipt, or a requested binding, action, case or lineage check that does not hold ·
+`3` crypto OK but policy not satisfied, or the relying party refuses the approval under Section 4 of the draft
+(`--consumed`, `--received`). The first check that fails decides, in this order: the signature (`1`), structure
+and predicateType (`2`), a requested audience or nonce (`2`), a required derived subject (`2`), a supplied anchor
+(`1`), the action bytes, the case and a requested lineage (`2`), the policy (`3`), Section 4 (`3`), and last the
+expiry (`2`). A receipt that is expired and whose only other failure is the policy therefore exits `3`.
 Without `--policy`, output shows `POLICY: NOT_EVALUATED`, and exit 3 then comes only from Section 4; there is no
 bare context-free `OK`.
 

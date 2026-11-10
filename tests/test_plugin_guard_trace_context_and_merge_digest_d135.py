@@ -1,7 +1,7 @@
 """D135 (owner choice of 2026-11-03, in the scope of Agent Guard 0.4.0): every receipt of Level 1 names the call it
 decides in traceContext, and the receipt of a merge binds the merge by its bytes.
 
-Section 2 of draft-gruszka-audit-decision-receipts-06 maps trace_id and parent_id of the architecture onto
+Section 2 of draft-gruszka-audit-decision-receipts-05 maps trace_id and parent_id of the architecture onto
 traceContext.traceId and traceContext.parentId. The gate wrote no traceContext, so a reader of a session record could
 not tell which tool call a receipt decides. Now traceId is the session_id and parentId the tool_use_id of the hook
 event, both of which Claude Code and Codex send with every PreToolUse event.

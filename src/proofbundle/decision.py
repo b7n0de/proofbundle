@@ -544,12 +544,17 @@ def build_decision_statement(predicate: dict, *, subject_name: str | None = None
     commitment to the decision: by DEFAULT sha256 over the RFC-8785 canonical predicate.
 
     **Caller-attested override (No-Overclaim, 6-lens review):** a caller-supplied `subject_sha256` /
-    `subject_name` is placed into `subject` verbatim and is NOT cross-checked against the predicate here;
-    `verify_decision_receipt` likewise does not re-derive it. So a caller that overrides `subject_sha256`
-    is self-attesting what the statement applies to — a generic in-toto consumer that matches by
-    `subject.digest` (rather than re-hashing the predicate) trusts that value. Omit the override to keep
-    the subject a true commitment to the signed predicate. Its form is checked: an override the verifier
-    would refuse (a sha256 that is not 64 lowercase hex characters) raises here instead of being signed."""
+    `subject_name` is placed into `subject` verbatim and is NOT cross-checked against the predicate
+    here; `verify_decision_receipt` classifies it (`subject_binding`) once the signature verifies
+    and the RFC-8785 canonicalizer is available: a single subject that is not the digest of the
+    predicate is EXTERNAL_ATTESTED and warned, more than one subject is AMBIGUOUS and warned, and
+    only `require_derived_subject` turns a subject that is not derived, or one that cannot be
+    classified, into a failed subject binding. So a caller that overrides `subject_sha256` is
+    self-attesting what the statement applies to — a generic in-toto consumer that matches by
+    `subject.digest` (rather than re-hashing the predicate) trusts that value. Omit the override to
+    keep the subject a true commitment to the signed predicate. Its form is checked: an override the
+    verifier would refuse (a sha256 that is not 64 lowercase hex characters) raises here instead of
+    being signed."""
     predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
     predicate = _eine_kopie(predicate, DecisionReceiptError, "decision predicate")   # one reading (round 12)
     errs = validate_decision_predicate(predicate, strict=False)
@@ -589,10 +594,11 @@ def emit_decision_receipt(predicate: dict, signer, *, subject_name: str | None =
 
 
 def _mikrosekunden(value: Any) -> "int | None":
-    """A timestamp of the form of step 7 of Section 3.2 of draft-gruszka-audit-decision-receipts-07 (RFC 3339, UTC
-    with a trailing "Z", a fraction of one to six digits) as microseconds since the epoch, the fraction padded with
-    zeros to six digits: Sections 3.2 to 3.4 compare times "as if each fraction of a second were padded with zeros to
-    six digits". None for any other value, a fraction of seven or more digits included. The one reader of these
+    """A timestamp of the form of step 7 of Section 3.2 of draft-gruszka-audit-decision-receipts-05 (RFC 3339, UTC
+    with a trailing "Z"), here with a fraction of one to six digits, as microseconds since the epoch, the fraction
+    padded with zeros to six digits. The fraction limit and the comparison "as if each fraction of a second were
+    padded with zeros to six digits" stand in a coming revision of draft-gruszka-audit-decision-receipts, not in a
+    published one. None for any other value, a fraction of seven or more digits included. The one reader of these
     times for the case checks here and the outcome's time window (outcome._gebundene_entscheidung)."""
     if not (isinstance(value, str) and _RFC3339_Z.match(value)):
         return None
@@ -680,7 +686,7 @@ def _empty_result() -> dict:
         "predicate_type_ok": None, "policy_ok": None, "evidence_bound": None, "audience_ok": None,
         "nonce_ok": None, "freshness_ok": None, "anchors_ok": None, "action_outcome_proven": None,
         "subject_binding": None, "subject_derived_ok": None,
-        # Step 10 of Section 3.2 of draft-gruszka-audit-decision-receipts-07 (finding B1, vector F5): whether the
+        # Step 10 of Section 3.2 of draft-gruszka-audit-decision-receipts-05 (finding B1, vector F5): whether the
         # action bytes the relying party supplied hash to proposedAction.parametersDigest. None when none were given.
         "action_bytes_ok": None,
         # Section 3.3 (finding B3): whether the receipt holds under the case the relying party chose (approval or
@@ -805,7 +811,7 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     `evidence_bound` (unchanged, additive) or the aggregate `ok`.
 
     `action_bytes` (finding B1 of 2 November 2026, additive, default None): the bytes of the action the relying
-    party holds. Step 10 of Section 3.2 of draft-gruszka-audit-decision-receipts-07: where they are given, their
+    party holds. Step 10 of Section 3.2 of draft-gruszka-audit-decision-receipts-05: where they are given, their
     SHA-256 MUST equal ``proposedAction.parametersDigest.sha256``. `action_bytes_ok` is True when it does, False when
     it does not, when the receipt carries no such digest, or when the value is no bytes, and None when no action
     bytes were given. Judged over authenticated bytes only; a False fails `ok`. Before, a good receipt checked
@@ -1087,7 +1093,7 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
                 r["errors"].append(
                     "nonce mismatch or absent validity.nonce — requested replay binding cannot be enforced "
                     "(replay?, fail-closed)")
-        # Step 10 of Section 3.2 of draft-gruszka-audit-decision-receipts-07 (finding B1, vector F5): where the
+        # Step 10 of Section 3.2 of draft-gruszka-audit-decision-receipts-05 (finding B1, vector F5): where the
         # relying party supplies the action bytes, their SHA-256 MUST equal proposedAction.parametersDigest.sha256.
         # A receipt that names its parameters by reference only carries no digest the bytes could match, so given
         # bytes fail it; supplied bytes are a requested binding, never a silent pass (as with --aud/--nonce).
@@ -1160,7 +1166,7 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
                                    "evaluation time (fail-closed)")
             else:
                 r["freshness_ok"] = True
-        # Section 3.3 of draft-gruszka-audit-decision-receipts-07 (finding B3): the checks of the case the relying party
+        # Section 3.3 of draft-gruszka-audit-decision-receipts-05 (finding B3): the checks of the case the relying party
         # chose, over authenticated bytes, at the one evaluation time T of this verify. An unknown case, a record that
         # is no bytes, and a record given without the approval case fail closed.
         if case is not None or approval_record is not None:

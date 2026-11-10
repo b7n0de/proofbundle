@@ -93,10 +93,10 @@ proofbundle's own. Measured examples, not a complete list:
   `validity.audience` pass the check of a bound decision and the executed case.
 - **A declined decision without `validity.expiresAt`** passes `decision verify` with the declined case. A bound
   decision without it fails the binding, whose time window reads that field.
-- **Timestamps outside the draft's form** in a field these verifiers read only for its RFC 3339 form, such as
-  `recordedAt` of a decision or of an outcome: more than six fraction digits, or second 60. The times they compare,
-  `decidedAt` and `validity.expiresAt` of a decision and `performedAt` of an outcome, are read in the draft's form
-  and fail with more than six fraction digits.
+- **Timestamps outside the form a coming revision of the draft sets** in a field these verifiers read only for its
+  RFC 3339 form, such as `recordedAt` of a decision or of an outcome: more than six fraction digits, or second 60.
+  The times they compare, `decidedAt` and `validity.expiresAt` of a decision and `performedAt` of an outcome, are
+  read in that form and fail with more than six fraction digits.
 - **An evaluation time with a fraction of a second.** `--verification-time` takes a whole past second, on
   `decision verify` and on `outcome verify` alike.
 - **A trust policy that permits the outcome-signing key to attest `executor.id`** (section 3.4 step 5), other
