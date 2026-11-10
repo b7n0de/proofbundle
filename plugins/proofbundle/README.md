@@ -24,7 +24,7 @@ You received an AI result with a receipt. This plugin lets your agent verify it 
    codex plugin add proofbundle@proofbundle
    ```
 
-2. Start a new session so that your agent loads the plugin. In a Claude Code session that is already open, `/reload-plugins` loads it too.
+2. Start a new session so that your agent loads the plugin.
 
 3. <a id="try-it"></a>Try it. Ask your agent in Claude Code:
 
