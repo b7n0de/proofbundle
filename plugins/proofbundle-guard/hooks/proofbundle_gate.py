@@ -18309,20 +18309,18 @@ def _git_push_config_door(text: str) -> str | None:
 
 
 def _release_door_words_split(command: str) -> str | None:
-    words: list = []
-    exec_path: set = set()   # the index of each subcommand read from a program of git's exec path
-    for word in (w for w in _RELEASE_SPLIT.split(command) if w):
-        # A PROGRAM OF GIT'S EXEC PATH IS ITS SUBCOMMAND (local review of e64f9ef5, 2026-11-10): git-push, git-send-pack,
-        # git-commit and git-tag run as `git push` and the others do, so `/usr/lib/git-core/git-push --mirro z` mirrors.
-        # The word itself stays, and an option is never read as a program: `-S/tmp/git-key` is a signature with the key
-        # /tmp/git-key (local review of 566b7d16, P1: replacing the word lost the signature main had read).
-        words.append(word)
-        base = os.path.basename(word)
-        if not word.startswith("-") and base.lower().startswith("git-") and len(base) > 4:
-            words += ["git", base[4:]]
-            exec_path.add(len(words) - 1)
+    words = [w for w in _RELEASE_SPLIT.split(command) if w]
     # A program name is compared without case: a file system without case (macOS) finds /usr/bin/sudo for `SUDO`.
     names = [os.path.basename(w).lower() for w in words]
+    # A PROGRAM OF GIT'S EXEC PATH IS ITS SUBCOMMAND (local review of e64f9ef5, 2026-11-10): git-push, git-send-pack,
+    # git-commit and git-tag run as `git push` and the others do, so `/usr/lib/git-core/git-push --mirro z` mirrors. They
+    # are noted beside the words, by index, and the words themselves stay as written: an option is never read as a
+    # program (`-S/tmp/git-key` is a signature with the key /tmp/git-key, local review of 566b7d16), and no word is
+    # inserted, so the value of `gh -R b7n0de/git-repo` keeps its place and `release` stays gh's subcommand (local review
+    # of 7e2935f5; both readings of the earlier forms lost a door main had read).
+    exec_path = {i: n[4:] for i, n in enumerate(names) if n.startswith("git-") and len(n) > 4 and
+                 not words[i].startswith("-")}
+    git_like = "git" in names or bool(exec_path)
     subs = {}   # the index of the subcommand of each git and gh word: the first word after its options
     for i, name in enumerate(names):
         if name in ("git", "gh"):
@@ -18332,10 +18330,11 @@ def _release_door_words_split(command: str) -> str | None:
             if j < len(words):
                 subs[j] = name
     pushed = [k for k, name in subs.items() if name == "git" and words[k] == "push"]
+    pushed += [i for i, sub in exec_path.items() if sub in ("push", "send-pack", "http-push")]
     # A QUOTED VALUE WITH A BLANK SHIFTS THE SUBCOMMAND (local review of 5ee4b8bc, 2026-11-10). The split words of
     # `git -c 'user.name=John Doe' push --tag z` make `Doe` the subcommand, so the push and its options went unread;
     # git sends the tag. push and tag count at any place after a git word now; a release frees less, never more.
-    git_from = min((i for i, name in enumerate(names) if name == "git"), default=None)
+    git_from = min([i for i, name in enumerate(names) if name == "git"] + list(exec_path), default=None)
     git_words = words[git_from + 1:] if git_from is not None else []
     # send-pack and http-push push as push does, with --force, --mirror and --signed (local review of 56e79b09).
     pushed += [git_from + 1 + i for i, w in enumerate(git_words) if w in ("push", "send-pack", "http-push")]
@@ -18346,11 +18345,12 @@ def _release_door_words_split(command: str) -> str | None:
     # spelling only, so a release let `git push --mirro`, `git push --tag`, `git commit -qS` and `git commit --gpg`
     # run although git mirrors, sends the tags and signs with the owner's key. A long option counts in every prefix
     # (`_git_long_option`), a short one in every bundle (`_git_short_bundle`), and a push's configuration counts too.
-    config_door = _git_push_config_door(command) if "git" in names else None
+    config_door = _git_push_config_door(command) if git_like else None
     if any(_git_long_option(w, "force", "mirror") or (w.startswith("+") and len(w) > 1) or _git_short_bundle(w, "f")
            for w in after_push) or config_door == "force":
         return "force"
     if any(name == "git" and words[k] == "tag" for k, name in subs.items()) or "tag" in git_words or \
+            "tag" in exec_path.values() or \
             any(_git_long_option(w, "tags", "follow-tags") or "tags/" in w or
                 ("*" in w and not w.startswith("-")) for w in after_push) or config_door == "tag":
         # a wildcard refspec (`'refs/*:refs/*'`) takes the tags along, and so does a name below tags/ (`tags/v1`); a
@@ -18372,7 +18372,7 @@ def _release_door_words_split(command: str) -> str | None:
     # one that sets it false: a release frees less, never more.
     if any(n in _RELEASE_SIGNERS for n in names) or ("ssh-keygen" in names and "-Y" in words and "sign" in words) or \
             ("openssl" in names and any(w in ("-sign", "sign") for w in words)) or \
-            ("git" in names and any(_git_short_bundle(w, "S") or _git_long_option(w, "gpg-sign") or
+            (git_like and any(_git_short_bundle(w, "S") or _git_long_option(w, "gpg-sign") or
                                     "gpgsign" in w.lower() for w in words)) or \
             any(_git_long_option(w, "signed") for w in after_push):
         # `-qS` and `-aS` sign as `-S` does, `--gpg` and `--gpg-s` as `--gpg-sign` does, and `git push --signed` (also

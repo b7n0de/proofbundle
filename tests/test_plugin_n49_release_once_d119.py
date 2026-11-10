@@ -442,6 +442,10 @@ SPELLINGS = [
 #: Lines main already read as doors, kept as cases: the reading of git's exec path must not take an option for a
 #: program (local review of 566b7d16, P1, a regression of the fourth form of this rule).
 KEPT = [("git commit -S/tmp/git-key -m x", "signatur"), ("git commit --gpg-sign=/tmp/git-key -m x", "signatur")]
+#: The same for gh, read by words only: a value with git- in it must not move gh's subcommand (local review of 7e2935f5,
+#: P1, a regression of the fifth form, which inserted words).
+KEPT_WORDS = [("gh -R b7n0de/git-repo release edit stable --notes x", "release"),
+              ("gh -R b7n0de/git-repo pr merge 388 --squash", "merge_kopf")]
 #: A refspec set by configuration is held back as a forced push whatever it says (the reader resolves no value against
 #: the repository), and `send-pack --mirror` is read as the mirror it is; here git sends a tag with each, and the
 #: third entry is the door git opens (send-pack --mirror does not force the diverged main, measured).
@@ -504,7 +508,8 @@ def _git_oracle(tmp_path: pathlib.Path, line: str) -> set:
             if seen}
 
 
-@pytest.mark.parametrize("command, door", SPELLINGS + KEPT + WORDS_ONLY + [c[:2] for c in CONFIG_HELD] + OVERCOUNT)
+@pytest.mark.parametrize("command, door", SPELLINGS + KEPT + KEPT_WORDS + WORDS_ONLY + [c[:2] for c in CONFIG_HELD] +
+                         OVERCOUNT)
 def test_every_spelling_git_takes_is_the_door_it_opens(command, door):
     assert gate._release_door(command, gate.Outcome("deny", "", [])) == door, command
 
