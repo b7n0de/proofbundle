@@ -5950,8 +5950,11 @@ blank (`git -c 'user.name=John Doe' push --tag z`) shifts the subcommand in the 
 push's refspecs sends a tag, and so does a wildcard refspec (`'refs/*:refs/*'`) and a name below tags/
 (`tags/v1`); git send-pack and git http-push are read as push is, with --force, --mirror and --signed, and each of
 them is at least the door of a tag, since house rule H2 does not read them and they take a tag by its short name
-(`git send-pack ../z.git v1`); a program of git's exec path is its subcommand (`/usr/lib/git-core/git-push --mirro
-z`, `git-commit -qS`); push.followTags in the line's text is the door of a tag, and any key of
+(`git send-pack ../z.git v1`); a program of git's exec path is read as its subcommand as well (`/usr/lib/git-core/git-push
+--mirro z`, `git-commit -qS`), the word itself kept and an option never taken for a program (the fourth form
+replaced the word and read `-S/tmp/git-key` as the program git-key, which lost a signature main had read; the local
+review of that form found it), and a push started from the exec path is at least the door of a tag, as H2 does not
+read it; push.followTags in the line's text is the door of a tag, and any key of
 remote.<name>.push or remote.<name>.mirror in the line's text is the door of a forced push, whatever its value and
 wherever it is set (-c, git config, GIT_CONFIG_PARAMETERS, GIT_CONFIG_KEY_<n>, --config-env in either form).
 `git push --signed` and its prefixes are the door of a signature. A release frees less, never more.

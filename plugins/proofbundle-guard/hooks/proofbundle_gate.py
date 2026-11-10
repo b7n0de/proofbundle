@@ -18309,12 +18309,18 @@ def _git_push_config_door(text: str) -> str | None:
 
 
 def _release_door_words_split(command: str) -> str | None:
-    words = []
+    words: list = []
+    exec_path: set = set()   # the index of each subcommand read from a program of git's exec path
     for word in (w for w in _RELEASE_SPLIT.split(command) if w):
         # A PROGRAM OF GIT'S EXEC PATH IS ITS SUBCOMMAND (local review of e64f9ef5, 2026-11-10): git-push, git-send-pack,
         # git-commit and git-tag run as `git push` and the others do, so `/usr/lib/git-core/git-push --mirro z` mirrors.
+        # The word itself stays, and an option is never read as a program: `-S/tmp/git-key` is a signature with the key
+        # /tmp/git-key (local review of 566b7d16, P1: replacing the word lost the signature main had read).
+        words.append(word)
         base = os.path.basename(word)
-        words += ["git", base[4:]] if base.lower().startswith("git-") and len(base) > 4 else [word]
+        if not word.startswith("-") and base.lower().startswith("git-") and len(base) > 4:
+            words += ["git", base[4:]]
+            exec_path.add(len(words) - 1)
     # A program name is compared without case: a file system without case (macOS) finds /usr/bin/sudo for `SUDO`.
     names = [os.path.basename(w).lower() for w in words]
     subs = {}   # the index of the subcommand of each git and gh word: the first word after its options
@@ -18372,9 +18378,10 @@ def _release_door_words_split(command: str) -> str | None:
         # `-qS` and `-aS` sign as `-S` does, `--gpg` and `--gpg-s` as `--gpg-sign` does, and `git push --signed` (also
         # `--sign`) signs the push certificate with the owner's key.
         return "signatur"
-    if any(words[k] in ("send-pack", "http-push") for k in pushed):
-        # H2 does not read send-pack or http-push, and their refspecs may name a tag by its short name (local review of
-        # e64f9ef5: `git send-pack ../z.git v1` sends the tag v1), so each of them is the door of a tag
+    if any(words[k] in ("send-pack", "http-push") or k in exec_path for k in pushed):
+        # H2 does not read send-pack or http-push, nor a push started from git's exec path, and their refspecs may name
+        # a tag by its short name (local reviews of e64f9ef5 and 566b7d16: `git send-pack ../z.git v1` and
+        # `/usr/lib/git-core/git-push ../z.git v1` send the tag v1), so each of them is the door of a tag
         return "tag"
     if any(n in _RELEASE_ROOT for n in names):
         return "root"

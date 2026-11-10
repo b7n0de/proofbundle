@@ -435,7 +435,13 @@ SPELLINGS = [
     ("$(git --exec-path)/git-push --mirro origin", "force"),
     ("$(git --exec-path)/git-send-pack --force ../origin.git HEAD:refs/heads/main", "force"),
     ("$(git --exec-path)/git-commit -qS -m x", "signatur"),
+    # local review of 566b7d16 (P1): a push started from git's exec path with a short tag name
+    ("$(git --exec-path)/git-push ../origin.git v1", "tag"),
+    ("$(git --exec-path)/git-push ../origin.git v1:another", "tag"),
 ]
+#: Lines main already read as doors, kept as cases: the reading of git's exec path must not take an option for a
+#: program (local review of 566b7d16, P1, a regression of the fourth form of this rule).
+KEPT = [("git commit -S/tmp/git-key -m x", "signatur"), ("git commit --gpg-sign=/tmp/git-key -m x", "signatur")]
 #: A refspec set by configuration is held back as a forced push whatever it says (the reader resolves no value against
 #: the repository), and `send-pack --mirror` is read as the mirror it is; here git sends a tag with each, and the
 #: third entry is the door git opens (send-pack --mirror does not force the diverged main, measured).
@@ -498,7 +504,7 @@ def _git_oracle(tmp_path: pathlib.Path, line: str) -> set:
             if seen}
 
 
-@pytest.mark.parametrize("command, door", SPELLINGS + WORDS_ONLY + [c[:2] for c in CONFIG_HELD] + OVERCOUNT)
+@pytest.mark.parametrize("command, door", SPELLINGS + KEPT + WORDS_ONLY + [c[:2] for c in CONFIG_HELD] + OVERCOUNT)
 def test_every_spelling_git_takes_is_the_door_it_opens(command, door):
     assert gate._release_door(command, gate.Outcome("deny", "", [])) == door, command
 
@@ -518,7 +524,7 @@ def test_control_a_spelling_that_opens_no_door_stays_free(command):
     assert gate._release_door(command, gate.Outcome("deny", "", [])) is None, command
 
 
-@pytest.mark.parametrize("command, door", SPELLINGS)
+@pytest.mark.parametrize("command, door", SPELLINGS + KEPT)
 def test_oracle_git_does_what_the_door_of_the_spelling_names(tmp_path, command, door):
     assert door in _git_oracle(tmp_path, command), command
 
