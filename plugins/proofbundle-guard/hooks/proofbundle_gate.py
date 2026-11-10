@@ -18283,26 +18283,39 @@ def _git_short_bundle(word: str, letter: str) -> bool:
     return len(word) > 1 and word[0] == "-" and word[1] != "-" and letter in word[1:]
 
 
-#: A key of git's configuration that makes a push send what its words do not show (read in any case, as git does):
-#: push.followTags sends the tags, remote.<name>.mirror mirrors, remote.<name>.push names the refspecs.
-_GIT_PUSH_CONFIG = re.compile(r"(push\.followtags)|remote\.[^\s=]+\.(mirror|push)(?==|$)(?:=(.*))?", re.I)
+#: A key of git's configuration that makes a push send what its words do not show, read in any case as git reads it:
+#: push.followTags sends the tags, remote.<name>.mirror mirrors, remote.<name>.push names the refspecs. The name of a
+#: remote may hold any character but a line break once it is quoted (`'remote.o(r).mirror=true'`), so the key is read
+#: in the line's own text, never in its split words.
+_GIT_PUSH_CONFIG = re.compile(r"(push\.followtags)|remote\.[^\n]*?\.(mirror|push)(?=[\s='\"]|$)", re.I)
+#: What follows a key of remote.<name>.push as its value: `=value`, ` value` (git config), `'='value'`
+#: (GIT_CONFIG_PARAMETERS), each with or without quotes.
+_GIT_CONFIG_VALUE = re.compile(r"""['"]?[ \t]*=?[ \t]*['"]?([^\s'"]*)""")
 
 
-def _git_push_config_door(words: list) -> str | None:
-    """The door a configuration word opens for a push: `-c push.followTags=true`, `-c remote.origin.mirror=true`,
-    `-c remote.origin.push=+refs/heads/*:refs/heads/*`, the same keys in `git config` or GIT_CONFIG_KEY_<n>. Until
-    2026-11-10 a release let `git -c push.followTags=true push origin topic` run, because only the push's own words
-    were read (DELTA-GUARD-SIGNATUR-BUENDEL-20261110-01)."""
-    for i, word in enumerate(words):
-        found = _GIT_PUSH_CONFIG.search(word)
-        if not found:
-            continue
+def _git_push_config_door(text: str) -> str | None:
+    """The door a configuration of the line opens for a push: `-c push.followTags=true`, `-c remote.origin.mirror=true`,
+    `-c remote.origin.push=+refs/heads/*:refs/heads/*`, the same keys in `git config`, GIT_CONFIG_PARAMETERS,
+    GIT_CONFIG_KEY_<n> with its GIT_CONFIG_VALUE_<n>, and --config-env. Until 2026-11-10 a release let
+    `git -c push.followTags=true push origin topic` run, because only the push's own words were read
+    (DELTA-GUARD-SIGNATUR-BUENDEL-20261110-01). A value of remote.<name>.push the line does not spell out (taken from
+    another variable by --config-env, a GIT_CONFIG_VALUE_<n> the line does not set, a shell expansion, none at all)
+    holds the release back as a forced push: a release frees less, never more."""
+    for found in _GIT_PUSH_CONFIG.finditer(text):
         if found.group(1):
             return "tag"
         if found.group(2).lower() == "mirror":
             return "force"
-        value = found.group(3) if found.group(3) is not None else (words[i + 1] if i + 1 < len(words) else "")
-        if value.startswith("+"):
+        before = text[:found.start()]
+        index = re.search(r"GIT_CONFIG_KEY_(\d+)=['\"]?$", before)
+        if re.search(r"--config-env=['\"]?$", before):
+            value = ""
+        elif index:
+            given = re.search(rf"GIT_CONFIG_VALUE_{index.group(1)}=['\"]?([^\s'\"]*)", text)
+            value = given.group(1) if given else ""
+        else:
+            value = _GIT_CONFIG_VALUE.match(text, found.end()).group(1)
+        if not value or value.startswith(("+", "$", "`")):
             return "force"
         if "tags" in value or "*" in value:
             return "tag"   # refs/tags/..., or a wildcard that takes the tags along
@@ -18329,7 +18342,7 @@ def _release_door_words_split(command: str) -> str | None:
     # spelling only, so a release let `git push --mirro`, `git push --tag`, `git commit -qS` and `git commit --gpg`
     # run although git mirrors, sends the tags and signs with the owner's key. A long option counts in every prefix
     # (`_git_long_option`), a short one in every bundle (`_git_short_bundle`), and a push's configuration counts too.
-    config_door = _git_push_config_door(words) if "git" in names else None
+    config_door = _git_push_config_door(command) if "git" in names else None
     if any(_git_long_option(w, "force", "mirror") or (w.startswith("+") and len(w) > 1) or _git_short_bundle(w, "f")
            for w in after_push) or config_door == "force":
         return "force"

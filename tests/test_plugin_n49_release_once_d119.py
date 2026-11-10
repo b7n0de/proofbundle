@@ -410,6 +410,12 @@ SPELLINGS = [
     ("git -c remote.origin.mirror=true push origin", "force"),
     ("git -c remote.origin.push=+HEAD:refs/heads/main push origin", "force"),
     ("git config remote.origin.push +HEAD:refs/heads/main && git push origin", "force"),
+    # local review of 89922dec (two P1): a value set by its index or taken from another variable, and a quoted remote
+    ("GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.push GIT_CONFIG_VALUE_0=+HEAD:refs/heads/main git push origin",
+     "force"),
+    ("SPEC=+HEAD:refs/heads/main git --config-env=remote.origin.push=SPEC push origin", "force"),
+    ("git -c 'remote.o(r).mirror=true' push 'o(r)'", "force"),
+    ("GIT_CONFIG_PARAMETERS=\"'remote.origin.push'='+HEAD:refs/heads/main'\" git push origin", "force"),
 ]
 #: git refuses these as ambiguous (measured: `push --forc`), so no oracle runs them; they still hold a release back.
 AMBIGUOUS = [("git push --forc origin claude/x", "force")]
@@ -417,7 +423,9 @@ SPELLING_COUNTERS = ["git commit -s -m x", "git commit -qm x", "git commit -am x
                      "git push -u origin claude/x", "git push --set-upstream origin claude/x",
                      "git push --no-signed origin claude/x", "git push --no-force origin claude/x",
                      "git -c remote.origin.push=HEAD:refs/heads/main push origin",
-                     "git -c remote.origin.pushurl=../origin.git push origin claude/x"]
+                     "git -c remote.origin.pushurl=../origin.git push origin claude/x",
+                     "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.push GIT_CONFIG_VALUE_0=HEAD:refs/heads/main "
+                     "git push origin"]
 
 
 def _git_oracle(tmp_path: pathlib.Path, line: str) -> set:
@@ -447,6 +455,7 @@ def _git_oracle(tmp_path: pathlib.Path, line: str) -> set:
     run("tag", "-a", "v1", "-m", "v1")
     run("branch", "claude/x")
     run("remote", "add", "origin", str(bare))
+    run("remote", "add", "o(r)", str(bare))                 # a remote name git takes once it is quoted
     (src / "f").write_text("2")
     (src / "g").write_text("g")
     run("add", "g")

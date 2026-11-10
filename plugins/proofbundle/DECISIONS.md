@@ -5947,7 +5947,7 @@ The rule now (_git_long_option, _git_short_bundle, _git_push_config_door): a lon
 can take, the ambiguous ones included; a short option counts in every bundle that holds it, also after a letter that
 takes the rest as its value; and a word of a git line that names push.followTags (tag), remote.<name>.mirror (force)
 or remote.<name>.push with a forced refspec (force) or with tags or a wildcard (tag) is that door, in -c, in `git
-config` and in GIT_CONFIG_KEY_<n>. `git push --signed` and its prefixes are the door of a signature. A release frees
+config`, in GIT_CONFIG_PARAMETERS, in GIT_CONFIG_KEY_<n> with its GIT_CONFIG_VALUE_<n> and in --config-env. The key is read in the line's own text, since a quoted remote name may hold any character (`'remote.o(r).mirror=true'`), and a value of remote.<name>.push the line does not spell out (taken from another variable by --config-env, a GIT_CONFIG_VALUE_<n> the line does not set, a shell expansion, none) holds the release back as a forced push; the local review of the first form found these two gaps, open at main as well. `git push --signed` and its prefixes are the door of a signature. A release frees
 less, never more. Counter cases, each without a door before and after: commit -s, -qm, -am and --no-gpg-sign; push -u,
 --set-upstream, --no-signed and --no-force; remote.<name>.push without `+`, tags or a wildcard; remote.<name>.pushurl.
 Each line of the rule also runs through real git in the tests, which shows that git signs, sends the tags or forces
