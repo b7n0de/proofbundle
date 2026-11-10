@@ -37,7 +37,7 @@ codex plugin marketplace add b7n0de/proofbundle
 codex plugin add proofbundle@proofbundle
 ```
 
-Then ask for `/proofbundle:verify receipt.json` in Claude Code, or for the skill `proofbundle:verify` in Codex, and give the signer's public key when your agent asks for it. The plugin needs [uv](https://docs.astral.sh/uv/), and network access to PyPI on its first start. Plugin 0.4.0, experimental in both hosts. [How the plugins work](https://github.com/b7n0de/proofbundle/blob/main/plugins/README.md)
+Then ask for `/proofbundle:verify receipt.json` in Claude Code, or for the skill `proofbundle:verify` in Codex. For a decision or outcome receipt, give the issuer's public key when your agent asks for it. The plugin needs [uv](https://docs.astral.sh/uv/), and network access to PyPI on its first start. Plugin 0.4.0, experimental in both hosts. [How the plugins work](https://github.com/b7n0de/proofbundle/blob/main/plugins/README.md)
 
 ## Current release
 
