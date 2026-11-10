@@ -454,7 +454,11 @@ SPELLINGS = [
 KEPT = [("git commit -S/tmp/git-key -m x", "signatur"), ("git commit --gpg-sign=/tmp/git-key -m x", "signatur"),
         # at the limit of the brace reader (six groups, 64 words) the words are read and keep their own door
         ("git push --ta{,}{,}{,}{,}{,}{,} origin", "tag"), ("git push --mirro{,}{,}{,}{,}{,}{,} origin", "force"),
-        ("git commit --gpg{,}{,}{,}{,}{,}{,} -q -m x", "signatur")]
+        ("git commit --gpg{,}{,}{,}{,}{,}{,} -q -m x", "signatur"),
+        # local review of 8511dc09 (P1, a regression of the fifteenth form): an unread brace beside a read word must
+        # leave the read word and the door main reads as they are
+        ("env {X{0..0..1}=,git} push --mirror origin", "force"), ("env {X{0..0..1}=,git} push --tags origin", "tag"),
+        ("env {X{0..0..1}=,git} commit -S -q -m x", "signatur")]
 #: The same for gh, read by words only: a value with git- in it must not move gh's subcommand (local review of 7e2935f5,
 #: P1, a regression of the fifth form, which inserted words).
 KEPT_WORDS = [("gh -R b7n0de/git-repo release edit stable --notes x", "release"),
@@ -516,7 +520,9 @@ CONFIG_HELD = [("git send-pack --mirror ../origin.git", "force", "tag"),
                # local review of 87bc823c (P1, open at main): a brace form the gate does not model, a range with a step
                ("git push --ta{g..g..1} origin", "unread", "tag"),
                ("git push --mirro{r..r..1} origin", "unread", "tag"),
-               ("git commit --gpg-sig{n..n..1} -q -m x", "unread", "signatur")]
+               ("git commit --gpg-sig{n..n..1} -q -m x", "unread", "signatur"),
+               # the program itself formed by a brace the gate does not model
+               ("gi{t..t..1} push --tags origin", "unread", "tag")]
 #: The named cost of that rule: a plain refspec set by configuration is held back although git opens no door with it.
 OVERCOUNT = [("git -c remote.origin.push=HEAD:refs/heads/main push origin", "force"),
              ("git -c remote.origin.pushurl=../origin.git push origin claude/x", "force"),
@@ -534,6 +540,8 @@ OVERCOUNT = [("git -c remote.origin.push=HEAD:refs/heads/main push origin", "for
 WORDS_ONLY = [("O=$(printf -- --%s admin); gh pr merge 388 -R b7n0de/proofbundle --squash --match-head-commit "
                "0123456789abcdef0123456789abcdef01234567 $O", "unread"),
               ("C=publish; uv $C", "unread"),
+              ("env {X{0..0..1}=,gh} release create v1 -R b7n0de/proofbundle --notes x", "release"),
+              ("env {X{0..0..1}=,sudo} cat /etc/hostname", "root"),
               ("git push --forc origin claude/x", "force"), ("git -c 'user.name=John Doe' tag v2", "tag"),
               ("/usr/lib/git-core/git-push --force origin HEAD:refs/heads/main", "force")]
 SPELLING_COUNTERS = ["git commit -s -m x", "git commit -qm x", "git commit -am x", "git commit --no-gpg-sign -m x",

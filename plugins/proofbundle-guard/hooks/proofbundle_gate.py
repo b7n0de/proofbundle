@@ -18234,22 +18234,37 @@ def _release_braced(text: str) -> str:
 
     The same holds for every brace form the gate does not model (local review of 87bc823c, open at main as well: bash
     reads a range with a step, `--ta{g..g..1}` is `--tag`). Rather than the next form, the rule is closed: a word that
-    still holds a brace with a comma or `..` after the gate's expansion was formed by a rule the gate does not know."""
+    still holds a brace with a comma or `..` after the gate's expansion was formed by a rule the gate does not know.
+
+    The mark stands as a word of its own at the end of the line, never joined to a word (local review of 8511dc09: joined
+    to the last word of `env {X{0..0..1}=,git} push --mirror z` it made `git` unreadable and lost the door main reads).
+    Every word the gate reads keeps its reading, and the rule for a word the gate cannot read holds the line back also
+    where that word is the program (`gi{t..t..1} push --tags z`)."""
+    unread = False
+
     def read(word: str) -> str:
+        nonlocal unread
         if "{" not in word:
             return word
         expanded = _sh_brace_expand(word)
         if expanded is None:
-            unread = _sh_brace_first(word) is not None or _RELEASE_BRACE_LEFT.search(word) is not None
-            return word + _RELEASE_UNKNOWN if unread else word
-        joined = " ".join(expanded)
-        return joined + _RELEASE_UNKNOWN if any(_RELEASE_BRACE_LEFT.search(w) for w in expanded) else joined
-    return "".join(read(w) for w in re.split(r"(\s+)", text))
+            if _sh_brace_first(word) is not None or _RELEASE_BRACE_LEFT.search(word) is not None:
+                unread = True
+            return word
+        if any(_RELEASE_BRACE_LEFT.search(w) for w in expanded):
+            unread = True
+        return " ".join(expanded)
+    braced = "".join(read(w) for w in re.split(r"(\s+)", text))
+    return braced + " " + _RELEASE_BRACE_MARK if unread else braced
 
 
 #: A brace with a comma or a range in it, left in a word after the gate's brace expansion: bash forms it by a rule the
 #: gate does not model (a range with a step, `{a..e..2}`), so the word is one the gate cannot read.
 _RELEASE_BRACE_LEFT = re.compile(r"\{[^{}]*(?:,|\.\.)[^{}]*\}")
+#: The word _release_braced puts at the end of a line with such a word. A mark of its own, not _RELEASE_UNKNOWN, which
+#: stands for an ANSI-C or locale part the gate does not decode and keeps the reading of D102 (root where it may be
+#: the program, nothing in a line of no door program).
+_RELEASE_BRACE_MARK = "\x02"
 
 
 #: The programs that run text as a command: a word of theirs the gate does not resolve may be a root program.
@@ -18499,8 +18514,10 @@ def _release_door_words_split(command: str) -> str | None:
     # option (`O=-S; git commit $O -m x`). Such a line is held back as the door `unread`, after every door its words
     # name, so a line keeps the door it names. The named cost: `git push origin "$BRANCH"` and `git -C "$DIR" status` are
     # held back too, although most values open no door; a release frees less, never more.
-    if (exec_path or any(n in _RELEASE_DOOR_PROGRAMS for n in names)) and \
-            _RELEASE_UNKNOWN in _RELEASE_EXPANSION.sub(_RELEASE_UNKNOWN, command):
+    # The brace mark stands for a word the gate cannot read at all, which may be the program itself
+    # (`gi{t..t..1} push --tags z`), so that line is held back whatever programs its other words name.
+    if _RELEASE_BRACE_MARK in words or ((exec_path or any(n in _RELEASE_DOOR_PROGRAMS for n in names)) and
+                                        _RELEASE_UNKNOWN in _RELEASE_EXPANSION.sub(_RELEASE_UNKNOWN, command)):
         return "unread"
     return None
 
