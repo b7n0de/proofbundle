@@ -235,6 +235,28 @@ def _gate_source_digest() -> str:
         return "unreadable"
 
 
+def _submodules_in_folder(repo: Path, scoped: Path) -> set:
+    """The gitlinks (mode 160000) of HEAD's tree under the receipt folder, as paths below `repo`.
+
+    Local review of ef69e3a1 (2026-11-10, P2): the walk on disk entered an initialised submodule and judged its files,
+    which are not in the commit's tree, so the third-party verifier never saw them; an uninitialised one is an empty
+    directory on disk that the walk cannot tell from any other. HEAD's tree tells both apart. Where git cannot answer
+    (no repository at `repo`), the set is empty: the tree digest the verdict also needs then fails on its own."""
+    rel = scoped.relative_to(repo).as_posix()
+    try:
+        r = _lib().git_run(repo, "ls-tree", "--full-tree", "-r", "-z", "HEAD", "--", f":(literal){rel}", timeout=10)
+    except (OSError, RuntimeError):
+        return set()
+    if r.returncode != 0:
+        return set()
+    out = set()
+    for eintrag in r.stdout.split(b"\0"):
+        kopf, _tab, pfad = eintrag.partition(b"\t")
+        if kopf.startswith(b"160000 "):
+            out.add(repo / os.fsdecode(pfad))
+    return out
+
+
 def _receipt_candidates(repo: Path, version: str) -> list:
     """Every *.json under audit_artifacts/<token>/ — the pre-tag receipt candidates, as
     ``(relpath, receipt_dict_or_None, unreadable_reason_or_None)``.
@@ -257,8 +279,14 @@ def _receipt_candidates(repo: Path, version: str) -> list:
     # symbolic link are rejected candidates.
     gefunden: list = []
     unlistbar: list = []
+    untermodule = _submodules_in_folder(repo, scoped)
     for ort, verzeichnisse, dateien in os.walk(scoped, onerror=unlistbar.append, followlinks=False):
+        verzeichnisse[:] = [n for n in verzeichnisse if Path(ort) / n not in untermodule]  # never into a submodule
         gefunden += [Path(ort) / n for n in verzeichnisse + dateien if n.endswith(".json")]
+    for modul in sorted(untermodule):
+        out.append((str(modul.relative_to(repo)), None,
+                    "the receipt folder holds a submodule — its files are not in the commit's tree, so the third-party "
+                    "verifier cannot read them; a submodule is a rejected candidate in both readers, whatever its name"))
     for fehler in unlistbar:
         ort = Path(fehler.filename) if fehler.filename else scoped
         out.append((str(ort.relative_to(repo)) if ort.is_relative_to(repo) else str(ort), None,

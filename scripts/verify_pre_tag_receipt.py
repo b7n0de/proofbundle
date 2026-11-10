@@ -1290,8 +1290,11 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
     # (L5-600-PRETAG-NONREG-01). `ls-tree -r` lists files only, so such an entry was no candidate here,
     # and since a rejected candidate outranks a valid one (DELTA2 N1) the gate said rejected where this
     # verifier said VERIFIED (local review of 8a05ceef, 2026-11-10, P2). The commit's own tree names them.
+    # A SUBMODULE IS A CANDIDATE WHATEVER ITS NAME (local review of ef69e3a1, 2026-11-10, P2). Its files are not in
+    # the commit's tree, so this verifier never saw a broken `*.json` inside an initialised submodule, while the gate
+    # walked into it on disk and rejected it. Both readers now reject a gitlink under the folder, by any name.
     kandidaten += sorted(p for p, (typ, _oid) in baum.items()
-                         if typ != "blob" and p.startswith(ordner) and p.endswith(".json"))
+                         if p.startswith(ordner) and (typ == "commit" or (typ != "blob" and p.endswith(".json"))))
     if rc != 0 or not kandidaten:
         out["verdict"] = "NOT_VERIFIED"
         out["reason"] = (f"no receipt under {ordner} in commit {commit[:12]} -- this commit carries "

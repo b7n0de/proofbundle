@@ -331,6 +331,49 @@ class TestContract1_NoValidReceiptFails:
         urteil = json.loads(tor.stdout)
         assert (urteil["ok"], urteil["state"]) == (False, "rejected"), tor.stdout[-400:]
 
+    @pytest.mark.parametrize("eingebunden", [True, False], ids=["initialised", "not_initialised"])
+    def test_a_submodule_in_the_receipt_folder_is_rejected_by_both_readers(self, welt, eingebunden):
+        """Local review of ef69e3a1 (P2): a submodule `nested` under the folder, committed before the receipt, holding a
+        broken `*.json`. Its files are not in the commit's tree: the verifier said VERIFIED, while the gate walked into
+        the initialised submodule on disk and said rejected. Not initialised, both said verified. Both readers now
+        reject the gitlink by any name, so the gate on the same checkout, the oracle, gives the same verdict."""
+        repo, env, _priv, _kand, _commit = welt
+        modul = repo / "audit_artifacts" / "500" / "nested"
+        modul.mkdir()
+        if eingebunden:
+            _git(["init", "-q"], modul)
+            (modul / "broken.json").write_text("{ broken")
+            _git(["add", "broken.json"], modul)
+            _git(["commit", "-q", "-m", "inner"], modul)
+            _git(["add", "audit_artifacts/500/nested"], repo)
+        else:
+            _git(["update-index", "--add", "--cacheinfo", f"160000,{_kand},audit_artifacts/500/nested"], repo)
+        _git(["commit", "-q", "-m", "a submodule in the receipt folder"], repo)
+        assert _git(["ls-files", "-s", "audit_artifacts/500/nested"], repo).startswith("160000"), \
+            "precondition: the folder holds a gitlink"
+        # The receipt binds the tree with the gitlink in it, as in the review. This house's producer refuses a tree
+        # with a commit entry, so the receipt is rebound and signed here with the anchored key, as another producer
+        # would; its name lies outside the binding, so rewriting it leaves the digest as it is.
+        sys.path.insert(0, str(SCRIPTS))
+        from pre_tag_receipt_lib import subject_tree_digest  # noqa: PLC0415
+        quittung = _receipt_path(repo)
+        neu = json.loads(quittung.read_text())
+        neu["subject_tree_digest"] = subject_tree_digest(repo)
+        quittung.write_text(json.dumps(_resign(neu, _priv), indent=2))
+        assert subject_tree_digest(repo) == neu["subject_tree_digest"], "precondition: the receipt lies outside"
+        _git(["add", "audit_artifacts/500/"], repo)
+        _git(["commit", "-q", "-m", "receipt over the tree with the submodule"], repo)
+        rc, res, roh = _verify(repo, env, _head(repo))
+        assert rc == 1 and res["verdict"] == "NOT_VERIFIED", roh
+        assert len(res["verified"]) == 1, roh
+        assert "audit_artifacts/500/nested" in [x["path"] for x in res["rejected"]], roh
+        assert "submodule" in res["reason"], res["reason"]
+        tor = _run([sys.executable, "scripts/pre_tag_audit_gate.py", "--repo", ".", "--version", "5.0.0", "--json"],
+                   repo, env)
+        urteil = json.loads(tor.stdout)
+        assert (urteil["ok"], urteil["state"]) == (False, "rejected"), tor.stdout[-400:]
+        assert "submodule" in tor.stdout, tor.stdout[-400:]
+
     def test_a_link_named_like_a_receipt_beside_a_valid_one_is_rejected_by_both_readers(self, welt):
         """Local review of 9f5d5eec (P2): a committed link `pre_tag_receipt_v5.0.0-alias.json` to the valid receipt lies
         outside the binding by its name. The gate read through the link and counted the receipt twice, verified; this
