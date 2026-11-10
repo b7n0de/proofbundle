@@ -2753,6 +2753,14 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
                 merged = dict(pol_trust)
                 merged.update(rp_trust or {})
                 rp_trust = merged
+        # B22, the neighbour of the lens on a1b7d468: `--related-pub` names the key of the `--with-related` target at the
+        # same position, and `_load_related` reads only as many keys as there are targets, so a key without its target
+        # was decoded by nothing and the verify ended as without it. Refused like the anchor trust above, exit 2.
+        _rel_paths = getattr(args, "with_related", None) or []
+        _rel_pubs = getattr(args, "related_pub", None) or []
+        if len(_rel_pubs) > len(_rel_paths):
+            raise ValueError(f"{len(_rel_pubs)} --related-pub given for {len(_rel_paths)} --with-related: each key is "
+                             "paired with the target at its position, and a key without a target is checked by nothing")
         related, rel_errs = _load_related(getattr(args, "with_related", None), pub,
                                           getattr(args, "related_pub", None))
         if rel_errs:

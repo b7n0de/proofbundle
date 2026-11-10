@@ -91,10 +91,10 @@ def _verify_parser() -> argparse.ArgumentParser:
     return unter(unter(build_parser(), "decision"), "verify")
 
 
-def _options() -> set[str]:
+def _options(parser: argparse.ArgumentParser | None = None) -> set[str]:
     """Every optional argument of `decision verify`, by its long spelling; -h/--help is argparse's own."""
     gefunden = set()
-    for aktion in _verify_parser()._actions:
+    for aktion in (parser or _verify_parser())._actions:
         if isinstance(aktion, argparse._HelpAction) or not aktion.option_strings:
             continue
         lang = [s for s in aktion.option_strings if s.startswith("--")]
@@ -103,13 +103,33 @@ def _options() -> set[str]:
 
 
 def _run(argv: list[str]) -> tuple[int, str]:
+    rc, out, _err = _run_with_stderr(argv)
+    return rc, out
+
+
+def _run_with_stderr(argv: list[str]) -> tuple[int, str, str]:
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
         try:
             rc = main(argv)
         except SystemExit as exc:
             rc = exc.code
-    return rc, out.getvalue()
+    return rc, out.getvalue(), err.getvalue()
+
+
+def _self_signed_pem() -> bytes:
+    """A real certificate, so that `--trusted-tsa-root` is read and the refusal under test is the one reached."""
+    import datetime
+    from cryptography import x509
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.x509.oid import NameOID
+    key = generate_signer()
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "b22 test root")])
+    start = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
+    cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
+            .serial_number(1).not_valid_before(start).not_valid_after(start + datetime.timedelta(days=365))
+            .sign(key, None))
+    return cert.public_bytes(serialization.Encoding.PEM)
 
 
 class _Fixture:
@@ -155,7 +175,7 @@ class _Fixture:
             "schema": "proofbundle/trust-policy/v0.2", "policy_id": "p",
             "decision_receipt": {"trusted_decision_makers": [{"id": self.maker, "public_key_b64": self.pub}]}})
         self.broken_anchor = self.write("anchors-broken.json", [{"type": "rfc3161", "token": "AAAA"}])
-        self.tsa_root = self.write("tsa-root.pem", "not a certificate")
+        self.tsa_root = self.write_bytes("tsa-root.pem", _self_signed_pem())
         # The inputs of pull request 502, as tests/test_decision_case_checks_of_section_3_3.py and
         # tests/test_decision_consumption_state_of_section_4.py build them: a receipt for an approval, whose
         # parametersDigest names _fall1.ACTION, and a declined one, both valid at _APPROVAL_T.
@@ -256,13 +276,25 @@ class TheOptionsComeFromTheParser(unittest.TestCase):
             shutil.rmtree(f.tmp, ignore_errors=True)
 
     def test_control_the_classification_sees_a_new_option(self):
-        """The check is no constant: an option added to the parser is seen as unclassified."""
+        """The check is no constant: an option added to the parser is seen as unclassified by the same reading."""
         parser = _verify_parser()
         parser.add_argument("--a-new-binding")
-        neu = set()
-        for aktion in parser._actions:
-            neu.update(s for s in aktion.option_strings if s.startswith("--"))
-        self.assertIn("--a-new-binding", neu - set(BINDINGS) - set(NO_BINDING) - {"--help"})
+        self.assertEqual(_options(parser) - set(BINDINGS) - set(NO_BINDING), {"--a-new-binding"})
+
+    def test_the_reference_fields_are_the_verifiers_own(self):
+        """REFERENCE_FIELDS is read against every `references` list `decision.py` hands `automation_summary`, so a
+        field added there without a place here fails (the lens on a1b7d468: a hand copy without a drift guard)."""
+        import ast
+        import proofbundle.decision as decision
+        listen = []
+        for knoten in ast.walk(ast.parse(Path(decision.__file__).read_text(encoding="utf-8"))):
+            if isinstance(knoten, ast.Dict):
+                for k, v in zip(knoten.keys, knoten.values):
+                    if isinstance(k, ast.Constant) and k.value == "references" and isinstance(v, ast.List):
+                        listen.append({e.value for e in v.elts if isinstance(e, ast.Constant)})
+        self.assertGreaterEqual(len(listen), 2, "the references lists of decision.py were not found")
+        for liste in listen:
+            self.assertEqual(liste, REFERENCE_FIELDS)
 
 
 class EveryRequestedBindingDecidesOk(unittest.TestCase):
@@ -314,12 +346,29 @@ class EveryRequestedBindingDecidesOk(unittest.TestCase):
 
     def test_trust_material_without_anchors_prints_no_ok(self):
         """The trust options request no binding of their own; without --anchors they are refused with exit 2
-        and the command prints no JSON that could read as a pass."""
+        and the command prints no JSON that could read as a pass. The root is a real certificate and the refusal
+        is named, so the case reaches the refusal it is about (the lens on a1b7d468: a text that is no certificate
+        ended at the reader of the root, before it)."""
         for argv in (["--trusted-tsa-root", self.f.tsa_root], ["--bitcoin-header", "1:" + "00" * 32]):
             with self.subTest(option=argv[0]):
-                rc, out = _run(["decision", "verify", self.f.base, "--pub", self.f.pub, "--json", *argv])
+                rc, out, err = _run_with_stderr(["decision", "verify", self.f.base, "--pub", self.f.pub, "--json",
+                                                 *argv])
                 self.assertEqual(rc, 2)
                 self.assertEqual(out.strip(), "")
+                self.assertIn("without --anchors", err)
+
+    def test_a_related_pub_without_its_target_is_refused(self):
+        """`--related-pub` names the key of the `--with-related` target at its position. A key without a target was
+        decoded by nothing, and the verify ended with exit 0 and `ok` true (the lens on a1b7d468, the neighbour of
+        B22). It is refused with exit 2 and no JSON, also a second key for one target and a key that does not decode."""
+        f = self.f
+        for argv in (["--related-pub", f.other_pub], ["--related-pub", "!!not base64"],
+                     ["--with-related", f.validity, "--related-pub", f.pub, "--related-pub", f.other_pub]):
+            with self.subTest(argv=argv):
+                rc, out, err = _run_with_stderr(["decision", "verify", f.base, "--pub", f.pub, "--json", *argv])
+                self.assertEqual(rc, 2)
+                self.assertEqual(out.strip(), "")
+                self.assertIn("--related-pub", err)
 
 
 if __name__ == "__main__":
