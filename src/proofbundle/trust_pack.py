@@ -113,6 +113,13 @@ def _is_int(v: Any) -> TypeGuard[int]:
     return isinstance(v, int) and not isinstance(v, bool)
 
 
+def _executor_ids_wohlgeformt(v: Any) -> bool:
+    """A key entry's ``executorIds``: a non-empty list of distinct non-empty plain strings, within the budget
+    of a role's key ids. Plain ``str`` by ``type()``, so a string subclass cannot answer membership later."""
+    return (type(v) is list and bool(v) and DEFAULT_BUDGET.within("witnesses", len(v))
+            and all(type(x) is str and x for x in v) and len(set(v)) == len(v))
+
+
 def _parse_rfc3339_z(s: str) -> datetime:
     """Parse an RFC-3339 UTC 'Z' timestamp, tolerating optional fractional seconds of ANY length.
 
@@ -201,10 +208,17 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
                 if alg not in _KEY_ALGS:
                     errors.append(f"keys[{kid!r}].alg must be one of {_KEY_ALGS}, got {render_safe(alg)}")
                 is_hybrid = alg == "hybrid-ed25519-mldsa65"
-                allowed_fields = ("publicKey", "scheme", "alg") + (("publicKeyPq",) if is_hybrid else ())
+                allowed_fields = (("publicKey", "scheme", "alg", "executorIds")
+                                  + (("publicKeyPq",) if is_hybrid else ()))
                 for f in kv:
                     if f not in allowed_fields:
                         errors.append(f"keys[{kid!r}].{f} is not an allowed field")
+                # executorIds (6.6.0): the executor identifiers this key attests in an action outcome. The
+                # pack named no identifier per key, so an anchored executor key could sign under any
+                # executor.id it wrote (draft-gruszka-audit-decision-receipts-03 section 3.4 step 5).
+                if "executorIds" in kv and not _executor_ids_wohlgeformt(kv["executorIds"]):
+                    errors.append(f"keys[{kid!r}].executorIds must be a non-empty list of distinct non-empty "
+                                  f"executor id strings (at most {DEFAULT_BUDGET.witnesses})")
                 # `scheme` is `const: "ed25519"` in the schema; the field was allowed and its value never read
                 # (gate on 3562dc71, measured with the ECMA-reading generator: 14 of 14 other values passed).
                 if "scheme" in kv and kv.get("scheme") != "ed25519":
