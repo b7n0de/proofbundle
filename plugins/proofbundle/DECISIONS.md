@@ -5974,7 +5974,16 @@ first `=` (`printf -v K %s%s incl ude.path; git -c "$K=f" push` brings in the fi
 typeset, local, readonly, read, mapfile or printf -v gets through an expansion (`export ${N}BAL=f`). An expansion is
 every form the gate does not resolve (_RELEASE_EXPANSION, backquotes included): the local review of 06d45152 found
 that a rule which looked for `$` alone missed `` git -c "`printf %s%s incl ude.path`=f" push ``, and that the value of
-GIT_CONFIG_PARAMETERS holds blanks once quoted. A program the line takes from a file,
+GIT_CONFIG_PARAMETERS holds blanks once quoted.
+
+The class these forms belong to, closed as a class (local review of 5f569e59, open at main as well, after three
+reviews in a row that each found one more instance: `command export ${N}BAL=f`, `env "${N}BAL=f" git push`,
+`git "$C" "${K}ude.path=f" push`): an expansion the gate does not resolve may stand for any word. In a line that runs
+git (or a program of its exec path), gh, a publisher, a signer, ssh-keygen, openssl or twine it may therefore name any
+door, as a configuration, a subcommand (`S=push; git $S --mirror z`) or an option (`O=-S; git commit $O -m x`). Such a
+line is held back as the door `unread`, after every door its words name, so a line keeps the door it names. The named
+cost: `git push origin "$BRANCH"` and `git -C "$DIR" status` are held back too, although most values open no door; a
+line that runs none of these programs (`printf '%s' "$PWD"`) is not. A program the line takes from a file,
 by PATH or GIT_EXEC_PATH, is not read here, as no text of a file the line runs is (_release_unresolved_door).
 `git push --signed` and its prefixes are the door of a signature, and so is a signing option given as the value of
 a word (`git -c branch.main.mergeOptions=-S merge topic`, `GIT_CONFIG_VALUE_0=-qS` for that key): the part after the

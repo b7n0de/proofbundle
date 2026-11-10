@@ -18080,6 +18080,8 @@ _RELEASE_DOORS = {
     "signatur": ("a signature", "eine Signatur"),
     "root": ("root", "Root"),
     "merge_kopf": ("a merge without --match-head-commit", "ein Merge ohne --match-head-commit"),
+    "unread": ("a word the gate cannot read, which may name any door",
+               "ein Wort, das das Gate nicht lesen kann und das jede Tuer nennen kann"),
 }
 #: The reasons of decide() that name a door: --admin and the protection API (D73 H1), a forced push (D86), a tag (D73 H2).
 _RELEASE_DOOR_REASONS = {"house_admin_merge": "admin", "house_protection_api": "admin", "push_force": "force",
@@ -18087,6 +18089,10 @@ _RELEASE_DOOR_REASONS = {"house_admin_merge": "admin", "house_protection_api": "
 _RELEASE_ROOT = frozenset({"sudo", "su", "doas", "pkexec", "run0"})
 _RELEASE_SIGNERS = frozenset({"gpg", "gpg2", "cosign", "minisign", "signify", "sigstore", "rekor-cli", "notation"})
 _RELEASE_PUBLISHERS = frozenset({"uv", "poetry", "flit", "hatch", "pdm", "maturin", "rye"})
+#: The programs whose words these rules read for a door: git (and a program of its exec path), gh, the publishers, the
+#: signers, ssh-keygen, openssl and twine.
+_RELEASE_DOOR_PROGRAMS = frozenset({"git", "gh", "twine", "ssh-keygen", "openssl"}) | _RELEASE_PUBLISHERS | \
+    _RELEASE_SIGNERS
 _RELEASE_SPLIT = re.compile(r"[\s;&|()<>`'\"]+")
 
 
@@ -18463,6 +18469,18 @@ def _release_door_words_split(command: str) -> str | None:
     if any(name == "gh" and words[k] == "pr" and words[k + 1:k + 2] == ["merge"] for k, name in subs.items()) and \
             not any(w == "--match-head-commit" or w.startswith("--match-head-commit=") for w in words):
         return "merge_kopf"
+    # A WORD THE GATE CANNOT READ, IN A LINE OF A DOOR PROGRAM (local reviews of 698f882b, 06d45152 and 5f569e59,
+    # 2026-11-10, each open at main as well). Three reviews in a row found one more shell form that hands git a
+    # configuration, an option or a subcommand its words do not show: `GIT_CONFIG_GLOBAL+=f`, a key in backquotes,
+    # `command export ${N}BAL=f`, `env "${N}BAL=f" git push`, `git "$C" "${K}ude.path=f" push`. Each was an instance of
+    # one class: an expansion the gate does not resolve (_RELEASE_EXPANSION) may stand for any word, so in a line that
+    # runs one of _RELEASE_DOOR_PROGRAMS it may name any door, also as a subcommand (`S=push; git $S --mirror z`) or an
+    # option (`O=-S; git commit $O -m x`). Such a line is held back as the door `unread`, after every door its words
+    # name, so a line keeps the door it names. The named cost: `git push origin "$BRANCH"` and `git -C "$DIR" status` are
+    # held back too, although most values open no door; a release frees less, never more.
+    if (exec_path or any(n in _RELEASE_DOOR_PROGRAMS for n in names)) and \
+            _RELEASE_UNKNOWN in _RELEASE_EXPANSION.sub(_RELEASE_UNKNOWN, command):
+        return "unread"
     return None
 
 

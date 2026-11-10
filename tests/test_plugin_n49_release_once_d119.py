@@ -496,27 +496,41 @@ CONFIG_HELD = [("git send-pack --mirror ../origin.git", "force", "tag"),
                ("export X=$PWD/../push.cfg; git --config-env=\"`printf %s%s incl ude.path`=X\" push origin", "force", "tag"),
                ("N=GIT_CONFIG_GLO; export ${N}BAL=$PWD/../push.cfg; git push origin", "force", "tag"),
                ("N=GIT_CONFIG_GLO; printf -v \"${N}BAL\" %s $PWD/../push.cfg; export \"${N}BAL\"; git push origin",
-                "force", "tag")]
+                "force", "tag"),
+               # local review of 5f569e59 (P1, open at main) and the class it belongs to: a word the gate cannot read in
+               # a line of a door program may be any configuration, subcommand or option
+               ("N=GIT_CONFIG_GLO; command export ${N}BAL=$PWD/../push.cfg; git push origin", "unread", "tag"),
+               ("N=GIT_CONFIG_GLO; env \"${N}BAL=$PWD/../push.cfg\" git push origin", "unread", "tag"),
+               ("C=-c; K=incl; git \"$C\" \"${K}ude.path=$PWD/../push.cfg\" push origin", "unread", "tag"),
+               ("S=push; git $S --mirror origin", "unread", "tag"),
+               ("O=--tags; git push $O origin", "unread", "tag"),
+               ("O=$(printf -- -%s S); git commit $O -q -m x", "unread", "signatur")]
 #: The named cost of that rule: a plain refspec set by configuration is held back although git opens no door with it.
 OVERCOUNT = [("git -c remote.origin.push=HEAD:refs/heads/main push origin", "force"),
              ("git -c remote.origin.pushurl=../origin.git push origin claude/x", "force"),
              ("GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.push GIT_CONFIG_VALUE_0=HEAD:refs/heads/main "
               "git push origin", "force"),
              ("GIT_CONFIG_GLOBAL=/dev/null git push origin claude/x", "force"),
-             ("git commit -q -m 'fix the HOME page'", "force")]
+             ("git commit -q -m 'fix the HOME page'", "force"),
+             # the cost of the class rule for a word the gate cannot read: a plain read of $HOME, a value of -c, an
+             # exported value; git opens no door with any of them
+             ("git -C \"$HOME\"/repo push origin claude/x", "unread"), ("git -C ${HOME}/repo push origin claude/x", "unread"),
+             ("git -c user.name=\"$USER\" push origin claude/x", "unread"),
+             ("export GIT_AUTHOR_NAME=\"$USER\"; git push origin claude/x", "unread")]
 #: No oracle runs these: git refuses `push --forc` as ambiguous, and a tag made locally does not reach the remote the
 #: oracle reads. Both still hold a release back.
-WORDS_ONLY = [("git push --forc origin claude/x", "force"), ("git -c 'user.name=John Doe' tag v2", "tag"),
+WORDS_ONLY = [("O=$(printf -- --%s admin); gh pr merge 388 -R b7n0de/proofbundle --squash --match-head-commit "
+               "0123456789abcdef0123456789abcdef01234567 $O", "unread"),
+              ("C=publish; uv $C", "unread"),
+              ("git push --forc origin claude/x", "force"), ("git -c 'user.name=John Doe' tag v2", "tag"),
               ("/usr/lib/git-core/git-push --force origin HEAD:refs/heads/main", "force")]
 SPELLING_COUNTERS = ["git commit -s -m x", "git commit -qm x", "git commit -am x", "git commit --no-gpg-sign -m x",
                      "git push -u origin claude/x", "git push --set-upstream origin claude/x",
                      "git push --no-signed origin claude/x", "git push --no-force origin claude/x",
                      "git -c 'user.name=John Doe' push origin claude/x",
                      _TOPIC + "git -c branch.main.mergeOptions=--no-ff merge --no-edit topic",
-                     # a plain read of $HOME and an expansion in the value of -c move no configuration
-                     "git -C \"$HOME\"/repo push origin claude/x", "git -C ${HOME}/repo push origin claude/x",
-                     "git -c user.name=\"$USER\" push origin claude/x",
-                     "export GIT_AUTHOR_NAME=\"$USER\"; git push origin claude/x"]
+                     # an expansion in a line that runs no door program is no door
+                     "printf '%s\\n' \"$PWD\" > /dev/null"]
 
 
 def _git_oracle(tmp_path: pathlib.Path, line: str) -> set:
