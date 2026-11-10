@@ -216,7 +216,9 @@ def _source_tree_rows(package_dir: Path) -> list[str]:
     # rows took `.py`, `.json` and `.typed` only, so an extension module or bytecode outside `__pycache__`,
     # which the importer loads in place of a `.py` of the same name, left the digest as it was; and a link to a
     # directory was skipped, so the code behind it was never measured. Every suffix the importer knows counts
-    # now, and a link to a directory outside the tree is refused like a file link that leaves it.
+    # now, and a link to a directory is refused, wherever it points: a link to a directory outside brings code
+    # the tree does not hold, and a link inside chooses which code a name imports (`signature -> _bad`) while
+    # every file stays as it was (third local review, 643a33b5, P1). A package needs no link to a directory.
     import importlib.machinery  # noqa: PLC0415
     einfuhr = tuple(importlib.machinery.all_suffixes())
     rows: list[str] = []
@@ -224,11 +226,9 @@ def _source_tree_rows(package_dir: Path) -> list[str]:
         if "__pycache__" in p.relative_to(package_dir).parts:
             continue
         if p.is_symlink() and p.is_dir():
-            if not _innerhalb(p, package_dir):
-                raise VerifierBlockError(
-                    f"{p.relative_to(package_dir).as_posix()} is a link to a directory outside the package "
-                    "directory -- code behind a link that leaves the tree cannot be part of the tree's identity")
-            continue
+            raise VerifierBlockError(
+                f"{p.relative_to(package_dir).as_posix()} is a link to a directory -- it decides which code a name "
+                "imports and is no file of the tree, so a tree carrying it has no identity of its own")
         if not p.is_file() or not (p.suffix in _SOURCE_TREE_SUFFIXES or p.name.endswith(einfuhr)):
             continue
         if not _innerhalb(p, package_dir):

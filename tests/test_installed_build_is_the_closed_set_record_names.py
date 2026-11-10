@@ -84,8 +84,32 @@ def test_a_link_to_a_directory_elsewhere_is_no_build_of_the_package(tmp_path, mo
     assert _importiert(pkg.parent) == "False"
     (pkg / "signature").symlink_to(aussen, target_is_directory=True)
     assert _importiert(pkg.parent) == "True", "the link is not imported; the case would prove nothing"
-    with pytest.raises(VB.VerifierBlockError, match="link to a directory outside"):
+    with pytest.raises(VB.VerifierBlockError, match="is a link to a directory"):
         VB.measure_build(pkg)
+
+
+def test_a_link_inside_the_package_that_chooses_the_code_has_no_identity(tmp_path, monkeypatch):
+    """Third local review of 643a33b5 (P1): both target packages are files of the tree before the link exists, and only
+    the link `signature` decides which of them a name imports. The files stay the same, so a digest over them could
+    not see the link added or turned to the other target; a tree carrying a link to a directory is refused."""
+    def _keine(name):
+        raise im.PackageNotFoundError(name)
+
+    monkeypatch.setattr(im, "distribution", _keine)
+    site = tmp_path / "baum"
+    pkg = site / "proofbundle"
+    for sub, wert in (("_gut", "False"), ("_boese", "True")):
+        (pkg / sub).mkdir(parents=True)
+        (pkg / sub / "__init__.py").write_text(f"def verify_ed25519(*a):\n    return {wert}\n")
+    (pkg / "__init__.py").write_text("__version__ = 'x'\n")
+    (pkg / "signature.py").write_text("def verify_ed25519(*a):\n    return False\n")
+    assert VB.measure_build(pkg)["source"] == "source-tree", "positive control: the tree without the link measures"
+    for ziel, erwartet in (("_gut", "False"), ("_boese", "True")):
+        (pkg / "signature").symlink_to(pkg / ziel, target_is_directory=True)
+        assert _importiert(site) == erwartet, (ziel, "the link does not decide the import; the case would prove nothing")
+        with pytest.raises(VB.VerifierBlockError, match="is a link to a directory"):
+            VB.measure_build(pkg)
+        (pkg / "signature").unlink()
 
 
 def test_bytecode_without_its_source_is_not_the_installed_build(tmp_path, monkeypatch):
