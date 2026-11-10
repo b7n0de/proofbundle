@@ -178,6 +178,22 @@ def _installed_record_rows(package_dir: Path):
         except (OSError, ValueError):
             return None
         rows.append(f"{pfad}\0{digest[len('sha256='):]}")
+    # A FILE OF THE PACKAGE THAT RECORD DOES NOT NAME IS NOT THE INSTALLED BUILD (local review of 8a05ceef,
+    # 2026-11-10, P1, the neighbour of DELTA2 N4). Every row was held to its bytes, but the package directory
+    # was never held to the rows: an added `proofbundle/signature/__init__.py` is imported in place of
+    # `signature.py`, and the listing, the digest and `report` stayed those of the wheel. The installed build
+    # is the closed set RECORD names; bytecode is not the build, as above. Anything else makes the tree
+    # measure as what it is, `source-tree`.
+    genannt = {zeile.split("\0", 1)[0] for zeile in rows}
+    try:
+        for p in package_dir.rglob("*"):
+            teile = p.relative_to(package_dir).parts
+            if "__pycache__" in teile or p.suffix in (".pyc", ".pyo") or p.is_dir():
+                continue
+            if f"{IMPLEMENTATION}/{'/'.join(teile)}" not in genannt:
+                return None
+    except (OSError, ValueError):
+        return None
     return rows or None
 
 
