@@ -18230,15 +18230,26 @@ def _release_braced(text: str) -> str:
     where the gate can expand it: `{s,x}udo` runs sudo. A word bash expands and the gate does not (more than
     _SH_BRACE_MAX words: `git push --ta{,}{,}{,}{,}{,}{,}{,} z` makes 128 words `--ta` and sends the tags, local review of
     97b77526, open at main as well) keeps the mark _RELEASE_UNKNOWN, so the rule for a word the gate cannot read holds
-    it back as the door unread."""
+    it back as the door unread.
+
+    The same holds for every brace form the gate does not model (local review of 87bc823c, open at main as well: bash
+    reads a range with a step, `--ta{g..g..1}` is `--tag`). Rather than the next form, the rule is closed: a word that
+    still holds a brace with a comma or `..` after the gate's expansion was formed by a rule the gate does not know."""
     def read(word: str) -> str:
         if "{" not in word:
             return word
         expanded = _sh_brace_expand(word)
-        if expanded:
-            return " ".join(expanded)
-        return word + _RELEASE_UNKNOWN if _sh_brace_first(word) is not None else word
+        if expanded is None:
+            unread = _sh_brace_first(word) is not None or _RELEASE_BRACE_LEFT.search(word) is not None
+            return word + _RELEASE_UNKNOWN if unread else word
+        joined = " ".join(expanded)
+        return joined + _RELEASE_UNKNOWN if any(_RELEASE_BRACE_LEFT.search(w) for w in expanded) else joined
     return "".join(read(w) for w in re.split(r"(\s+)", text))
+
+
+#: A brace with a comma or a range in it, left in a word after the gate's brace expansion: bash forms it by a rule the
+#: gate does not model (a range with a step, `{a..e..2}`), so the word is one the gate cannot read.
+_RELEASE_BRACE_LEFT = re.compile(r"\{[^{}]*(?:,|\.\.)[^{}]*\}")
 
 
 #: The programs that run text as a command: a word of theirs the gate does not resolve may be a root program.

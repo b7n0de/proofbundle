@@ -512,7 +512,11 @@ CONFIG_HELD = [("git send-pack --mirror ../origin.git", "force", "tag"),
                # (_SH_BRACE_MAX = 64) is a word it cannot read; seven groups of {,} make 128 words
                ("git push --ta{,}{,}{,}{,}{,}{,}{,} origin", "unread", "tag"),
                ("git push --mirro{,}{,}{,}{,}{,}{,}{,} origin", "unread", "tag"),
-               ("git commit --gpg{,}{,}{,}{,}{,}{,}{,} -q -m x", "unread", "signatur")]
+               ("git commit --gpg{,}{,}{,}{,}{,}{,}{,} -q -m x", "unread", "signatur"),
+               # local review of 87bc823c (P1, open at main): a brace form the gate does not model, a range with a step
+               ("git push --ta{g..g..1} origin", "unread", "tag"),
+               ("git push --mirro{r..r..1} origin", "unread", "tag"),
+               ("git commit --gpg-sig{n..n..1} -q -m x", "unread", "signatur")]
 #: The named cost of that rule: a plain refspec set by configuration is held back although git opens no door with it.
 OVERCOUNT = [("git -c remote.origin.push=HEAD:refs/heads/main push origin", "force"),
              ("git -c remote.origin.pushurl=../origin.git push origin claude/x", "force"),
@@ -538,7 +542,9 @@ SPELLING_COUNTERS = ["git commit -s -m x", "git commit -qm x", "git commit -am x
                      "git -c 'user.name=John Doe' push origin claude/x",
                      _TOPIC + "git -c branch.main.mergeOptions=--no-ff merge --no-edit topic",
                      # an expansion in a line that runs no door program is no door
-                     "printf '%s\\n' \"$PWD\" > /dev/null"]
+                     "printf '%s\\n' \"$PWD\" > /dev/null",
+                     # a brace without a comma or a range is a word of its own, also in a line of git
+                     "git log -1 --format='%H {x}'"]
 
 
 def _git_oracle(tmp_path: pathlib.Path, line: str) -> set:
