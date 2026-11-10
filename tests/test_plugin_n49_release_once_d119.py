@@ -460,14 +460,26 @@ KEPT_WORDS = [("gh -R b7n0de/git-repo release edit stable --notes x", "release")
 #: the repository), and `send-pack --mirror` is read as the mirror it is; here git sends a tag with each, and the
 #: third entry is the door git opens (send-pack --mirror does not force the diverged main, measured).
 CONFIG_HELD = [("git send-pack --mirror ../origin.git", "force", "tag"),
+               # local review of 1018aa84 (P1, open at main): the upstream of a branch chooses a tag as the target
+               ("git -c push.default=upstream -c branch.main.remote=../origin.git -c branch.main.merge=refs/tags/r9 push",
+                "force", "tag"),
                ("git -c 'remote.origin.push=refs/tags/*:refs/tags/*' push origin", "force", "tag"),
                ("KIND=tags; git -c remote.origin.push=HEAD:refs/$KIND/v2 push origin", "force", "tag"),
-               ("git -c remote.origin.push=v1 push origin", "force", "tag")]
+               ("git -c remote.origin.push=v1 push origin", "force", "tag"),
+               # neighbours of that finding: a configuration the line brings in from a file the reader does not see
+               ("git -c include.path=$PWD/../push.cfg push origin", "force", "tag"),
+               ("git -c includeIf.onbranch:main.path=$PWD/../push.cfg push origin", "force", "tag"),
+               ("GIT_CONFIG_GLOBAL=$PWD/../push.cfg git push origin", "force", "tag"),
+               ("GIT_CONFIG_SYSTEM=$PWD/../push.cfg git push origin", "force", "tag"),
+               ("env -u GIT_CONFIG_GLOBAL HOME=$PWD/../cfg_home git push origin", "force", "tag"),
+               ("env -u GIT_CONFIG_GLOBAL XDG_CONFIG_HOME=$PWD/../xdg git push origin", "force", "tag"),
+               ("git -c include.path=$PWD/../sign.cfg commit -q -m x", "force", "signatur")]
 #: The named cost of that rule: a plain refspec set by configuration is held back although git opens no door with it.
 OVERCOUNT = [("git -c remote.origin.push=HEAD:refs/heads/main push origin", "force"),
              ("git -c remote.origin.pushurl=../origin.git push origin claude/x", "force"),
              ("GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.push GIT_CONFIG_VALUE_0=HEAD:refs/heads/main "
-              "git push origin", "force")]
+              "git push origin", "force"),
+             ("GIT_CONFIG_GLOBAL=/dev/null git push origin claude/x", "force")]
 #: No oracle runs these: git refuses `push --forc` as ambiguous, and a tag made locally does not reach the remote the
 #: oracle reads. Both still hold a release back.
 WORDS_ONLY = [("git push --forc origin claude/x", "force"), ("git -c 'user.name=John Doe' tag v2", "tag"),
@@ -489,6 +501,14 @@ def _git_oracle(tmp_path: pathlib.Path, line: str) -> set:
     program.write_text(f"#!/bin/sh\ntouch '{marker}'\nexit 1\n")
     program.chmod(0o700)
     bare, src = tmp_path / "origin.git", tmp_path / "src"
+    # files a line may bring in as configuration (CONFIG_HELD): one that pushes the tags, one that signs each commit
+    push_cfg = '[remote "origin"]\n\tpush = refs/tags/*:refs/tags/*\n'
+    (tmp_path / "push.cfg").write_text(push_cfg)
+    (tmp_path / "sign.cfg").write_text("[commit]\n\tgpgsign = true\n")
+    (tmp_path / "cfg_home").mkdir()
+    (tmp_path / "cfg_home" / ".gitconfig").write_text(push_cfg)
+    (tmp_path / "xdg" / "git").mkdir(parents=True)
+    (tmp_path / "xdg" / "git" / "config").write_text(push_cfg)
 
     def run(*args, cwd=src):
         subprocess.run(["git", *args], cwd=str(cwd), env=env, capture_output=True, check=True, timeout=60)

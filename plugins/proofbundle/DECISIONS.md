@@ -5959,6 +5959,12 @@ them, now kept as cases); a push started from the exec path is at least the door
 read it; push.followTags in the line's text is the door of a tag, and any key of
 remote.<name>.push or remote.<name>.mirror in the line's text is the door of a forced push, whatever its value and
 wherever it is set (-c, git config, GIT_CONFIG_PARAMETERS, GIT_CONFIG_KEY_<n>, --config-env in either form).
+So is a key that chooses the target of a push without a refspec, branch.<name>.merge, .remote and .pushRemote,
+push.default and remote.pushDefault (local review of 1018aa84, open at main as well:
+`-c push.default=upstream -c branch.main.merge=refs/tags/x push` sends a tag), and a configuration the line brings in
+from a file it does not show: include.path, includeIf.<condition>.path, GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM, HOME and
+XDG_CONFIG_HOME. Measured with git 2.55.0, each of them with remote.origin.push=refs/tags/*:refs/tags/* in the file
+makes `git push origin` send the tag, and an include with commit.gpgSign makes `git commit` sign.
 `git push --signed` and its prefixes are the door of a signature, and so is a signing option given as the value of
 a word (`git -c branch.main.mergeOptions=-S merge topic`, `GIT_CONFIG_VALUE_0=-qS` for that key): the part after the
 first `=` of a word is read as a word of its own for the signature (local review of the seventh form, open at main
@@ -5969,7 +5975,8 @@ plain refspec, and the local reviews of each found a value git reads otherwise (
 last of two assignments, `.push=` inside a quoted remote name, an expansion inside the value as in `refs/$KIND/v2`, a
 short name git expands to a tag as in `remote.z.push=v1`). A refspec is resolved against the repository and the
 environment, which this rule sees neither of. The named cost: a plain refspec set by configuration is held back
-although git opens no door with it; three such lines are cases of the tests.
+although git opens no door with it; three such lines are cases of the tests, and a line that moves the global file
+without such a key (`GIT_CONFIG_GLOBAL=/dev/null git push origin claude/x`) is a fourth.
 
 A short tag name (`git push z v1`, `v1:another`) is not read from the words: house rule H2 reads it from the
 repository (house_tag_out), and D119 takes that reason as the door of a tag; measured on 2026-11-10 at the third local

@@ -18287,13 +18287,25 @@ def _git_short_bundle(word: str, letter: str) -> bool:
 #: push.followTags sends the tags, remote.<name>.mirror mirrors, remote.<name>.push names the refspecs. It is found in
 #: the line's own text, never in its split words, and it is not parsed further: the name of a remote may hold any
 #: character once it is quoted, `.push=` included (`remote.o.push=x.mirror` is the key mirror of the remote `o.push=x`).
-_GIT_PUSH_CONFIG = re.compile(r"(push\.followtags)|remote\.[^\n]*?\.(?:mirror|push)", re.I)
+_GIT_PUSH_CONFIG = re.compile(r"(push\.followtags)|remote\.[^\n]*?\.(?:mirror|push)|branch\.[^\n]*?\.(?:merge|remote|pushremote)(?![a-z])|"
+                              r"push\.default(?![a-z])|remote\.pushdefault(?![a-z])", re.I)
+#: A configuration the line brings in from a file this reader does not see: an include (`-c include.path=`,
+#: `-c includeIf.<condition>.path=`), or the global or system file moved by GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM, HOME
+#: or XDG_CONFIG_HOME. Measured 2026-11-10 with git 2.55.0: each of them carrying `remote.origin.push=refs/tags/*:refs/tags/*`
+#: makes `git push origin` send the tag.
+_GIT_CONFIG_FILE_KEY = re.compile(r"\binclude(?:if\.[^\n]*?)?\.path(?![a-z])", re.I)
+_GIT_CONFIG_FILE_ENV = re.compile(r"(?<![A-Za-z0-9_])(?:GIT_CONFIG_GLOBAL|GIT_CONFIG_SYSTEM|HOME|XDG_CONFIG_HOME)=")
 
 
 def _git_push_config_door(text: str) -> str | None:
     """The door a configuration of the line opens for a push: push.followTags is the door of a tag, and any key of
     remote.<name>.push or remote.<name>.mirror is the door of a forced push, whatever its value and wherever it is set
-    (-c, git config, GIT_CONFIG_PARAMETERS, GIT_CONFIG_KEY_<n>, --config-env in either form).
+    (-c, git config, GIT_CONFIG_PARAMETERS, GIT_CONFIG_KEY_<n>, --config-env in either form). So is a key that chooses
+    the target of a push without a refspec: branch.<name>.merge, .remote and .pushRemote, push.default and
+    remote.pushDefault (local review of 1018aa84: `-c push.default=upstream -c branch.master.merge=refs/tags/x push`
+    sends a tag). A configuration the line brings in from a file (`_GIT_CONFIG_FILE_KEY`, `_GIT_CONFIG_FILE_ENV`) is the
+    door of a forced push as well: its keys are not in the line, so any of the above may stand in it, and so may
+    commit.gpgSign (the release of `git -c include.path=f commit` is held back as such a door too).
 
     WHY NO VALUE IS READ (local reviews of 89922dec and 5ee4b8bc, 2026-11-10). The first two forms of this reader took
     the value of remote.<name>.push from the line and freed a plain refspec. Each review then found a value git reads
@@ -18302,6 +18314,8 @@ def _git_push_config_door(text: str) -> str | None:
     git resolves against the repository and the environment, which this reader sees neither of, so it frees none: a
     release frees less, never more. The cost is named in the tests: a plain refspec set by configuration is held back
     although git opens no door with it."""
+    if _GIT_CONFIG_FILE_KEY.search(text) or _GIT_CONFIG_FILE_ENV.search(text):
+        return "force"
     found = _GIT_PUSH_CONFIG.search(text)
     if not found:
         return None
