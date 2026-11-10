@@ -1,5 +1,18 @@
 # What proofbundle does NOT claim
 
+**What a proofbundle receipt does not prove.**
+
+A receipt lets you check the signed content and the integrity properties its format supports. In a native proofbundle evidence bundle, the Ed25519 signature covers the payload, not the entire JSON file. A passing check alone does not identify a trusted signer or establish that the result is true; trust in the key requires an independently obtained public key. This page lists those limits.
+
+## Good to know
+
+- For anything on this list, use an audit, a benchmark study or a governance process.
+- The page also names the steps of the decision receipt draft that the verifiers do not perform.
+
+The [full list](#technical-details) follows below, for eval receipts, decision receipts, action outcomes and the experimental enclave bridge.
+
+## Technical details
+
 proofbundle exists to make one narrow thing checkable — *who signed these exact eval bytes, and that
 nothing changed since* — and to keep the scope of that claim honest. This page is the negative list.
 It is deliberately blunt so a reader never mistakes a receipt for more than it is.
