@@ -1278,6 +1278,16 @@ _LOOKUPS_CLASSIFIED = {
     # c3bd89a4, `allowed = set(_T)`): `daten = {f: receipt[f] for f in _PFLICHTFELDER}`.
     ("proofbundle/adapters/agt_receipt.py", "canonical_payload", "daten", "f"):
         (1, "own value: f runs over _WAHLFELDER, a tuple of two string literals of the module"),
+    # The reader of draft-gruszka-scitt-statement-identification-03 and its command, read at the source and at the
+    # one caller of each (2026-11-10).
+    ("proofbundle/scitt_statement_id.py", "_reference_usable", "HASHES", "r_alg"):
+        (1, "guarded: type(r_alg) is int and is_member(r_alg, HASHES) return before it"),
+    ("proofbundle/cli.py", "_cmd_scitt_match", "HASHES", "res['alg']"):
+        (1, "own value: res is the dict match_statement returned, whose alg is the argument it raised for unless "
+            "type(alg) is int and is_member(alg, HASHES)"),
+    ("proofbundle/cli.py", "_cmd_scitt_match", "_SCITT_MATCH_EXIT", "res['match']"):
+        (1, "own value: match_statement sets match only to one of its three string constants, which are the keys "
+            "of _SCITT_MATCH_EXIT"),
 }
 
 
