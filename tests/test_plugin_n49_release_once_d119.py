@@ -539,7 +539,12 @@ CONFIG_HELD = [("git send-pack --mirror ../origin.git", "force", "tag"),
                ('echo "$(/usr/bin/g[i]t push --mirror origin)"', "unread", "tag"),
                ('echo "$(/usr/bin/g[i]t push --tags origin)"', "unread", "tag"),
                ('echo "$(/usr/bin/g[i]t commit -S -q -m x)"', "unread", "signatur"),
-               ("b''ash -c '/usr/bin/g[i]t push --mirror origin'", "unread", "tag")]
+               ("b''ash -c '/usr/bin/g[i]t push --mirror origin'", "unread", "tag"),
+               # local review of c3ae95a6 (P1, open at main): a pattern in the place of the program, here a program of
+               # git's exec path
+               ('"$(git --exec-path)"/g[i]t-push --mirror origin', "unread", "tag"),
+               ('"$(git --exec-path)"/g[i]t-push --tags origin', "unread", "tag"),
+               ('"$(git --exec-path)"/g[i]t-commit $(printf -- -%s S) -q -m x', "unread", "signatur")]
 #: The named cost of that rule: a plain refspec set by configuration is held back although git opens no door with it.
 OVERCOUNT = [("git -c remote.origin.push=HEAD:refs/heads/main push origin", "force"),
              ("git -c remote.origin.pushurl=../origin.git push origin claude/x", "force"),
@@ -547,6 +552,8 @@ OVERCOUNT = [("git -c remote.origin.push=HEAD:refs/heads/main push origin", "for
               "git push origin", "force"),
              ("GIT_CONFIG_GLOBAL=/dev/null git push origin claude/x", "force"),
              ("git commit -q -m 'fix the HOME page'", "force"),
+             # the cost of the rule for a pattern in the place of the program
+             ("./build*.sh", "unread"),
              # the cost of the class rule for a word the gate cannot read: a plain read of $HOME, a value of -c, an
              # exported value; git opens no door with any of them
              ("git -C \"$HOME\"/repo push origin claude/x", "unread"), ("git -C ${HOME}/repo push origin claude/x", "unread"),
@@ -557,6 +564,7 @@ OVERCOUNT = [("git -c remote.origin.push=HEAD:refs/heads/main push origin", "for
 WORDS_ONLY = [("O=$(printf -- --%s admin); gh pr merge 388 -R b7n0de/proofbundle --squash --match-head-commit "
                "0123456789abcdef0123456789abcdef01234567 $O", "unread"),
               ("C=publish; uv $C", "unread"),
+              ("/usr/lib/git-core/g[i]t-push --mirror origin", "unread"),
               ("env {X{0..0..1}=,gh} release create v1 -R b7n0de/proofbundle --notes x", "release"),
               ("env {X{0..0..1}=,sudo} cat /etc/hostname", "root"),
               ("git push --forc origin claude/x", "force"), ("git -c 'user.name=John Doe' tag v2", "tag"),
@@ -573,7 +581,9 @@ SPELLING_COUNTERS = ["git commit -s -m x", "git commit -qm x", "git commit -am x
                      # a pattern in quotes and the test command [ are no words formed from file names
                      "git log -1 --grep='fix*'", "[ -f README ] || git status --short",
                      # a program that reads the text again, without a pattern in it
-                     "bash -c 'git status --short'", 'echo "$(date)"']
+                     "bash -c 'git status --short'", 'echo "$(date)"',
+                     # a pattern as an argument of a program that is no door program
+                     "ls ./*.md > /dev/null"]
 
 
 def _git_oracle(tmp_path: pathlib.Path, line: str) -> set:

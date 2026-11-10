@@ -18213,7 +18213,26 @@ def _release_door_words(command: str) -> str | None:
         if any(n in _RELEASE_DOOR_PROGRAMS or (n.startswith("git-") and len(n) > 4) for n in names) or \
                 any(sec.may_match(os.path.basename(w).lower(), p) for w in globbed for p in _RELEASE_DOOR_PROGRAMS):
             return "unread"
+        # A pattern in the place of the program: the gate cannot tell which program runs (local review of c3ae95a6,
+        # open at main as well: `/usr/lib/git-core/g[i]t-push --mirror z` runs git's push). Rather than a list of the
+        # names a pattern may match, a program word with a pattern holds the line back; D102 read a root or signer
+        # pattern before (_release_unresolved_door).
+        if any(_release_glob_program(x) for x in texts):
+            return "unread"
     return None
+
+
+def _release_glob_program(text: str) -> bool:
+    """Whether the program word of a run of words of text (_guard_program) holds a pattern outside quotes."""
+    globbed = set(_release_glob_words(text))
+    for part in re.split(r"[;&|()\n]+", text):
+        words = part.split()
+        if not words:
+            continue
+        program = _RELEASE_JOIN.sub("", words[_guard_program(words)])
+        if program in globbed:
+            return True
+    return False
 
 
 def _release_glob_words(text: str) -> list[str]:

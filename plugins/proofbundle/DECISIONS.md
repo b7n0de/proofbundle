@@ -6000,7 +6000,10 @@ read in every form the shell gives the line before it expands it (local review o
 after the brace expansion (`/usr/bin/{g..g}[i]t`) and, where a program reads the text again
 (`bash -c '/usr/bin/g[i]t push --mirror z'`), without the quotes the outer shell removes. Whether a text is read
 again is one test, _release_reads_again, which _release_assembled uses as well (local review of 3c79f5e0: the rule
-had built a narrower test of its own and missed `echo "$(/usr/bin/g[i]t push --mirror z)"` and `b''ash -c '...'`). A program the line takes from a file,
+had built a narrower test of its own and missed `echo "$(/usr/bin/g[i]t push --mirror z)"` and `b''ash -c '...'`).
+A pattern in the place of the program holds the line back whatever names it may match (local review of c3ae95a6,
+open at main as well: `/usr/lib/git-core/g[i]t-push --mirror z` runs git's push); D102 reads a root or signer pattern
+before it. A program the line takes from a file,
 by PATH or GIT_EXEC_PATH, is not read here, as no text of a file the line runs is (_release_unresolved_door).
 `git push --signed` and its prefixes are the door of a signature, and so is a signing option given as the value of
 a word (`git -c branch.main.mergeOptions=-S merge topic`, `GIT_CONFIG_VALUE_0=-qS` for that key): the part after the
