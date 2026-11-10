@@ -197,6 +197,25 @@ def test_the_full_option_still_applies(path, option):
         assert got == (action.type(want) if action.type else want)
 
 
+def _child_env() -> dict:
+    """The environment of a child process that imports the package of THIS tree. A child inherits no `sys.path` of
+    pytest: in the signing runner, whose venv carries an installed proofbundle 6.0.0 and which puts `src` in front only
+    through `-o pythonpath=src`, the child of this test ran the CLI of 6.0.0, which reads abbreviations, and the case
+    was red there twice (witness of pull request 505, 2026-11-10) while it passed in a shell that exported
+    PYTHONPATH=src."""
+    import os
+    alt = os.environ.get("PYTHONPATH")
+    return {**os.environ, "PYTHONPATH": str(SRC) + (os.pathsep + alt if alt else "")}
+
+
+def test_the_child_process_imports_the_package_of_this_tree():
+    """The precondition of the real-process case: the child measures this tree, not an installed package."""
+    proc = subprocess.run([sys.executable, "-c", "import proofbundle.cli as c; print(c.__file__)"],
+                          capture_output=True, text=True, timeout=120, env=_child_env())
+    assert proc.returncode == 0, proc.stderr
+    assert pathlib.Path(proc.stdout.strip()).resolve().is_relative_to(SRC.resolve()), proc.stdout
+
+
 def test_the_measured_case_in_a_real_process(tmp_path):
     """The case of the finding: ``--decision-m`` must not become ``--decision-maker-id``."""
     receipt = tmp_path / "r.json"
@@ -204,6 +223,6 @@ def test_the_measured_case_in_a_real_process(tmp_path):
     proc = subprocess.run(
         [sys.executable, "-m", "proofbundle.cli", "outcome", "verify", str(receipt),
          "--pub", str(tmp_path / "k.pub"), "--decision-m", "dm-1"],
-        capture_output=True, text=True, timeout=120)
+        capture_output=True, text=True, timeout=120, env=_child_env())
     assert proc.returncode == 2
     assert "unrecognized arguments: --decision-m dm-1" in proc.stderr
