@@ -18294,7 +18294,18 @@ _GIT_PUSH_CONFIG = re.compile(r"(push\.followtags)|remote\.[^\n]*?\.(?:mirror|pu
 #: or XDG_CONFIG_HOME. Measured 2026-11-10 with git 2.55.0: each of them carrying `remote.origin.push=refs/tags/*:refs/tags/*`
 #: makes `git push origin` send the tag.
 _GIT_CONFIG_FILE_KEY = re.compile(r"\binclude(?:if\.[^\n]*?)?\.path(?![a-z])", re.I)
-_GIT_CONFIG_FILE_ENV = re.compile(r"(?<![A-Za-z0-9_])(?:GIT_CONFIG_GLOBAL|GIT_CONFIG_SYSTEM|HOME|XDG_CONFIG_HOME)=")
+#: The shell sets a variable in more forms than `NAME=` (local review of 698f882b, open at main as well): `NAME+=`,
+#: `printf -v NAME`, `read NAME`, `declare -n ref=NAME`, `for NAME in`, `${NAME:=…}` and `${NAME=…}`. So every mention
+#: of one of these names counts, except a plain read of its value (`$NAME`, `${NAME}`, `${NAME:-…}`): `$HOME` in a
+#: path is read in many lines and moves no configuration.
+_GIT_CONFIG_FILE_NAMES = r"(?:GIT_CONFIG_GLOBAL|GIT_CONFIG_SYSTEM|HOME|XDG_CONFIG_HOME)"
+_GIT_CONFIG_FILE_ENV = re.compile(r"(?<!\$)(?<!\$\{)\b" + _GIT_CONFIG_FILE_NAMES + r"\b|\$\{" + _GIT_CONFIG_FILE_NAMES + r":?=")
+#: A key of the configuration the line sets but this reader cannot read: GIT_CONFIG_KEY_<n> or GIT_CONFIG_PARAMETERS
+#: set in another form than `NAME=` or with an expansion in its value, and a key of `-c` or `--config-env` with an
+#: expansion (`printf -v K %s%s incl ude.path; git -c "$K=f" push` brings in the file f, measured with git 2.55.0).
+_GIT_CONFIG_UNREAD_KEY = re.compile(r"(?<!\$)(?<!\$\{)\bGIT_CONFIG_(?:KEY_[0-9]+|PARAMETERS)\b(?!=)|"
+                                    r"\bGIT_CONFIG_(?:KEY_[0-9]+|PARAMETERS)=[^\s;&|]*\$|"
+                                    r"(?:^|[\s;&|(])(?:-c|--config-env)[\s=]+[^\s=]*\$")
 
 
 def _git_push_config_door(text: str) -> str | None:
@@ -18305,7 +18316,8 @@ def _git_push_config_door(text: str) -> str | None:
     remote.pushDefault (local review of 1018aa84: `-c push.default=upstream -c branch.master.merge=refs/tags/x push`
     sends a tag). A configuration the line brings in from a file (`_GIT_CONFIG_FILE_KEY`, `_GIT_CONFIG_FILE_ENV`) is the
     door of a forced push as well: its keys are not in the line, so any of the above may stand in it, and so may
-    commit.gpgSign (the release of `git -c include.path=f commit` is held back as such a door too).
+    commit.gpgSign (the release of `git -c include.path=f commit` is held back as such a door too). The same holds for
+    a key the line sets in a form this reader cannot read (`_GIT_CONFIG_UNREAD_KEY`).
 
     WHY NO VALUE IS READ (local reviews of 89922dec and 5ee4b8bc, 2026-11-10). The first two forms of this reader took
     the value of remote.<name>.push from the line and freed a plain refspec. Each review then found a value git reads
@@ -18314,7 +18326,7 @@ def _git_push_config_door(text: str) -> str | None:
     git resolves against the repository and the environment, which this reader sees neither of, so it frees none: a
     release frees less, never more. The cost is named in the tests: a plain refspec set by configuration is held back
     although git opens no door with it."""
-    if _GIT_CONFIG_FILE_KEY.search(text) or _GIT_CONFIG_FILE_ENV.search(text):
+    if _GIT_CONFIG_FILE_KEY.search(text) or _GIT_CONFIG_FILE_ENV.search(text) or _GIT_CONFIG_UNREAD_KEY.search(text):
         return "force"
     found = _GIT_PUSH_CONFIG.search(text)
     if not found:

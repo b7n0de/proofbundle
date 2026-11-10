@@ -473,13 +473,27 @@ CONFIG_HELD = [("git send-pack --mirror ../origin.git", "force", "tag"),
                ("GIT_CONFIG_SYSTEM=$PWD/../push.cfg git push origin", "force", "tag"),
                ("env -u GIT_CONFIG_GLOBAL HOME=$PWD/../cfg_home git push origin", "force", "tag"),
                ("env -u GIT_CONFIG_GLOBAL XDG_CONFIG_HOME=$PWD/../xdg git push origin", "force", "tag"),
-               ("git -c include.path=$PWD/../sign.cfg commit -q -m x", "force", "signatur")]
+               ("git -c include.path=$PWD/../sign.cfg commit -q -m x", "force", "signatur"),
+               # local review of 698f882b (P1, open at main): the shell sets these variables in more forms than NAME=
+               ("unset GIT_CONFIG_GLOBAL; GIT_CONFIG_GLOBAL+=$PWD/../push.cfg git push origin", "force", "tag"),
+               ("printf -v GIT_CONFIG_GLOBAL %s $PWD/../push.cfg; export GIT_CONFIG_GLOBAL; git push origin", "force", "tag"),
+               ("unset GIT_CONFIG_SYSTEM; GIT_CONFIG_SYSTEM+=$PWD/../push.cfg git push origin", "force", "tag"),
+               ("unset HOME GIT_CONFIG_GLOBAL; : ${HOME:=$PWD/../cfg_home}; export HOME; git push origin", "force", "tag"),
+               ("unset GIT_CONFIG_GLOBAL; read -r XDG_CONFIG_HOME <<< $PWD/../xdg; export XDG_CONFIG_HOME; git push origin",
+                "force", "tag"),
+               # and a key of the configuration the reader cannot read, put together by the shell
+               ("printf -v K %s%s incl ude.path; git -c \"$K=$PWD/../push.cfg\" push origin", "force", "tag"),
+               ("printf -v K %s%s incl ude.path; GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=$K GIT_CONFIG_VALUE_0=$PWD/../push.cfg "
+                "git push origin", "force", "tag"),
+               ("GIT_CONFIG_COUNT=1 GIT_CONFIG_VALUE_0=$PWD/../push.cfg; printf -v GIT_CONFIG_KEY_0 %s%s incl ude.path; "
+                "export GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; git push origin", "force", "tag")]
 #: The named cost of that rule: a plain refspec set by configuration is held back although git opens no door with it.
 OVERCOUNT = [("git -c remote.origin.push=HEAD:refs/heads/main push origin", "force"),
              ("git -c remote.origin.pushurl=../origin.git push origin claude/x", "force"),
              ("GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.push GIT_CONFIG_VALUE_0=HEAD:refs/heads/main "
               "git push origin", "force"),
-             ("GIT_CONFIG_GLOBAL=/dev/null git push origin claude/x", "force")]
+             ("GIT_CONFIG_GLOBAL=/dev/null git push origin claude/x", "force"),
+             ("git commit -q -m 'fix the HOME page'", "force")]
 #: No oracle runs these: git refuses `push --forc` as ambiguous, and a tag made locally does not reach the remote the
 #: oracle reads. Both still hold a release back.
 WORDS_ONLY = [("git push --forc origin claude/x", "force"), ("git -c 'user.name=John Doe' tag v2", "tag"),
@@ -488,7 +502,10 @@ SPELLING_COUNTERS = ["git commit -s -m x", "git commit -qm x", "git commit -am x
                      "git push -u origin claude/x", "git push --set-upstream origin claude/x",
                      "git push --no-signed origin claude/x", "git push --no-force origin claude/x",
                      "git -c 'user.name=John Doe' push origin claude/x",
-                     _TOPIC + "git -c branch.main.mergeOptions=--no-ff merge --no-edit topic"]
+                     _TOPIC + "git -c branch.main.mergeOptions=--no-ff merge --no-edit topic",
+                     # a plain read of $HOME and an expansion in the value of -c move no configuration
+                     "git -C \"$HOME\"/repo push origin claude/x", "git -C ${HOME}/repo push origin claude/x",
+                     "git -c user.name=\"$USER\" push origin claude/x"]
 
 
 def _git_oracle(tmp_path: pathlib.Path, line: str) -> set:

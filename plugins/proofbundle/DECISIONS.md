@@ -5964,7 +5964,14 @@ push.default and remote.pushDefault (local review of 1018aa84, open at main as w
 `-c push.default=upstream -c branch.main.merge=refs/tags/x push` sends a tag), and a configuration the line brings in
 from a file it does not show: include.path, includeIf.<condition>.path, GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM, HOME and
 XDG_CONFIG_HOME. Measured with git 2.55.0, each of them with remote.origin.push=refs/tags/*:refs/tags/* in the file
-makes `git push origin` send the tag, and an include with commit.gpgSign makes `git commit` sign.
+makes `git push origin` send the tag, and an include with commit.gpgSign makes `git commit` sign. The shell sets
+these variables in more forms than `NAME=` (local review of 698f882b, open at main as well: `GIT_CONFIG_GLOBAL+=f`,
+`printf -v GIT_CONFIG_GLOBAL %s f`, `read XDG_CONFIG_HOME`, `${HOME:=f}`), so every mention of one of their names
+counts except a plain read of its value (`$HOME`, `${HOME}`); and a key of the configuration the line sets in a form
+this rule cannot read counts as well: GIT_CONFIG_KEY_<n> or GIT_CONFIG_PARAMETERS set otherwise than by `NAME=` or
+with an expansion in the value, and a key of `-c` or `--config-env` with an expansion
+(`printf -v K %s%s incl ude.path; git -c "$K=f" push` brings in the file f). A program the line takes from a file,
+by PATH or GIT_EXEC_PATH, is not read here, as no text of a file the line runs is (_release_unresolved_door).
 `git push --signed` and its prefixes are the door of a signature, and so is a signing option given as the value of
 a word (`git -c branch.main.mergeOptions=-S merge topic`, `GIT_CONFIG_VALUE_0=-qS` for that key): the part after the
 first `=` of a word is read as a word of its own for the signature (local review of the seventh form, open at main
@@ -5976,7 +5983,8 @@ last of two assignments, `.push=` inside a quoted remote name, an expansion insi
 short name git expands to a tag as in `remote.z.push=v1`). A refspec is resolved against the repository and the
 environment, which this rule sees neither of. The named cost: a plain refspec set by configuration is held back
 although git opens no door with it; three such lines are cases of the tests, and a line that moves the global file
-without such a key (`GIT_CONFIG_GLOBAL=/dev/null git push origin claude/x`) is a fourth.
+without such a key (`GIT_CONFIG_GLOBAL=/dev/null git push origin claude/x`) is a fourth, and a line that names one of
+those variables in a text (`git commit -m 'fix the HOME page'`) is a fifth.
 
 A short tag name (`git push z v1`, `v1:another`) is not read from the words: house rule H2 reads it from the
 repository (house_tag_out), and D119 takes that reason as the door of a tag; measured on 2026-11-10 at the third local
