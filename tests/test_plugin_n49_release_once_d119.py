@@ -451,7 +451,10 @@ SPELLINGS = [
 ]
 #: Lines main already read as doors, kept as cases: the reading of git's exec path must not take an option for a
 #: program (local review of 566b7d16, P1, a regression of the fourth form of this rule).
-KEPT = [("git commit -S/tmp/git-key -m x", "signatur"), ("git commit --gpg-sign=/tmp/git-key -m x", "signatur")]
+KEPT = [("git commit -S/tmp/git-key -m x", "signatur"), ("git commit --gpg-sign=/tmp/git-key -m x", "signatur"),
+        # at the limit of the brace reader (six groups, 64 words) the words are read and keep their own door
+        ("git push --ta{,}{,}{,}{,}{,}{,} origin", "tag"), ("git push --mirro{,}{,}{,}{,}{,}{,} origin", "force"),
+        ("git commit --gpg{,}{,}{,}{,}{,}{,} -q -m x", "signatur")]
 #: The same for gh, read by words only: a value with git- in it must not move gh's subcommand (local review of 7e2935f5,
 #: P1, a regression of the fifth form, which inserted words).
 KEPT_WORDS = [("gh -R b7n0de/git-repo release edit stable --notes x", "release"),
@@ -504,7 +507,12 @@ CONFIG_HELD = [("git send-pack --mirror ../origin.git", "force", "tag"),
                ("C=-c; K=incl; git \"$C\" \"${K}ude.path=$PWD/../push.cfg\" push origin", "unread", "tag"),
                ("S=push; git $S --mirror origin", "unread", "tag"),
                ("O=--tags; git push $O origin", "unread", "tag"),
-               ("O=$(printf -- -%s S); git commit $O -q -m x", "unread", "signatur")]
+               ("O=$(printf -- -%s S); git commit $O -q -m x", "unread", "signatur"),
+               # local review of 97b77526 (P1, open at main): a brace expansion of more words than the gate reads
+               # (_SH_BRACE_MAX = 64) is a word it cannot read; seven groups of {,} make 128 words
+               ("git push --ta{,}{,}{,}{,}{,}{,}{,} origin", "unread", "tag"),
+               ("git push --mirro{,}{,}{,}{,}{,}{,}{,} origin", "unread", "tag"),
+               ("git commit --gpg{,}{,}{,}{,}{,}{,}{,} -q -m x", "unread", "signatur")]
 #: The named cost of that rule: a plain refspec set by configuration is held back although git opens no door with it.
 OVERCOUNT = [("git -c remote.origin.push=HEAD:refs/heads/main push origin", "force"),
              ("git -c remote.origin.pushurl=../origin.git push origin claude/x", "force"),

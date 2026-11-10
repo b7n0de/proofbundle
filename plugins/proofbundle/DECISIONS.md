@@ -5983,7 +5983,10 @@ git (or a program of its exec path), gh, a publisher, a signer, ssh-keygen, open
 door, as a configuration, a subcommand (`S=push; git $S --mirror z`) or an option (`O=-S; git commit $O -m x`). Such a
 line is held back as the door `unread`, after every door its words name, so a line keeps the door it names. The named
 cost: `git push origin "$BRANCH"` and `git -C "$DIR" status` are held back too, although most values open no door; a
-line that runs none of these programs (`printf '%s' "$PWD"`) is not. A program the line takes from a file,
+line that runs none of these programs (`printf '%s' "$PWD"`) is not. A brace expansion of more words than the gate
+reads (_SH_BRACE_MAX, 64) is such a word as well (local review of 97b77526, open at main as well:
+`git push --ta{,}{,}{,}{,}{,}{,}{,} z` makes 128 words `--ta` and sends the tags); at the limit the words are read
+and keep their own door. A program the line takes from a file,
 by PATH or GIT_EXEC_PATH, is not read here, as no text of a file the line runs is (_release_unresolved_door).
 `git push --signed` and its prefixes are the door of a signature, and so is a signing option given as the value of
 a word (`git -c branch.main.mergeOptions=-S merge topic`, `GIT_CONFIG_VALUE_0=-qS` for that key): the part after the

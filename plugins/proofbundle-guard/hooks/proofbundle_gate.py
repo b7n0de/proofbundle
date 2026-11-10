@@ -18227,8 +18227,18 @@ def _release_assembled(continued: str) -> list[str]:
 
 def _release_braced(text: str) -> str:
     """The text with each blank-separated word replaced by the words of its brace expansion (D100, _sh_brace_expand),
-    where the gate can expand it: `{s,x}udo` runs sudo."""
-    return "".join(" ".join(_sh_brace_expand(w) or [w]) if "{" in w else w for w in re.split(r"(\s+)", text))
+    where the gate can expand it: `{s,x}udo` runs sudo. A word bash expands and the gate does not (more than
+    _SH_BRACE_MAX words: `git push --ta{,}{,}{,}{,}{,}{,}{,} z` makes 128 words `--ta` and sends the tags, local review of
+    97b77526, open at main as well) keeps the mark _RELEASE_UNKNOWN, so the rule for a word the gate cannot read holds
+    it back as the door unread."""
+    def read(word: str) -> str:
+        if "{" not in word:
+            return word
+        expanded = _sh_brace_expand(word)
+        if expanded:
+            return " ".join(expanded)
+        return word + _RELEASE_UNKNOWN if _sh_brace_first(word) is not None else word
+    return "".join(read(w) for w in re.split(r"(\s+)", text))
 
 
 #: The programs that run text as a command: a word of theirs the gate does not resolve may be a root program.
