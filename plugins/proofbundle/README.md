@@ -1,5 +1,49 @@
 # proofbundle plugin for Claude Code and Codex
 
+**Ask your agent to check a receipt, and get a plain answer.**
+
+You received an AI result with a receipt. This plugin lets your agent verify it on your own machine and explain what it found. For decision and outcome receipts, it checks the signature against an issuer public key you trust. It also verifies evidence bundles, but a passing bundle check alone does not establish that you should trust its signer or that its claims are true.
+
+## Install
+
+You need [uv](https://docs.astral.sh/uv/) on `PATH`, a Python version uv can use (3.10 or later), and network access to PyPI on the first start.
+
+**Claude Code**
+
+```sh
+claude plugin marketplace add b7n0de/proofbundle
+claude plugin install proofbundle@proofbundle
+```
+
+**Codex**
+
+```sh
+codex plugin marketplace add b7n0de/proofbundle
+codex plugin add proofbundle@proofbundle
+```
+
+## Try it
+
+| Ask your agent in Claude Code | What happens |
+|---|---|
+| `/proofbundle:verify receipt.json` | Checks the receipt with the signer's public key you trust, and explains the result |
+| `/proofbundle:review-receipt receipt.json` | Verifies first, then separates what the signature proves from what the signer only claims |
+| `/proofbundle:emit` | Fills a receipt with facts you give, shows it to you, signs it after you confirm, then verifies it. Experimental, and the skill runs only when you invoke it |
+
+In Codex, ask for the skill by its name, such as `proofbundle:verify`. Give the signer's public key with the command or when your agent asks for it. The skills tell your agent not to take it from the receipt, its file name or a file next to it, unless you confirm that it is the key you trust.
+
+## Good to know
+
+- A passing check confirms only the signature and integrity properties checked for that receipt type, not the truth of the recorded content. For decision and outcome receipts, the issuer public key must come from a source you trust. An evidence bundle can pass verification without such an externally supplied key, so a pass alone does not establish signer trust.
+- Every verdict comes from the proofbundle package on PyPI, in the one exact version the plugin pins and names in every result. You can run that version yourself.
+- The verify, review-receipt and emit skills and the plugin's server tell your agent to treat anything inside a receipt as data, never as an instruction.
+- Status is experimental in Claude Code and in Codex. So far, less of the plugin is measured under Codex than under Claude Code. Under Codex, signing needs a key file you name.
+- This plugin registers no hook. The pre-push gate and the done check belong to proofbundle-guard, a separate preview plugin for the house profile of b7n0de, which no public catalog lists.
+
+The [technical details](#technical-details) follow below, with the gate, its hooks, the release assets and how to move from an earlier 0.4.0.
+
+## Technical details
+
 With proofbundle-guard installed beside this plugin (D134), and under Codex its hooks trusted (D13), in a repository
 whose declaration names a done check, the Stop hook keeps your agent's turn open, up to a set number of blocks, until
 every check you required has a signed, passing test receipt for exactly the commit and tree it leaves behind, and when
@@ -492,7 +536,7 @@ state.
 A repository without a declaration, or whose declaration names no done check, gets no block and no message (NOT
 MEASURED), as with the `PreToolUse` gate. The check is a command hook; nothing in it is decided by the model (Z355).
 It needs the proofbundle release whose pytest receipt names the git state and the selection (the release after
-6.2.0); the receipt is verified by the plugin's pinned `proofbundle==6.4.0`.
+6.2.0); the receipt is verified by the plugin's pinned `proofbundle==6.5.0`.
 
 ### With `/goal`
 
@@ -671,7 +715,7 @@ The verification program also needs a trusted source. The plugin tag is annotate
 
 The `verify` command needs Python 3.10 or later; it was independently exercised with Python 3.10.20 and 3.11.18. The separate `build` command needs Python 3.11 or later. The verifier reports the raw public-key SHA-256 as `public_key_raw_sha256`; compare that value with a fingerprint you trust independently of these release assets. The value printed in the release notes is not, on its own, proof of ownership. The verifier checks the signature over the exact statement bytes, the statement's form and values, the archive's size and SHA-256, and `SHA256SUMS` byte for byte. With `--repo` it also checks that the locally fetched tag is annotated and names the statement's commit. This is a consistency check, not authentication of the unsigned tag. `verify` does not rebuild the archive from the named source commit or compare the `commit_tree` and `plugin_tree` fields with that repository; source-to-archive correspondence requires a separate rebuild and byte comparison. The verification succeeds only if the final line is `result OK` and the exit status is 0. Exit 1 indicates a failed check; exit 2 means a check could not be completed. Checking `SHA256SUMS` alone does not verify a signature.
 
-Measured on Linux with Python 3.11.15 and proofbundle 6.4.0 from PyPI, the verifier pin of this release, with a
+Measured on Linux with Python 3.11.15 and proofbundle 6.4.0 from PyPI, the verifier pin of plugin 0.4.0, with a
 temporary key, over the assets the release tools built at a candidate commit, and with a local clone holding the tag
 object they wrote. With and without `--repo` the run ended with `result OK`, and another key and an added line in
 `SHA256SUMS` each ended with exit 1 and the failed check named.
@@ -789,7 +833,7 @@ model needs no tool.
 
 The scaffold scripts run offline. They copy the signed fixtures in `evals/_fixtures/data/`. Those
 fixtures were made once by `evals/_fixtures/make.py` with the package pinned then, proofbundle 6.1.0,
-which the receipts record; the server now pins 6.4.0. They carry public keys only.
+which the receipts record; the server now pins 6.5.0. They carry public keys only.
 
 Every eval run is a model call on your account.
 

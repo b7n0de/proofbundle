@@ -600,6 +600,11 @@ jobs:
         part: [1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # Fetch the full history and tags, as in the test job (owner choice A on card OA-04e8a93ad4, 2026-11-05).
+          # The pin test reads local release tags. A shallow checkout can omit the release tag,
+          # causing the test to treat the release as still in preparation and expect the previous pin.
+          fetch-depth: 0
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.12"

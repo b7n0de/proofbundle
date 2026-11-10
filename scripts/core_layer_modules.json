@@ -23,6 +23,7 @@
   ],
   "modules": [
     "proofbundle",
+    "proofbundle._approval_record",
     "proofbundle._membership",
     "proofbundle._plain_value",
     "proofbundle._schema_shapes",

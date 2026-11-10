@@ -62,6 +62,7 @@ _ALLOWED_TOP = set(_REQUIRED_ALWAYS) | set(_OPTIONAL)
 # (ML-DSA-65 PQ, 1952 bytes, FIPS 204) — and BOTH must verify (an attacker must forge both to forge the key).
 _KEY_ALGS = ("ed25519", "mldsa65", "hybrid-ed25519-mldsa65")
 _KEY_RAW_LEN = {"ed25519": 32, "mldsa65": 1952}  # raw public key byte length (FIPS 204 ML-DSA-65 = 1952 bytes)
+_SIG_RAW_LEN = {"ed25519": 64, "mldsa65": 3309}  # signature byte length (FIPS 204 ML-DSA-65 = 3309 bytes)
 _KEY_ALG_LABEL = {"mldsa65": "ML-DSA-65", "hybrid-ed25519-mldsa65": "Ed25519 (hybrid classical leg)"}
 
 # Finding 01 (2026-07 verify-layer hardening): automation_verdict.automation_summary's required_checks for
@@ -110,6 +111,13 @@ def _zahl_text(v: Any) -> str:
 
 def _is_int(v: Any) -> TypeGuard[int]:
     return isinstance(v, int) and not isinstance(v, bool)
+
+
+def _executor_ids_wohlgeformt(v: Any) -> bool:
+    """A key entry's ``executorIds``: a non-empty list of distinct non-empty plain strings, within the budget
+    of a role's key ids. Plain ``str`` by ``type()``, so a string subclass cannot answer membership later."""
+    return (type(v) is list and bool(v) and DEFAULT_BUDGET.within("witnesses", len(v))
+            and all(type(x) is str and x for x in v) and len(set(v)) == len(v))
 
 
 def _parse_rfc3339_z(s: str) -> datetime:
@@ -200,10 +208,17 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
                 if alg not in _KEY_ALGS:
                     errors.append(f"keys[{kid!r}].alg must be one of {_KEY_ALGS}, got {render_safe(alg)}")
                 is_hybrid = alg == "hybrid-ed25519-mldsa65"
-                allowed_fields = ("publicKey", "scheme", "alg") + (("publicKeyPq",) if is_hybrid else ())
+                allowed_fields = (("publicKey", "scheme", "alg", "executorIds")
+                                  + (("publicKeyPq",) if is_hybrid else ()))
                 for f in kv:
                     if f not in allowed_fields:
                         errors.append(f"keys[{kid!r}].{f} is not an allowed field")
+                # executorIds (6.6.0): the executor identifiers this key attests in an action outcome. The
+                # pack named no identifier per key, so an anchored executor key could sign under any
+                # executor.id it wrote (draft-gruszka-audit-decision-receipts-03 section 3.4 step 5).
+                if "executorIds" in kv and not _executor_ids_wohlgeformt(kv["executorIds"]):
+                    errors.append(f"keys[{kid!r}].executorIds must be a non-empty list of distinct non-empty "
+                                  f"executor id strings (at most {DEFAULT_BUDGET.witnesses})")
                 # `scheme` is `const: "ed25519"` in the schema; the field was allowed and its value never read
                 # (gate on 3562dc71, measured with the ECMA-reading generator: 14 of 14 other values passed).
                 if "scheme" in kv and kv.get("scheme") != "ed25519":
@@ -462,8 +477,28 @@ def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None 
     statement = build_trust_pack_statement(predicate, subject_name=subject_name, subject_sha256=subject_sha256)
     body = _rfc8785_bytes(statement)
     msg = dsse.pae(INTOTO_STATEMENT_PAYLOAD_TYPE, body)
-    signatures = [{"keyid": kid, "sig": base64.b64encode(sk.sign(msg)).decode("ascii")}
-                  for kid, sk in paare]
+    from .signature import _ed25519_signatur_von, _signaturbytes_von  # noqa: PLC0415
+    keys = _as_dict(predicate.get("keys"))
+    signatures = []
+    for kid, sk in paare:
+        # THE OUTPUT IS READ BY THE ALGORITHM THE KEY DECLARES (circle of the class fix after 6.5.0): the check of 64
+        # Ed25519 bytes refused every ML-DSA-65 root key, whose signature has 3309 bytes, so no such pack could be
+        # signed. A key declared `mldsa65` signs through `pqsig.sign_mldsa`, as `renewal` does, and its output must have
+        # the 3309 bytes of FIPS 204; every other key writes the 64 bytes of an Ed25519 signature, the classical leg of
+        # a hybrid key included, as before.
+        kv = keys.get(kid)
+        if isinstance(kv, dict) and kv.get("alg") == "mldsa65":
+            from .pqsig import sign_mldsa  # noqa: PLC0415
+            # Read once as the exact bytes it holds (Codex pre-review 13: a bytes subclass reported its own length).
+            sig = _signaturbytes_von(sign_mldsa(sk, msg))
+            if sig is None or len(sig) != _SIG_RAW_LEN["mldsa65"]:
+                raise TrustPackError(f"signer {kid!r} returned no {_SIG_RAW_LEN['mldsa65']}-byte ML-DSA-65 signature, "
+                                     "so no pack is returned")
+        else:
+            sig = _ed25519_signatur_von(sk.sign(msg))
+            if sig is None:
+                raise TrustPackError(f"signer {kid!r} returned no 64-byte Ed25519 signature, so no pack is returned")
+        signatures.append({"keyid": kid, "sig": base64.b64encode(sig).decode("ascii")})
     return {"payload": base64.b64encode(body).decode("ascii"),
             "payloadType": INTOTO_STATEMENT_PAYLOAD_TYPE, "signatures": signatures}
 

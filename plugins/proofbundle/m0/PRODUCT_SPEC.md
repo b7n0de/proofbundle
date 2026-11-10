@@ -31,7 +31,8 @@ Reads and checks what was recorded. It changes nothing in a repository and makes
 
 What a passing verification proves: the holder of the given key signed exactly these bytes, and they have not changed
 since. What it does not prove: that any recorded value is true. Every verdict and exit code is the package's own; the
-plugin pins one version (`proofbundle==6.4.0` since slice pin640 of the review package, 6.3.0 since follow-up note 45)
+plugin pins one version (`proofbundle==6.5.0` since the pin after the release of 6.5.0, 6.4.0 since slice pin640 of the
+review package, 6.3.0 since follow-up note 45)
 and derives no verdict of its own.
 
 ### Guard

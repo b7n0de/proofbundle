@@ -1,0 +1,47 @@
+{
+ "derivation": [
+  "Tag 18 removed, nothing else changed: the ToBeSigned digest still matches, but the object is not a tagged COSE_Sign1, so it is not a valid SCITT Signed Statement (RFC 9943 Section 6.1 requires tag 18).",
+  "The candidate is statement 01 without its first byte, d2, the tag 18."
+ ],
+ "draft": "draft-gruszka-scitt-statement-identification-03",
+ "expected": {
+  "is_scitt": false,
+  "match": "MATCH",
+  "ref_usable": true,
+  "sig_valid": true
+ },
+ "id": "C9",
+ "inputs": {
+  "candidate": {
+   "base64": "hFh7pAEyA3BhcHBsaWNhdGlvbi9qc29uBFggDm6GzSDAffTpXLSgeihhktKfx0VntB5ybxx/e9IC61sPowF2aHR0cHM6Ly9pc3N1ZXIuZXhhbXBsZQJ4IHBrZzpnZW5lcmljL2V4YW1wbGUtd2lkZ2V0QDEuMC4wBhpoznsgoFiGeyJhcnRpZmFjdCI6ImV4YW1wbGUtd2lkZ2V0LTEuMC4wLnRhci5neiIsImxpY2Vuc2UiOiJNSVQiLCJzaGEyNTYiOiI2MDdlNmMxZTZjMzVkY2M5Yjc3MGRlNWRhOTJiOTY5NzA0YTM2NmQ0Njg5NzJhOGI1NWQxYTBjMzJkYjM0YTcyIn1YQB+zGm3zRfHBhA2Hi9S0rO22YSlWkW5LRVDFtkeSie029By2BMirdD3C65+9p/7PuJaz1ES6MOWR5mMJOk7rgQQ=",
+   "length": 329,
+   "sha256": "c205d745619c3087ad1f83f6c1f7883f4fff616f8f90ecbe64c4aa08854b28e6"
+  },
+  "detached_payload": null,
+  "external_aad": {
+   "base64": "",
+   "length": 0,
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "reference": {
+   "base64": "gy9qVG9CZVNpZ25lZFggw/XxN2Rnm593kYu1J4JIC8IivlrkvON/UThKax+qnbw=",
+   "length": 47,
+   "sha256": "dadea76ef3137c95552e76c247908376cd69cf1883c49b391feef443ecbdbd42"
+  },
+  "scheme": {
+   "alg": -16,
+   "name": "ToBeSigned"
+  },
+  "stated_key": {
+   "name": "issuer",
+   "public_key": {
+    "base64": "GDHRldF3c/aCQN1T1r0XjSC8qIgB2gEawROg/CJ3bjI=",
+    "length": 32,
+    "sha256": "4a9a8725a3823cb54bd02fbaae487c296c3807e5c0d30c94973705e708e10df9"
+   }
+  }
+ },
+ "requirement": "A1/RFC9943-6.1",
+ "source": "Appendix A.3.9, Table 2 of Section 6",
+ "what_it_shows": "tag 18 removed"
+}

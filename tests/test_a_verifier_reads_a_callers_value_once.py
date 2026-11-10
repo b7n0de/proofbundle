@@ -807,10 +807,15 @@ class EveryVerdictIsTheVerdictOverOneState(unittest.TestCase):
         is over the budget was verified."""
         from proofbundle import emit_bundle, generate_signer, verify_bundle
         from proofbundle.budget import DEFAULT_BUDGET
+        # A one-leaf bundle with its real signature and root, built by the shared builder: since the class fix after
+        # 6.5.0 `emit_bundle` refuses a bundle `verify_bundle` cannot read, and this case needs one over the budget
+        # that is cryptographically consistent (review of the class fix, round 2).
+        from _ein_blatt_buendel import ein_blatt
         sk = generate_signer()
         klein = emit_bundle(b'{"x": 1}', sk)
-        gross = emit_bundle(b"y" * (gedeckelt(DEFAULT_BUDGET.string_len, bytes_je_element=KOSTEN_JE_ELEMENT["string_len"])
-                                    * 3 // 4 + 1000), sk)
+        self.assertEqual(ein_blatt(b'{"x": 1}', sk), klein, "the bundle built here is the one the emitter writes")
+        gross = ein_blatt(b"y" * (gedeckelt(DEFAULT_BUDGET.string_len, bytes_je_element=KOSTEN_JE_ELEMENT["string_len"])
+                                  * 3 // 4 + 1000), sk)
         falsch = copy.deepcopy(klein)
         falsch["payload_b64"] = gross["payload_b64"][:16]
 

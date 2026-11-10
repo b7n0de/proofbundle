@@ -145,7 +145,20 @@ class AnEmptyValueDoesNotDropTheRestriction(unittest.TestCase):
             ("verify --anchor-type", ["verify", b.bundle], ["--anchor-type", ""], {2, 3}),
             ("decision verify --policy", ["decision", "verify", b.decision, "--pub", b.pub], ["--policy", ""], {2}),
             ("decision verify --anchors", ["decision", "verify", b.decision, "--pub", b.pub], ["--anchors", ""], {2}),
+            ("decision verify --action", ["decision", "verify", b.decision, "--pub", b.pub], ["--action", ""], {2}),
+            ("decision verify --case", ["decision", "verify", b.decision, "--pub", b.pub], ["--case", ""], {2}),
+            ("decision verify --approval", ["decision", "verify", b.decision, "--pub", b.pub],
+             ["--case", "approval", "--approval", ""], {2}),
+            # Section 4 (finding B4): an empty path names no consumption state and no copies, it is never "not given".
+            ("decision verify --consumed", ["decision", "verify", b.decision, "--pub", b.pub], ["--consumed", ""], {2}),
+            ("decision verify --received", ["decision", "verify", b.decision, "--pub", b.pub], ["--received", ""], {2}),
+            ("outcome verify --case", ["outcome", "verify", b.outcome, "--pub", b.pub], ["--case", ""], {2}),
             ("outcome verify --policy", ["outcome", "verify", b.outcome, "--pub", b.pub], ["--policy", ""], {2}),
+            ("outcome verify --effect", ["outcome", "verify", b.outcome, "--pub", b.pub], ["--effect", ""], {2}),
+            ("outcome verify --decision", ["outcome", "verify", b.outcome, "--pub", b.pub],
+             ["--decision", "", "--decision-pub", b.pub], {2}),
+            ("outcome verify --executor-id", ["outcome", "verify", b.outcome, "--pub", b.pub], ["--executor-id", ""],
+             {2}),
             ("relation-statement verify --policy", ["relation-statement", "verify", b.relation, "--pub", b.pub],
              ["--policy", ""], {2}),
             ("show-eval --eat", ["show-eval", b.eval_receipt], ["--eat", ""], {2}),
@@ -255,8 +268,10 @@ _DATEI_INHALTE = ("null", " null", "null\n", "\t null \r\n", "[]", " [ ] ", "{}"
 _DATEI_FAELLE = frozenset({
     ("verify", "--policy"), ("verify", "--trusted-checkpoint"), ("verify", "--trusted-tsa-root"),
     ("show-eval", "--eat"), ("decision verify", "--policy"), ("decision verify", "--anchors"),
-    ("decision verify", "--trusted-tsa-root"), ("decision verify", "--with-related"),
+    ("decision verify", "--trusted-tsa-root"), ("decision verify", "--with-related"), ("decision verify", "--action"),
+    ("decision verify", "--approval"), ("decision verify", "--consumed"), ("decision verify", "--received"),
     ("outcome verify", "--policy"), ("outcome verify", "--with-related"),
+    ("outcome verify", "--effect"), ("outcome verify", "--decision"),
     ("relation-statement verify", "--policy"), ("relation-statement verify", "--with-related"),
     ("policy instantiate", "--expected-root-file"), ("prereg", "--check"), ("evalcard", "--check")})
 
@@ -319,8 +334,22 @@ class AFileWhoseContentReadsAsAbsentIsRefused(unittest.TestCase):
             ("decision verify", "--anchors"): (dv, [], _beobachte),
             ("decision verify", "--trusted-tsa-root"): (dv, [], _beobachte),
             ("decision verify", "--with-related"): (dv, [], _beobachte),
+            # Step 10 of Section 3.2 (finding B1): without --action no action is checked; every content of the file,
+            # the empty one included, is an action whose SHA-256 is compared, so none may end like no option.
+            ("decision verify", "--action"): (dv, [], _beobachte),
+            # Section 3.3 (finding B3): every content of an --approval file is a record the approval case checks.
+            ("decision verify", "--approval"): (dv, ["--case", "approval"], _beobachte),
+            # Section 4 (finding B4): a given consumption state or set of copies is judged (here: refused, because the
+            # base holds no approval case), whatever the file holds; no content may end like no option.
+            ("decision verify", "--consumed"): (dv, [], _beobachte),
+            ("decision verify", "--received"): (dv, [], _beobachte),
             ("outcome verify", "--policy"): (ov, [], _beobachte),
             ("outcome verify", "--with-related"): (ov, [], _beobachte),
+            # Section 3.4 (finding B2): without --effect or --decision nothing of the effect or the bound decision is
+            # checked; every content of the file is an effect, or a decision receipt that does not verify, so none
+            # may end like no option.
+            ("outcome verify", "--effect"): (ov, [], _beobachte),
+            ("outcome verify", "--decision"): (ov, ["--decision-pub", b.pub], _beobachte),
             ("relation-statement verify", "--policy"): (rv, [], _beobachte),
             ("relation-statement verify", "--with-related"): (rv, [], _beobachte),
             ("policy instantiate", "--expected-root-file"): ([], [], lambda argv: self._instantiate(argv)),

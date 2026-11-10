@@ -179,7 +179,19 @@ test = ["pytest>=7", "hypothesis>=6", "PyYAML>=6", "jsonschema>=4", "sd-jwt>=0.1
 # package built from the branch, no mocks): the two files run together, 22 passed, nothing skipped,
 # nothing failed, in every one of the six versions. Measured at 4480c5d7 and again at e1b835a0,
 # which reads the early stop as the library writes it and binds a count only when the log set it.
-inspect = ['inspect_ai>=0.3.112,<=0.3.281']
+#
+# 2026-11-09, THE MEASURED BUMP 0.3.281 -> 0.3.288 (B32). The line "0.3.282 and later are UNMEASURED" above was true
+# until this paragraph. 0.3.288 is the newest release on PyPI that day (`pip index versions inspect_ai`, 2026-11-09).
+# Each of 0.3.281 to 0.3.288 in its own FRESH venv on python 3.11.18, 0.3.288 again on 3.12.3 and 3.13.18, with this
+# package as a wheel built from 6b63cda8, no mocks, with the commands of 2026-10-16 above:
+#   * entry-point discovery finds `proofbundle` and it loads, `ProofbundleHooks` is a `Hooks` subclass, the API
+#     still has 17 `on_*` methods, and `on_task_end` is among them
+#   * the two test files, run together: 22 passed, nothing skipped, nothing failed, in every version and
+#     interpreter named here
+# 0.3.282 to 0.3.288 require python >=3.11 like 0.3.281, so a 3.10 install still resolves 0.3.280. The changelogs of
+# 0.3.282 to 0.3.288 were NOT read for this bump: what is admitted is what was run.
+# The ceiling still stays a ceiling: 0.3.289 and later are UNMEASURED and therefore excluded.
+inspect = ['inspect_ai>=0.3.112,<=0.3.288']
 # ruff is bounded, but the bound is no longer what protects this repo — `[tool.ruff.lint] select`
 # is (see that section). The cap `<0.16` that stood here from 2026-07-31 to 2026-08-07 bought time
 # to find out WHY 0.16 turned a green tree red. It is now measured, and it was never our code:
@@ -202,7 +214,7 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.281']
 # opposite directions, so both are stated:
 #
 #   NO FAILURE WAS FOUND. Every one of mypy 1.8.0 / 1.11.2 / 1.15.0 / 1.18.2 / 2.0.0 / 2.1.0 /
-#   2.2.0 / 2.3.0 exits 0 over `src` (81 files; re-derived by
+#   2.2.0 / 2.3.0 exits 0 over `src` (83 files; re-derived by
 #   tests/test_shipped_comment_numbers.py) — across BOTH major versions. So the declared
 #   floor `>=1.8` is not a guess, it is verified. That is the honest state and this bound does
 #   not pretend otherwise: it is prospective, not a fix for something broken.
@@ -228,8 +240,12 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.281']
 #   (`src/proofbundle/_scitt_second_reader.py`) it became 80, and mypy **2.3.0** was re-run over the
 #   80 and exits 0. With the offline reader of Sigstore bundles for GitHub Artifact Attestations and npm
 #   provenance (`src/proofbundle/adapters/sigstore_bundle.py`) it became 81, and mypy **2.3.0** was
-#   re-run over the 81 and exits 0. The other seven versions were NOT re-run for any of the eleven new
-#   files; that is the same boundary RESTRISIKO_610.md carries as SHIPPED-TOOL-VERDICT-NOT-RE-RUN-01,
+#   re-run over the 81 and exits 0. With the reader of the approval record of Section 3.3
+#   (`src/proofbundle/_approval_record.py`, finding B3 of the 6.6.0 list) it became 82, and mypy
+#   **2.3.0** was re-run over the 82 and exits 0 (2026-11-06). With the reader of
+#   draft-gruszka-scitt-statement-identification-03 (`src/proofbundle/scitt_statement_id.py`) it became 83,
+#   and mypy **2.3.0** was re-run over the 83 and exits 0 (2026-11-10). The other seven versions were NOT
+#   re-run for any of the thirteen new files; that is the same boundary RESTRISIKO_610.md carries as SHIPPED-TOOL-VERDICT-NOT-RE-RUN-01,
 #   and it is stated here rather than absorbed into the sentence above.
 #
 #   THE MECHANISM IS REAL THOUGH. mypy changes CHECKING DEFAULTS at major versions: 2.0 turned on
@@ -246,7 +262,7 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.281']
 # optional `slhdsa` import really is unused there. With the project's own dependency present, all
 # eight versions pass. A floor claim is only worth the environment it was measured in.
 dev = ["pytest>=7", "ruff>=0.5,<0.18", "jsonschema>=4", "mypy>=1.8,<3", "build>=1", "hypothesis>=6",
-       "rfc8785>=0.1.4", "sd-jwt>=0.10", "PyYAML>=6", 'inspect_ai>=0.3.112,<=0.3.281',
+       "rfc8785>=0.1.4", "sd-jwt>=0.10", "PyYAML>=6", 'inspect_ai>=0.3.112,<=0.3.288',
        "cbor2==6.1.5"]
 
 [project.urls]

@@ -111,7 +111,9 @@ class TestDocsTruth(unittest.TestCase):
         # assertion is width-independent (six-lens review: COLUMNS=60 broke the raw assertIn).
         normalized = " ".join(buf.getvalue().split())
         self.assertIn("NOT an authorization or bearer token", normalized)
-        self.assertIn("a receipt without a validity object is not checked against them", normalized)
+        # Codex pre-review 6 of B4: the help said such a receipt was not checked, while the verifier fails the
+        # requested binding (exit 2) since 3.1.2; the help now says what the verifier does.
+        self.assertIn("and so does a receipt without a validity object", normalized)
 
 
 if __name__ == "__main__":

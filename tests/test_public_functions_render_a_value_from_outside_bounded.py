@@ -115,6 +115,9 @@ _DOCUMENTED_BUILTIN = {
     # One function, not the module: verify_trace_record never raises in its body, and a module-wide
     # entry would let a planted ValueError there pass as typed (counter-reading 2026-10-22, F-1).
     "proofbundle.adapters.trace_record.jwk_thumbprint": (ValueError,),  # "Raises ValueError otherwise"
+    # One function again: "Raises ValueError for a scheme or algorithm this reader does not know or an input that
+    # is not bytes"; its other refusal, NoVerdict, is a class of the package.
+    "proofbundle.scitt_statement_id.match_statement": (ValueError,),
 }
 
 #: Per-call time limit in seconds, and the functions with a shorter one because a planted number is
@@ -493,6 +496,20 @@ def _scitt_consistency(tmp: Path):
              {"older_root": older.merkle_root, "older_issuer": older.issuer, "rp_trust": rp})]
 
 
+def _scitt_match(tmp: Path):
+    """A reference and a candidate of draft-gruszka-scitt-statement-identification-03 that MATCH under ToBeSigned
+    with SHA-256, written here in bytes rather than read from interop/, which the sdist does not ship: tag 18 over
+    [h'a10127', {}, h'payload', 64 zero bytes], and [-16, "ToBeSigned", the SHA-256 of its Sig_structure]."""
+    import hashlib
+    payload = b"payload"
+    candidate = b"\xd2\x84\x43\xa1\x01\x27\xa0\x47" + payload + b"\x58\x40" + bytes(64)
+    sig_structure = b"\x84\x6aSignature1\x43\xa1\x01\x27\x40\x47" + payload
+    reference = b"\x83\x2f\x6aToBeSigned\x58\x20" + hashlib.sha256(sig_structure).digest()
+    public = _fixed_key("a").public_key().public_bytes_raw()
+    return [((reference, candidate), {"scheme": "ToBeSigned", "alg": -16, "external_aad": b"",
+                                      "public_key": public})]
+
+
 def _b64url(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
 
@@ -613,6 +630,8 @@ _HAND_SEEDS = {
     "proofbundle._plain_value.plain_json": lambda tmp: [(({"a": [1, "x"]},),
                                                          {"what": "the value", "error": BundleFormatError})],
     "proofbundle._plain_value.plain_list": lambda tmp: [(([1, "x"],), {})],
+    # The approval record of Case 1 of Section 3.3 (finding B3), read by decision verify --approval.
+    "proofbundle._approval_record.read_approval_record": lambda tmp: [((b'{"approvalId":"a"}',), {})],
     "proofbundle._statement_payload.statement_type_problem": lambda tmp: [(
         ({"_type": "https://in-toto.io/Statement/v1"},), {})],
     # Public since pull request 379, the subject rule of the one Statement oracle and its emitter side.
@@ -620,6 +639,11 @@ _HAND_SEEDS = {
         ({"subject": [{"name": "x", "digest": {"sha256": "a" * 64}}]},), {})],
     "proofbundle._statement_payload.refuse_an_unwritable_subject": lambda tmp: [(
         ({"subject": [{"name": "x", "digest": {"sha256": "a" * 64}}]}, BundleFormatError), {})],
+    # Section 4 (finding B4): the readers of the approval identity, the consumption state and the received copies.
+    "proofbundle._approval_record.approval_identity": lambda tmp: [(({"approvalId": "a", "session": "s",
+                                                                      "actionDigest": {"sha256": "a" * 64}},), {})],
+    "proofbundle._approval_record.read_consumption_state": lambda tmp: [((b'{"current": []}',), {})],
+    "proofbundle._approval_record.read_received_copies": lambda tmp: [((b'[{"approvalId": "a"}]',), {})],
     "proofbundle._verdict.require_eval_claim": lambda tmp: [((_claim_of_the_test_key(),), {"wo": "sweep"})],
     "proofbundle._wire_b64.wire_value": lambda tmp: [(("AAAA",), {})],
     "proofbundle.sdjwt.issuer_key_fingerprint": lambda tmp: [(
@@ -646,6 +670,7 @@ _HAND_SEEDS = {
         (base64.b64decode(_scitt_control()[0]["transparent_statement_b64"]),),
         {"statement_keys": _scitt_control()[1]["scitt_statement_keys"]})],
     "proofbundle.scitt_ccf.verify_transparent_statement": _scitt_statement,
+    "proofbundle.scitt_statement_id.match_statement": _scitt_match,
 
     # The TRACE v0.2 verifier and its ES384 primitive, public since they were cut from main before this
     # file seeded every family member; a signed record and a P-384 signature need a key at run time.
