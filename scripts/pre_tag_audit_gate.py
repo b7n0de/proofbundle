@@ -282,8 +282,10 @@ def _receipt_candidates(repo: Path, version: str) -> list:
                         "about the artefact, never the leniency reserved for absence"))
             continue
         try:
-            rc = json.loads(f.read_text(encoding="utf-8", errors="ignore"))
-        except (OSError, json.JSONDecodeError) as exc:
+            # ONE READING WITH THE THIRD-PARTY VERIFIER (2026-11-10): strict UTF-8 and no member twice,
+            # through the library both call (`receipt_json`); a JSONDecodeError is a ValueError too.
+            rc = _lib().receipt_json(f.read_bytes())
+        except (OSError, ValueError) as exc:
             out.append((str(f.relative_to(repo)), None,
                         f"receipt file is present but unreadable ({type(exc).__name__}: {exc})"))
             continue

@@ -1143,7 +1143,7 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
                  "checkout_head": None, "receipt_path": None, "receipt_read_from": None,
                  "subject_tree_digest": None, "gate_source_digest": None,
                  "trusted_pubkey_count": None, "signer_pubkey": None,
-                 "verified": [], "rejected": [], "foreign_files": [],
+                 "verified": [], "rejected": [], "other_tree": [], "foreign_files": [],
                  "verdict": "NOT_MEASURABLE", "reason": None, "limit": LIMIT}
     commit = commit.strip().lower() if isinstance(commit, str) else commit
     out["commit"] = commit
@@ -1285,6 +1285,13 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
     rc, listing, err = _git(repo, "ls-tree", "--full-tree", "-r", "--name-only", "-z", commit, "--",
                             f":(literal){ordner}")
     kandidaten = [n for n in (os.fsdecode(b) for b in listing.split(b"\0") if b) if n.endswith(".json")]
+    # A DIRECTORY OR A SUBMODULE NAMED LIKE A RECEIPT IS A CANDIDATE TOO, as in the gate, whose
+    # `_receipt_candidates` takes every `*.json` below the folder and rejects one that is no regular file
+    # (L5-600-PRETAG-NONREG-01). `ls-tree -r` lists files only, so such an entry was no candidate here,
+    # and since a rejected candidate outranks a valid one (DELTA2 N1) the gate said rejected where this
+    # verifier said VERIFIED (local review of 8a05ceef, 2026-11-10, P2). The commit's own tree names them.
+    kandidaten += sorted(p for p, (typ, _oid) in baum.items()
+                         if typ != "blob" and p.startswith(ordner) and p.endswith(".json"))
     if rc != 0 or not kandidaten:
         out["verdict"] = "NOT_VERIFIED"
         out["reason"] = (f"no receipt under {ordner} in commit {commit[:12]} -- this commit carries "
@@ -1323,14 +1330,17 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
     gate = _gate()
     verified: list[dict] = []
     rejected: list[dict] = []
+    other_tree: list[dict] = []
     foreign: list[str] = []
     for rel, blob in blobs.items():
         if blob is None:
-            rejected.append({"path": rel, "reason": "not readable from the commit: no blob at "
-                                                    "that path in the commit's tree"})
+            art = {"tree": "a directory", "commit": "a submodule"}.get(baum.get(rel, (None, None))[0])
+            rejected.append({"path": rel, "reason": (
+                f"the committed path is {art}, not a receipt file; present-but-unusable is a finding, as in "
+                "the gate" if art else "not readable from the commit: no blob at that path in the commit's tree")})
             continue
         try:
-            receipt = json.loads(blob.decode("utf-8"))
+            receipt = lib.receipt_json(blob)       # one reading with the gate: strict UTF-8, no member twice
         except (UnicodeDecodeError, ValueError) as exc:
             rejected.append({"path": rel, "reason": f"the committed receipt is not readable JSON "
                                                     f"({type(exc).__name__}: {exc})"})
@@ -1353,9 +1363,29 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
         signer = receipt.get("signer_pubkey")
         eintrag = {"path": rel, "reason": reason,
                    "signer_pubkey": signer if isinstance(signer, str) else None}
-        (verified if ok else rejected).append(eintrag)
+        if ok:
+            verified.append(eintrag)
+            continue
+        # A GENUINE RECEIPT OF ANOTHER TREE IS NOT A BAD ARTEFACT, as in the gate (`_evaluate` in
+        # pre_tag_audit_gate.py). Since a rejected receipt outranks a valid one (DELTA2 N1), this
+        # verifier must tell the two apart the way the gate does, or the receipt of an earlier
+        # candidate of the same version beside the receipt of this commit turned VERIFIED into
+        # NOT_VERIFIED where the gate says verified (local review of 8a05ceef, 2026-11-10, P1). The
+        # probe is the same verifier with the receipt's OWN tree and gate digests: everything else
+        # (schema, members, version, exit code, trusted key, signature) still has to hold.
+        eigener_baum, eigene_quelle = receipt.get("subject_tree_digest"), receipt.get("gate_source_digest")
+        anderer = False
+        if isinstance(eigener_baum, str) and isinstance(eigene_quelle, str):
+            try:
+                anderer, _grund2 = lib.verify_receipt(receipt, trusted_pubkeys=trusted, expected_version=version,
+                                                      subject_tree_digest=eigener_baum,
+                                                      gate_source_digest=eigene_quelle)
+            except Exception:  # noqa: BLE001 -- the probe never turns a failure into a pass
+                anderer = False
+        (other_tree if anderer else rejected).append(eintrag)
     out["verified"] = verified
     out["rejected"] = rejected
+    out["other_tree"] = other_tree
     out["foreign_files"] = foreign
     # A REJECTED RECEIPT BESIDE A VALID ONE IS NOT VERIFIED (DELTA2 N1, 2026-11-06): the gate's rule
     # holds here too, one known-bad artefact in the folder is a finding, whatever lies beside it.
@@ -1366,10 +1396,12 @@ def _measure(repo: Path, commit: str, version: str) -> dict:
         out["reason"] = verified[0]["reason"]
         return out
     out["verdict"] = "NOT_VERIFIED"
-    if rejected:
-        out["receipt_path"] = rejected[0]["path"]
-        out["signer_pubkey"] = rejected[0]["signer_pubkey"] if "signer_pubkey" in rejected[0] else None
-        out["reason"] = "; ".join(f"{r['path']}: {r['reason']}" for r in rejected)
+    if rejected or other_tree:
+        # A rejected receipt is named first: it is the finding. Receipts of another tree follow.
+        nicht = rejected + other_tree
+        out["receipt_path"] = nicht[0]["path"]
+        out["signer_pubkey"] = nicht[0]["signer_pubkey"] if "signer_pubkey" in nicht[0] else None
+        out["reason"] = "; ".join(f"{r['path']}: {r['reason']}" for r in nicht)
     else:
         out["reason"] = (f"no receipt under {ordner} in commit {commit[:12]} -- only "
                          f"{len(foreign)} foreign artefact(s) of this house lie there, none of them a "

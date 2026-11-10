@@ -609,6 +609,27 @@ def subject_tree_digest(repo) -> str:
     return hashlib.sha256("\n".join(sorted(lines)).encode("utf-8")).hexdigest()
 
 
+def receipt_json(raw: bytes):
+    """A receipt file read the one way both of its readers read it: UTF-8 without loss, and every
+    member name at most once per object. Raises ValueError naming what is refused.
+
+    TWO READERS OF ONE FILE MUST SEE ONE RECEIPT (local review of 8a05ceef, 2026-11-10, P1). The gate
+    decoded with `errors="ignore"` and the third-party verifier strictly, so a byte that is not UTF-8
+    was dropped by one and refused by the other. Both parsed with `json.loads`, which keeps the LAST of
+    two equal names: a receipt carrying `audit_exit_code` 17 and then 0 verified as 0, while a reader
+    that keeps the first saw 17, under one signature. The package refuses duplicates on every verify
+    path (`proofbundle._strict_json`); the receipt is read the same way, without importing the judged
+    tree's code for it."""
+    def _einmal(paare):
+        obj = {}
+        for name, wert in paare:
+            if name in obj:
+                raise ValueError(f"the receipt names the member {name!r} twice in one object")
+            obj[name] = wert
+        return obj
+    return json.loads(raw.decode("utf-8"), object_pairs_hook=_einmal)
+
+
 def canonical_bytes(receipt: dict) -> bytes:
     """The exact bytes signed/verified: the SIGNED fields only, sorted, compact — never the signature
     or the signer pubkey (those wrap it). A missing signed field is a hard error, not a silent default,

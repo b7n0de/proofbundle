@@ -247,6 +247,90 @@ class TestContract1_NoValidReceiptFails:
         assert len(res["verified"]) == 1 and len(res["rejected"]) == 1, roh
         assert "pre_tag_receipt_v5.0.0-zweit.json" in res["reason"], roh
 
+    def test_a_receipt_for_another_tree_beside_a_valid_one_stays_verified(self, welt):
+        """Local review of 8a05ceef (2026-11-10, P1): since a rejected receipt outranks a valid one (DELTA2 N1),
+        the verifier must tell a genuine receipt of an earlier candidate of the same version from a bad one, as the
+        gate does; without that, the receipt of the earlier tree beside the receipt of this commit turned VERIFIED
+        into NOT_VERIFIED where the gate says verified. The earlier receipt keeps a name of the receipt pattern, so
+        it lies outside the binding. The gate on the same checkout is the oracle, and alone the earlier receipt
+        still does not verify."""
+        repo, env, _priv, _kand, _commit = welt
+        ordner = repo / "audit_artifacts" / "500"
+        _receipt_path(repo).rename(ordner / "pre_tag_receipt_v5.0.0-frueher.json")
+        (repo / "src" / "proofbundle" / "__init__.py").write_text("__version__ = '5.0.0'\n# a later candidate\n")
+        _git(["add", "-A", "audit_artifacts/500/", "src/proofbundle/__init__.py"], repo)
+        _git(["commit", "-q", "-m", "a later candidate, the earlier receipt kept"], repo)
+        nur_frueher = _head(repo)
+        r = _run([sys.executable, "scripts/pre_tag_receipt.py", "--repo", ".", "--version", "5.0.0",
+                  "--audit-command", _AUDIT, "--audit-output-file", str(repo.parent / "_audit_record_later.txt"),
+                  "--runner-identity", "test", "--produced-at", "2026-08-27T07:00:00Z",
+                  "--privkey-file", "_privkey.b64"], repo, env)
+        assert r.returncode == 0, r.stderr
+        _git(["add", "audit_artifacts/500/"], repo)
+        _git(["commit", "-q", "-m", "receipt of the later candidate"], repo)
+        rc, res, roh = _verify(repo, env, _head(repo))
+        assert rc == 0 and res["verdict"] == "VERIFIED", roh
+        assert len(res["verified"]) == 1 and not res["rejected"], roh
+        assert [o["path"] for o in res["other_tree"]] == ["audit_artifacts/500/pre_tag_receipt_v5.0.0-frueher.json"], roh
+        # THE ORACLE: the gate reads the same folder of the same checkout and judges the same.
+        tor = _run([sys.executable, "scripts/pre_tag_audit_gate.py", "--repo", ".", "--version", "5.0.0", "--json"],
+                   repo, env)
+        urteil = json.loads(tor.stdout)
+        assert (urteil["ok"], urteil["state"]) == (True, "verified"), tor.stdout[-400:]
+        assert len(urteil["other_tree_receipts"]) == 1, tor.stdout[-400:]
+        # ANTI-PARITY: alone, the earlier receipt binds another tree and does not verify.
+        _git(["checkout", "-q", "--detach", nur_frueher], repo)
+        rc2, res2, roh2 = _verify(repo, env, nur_frueher)
+        assert rc2 == 1 and res2["verdict"] == "NOT_VERIFIED", roh2
+        assert len(res2["other_tree"]) == 1 and not res2["rejected"], roh2
+        assert "does not bind THIS tree" in res2["reason"], res2["reason"]
+
+    def test_a_receipt_naming_a_member_twice_is_not_verified(self, welt):
+        """Local review of 8a05ceef (2026-11-10, P1): `json.loads` keeps the last of two equal names, so the genuine
+        receipt with an `audit_exit_code` 17 put in front verified as the signed 0, while a reader keeping the first
+        saw 17. The receipt file lies outside the binding, so the edit leaves the tree as it is. The verifier reads it
+        without a member twice now, as the gate does."""
+        repo, env, _priv, _kand, _commit = welt
+        p = _receipt_path(repo)
+        text = p.read_text()
+        assert text.lstrip().startswith("{") and '"audit_exit_code": 0' in text
+        p.write_text(text.replace("{", '{"audit_exit_code": 17, ', 1))
+        _git(["add", "audit_artifacts/500/"], repo)
+        _git(["commit", "-q", "-m", "a member twice"], repo)
+        rc, res, roh = _verify(repo, env, _head(repo))
+        assert rc == 1 and res["verdict"] == "NOT_VERIFIED", roh
+        assert "'audit_exit_code' twice" in res["reason"], res["reason"]
+
+    def test_a_directory_named_like_a_receipt_beside_a_valid_one_is_not_verified(self, welt):
+        """Local review of 8a05ceef (2026-11-10, P2): `ls-tree -r` lists files only, so a committed directory named
+        `*.json` in the receipt folder was no candidate here, while the gate takes it and rejects it. Since a rejected
+        candidate outranks a valid one, the gate said rejected and this verifier VERIFIED. The directory is committed
+        BEFORE the receipt, as the ceremony rule asks for every neighbour, so the receipt still binds the tree; the
+        gate on the same checkout is the oracle."""
+        repo, env, _priv, kandidat, _commit = welt
+        _git(["checkout", "-q", "--detach", kandidat], repo)
+        ordner = repo / "audit_artifacts" / "500" / "pre_tag_receipt_v5.0.0-ordner.json"
+        ordner.mkdir(parents=True)
+        (ordner / "inhalt.txt").write_text("not a receipt\n")
+        _git(["add", "audit_artifacts/500/"], repo)
+        _git(["commit", "-q", "-m", "a directory named like a receipt, before the receipt"], repo)
+        r = _run([sys.executable, "scripts/pre_tag_receipt.py", "--repo", ".", "--version", "5.0.0",
+                  "--audit-command", _AUDIT, "--audit-output-file", str(repo.parent / "_audit_record_dir.txt"),
+                  "--runner-identity", "test", "--produced-at", "2026-08-27T06:00:00Z",
+                  "--privkey-file", "_privkey.b64"], repo, env)
+        assert r.returncode == 0, r.stderr
+        _git(["add", "audit_artifacts/500/"], repo)
+        _git(["commit", "-q", "-m", "receipt beside the directory"], repo)
+        rc, res, roh = _verify(repo, env, _head(repo))
+        assert rc == 1 and res["verdict"] == "NOT_VERIFIED", roh
+        assert len(res["verified"]) == 1, roh
+        assert [x["path"] for x in res["rejected"]] == ["audit_artifacts/500/pre_tag_receipt_v5.0.0-ordner.json"], roh
+        assert "a directory" in res["reason"], res["reason"]
+        tor = _run([sys.executable, "scripts/pre_tag_audit_gate.py", "--repo", ".", "--version", "5.0.0", "--json"],
+                   repo, env)
+        urteil = json.loads(tor.stdout)
+        assert (urteil["ok"], urteil["state"]) == (False, "rejected"), tor.stdout[-400:]
+
 
 class TestContract2_ReceiptForAnotherCommitFails:
     def test_the_receipt_of_the_previous_commit_does_not_cover_a_later_one(self, welt):
