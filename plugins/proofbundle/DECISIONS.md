@@ -5945,14 +5945,26 @@ passed _release_door as no door, so a release of D119 let it run.
 
 The rule now (_git_long_option, _git_short_bundle, _git_push_config_door): a long option counts in every prefix git
 can take, the ambiguous ones included; a short option counts in every bundle that holds it, also after a letter that
-takes the rest as its value; and a word of a git line that names push.followTags (tag), remote.<name>.mirror (force)
-or remote.<name>.push with a forced refspec (force) or with tags or a wildcard (tag) is that door, in -c, in `git
-config`, in GIT_CONFIG_PARAMETERS, in GIT_CONFIG_KEY_<n> with its GIT_CONFIG_VALUE_<n> and in --config-env. The key is read in the line's own text, since a quoted remote name may hold any character (`'remote.o(r).mirror=true'`), and a value of remote.<name>.push the line does not spell out (taken from another variable by --config-env, a GIT_CONFIG_VALUE_<n> the line does not set, a shell expansion, none) holds the release back as a forced push; the local review of the first form found these two gaps, open at main as well. `git push --signed` and its prefixes are the door of a signature. A release frees
-less, never more. Counter cases, each without a door before and after: commit -s, -qm, -am and --no-gpg-sign; push -u,
---set-upstream, --no-signed and --no-force; remote.<name>.push without `+`, tags or a wildcard; remote.<name>.pushurl.
-Each line of the rule also runs through real git in the tests, which shows that git signs, sends the tags or forces
-the update the door names. Not covered, and named: a git alias that names push, tag or commit under another word
-(`-c alias.p=push`, or one in the configuration of the repository or the person); not measured here.
+takes the rest as its value; push and tag count at any place after a git word, since a quoted option value with a
+blank (`git -c 'user.name=John Doe' push --tag z`) shifts the subcommand in the split words, and `tag <name>` in a
+push's refspecs sends a tag; push.followTags in the line's text is the door of a tag, and any key of
+remote.<name>.push or remote.<name>.mirror in the line's text is the door of a forced push, whatever its value and
+wherever it is set (-c, git config, GIT_CONFIG_PARAMETERS, GIT_CONFIG_KEY_<n>, --config-env in either form).
+`git push --signed` and its prefixes are the door of a signature. A release frees less, never more.
+
+Why no value of remote.<name>.push is read: the first two forms of this rule took the value from the line and freed a
+plain refspec, and the local reviews of each found a value git reads otherwise (by an index or another variable, the
+last of two assignments, `.push=` inside a quoted remote name, an expansion inside the value as in `refs/$KIND/v2`, a
+short name git expands to a tag as in `remote.z.push=v1`). A refspec is resolved against the repository and the
+environment, which this rule sees neither of. The named cost: a plain refspec set by configuration is held back
+although git opens no door with it; three such lines are cases of the tests.
+
+Counter cases, each without a door before and after: commit -s, -qm, -am and --no-gpg-sign; push -u,
+--set-upstream, --no-signed and --no-force; a push behind `-c 'user.name=John Doe'`. Each line of the rule, but for
+`push --forc`, which git refuses, and a local `git tag`, whose tag no remote receives, also runs through real git in
+the tests, which shows that git signs, sends a tag, mirrors or forces the update. Not covered, and named: a git alias
+that names push, tag or commit under another word (`-c alias.p=push`, or one in the configuration of the repository
+or the person); not measured here.
 Tests: tests/test_plugin_n49_release_once_d119.py (every spelling git takes).
 
 The grammar of these programs is read from their manuals (gpg 2.4 and the others as their authors document them); no

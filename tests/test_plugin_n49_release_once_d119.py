@@ -405,7 +405,6 @@ SPELLINGS = [
     ("git push --tag origin claude/x", "tag"), ("git push --follow origin claude/x", "tag"),
     ("git -c push.followTags=true push origin claude/x", "tag"),
     ("GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=push.followTags GIT_CONFIG_VALUE_0=true git push origin claude/x", "tag"),
-    ("git -c 'remote.origin.push=refs/tags/*:refs/tags/*' push origin", "tag"),
     ("git push --mirro origin", "force"), ("git push --mir origin", "force"),
     ("git -c remote.origin.mirror=true push origin", "force"),
     ("git -c remote.origin.push=+HEAD:refs/heads/main push origin", "force"),
@@ -416,16 +415,34 @@ SPELLINGS = [
     ("SPEC=+HEAD:refs/heads/main git --config-env=remote.origin.push=SPEC push origin", "force"),
     ("git -c 'remote.o(r).mirror=true' push 'o(r)'", "force"),
     ("GIT_CONFIG_PARAMETERS=\"'remote.origin.push'='+HEAD:refs/heads/main'\" git push origin", "force"),
+    # local review of 5ee4b8bc (six P1): --config-env with its own argument, the last of two assignments, `.push=` in a
+    # remote's name, the `tag <name>` of a refspec, and a quoted option value with a blank before the subcommand
+    ("SPEC=+HEAD:refs/heads/main git --config-env remote.origin.push=SPEC push origin", "force"),
+    ("GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.push GIT_CONFIG_VALUE_0=HEAD:refs/heads/main "
+     "GIT_CONFIG_VALUE_0=+HEAD:refs/heads/main git push origin", "force"),
+    ("GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=remote.o.push=x.url GIT_CONFIG_VALUE_0=../origin.git "
+     "GIT_CONFIG_KEY_1=remote.o.push=x.mirror GIT_CONFIG_VALUE_1=true git push o.push=x", "force"),
+    ("git push origin tag v1", "tag"),
+    ("git -c 'user.name=John Doe' push --tag origin claude/x", "tag"),
+    ("git -c 'user.name=John Doe' push --mir origin", "force"),
 ]
-#: git refuses these as ambiguous (measured: `push --forc`), so no oracle runs them; they still hold a release back.
-AMBIGUOUS = [("git push --forc origin claude/x", "force")]
+#: A refspec set by configuration is held back as a forced push whatever it says (the reader resolves no value against
+#: the repository); here git sends a tag with it, the third entry is the door git opens.
+CONFIG_HELD = [("git -c 'remote.origin.push=refs/tags/*:refs/tags/*' push origin", "force", "tag"),
+               ("KIND=tags; git -c remote.origin.push=HEAD:refs/$KIND/v2 push origin", "force", "tag"),
+               ("git -c remote.origin.push=v1 push origin", "force", "tag")]
+#: The named cost of that rule: a plain refspec set by configuration is held back although git opens no door with it.
+OVERCOUNT = [("git -c remote.origin.push=HEAD:refs/heads/main push origin", "force"),
+             ("git -c remote.origin.pushurl=../origin.git push origin claude/x", "force"),
+             ("GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.push GIT_CONFIG_VALUE_0=HEAD:refs/heads/main "
+              "git push origin", "force")]
+#: No oracle runs these: git refuses `push --forc` as ambiguous, and a tag made locally does not reach the remote the
+#: oracle reads. Both still hold a release back.
+WORDS_ONLY = [("git push --forc origin claude/x", "force"), ("git -c 'user.name=John Doe' tag v2", "tag")]
 SPELLING_COUNTERS = ["git commit -s -m x", "git commit -qm x", "git commit -am x", "git commit --no-gpg-sign -m x",
                      "git push -u origin claude/x", "git push --set-upstream origin claude/x",
                      "git push --no-signed origin claude/x", "git push --no-force origin claude/x",
-                     "git -c remote.origin.push=HEAD:refs/heads/main push origin",
-                     "git -c remote.origin.pushurl=../origin.git push origin claude/x",
-                     "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=remote.origin.push GIT_CONFIG_VALUE_0=HEAD:refs/heads/main "
-                     "git push origin"]
+                     "git -c 'user.name=John Doe' push origin claude/x"]
 
 
 def _git_oracle(tmp_path: pathlib.Path, line: str) -> set:
@@ -468,9 +485,19 @@ def _git_oracle(tmp_path: pathlib.Path, line: str) -> set:
             if seen}
 
 
-@pytest.mark.parametrize("command, door", SPELLINGS + AMBIGUOUS)
+@pytest.mark.parametrize("command, door", SPELLINGS + WORDS_ONLY + [c[:2] for c in CONFIG_HELD] + OVERCOUNT)
 def test_every_spelling_git_takes_is_the_door_it_opens(command, door):
     assert gate._release_door(command, gate.Outcome("deny", "", [])) == door, command
+
+
+@pytest.mark.parametrize("command, _door, effect", CONFIG_HELD)
+def test_oracle_git_opens_a_door_with_a_refspec_set_by_configuration(tmp_path, command, _door, effect):
+    assert effect in _git_oracle(tmp_path, command), command
+
+
+@pytest.mark.parametrize("command, _door", OVERCOUNT)
+def test_oracle_the_named_cost_git_opens_no_door_with_a_plain_configured_refspec(tmp_path, command, _door):
+    assert _git_oracle(tmp_path, command) == set(), command
 
 
 @pytest.mark.parametrize("command", SPELLING_COUNTERS)

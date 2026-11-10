@@ -18284,42 +18284,28 @@ def _git_short_bundle(word: str, letter: str) -> bool:
 
 
 #: A key of git's configuration that makes a push send what its words do not show, read in any case as git reads it:
-#: push.followTags sends the tags, remote.<name>.mirror mirrors, remote.<name>.push names the refspecs. The name of a
-#: remote may hold any character but a line break once it is quoted (`'remote.o(r).mirror=true'`), so the key is read
-#: in the line's own text, never in its split words.
-_GIT_PUSH_CONFIG = re.compile(r"(push\.followtags)|remote\.[^\n]*?\.(mirror|push)(?=[\s='\"]|$)", re.I)
-#: What follows a key of remote.<name>.push as its value: `=value`, ` value` (git config), `'='value'`
-#: (GIT_CONFIG_PARAMETERS), each with or without quotes.
-_GIT_CONFIG_VALUE = re.compile(r"""['"]?[ \t]*=?[ \t]*['"]?([^\s'"]*)""")
+#: push.followTags sends the tags, remote.<name>.mirror mirrors, remote.<name>.push names the refspecs. It is found in
+#: the line's own text, never in its split words, and it is not parsed further: the name of a remote may hold any
+#: character once it is quoted, `.push=` included (`remote.o.push=x.mirror` is the key mirror of the remote `o.push=x`).
+_GIT_PUSH_CONFIG = re.compile(r"(push\.followtags)|remote\.[^\n]*?\.(?:mirror|push)", re.I)
 
 
 def _git_push_config_door(text: str) -> str | None:
-    """The door a configuration of the line opens for a push: `-c push.followTags=true`, `-c remote.origin.mirror=true`,
-    `-c remote.origin.push=+refs/heads/*:refs/heads/*`, the same keys in `git config`, GIT_CONFIG_PARAMETERS,
-    GIT_CONFIG_KEY_<n> with its GIT_CONFIG_VALUE_<n>, and --config-env. Until 2026-11-10 a release let
-    `git -c push.followTags=true push origin topic` run, because only the push's own words were read
-    (DELTA-GUARD-SIGNATUR-BUENDEL-20261110-01). A value of remote.<name>.push the line does not spell out (taken from
-    another variable by --config-env, a GIT_CONFIG_VALUE_<n> the line does not set, a shell expansion, none at all)
-    holds the release back as a forced push: a release frees less, never more."""
-    for found in _GIT_PUSH_CONFIG.finditer(text):
-        if found.group(1):
-            return "tag"
-        if found.group(2).lower() == "mirror":
-            return "force"
-        before = text[:found.start()]
-        index = re.search(r"GIT_CONFIG_KEY_(\d+)=['\"]?$", before)
-        if re.search(r"--config-env=['\"]?$", before):
-            value = ""
-        elif index:
-            given = re.search(rf"GIT_CONFIG_VALUE_{index.group(1)}=['\"]?([^\s'\"]*)", text)
-            value = given.group(1) if given else ""
-        else:
-            value = _GIT_CONFIG_VALUE.match(text, found.end()).group(1)
-        if not value or value.startswith(("+", "$", "`")):
-            return "force"
-        if "tags" in value or "*" in value:
-            return "tag"   # refs/tags/..., or a wildcard that takes the tags along
-    return None
+    """The door a configuration of the line opens for a push: push.followTags is the door of a tag, and any key of
+    remote.<name>.push or remote.<name>.mirror is the door of a forced push, whatever its value and wherever it is set
+    (-c, git config, GIT_CONFIG_PARAMETERS, GIT_CONFIG_KEY_<n>, --config-env in either form).
+
+    WHY NO VALUE IS READ (local reviews of 89922dec and 5ee4b8bc, 2026-11-10). The first two forms of this reader took
+    the value of remote.<name>.push from the line and freed a plain refspec. Each review then found a value git reads
+    otherwise: by an index or another variable, from the last of two assignments, through an expansion in the middle
+    of the value (`refs/$KIND/v2`), or as a short name git expands to a tag (`remote.z.push=v1`). A value is a refspec
+    git resolves against the repository and the environment, which this reader sees neither of, so it frees none: a
+    release frees less, never more. The cost is named in the tests: a plain refspec set by configuration is held back
+    although git opens no door with it."""
+    found = _GIT_PUSH_CONFIG.search(text)
+    if not found:
+        return None
+    return "tag" if found.group(1) else "force"
 
 
 def _release_door_words_split(command: str) -> str | None:
@@ -18335,6 +18321,12 @@ def _release_door_words_split(command: str) -> str | None:
             if j < len(words):
                 subs[j] = name
     pushed = [k for k, name in subs.items() if name == "git" and words[k] == "push"]
+    # A QUOTED VALUE WITH A BLANK SHIFTS THE SUBCOMMAND (local review of 5ee4b8bc, 2026-11-10). The split words of
+    # `git -c 'user.name=John Doe' push --tag z` make `Doe` the subcommand, so the push and its options went unread;
+    # git sends the tag. push and tag count at any place after a git word now; a release frees less, never more.
+    git_from = min((i for i, name in enumerate(names) if name == "git"), default=None)
+    git_words = words[git_from + 1:] if git_from is not None else []
+    pushed += [git_from + 1 + i for i, w in enumerate(git_words) if w == "push"]
     after_push = words[min(pushed) + 1:] if pushed else []
     if any(w == "--admin" or w.startswith("--admin=") for w in words):
         return "admin"
@@ -18346,9 +18338,10 @@ def _release_door_words_split(command: str) -> str | None:
     if any(_git_long_option(w, "force", "mirror") or (w.startswith("+") and len(w) > 1) or _git_short_bundle(w, "f")
            for w in after_push) or config_door == "force":
         return "force"
-    if any(name == "git" and words[k] == "tag" for k, name in subs.items()) or \
+    if any(name == "git" and words[k] == "tag" for k, name in subs.items()) or "tag" in git_words or \
             any(_git_long_option(w, "tags", "follow-tags") or "refs/tags/" in w for w in after_push) or \
             config_door == "tag":
+        # `tag` after git is the subcommand, or the `tag <name>` of a push's refspecs (`git push z tag v1`)
         return "tag"
     if any(name == "gh" and words[k] == "release" for k, name in subs.items()) or \
             any(name == "gh" and words[k] == "api" and any("/releases" in w for w in words[k + 1:])
