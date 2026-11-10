@@ -533,7 +533,13 @@ CONFIG_HELD = [("git send-pack --mirror ../origin.git", "force", "tag"),
                ("/usr/bin/{g..g}[i]t push --mirror origin", "unread", "tag"),
                ("/usr/bin/{g..g}[i]t push --tags origin", "unread", "tag"),
                ("/usr/bin/{g..g}[i]t commit -S -q -m x", "unread", "signatur"),
-               ("bash -c '/usr/bin/g[i]t push --mirror origin'", "unread", "tag")]
+               ("bash -c '/usr/bin/g[i]t push --mirror origin'", "unread", "tag"),
+               # local review of 3c79f5e0 (P1, open at main): the same test as _release_assembled for a text read again,
+               # a command substitution and a runner the shell joins
+               ('echo "$(/usr/bin/g[i]t push --mirror origin)"', "unread", "tag"),
+               ('echo "$(/usr/bin/g[i]t push --tags origin)"', "unread", "tag"),
+               ('echo "$(/usr/bin/g[i]t commit -S -q -m x)"', "unread", "signatur"),
+               ("b''ash -c '/usr/bin/g[i]t push --mirror origin'", "unread", "tag")]
 #: The named cost of that rule: a plain refspec set by configuration is held back although git opens no door with it.
 OVERCOUNT = [("git -c remote.origin.push=HEAD:refs/heads/main push origin", "force"),
              ("git -c remote.origin.pushurl=../origin.git push origin claude/x", "force"),
@@ -567,7 +573,7 @@ SPELLING_COUNTERS = ["git commit -s -m x", "git commit -qm x", "git commit -am x
                      # a pattern in quotes and the test command [ are no words formed from file names
                      "git log -1 --grep='fix*'", "[ -f README ] || git status --short",
                      # a program that reads the text again, without a pattern in it
-                     "bash -c 'git status --short'"]
+                     "bash -c 'git status --short'", 'echo "$(date)"']
 
 
 def _git_oracle(tmp_path: pathlib.Path, line: str) -> set:

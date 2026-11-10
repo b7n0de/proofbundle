@@ -18203,7 +18203,7 @@ def _release_door_words(command: str) -> str | None:
     # the text again (`bash -c '/usr/bin/g[i]t push --mirror z'`), without the quotes the outer shell removes, as the
     # gate reads the text of such a program the strict way (_release_assembled).
     texts = [continued, _release_braced(continued)]
-    if any(os.path.basename(w).lower() in _RELEASE_TEXT_RUNNERS for w in _RELEASE_SPLIT.split(continued) if w):
+    if _release_reads_again(continued):
         texts += readings + [_release_braced(r) for r in readings]
     texts = list(dict.fromkeys(texts))
     globbed = [w for x in texts for w in _release_glob_words(x)]
@@ -18273,12 +18273,22 @@ def _release_assembled(continued: str) -> list[str]:
     runner apart, so a line where a runner reads a file, `source` or a shell given a script, is read the strict way
     as well: it holds back more, never less."""
     readings = [_RELEASE_JOIN.sub("", _release_quote_parts(continued))]
-    runs_text = any(os.path.basename(word) in _RELEASE_TEXT_RUNNERS
-                    for word in _RELEASE_SPLIT.split(continued) + _RELEASE_SPLIT.split(readings[0]))
-    if runs_text or any(opening in continued for opening in _RELEASE_NEW_CONTEXT):
+    if _release_reads_again(continued):
         readings.append(_RELEASE_JOIN.sub("", _RELEASE_LOCALE.sub(_release_locale,
                                                                   _RELEASE_ANSI_C.sub(_release_ansi_c, continued))))
     return list(dict.fromkeys(readings))
+
+
+def _release_reads_again(continued: str) -> bool:
+    """Whether the shell reads a part of the line again, in a context of its own: a word of _RELEASE_TEXT_RUNNERS, as
+    written or as the shell joins it (`b''ash -c`), or an opening of _RELEASE_NEW_CONTEXT (`"$(...)"`). The one test
+    for it, used by _release_assembled and by the rule for a word formed from file names (local review of 3c79f5e0:
+    that rule had built its own narrower test and missed `echo "$(/usr/bin/g[i]t push --mirror z)"` and
+    `b''ash -c '/usr/bin/g[i]t push --mirror z'`)."""
+    joined = _RELEASE_JOIN.sub("", _release_quote_parts(continued))
+    return any(os.path.basename(word) in _RELEASE_TEXT_RUNNERS
+               for word in _RELEASE_SPLIT.split(continued) + _RELEASE_SPLIT.split(joined)) or \
+        any(opening in continued for opening in _RELEASE_NEW_CONTEXT)
 
 
 def _release_braced(text: str) -> str:
