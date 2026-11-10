@@ -53,10 +53,13 @@ import hashlib
 from typing import Any
 
 from ._cbor_prescan import encode_head
+from ._membership import is_member
 from ._strict_cbor import CborBeyondLimits, CborInvalid, CborUnrepresentable, Tag, loads_strict_cbor
+from .budget import render_safe
+from .canonical import _ein_stand
 from .errors import BundleFormatError
 
-__all__ = ["HASHES", "SCHEMES", "NoVerdict", "match_statement", "to_be_signed"]
+__all__ = ["HASHES", "SCHEMES", "NoVerdict", "match_statement"]
 
 #: The schemes this reader knows. ``ToBeSigned`` is Section 5.1 of the draft; ``WholeBytes`` is defined above.
 SCHEMES = ("ToBeSigned", "WholeBytes")
@@ -123,8 +126,10 @@ def _bstr(data: bytes) -> bytes:
     return encode_head(2, len(data)) + data
 
 
-def to_be_signed(body_protected: bytes, external_aad: bytes, payload: bytes) -> bytes:
-    """The Sig_structure of RFC 9052 Section 4.4 for COSE_Sign1 in the deterministic encoding of its Section 9."""
+def _to_be_signed(body_protected: bytes, external_aad: bytes, payload: bytes) -> bytes:
+    """The Sig_structure of RFC 9052 Section 4.4 for COSE_Sign1 in the deterministic encoding of its Section 9. Its
+    one caller hands it plain byte strings: the arguments `match_statement` read at its call, and what the strict
+    reader built."""
     return encode_head(4, 4) + encode_head(3, 10) + b"Signature1" + _bstr(body_protected) + _bstr(external_aad) + \
         _bstr(payload)
 
@@ -135,12 +140,13 @@ def _reference_usable(reference: bytes, scheme: str, alg: int) -> tuple:
     if not (type(ref) is list and len(ref) == 3):
         return False, None, "the reference is not one CBOR array of three elements"
     r_alg, r_name, r_digest = ref
-    if type(r_alg) is not int or r_alg not in HASHES:
+    if type(r_alg) is not int or not is_member(r_alg, HASHES):
         return False, None, "the reference alg is not an integer naming a hash function this reader knows"
     if type(r_name) is not str or type(r_digest) is not bytes:
         return False, None, "the reference scheme is not a text string or its digest is not a byte string"
-    if len(r_digest) != HASHES[r_alg][1]:
-        return False, None, f"the reference digest is {len(r_digest)} bytes, {HASHES[r_alg][0]} gives {HASHES[r_alg][1]}"
+    hash_name, size = HASHES[r_alg]
+    if len(r_digest) != size:
+        return False, None, f"the reference digest is {len(r_digest)} bytes, {hash_name} gives {size}"
     if r_alg != alg or r_name != scheme:
         return False, None, f"the reference names {r_name!r} with alg {r_alg}, not the scheme {scheme!r} with alg {alg}"
     return True, r_digest, None
@@ -166,6 +172,7 @@ def _read_candidate(candidate: bytes):
     return tagged, protected, payload, signature
 
 
+@_ein_stand(fehler=ValueError)
 def match_statement(reference: bytes, candidate: bytes, *, scheme: str, alg: int,
                     external_aad: bytes | None = None, detached_payload: bytes | None = None,
                     public_key: bytes | None = None) -> dict:
@@ -173,11 +180,14 @@ def match_statement(reference: bytes, candidate: bytes, *, scheme: str, alg: int
 
     ``external_aad`` and ``detached_payload`` are None when not supplied; an empty byte string is a supplied empty
     value. ``public_key`` is the 32-byte raw Ed25519 key for the ``signature`` axis, or None. Raises ValueError for a
-    scheme or algorithm this reader does not know, and :class:`NoVerdict` for input it does not read."""
+    scheme or algorithm this reader does not know or an input that is not bytes, and :class:`NoVerdict` for input it
+    does not read. Every argument is read once at the call (``canonical._ein_stand``) before the body reads it, and
+    only an exact ``bytes`` is taken as bytes, so a subclass of bytes is refused as an input that is not bytes; a
+    value that reading refuses raises an error that is also a ValueError."""
     if scheme not in SCHEMES:
-        raise ValueError(f"unknown scheme {scheme!r}; this reader knows {', '.join(SCHEMES)}")
-    if type(alg) is not int or alg not in HASHES:
-        raise ValueError(f"alg {alg!r} names no hash function this reader knows")
+        raise ValueError(f"unknown scheme {render_safe(scheme)}; this reader knows {', '.join(SCHEMES)}")
+    if type(alg) is not int or not is_member(alg, HASHES):
+        raise ValueError(f"alg {render_safe(alg)} names no hash function this reader knows")
     for name, value in (("reference", reference), ("candidate", candidate), ("external_aad", external_aad),
                         ("detached_payload", detached_payload), ("public_key", public_key)):
         if value is not None and type(value) is not bytes:
@@ -200,7 +210,7 @@ def match_statement(reference: bytes, candidate: bytes, *, scheme: str, alg: int
         reasons.append("the candidate carries no tag 18")
     if payload is None:
         payload = detached_payload
-    tbs = None if payload is None or external_aad is None else to_be_signed(protected, external_aad, payload)
+    tbs = None if payload is None or external_aad is None else _to_be_signed(protected, external_aad, payload)
     if tbs is None:
         reasons.append("no ToBeSigned: " + ("external_aad is not supplied" if external_aad is None
                                             else "the payload is nil and no detached payload is supplied"))

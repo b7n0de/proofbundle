@@ -712,6 +712,10 @@ _RULE_SITES = {
                                                          "writes nothing"),
     ("src/proofbundle/policy.py", "evaluate_decision_policy"): (1, "verifier: the same"),
     ("src/proofbundle/policy_profiles.py", "instantiate_template"): (1, "PRODUCER, ProducersOfKeyText"),
+    ("src/proofbundle/scitt_statement_id.py", "match_statement"): (1, "verifier: names why a key is refused, on "
+                                                                     "the plain bytes `_ein_stand` read at the "
+                                                                     "call; verify_ed25519_pinned judges them "
+                                                                     "again and decides; writes nothing"),
     ("src/proofbundle/sdjwt_issue.py", "issue_sd_jwt"): (1, "PRODUCER, ProducersOfRawKeys"),
     ("src/proofbundle/signature.py", "verify_ed25519_pinned"): (1, "the verify primitive"),
     ("src/proofbundle/trust_pack.py", "validate_trust_pack_predicate"): (
