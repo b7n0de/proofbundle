@@ -5931,6 +5931,30 @@ its key joined (`-S<key>`). Measured at e7ffa935 on 2026-10-24 in the work profi
 git line that names gpgsign, or that begins with -S or --gpg-sign, is the door of a signature now, also one that sets
 gpgsign false: a release frees less, never more. H5 does not read git: a git line already asks or needs a card.
 
+A second neighbour in the same rule, the spelling of an option (DELTA-GUARD-SIGNATUR-BUENDEL-20261110-01, 2026-11-10):
+_release_door_words compared each option in its full spelling, while git takes a long option by any prefix that names
+it alone, a short one inside a bundle, and the targets of a push also from its configuration. Measured with git 2.55.0
+in throwaway repositories: `commit -qS` and `-aS` sign (`-mS` does not, its message is S), `--gpg`, `--gpg-s` and
+`--gpg=<key>` sign; `push --signed`, `--sign`, `--si` and `--signed=if-asked` sign the push certificate with the
+owner's key, `--no-signed` does not; `push --tag` sends the tags, `push --follow` follows them, `push --mirro` and
+`--mir` mirror; `-c push.followTags=true` sends the tags, `-c remote.<name>.mirror=true` mirrors,
+`remote.<name>.push=refs/tags/*:refs/tags/*` sends the tags, `remote.<name>.push=+HEAD:refs/heads/main` forces the
+update that the same refspec without `+` is refused; `push --forc` is refused as ambiguous. gh takes no abbreviated
+flag (`gh pr merge --adm`: unknown flag), so --admin stays read in its full spelling. At 5bdf225d each of these lines
+passed _release_door as no door, so a release of D119 let it run.
+
+The rule now (_git_long_option, _git_short_bundle, _git_push_config_door): a long option counts in every prefix git
+can take, the ambiguous ones included; a short option counts in every bundle that holds it, also after a letter that
+takes the rest as its value; and a word of a git line that names push.followTags (tag), remote.<name>.mirror (force)
+or remote.<name>.push with a forced refspec (force) or with tags or a wildcard (tag) is that door, in -c, in `git
+config` and in GIT_CONFIG_KEY_<n>. `git push --signed` and its prefixes are the door of a signature. A release frees
+less, never more. Counter cases, each without a door before and after: commit -s, -qm, -am and --no-gpg-sign; push -u,
+--set-upstream, --no-signed and --no-force; remote.<name>.push without `+`, tags or a wildcard; remote.<name>.pushurl.
+Each line of the rule also runs through real git in the tests, which shows that git signs, sends the tags or forces
+the update the door names. Not covered, and named: a git alias that names push, tag or commit under another word
+(`-c alias.p=push`, or one in the configuration of the repository or the person); not measured here.
+Tests: tests/test_plugin_n49_release_once_d119.py (every spelling git takes).
+
 The grammar of these programs is read from their manuals (gpg 2.4 and the others as their authors document them); no
 door form was run here. Not covered, and named: a door the shell builds (`$T upload`, a program in a variable); code an
 interpreter runs that uploads or signs (`python -c`, a script); the signing configuration of a repository that signs a

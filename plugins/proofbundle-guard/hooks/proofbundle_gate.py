@@ -18263,6 +18263,52 @@ def _release_unresolved_door(assembled: str) -> str | None:
     return None
 
 
+def _git_long_option(word: str, *options: str) -> bool:
+    """True when git can take `word` as one of the long `options` (named without the dashes).
+
+    git takes any prefix of a long option that names it alone among the options of the command (measured with git
+    2.55.0: `commit --gpg` and `--gpg-s` sign, `push --tag` sends the tags, `push --follow` follows them, `push --mirro`
+    mirrors), and refuses a prefix that names two (`push --forc`). A release frees less, never more, so every prefix
+    counts here, the ambiguous ones included, and so does the option with a value joined by `=`."""
+    if not word.startswith("--") or len(word) < 3:
+        return False
+    name = word[2:].partition("=")[0]
+    return bool(name) and any(option.startswith(name) or name.startswith(option) for option in options)
+
+
+def _git_short_bundle(word: str, letter: str) -> bool:
+    """True when `word` is a bundle of short options that holds `letter`: git reads `-qS` as `-q -S` and `-fu` as
+    `-f -u` (measured with git 2.55.0). Where a letter before it takes the rest as its value (`-mS` is the message
+    `S`), the bundle still counts: a release frees less, never more."""
+    return len(word) > 1 and word[0] == "-" and word[1] != "-" and letter in word[1:]
+
+
+#: A key of git's configuration that makes a push send what its words do not show (read in any case, as git does):
+#: push.followTags sends the tags, remote.<name>.mirror mirrors, remote.<name>.push names the refspecs.
+_GIT_PUSH_CONFIG = re.compile(r"(push\.followtags)|remote\.[^\s=]+\.(mirror|push)(?==|$)(?:=(.*))?", re.I)
+
+
+def _git_push_config_door(words: list) -> str | None:
+    """The door a configuration word opens for a push: `-c push.followTags=true`, `-c remote.origin.mirror=true`,
+    `-c remote.origin.push=+refs/heads/*:refs/heads/*`, the same keys in `git config` or GIT_CONFIG_KEY_<n>. Until
+    2026-11-10 a release let `git -c push.followTags=true push origin topic` run, because only the push's own words
+    were read (DELTA-GUARD-SIGNATUR-BUENDEL-20261110-01)."""
+    for i, word in enumerate(words):
+        found = _GIT_PUSH_CONFIG.search(word)
+        if not found:
+            continue
+        if found.group(1):
+            return "tag"
+        if found.group(2).lower() == "mirror":
+            return "force"
+        value = found.group(3) if found.group(3) is not None else (words[i + 1] if i + 1 < len(words) else "")
+        if value.startswith("+"):
+            return "force"
+        if "tags" in value or "*" in value:
+            return "tag"   # refs/tags/..., or a wildcard that takes the tags along
+    return None
+
+
 def _release_door_words_split(command: str) -> str | None:
     words = [w for w in _RELEASE_SPLIT.split(command) if w]
     # A program name is compared without case: a file system without case (macOS) finds /usr/bin/sudo for `SUDO`.
@@ -18279,11 +18325,17 @@ def _release_door_words_split(command: str) -> str | None:
     after_push = words[min(pushed) + 1:] if pushed else []
     if any(w == "--admin" or w.startswith("--admin=") for w in words):
         return "admin"
-    if any(w in ("-f", "--mirror") or w.startswith("--force") or (w.startswith("+") and len(w) > 1) or
-           (w.startswith("-") and not w.startswith("--") and "f" in w[1:]) for w in after_push):
+    # EVERY SPELLING GIT TAKES (DELTA-GUARD-SIGNATUR-BUENDEL-20261110-01). The words were compared in their full
+    # spelling only, so a release let `git push --mirro`, `git push --tag`, `git commit -qS` and `git commit --gpg`
+    # run although git mirrors, sends the tags and signs with the owner's key. A long option counts in every prefix
+    # (`_git_long_option`), a short one in every bundle (`_git_short_bundle`), and a push's configuration counts too.
+    config_door = _git_push_config_door(words) if "git" in names else None
+    if any(_git_long_option(w, "force", "mirror") or (w.startswith("+") and len(w) > 1) or _git_short_bundle(w, "f")
+           for w in after_push) or config_door == "force":
         return "force"
     if any(name == "git" and words[k] == "tag" for k, name in subs.items()) or \
-            any(w in ("--tags", "--follow-tags") or "refs/tags/" in w for w in after_push):
+            any(_git_long_option(w, "tags", "follow-tags") or "refs/tags/" in w for w in after_push) or \
+            config_door == "tag":
         return "tag"
     if any(name == "gh" and words[k] == "release" for k, name in subs.items()) or \
             any(name == "gh" and words[k] == "api" and any("/releases" in w for w in words[k + 1:])
@@ -18299,7 +18351,11 @@ def _release_door_words_split(command: str) -> str | None:
     # one that sets it false: a release frees less, never more.
     if any(n in _RELEASE_SIGNERS for n in names) or ("ssh-keygen" in names and "-Y" in words and "sign" in words) or \
             ("openssl" in names and any(w in ("-sign", "sign") for w in words)) or \
-            ("git" in names and any(w.startswith(("-S", "--gpg-sign")) or "gpgsign" in w.lower() for w in words)):
+            ("git" in names and any(_git_short_bundle(w, "S") or _git_long_option(w, "gpg-sign") or
+                                    "gpgsign" in w.lower() for w in words)) or \
+            any(_git_long_option(w, "signed") for w in after_push):
+        # `-qS` and `-aS` sign as `-S` does, `--gpg` and `--gpg-s` as `--gpg-sign` does, and `git push --signed` (also
+        # `--sign`) signs the push certificate with the owner's key.
         return "signatur"
     if any(n in _RELEASE_ROOT for n in names):
         return "root"

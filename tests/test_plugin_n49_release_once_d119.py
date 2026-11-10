@@ -390,3 +390,90 @@ def test_the_services_record_takes_a_release_once_even_for_two_requests_at_a_tim
     with pytest.raises(signer_service.Refused, match="release_honoured"):
         signer_service.honour(config, release)
     assert list(signer_service.honoured(config)) == [f"{d111.CARD}:{'a' * 64}:{SESSION}"]
+
+
+# --- every spelling git takes (DELTA-GUARD-SIGNATUR-BUENDEL-20261110-01) ----------------------------------------------
+# The words of a door were compared in their full spelling only. git takes a long option by any prefix that names it
+# alone, a short one inside a bundle, and a push's targets also from its configuration; each line below passed a
+# release at 5bdf225d, and each runs here once more through real git, which shows that git does what the door names.
+
+SPELLINGS = [
+    ("git commit -qS -m x", "signatur"), ("git commit -aS -m x", "signatur"), ("git commit --gpg -m x", "signatur"),
+    ("git commit --gpg-s -m x", "signatur"), ("git commit --gpg=k -m x", "signatur"),
+    ("git push --signed origin claude/x", "signatur"), ("git push --si origin claude/x", "signatur"),
+    ("git push --signed=if-asked origin claude/x", "signatur"),
+    ("git push --tag origin claude/x", "tag"), ("git push --follow origin claude/x", "tag"),
+    ("git -c push.followTags=true push origin claude/x", "tag"),
+    ("GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=push.followTags GIT_CONFIG_VALUE_0=true git push origin claude/x", "tag"),
+    ("git -c 'remote.origin.push=refs/tags/*:refs/tags/*' push origin", "tag"),
+    ("git push --mirro origin", "force"), ("git push --mir origin", "force"),
+    ("git -c remote.origin.mirror=true push origin", "force"),
+    ("git -c remote.origin.push=+HEAD:refs/heads/main push origin", "force"),
+    ("git config remote.origin.push +HEAD:refs/heads/main && git push origin", "force"),
+]
+#: git refuses these as ambiguous (measured: `push --forc`), so no oracle runs them; they still hold a release back.
+AMBIGUOUS = [("git push --forc origin claude/x", "force")]
+SPELLING_COUNTERS = ["git commit -s -m x", "git commit -qm x", "git commit -am x", "git commit --no-gpg-sign -m x",
+                     "git push -u origin claude/x", "git push --set-upstream origin claude/x",
+                     "git push --no-signed origin claude/x", "git push --no-force origin claude/x",
+                     "git -c remote.origin.push=HEAD:refs/heads/main push origin",
+                     "git -c remote.origin.pushurl=../origin.git push origin claude/x"]
+
+
+def _git_oracle(tmp_path: pathlib.Path, line: str) -> set:
+    """What git does with `line`, in a repository of its own: `signatur` when it asked the signing program,
+    `tag` when a tag arrived at the remote, `force` when the remote's main, which had diverged, now holds ours."""
+    env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path), "GIT_CONFIG_GLOBAL": os.devnull,
+           "GIT_CONFIG_SYSTEM": os.devnull, "GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"}
+    marker = tmp_path / "signed"
+    program = tmp_path / "gpg"
+    program.write_text(f"#!/bin/sh\ntouch '{marker}'\nexit 1\n")
+    program.chmod(0o700)
+    bare, src = tmp_path / "origin.git", tmp_path / "src"
+
+    def run(*args, cwd=src):
+        subprocess.run(["git", *args], cwd=str(cwd), env=env, capture_output=True, check=True, timeout=60)
+
+    run("init", "-q", "--bare", str(bare), cwd=tmp_path)
+    run("config", "receive.certNonceSeed", "s", cwd=bare)
+    run("init", "-q", "-b", "main", str(src), cwd=tmp_path)
+    for key, value in (("user.name", "t"), ("user.email", "t@t"), ("gpg.program", str(program))):
+        run("config", key, value)
+    (src / "f").write_text("1")
+    run("add", "f")
+    run("commit", "-q", "-m", "one")
+    run("push", "-q", str(bare), "main")
+    run("commit", "-q", "--amend", "-m", "one again")      # the remote's main has diverged from ours
+    run("tag", "-a", "v1", "-m", "v1")
+    run("branch", "claude/x")
+    run("remote", "add", "origin", str(bare))
+    (src / "f").write_text("2")
+    (src / "g").write_text("g")
+    run("add", "g")
+    subprocess.run(["bash", "-c", line], cwd=str(src), env=env, capture_output=True, timeout=60, check=False)
+    tags = subprocess.run(["git", "for-each-ref", "refs/tags"], cwd=str(bare), env=env, capture_output=True,
+                          timeout=60, check=False).stdout.strip()
+    ours, theirs = (subprocess.run(["git", "rev-parse", "-q", "--verify", "refs/heads/main"], cwd=str(d), env=env,
+                                   capture_output=True, timeout=60, check=False).stdout.strip() for d in (src, bare))
+    return {name for name, seen in (("signatur", marker.exists()), ("tag", bool(tags)), ("force", ours == theirs))
+            if seen}
+
+
+@pytest.mark.parametrize("command, door", SPELLINGS + AMBIGUOUS)
+def test_every_spelling_git_takes_is_the_door_it_opens(command, door):
+    assert gate._release_door(command, gate.Outcome("deny", "", [])) == door, command
+
+
+@pytest.mark.parametrize("command", SPELLING_COUNTERS)
+def test_control_a_spelling_that_opens_no_door_stays_free(command):
+    assert gate._release_door(command, gate.Outcome("deny", "", [])) is None, command
+
+
+@pytest.mark.parametrize("command, door", SPELLINGS)
+def test_oracle_git_does_what_the_door_of_the_spelling_names(tmp_path, command, door):
+    assert door in _git_oracle(tmp_path, command), command
+
+
+@pytest.mark.parametrize("command", SPELLING_COUNTERS)
+def test_oracle_git_opens_no_door_for_a_counter_case(tmp_path, command):
+    assert _git_oracle(tmp_path, command) == set(), command
