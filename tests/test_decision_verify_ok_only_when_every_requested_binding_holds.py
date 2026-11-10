@@ -22,6 +22,12 @@ WHAT IS PINNED.
 Run against main 6b63cda8, the counter-cases and the controls of `--with-related` and `--related-pub` fail
 (exit 0 with `ok` true, and no `lineage_ok` in the JSON); every other case passes there and here. The cases
 of the other options are controls for this commit and the guard for options added later.
+
+THE GUARD AT WORK. Pull request 502 landed before this file, and on main b5e15291 `decision verify` has five
+options more: `--action` (step 10 of Section 3.2), `--case` and `--approval` (Section 3.3), `--consumed` and
+`--received` (Section 4). The classification test named all five as unclassified. Each folds into `ok` and the
+exit there (`action_bytes_ok`, `case_ok`, `consumption_ok` in `verify_decision_receipt`), and each now has its
+counter-case and its control below, built as the tests of those sections build their inputs.
 """
 from __future__ import annotations
 
@@ -37,8 +43,10 @@ import unittest
 from pathlib import Path
 
 from proofbundle.cli import build_parser, main
-from proofbundle.decision import emit_decision_receipt
+from proofbundle.decision import _rfc8785_bytes, emit_decision_receipt
 from proofbundle.emit import generate_signer
+
+import test_decision_case_checks_of_section_3_3 as _fall1
 
 REPO = Path(__file__).resolve().parents[1]
 EXAMPLE = REPO / "examples" / "decision_receipt_allow.json"
@@ -55,6 +63,11 @@ BINDINGS = {
     "--related-pub": "lineage_ok",
     "--require-derived-subject": "subject_derived_ok",
     "--verification-time": "freshness_ok",
+    "--action": "action_bytes_ok",
+    "--case": "case_ok",
+    "--approval": "case_ok",
+    "--consumed": "consumption_ok",
+    "--received": "consumption_ok",
 }
 
 #: The options that request no binding of their own, each with the reason.
@@ -65,7 +78,8 @@ NO_BINDING = {
 }
 
 #: The fields `automation_summary` reads as references on the decision path (decision.py).
-REFERENCE_FIELDS = {"evidence_bound", "audience_ok", "nonce_ok", "anchors_ok", "subject_derived_ok", "lineage_ok"}
+REFERENCE_FIELDS = {"evidence_bound", "audience_ok", "nonce_ok", "anchors_ok", "subject_derived_ok", "lineage_ok",
+                    "action_bytes_ok", "case_ok", "consumption_ok"}
 
 
 def _verify_parser() -> argparse.ArgumentParser:
@@ -115,6 +129,11 @@ class _Fixture:
         path.write_text(json.dumps(obj), encoding="utf-8")
         return str(path)
 
+    def write_bytes(self, name: str, data: bytes) -> str:
+        path = self.tmp / name
+        path.write_bytes(data)
+        return str(path)
+
     def receipt(self, name: str, *, mod=None, signer=None, strict: bool = True, **kw) -> str:
         pred = copy.deepcopy(self.pred)
         if mod is not None:
@@ -137,9 +156,31 @@ class _Fixture:
             "decision_receipt": {"trusted_decision_makers": [{"id": self.maker, "public_key_b64": self.pub}]}})
         self.broken_anchor = self.write("anchors-broken.json", [{"type": "rfc3161", "token": "AAAA"}])
         self.tsa_root = self.write("tsa-root.pem", "not a certificate")
+        # The inputs of pull request 502, as tests/test_decision_case_checks_of_section_3_3.py and
+        # tests/test_decision_consumption_state_of_section_4.py build them: a receipt for an approval, whose
+        # parametersDigest names _fall1.ACTION, and a declined one, both valid at _APPROVAL_T.
+        freigabe = _fall1._freigabe()
+        approval_bytes = _rfc8785_bytes(freigabe)
+        self.approval_receipt = self.write("approval-receipt.json",
+                                           emit_decision_receipt(_fall1._entscheidung(approval_bytes), self.signer))
+        self.declined_receipt = self.write("declined-receipt.json", emit_decision_receipt(
+            _fall1._entscheidung(verdict="DENY", reason=("risk.boundary.exceeded",)), self.signer))
+        self.action = self.write_bytes("action.bin", _fall1.ACTION)
+        self.other_action = self.write_bytes("other-action.bin", b'{"merge":"pull/1"}\n')
+        self.approval = self.write_bytes("approval.json", approval_bytes)
+        self.other_approval = self.write_bytes("other-approval.json",
+                                               _rfc8785_bytes(_fall1._freigabe(session="sess-2")))
+        kennung = {k: freigabe[k] for k in ("approvalId", "actionDigest", "session")}
+        self.not_consumed = self.write("consumed-empty.json", [])
+        self.consumed = self.write("consumed.json", [kennung])
+        self.copy_in_time = self.write("received-in-time.json", [freigabe])
+        self.copy_too_early = self.write("received-too-early.json",
+                                         [_fall1._freigabe(validUntil="2026-07-16T09:00:30Z")])
 
 
 _IN_WINDOW = ["--verification-time", "2026-01-01T12:00:00Z"]
+#: T of the approval receipts: after decidedAt, before validity.expiresAt and before validUntil of the approval.
+_APPROVAL_T = ["--verification-time", "2026-07-16T09:01:00Z"]
 
 
 def _counter_cases(f: _Fixture) -> dict[str, list[str]]:
@@ -157,6 +198,19 @@ def _counter_cases(f: _Fixture) -> dict[str, list[str]]:
         "--related-pub": [f.base, "--pub", f.pub, "--with-related", f.validity, "--related-pub", f.other_pub],
         "--require-derived-subject": [f.external_subject, "--pub", f.pub, "--require-derived-subject"],
         "--verification-time": [f.validity, "--pub", f.pub, "--verification-time", "2026-03-01T00:00:00Z"],
+        # The bytes of another action than the one parametersDigest names.
+        "--action": [f.approval_receipt, "--pub", f.pub, "--strict", "--action", f.other_action, *_APPROVAL_T],
+        # A receipt with the verdict ALLOW is no declined case.
+        "--case": [f.approval_receipt, "--pub", f.pub, "--strict", "--case", "declined", *_APPROVAL_T],
+        # An approval record whose bytes do not hash to the entry of the receipt.
+        "--approval": [f.approval_receipt, "--pub", f.pub, "--strict", "--case", "approval",
+                       "--approval", f.other_approval, *_APPROVAL_T],
+        # The identity of the approval is in the consumption state.
+        "--consumed": [f.approval_receipt, "--pub", f.pub, "--strict", "--case", "approval", "--approval", f.approval,
+                       "--consumed", f.consumed, *_APPROVAL_T],
+        # A received copy of the same approval whose validUntil is before T.
+        "--received": [f.approval_receipt, "--pub", f.pub, "--strict", "--case", "approval", "--approval", f.approval,
+                       "--consumed", f.not_consumed, "--received", f.copy_too_early, *_APPROVAL_T],
     }
 
 
@@ -173,6 +227,14 @@ def _controls(f: _Fixture) -> dict[str, list[str]]:
         "--related-pub": [f.base, "--pub", f.pub, "--with-related", f.validity, "--related-pub", f.pub],
         "--require-derived-subject": [f.base, "--pub", f.pub, "--require-derived-subject"],
         "--verification-time": [f.validity, "--pub", f.pub, *_IN_WINDOW],
+        "--action": [f.approval_receipt, "--pub", f.pub, "--strict", "--action", f.action, *_APPROVAL_T],
+        "--case": [f.declined_receipt, "--pub", f.pub, "--strict", "--case", "declined", *_APPROVAL_T],
+        "--approval": [f.approval_receipt, "--pub", f.pub, "--strict", "--case", "approval",
+                       "--approval", f.approval, *_APPROVAL_T],
+        "--consumed": [f.approval_receipt, "--pub", f.pub, "--strict", "--case", "approval", "--approval", f.approval,
+                       "--consumed", f.not_consumed, *_APPROVAL_T],
+        "--received": [f.approval_receipt, "--pub", f.pub, "--strict", "--case", "approval", "--approval", f.approval,
+                       "--consumed", f.not_consumed, "--received", f.copy_in_time, *_APPROVAL_T],
     }
 
 
