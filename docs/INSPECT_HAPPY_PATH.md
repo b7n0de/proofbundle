@@ -21,7 +21,7 @@ proofbundle verify proofbundle_receipt_<eval_id>.json
 - Without `PROOFBUNDLE_THRESHOLD` the hook writes no receipt and prints why.
 - Without `PROOFBUNDLE_KEY` every run signs with a new temporary key. Keep one key for every receipt you share, and share the key that verifies them.
 - An error in the hook never fails your eval.
-- The `inspect` extra installs inspect_ai from 0.3.112 up to 0.3.281, the last version measured with the hook.
+- The `inspect` extra installs inspect_ai from 0.3.112 up to 0.3.288, the last version measured with the hook.
 
 The [technical details](#technical-details) follow below, step by step, with a tamper demo you can show your team.
 
