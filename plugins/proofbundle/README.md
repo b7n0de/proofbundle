@@ -6,6 +6,8 @@ You received an AI result with a receipt. This plugin lets your agent verify it 
 
 ## How to use it
 
+<a id="install"></a>
+
 1. Install the plugin. You need [uv](https://docs.astral.sh/uv/) on `PATH`, a Python version uv can use (3.10 or later), and network access to PyPI on the first start.
 
    **Claude Code**
@@ -22,9 +24,9 @@ You received an AI result with a receipt. This plugin lets your agent verify it 
    codex plugin add proofbundle@proofbundle
    ```
 
-2. There is nothing to switch on. In both hosts the plugin is enabled as soon as it is installed. Start a new session to use it. In a Claude Code session that is already open, `/reload-plugins` loads it too.
+2. Start a new session so that your agent loads the plugin. In a Claude Code session that is already open, `/reload-plugins` loads it too.
 
-3. Try it. Ask your agent in Claude Code:
+3. <a id="try-it"></a>Try it. Ask your agent in Claude Code:
 
    | Ask your agent in Claude Code | What happens |
    |---|---|
@@ -65,6 +67,8 @@ they have not changed since. It does not prove that any recorded value is true.
 
 **Status** · Claude Code: Experimental · Codex: Experimental, a plain `git push` only warns, hook run with a real model not yet measured
 
+<a id="what-it-adds"></a>
+
 <details>
 <summary>What it adds</summary>
 
@@ -104,6 +108,8 @@ signature and structure hold.
 
 </details>
 
+<a id="requirements"></a>
+
 <details>
 <summary>Requirements</summary>
 
@@ -112,6 +118,8 @@ signature and structure hold.
 - Network access to PyPI on the first start, and a Python version uv can use (3.10 or later).
 
 </details>
+
+<a id="the-pre-push-gate"></a>
 
 <details>
 <summary>The pre-push gate</summary>
@@ -476,6 +484,8 @@ change the digest.
 
 </details>
 
+<a id="done-only-with-a-receipt-the-stop-hook"></a>
+
 <details>
 <summary>Done only with a receipt (the Stop hook)</summary>
 
@@ -638,6 +648,8 @@ commit instead of the working state: its declaration, policy and order, its tree
 
 </details>
 
+<a id="install-from-this-repository"></a>
+
 <details>
 <summary>Install from this repository</summary>
 
@@ -749,6 +761,8 @@ The project's site is [proofbundle.dev](https://proofbundle.dev).
 
 </details>
 
+<a id="try-it-from-a-checkout"></a>
+
 <details>
 <summary>Try it from a checkout</summary>
 
@@ -761,6 +775,8 @@ claude --plugin-dir plugins/proofbundle
 In the session, `/mcp` lists the server and `/proofbundle:verify` runs the verify skill.
 
 </details>
+
+<a id="codex"></a>
 
 <details>
 <summary>Codex</summary>
@@ -823,6 +839,8 @@ Codex reads the same `.claude-plugin/marketplace.json` (D15).
 
 </details>
 
+<a id="evals"></a>
+
 <details>
 <summary>Evals</summary>
 
@@ -868,6 +886,8 @@ Every eval run is a model call on your account.
 
 </details>
 
+<a id="keys"></a>
+
 <details>
 <summary>Keys</summary>
 
@@ -881,6 +901,8 @@ itself proves nothing.
 
 </details>
 
+<a id="package-version"></a>
+
 <details>
 <summary>Package version</summary>
 
@@ -888,6 +910,8 @@ The server pins one exact version of `proofbundle` in its script header. The too
 version they ran with in every result.
 
 </details>
+
+<a id="not-part-of-the-python-package"></a>
 
 <details>
 <summary>Not part of the Python package</summary>

@@ -57,6 +57,8 @@ proofbundle itself, and nothing here runs until you copy it into your own reposi
 
 </details>
 
+<a id="what-the-check-decides"></a>
+
 <details>
 <summary>What the check decides</summary>
 
@@ -80,6 +82,8 @@ A pass proves what the gate proves: who signed the recorded bytes and which tree
 prove that any recorded value is true.
 
 </details>
+
+<a id="calling-it"></a>
 
 <details>
 <summary>Calling it</summary>
@@ -115,6 +119,8 @@ owner review, and dismiss stale approvals on new commits, so a later change (for
 
 </details>
 
+<a id="where-the-check-stops"></a>
+
 <details>
 <summary>Where the check stops</summary>
 
@@ -148,6 +154,8 @@ owner review, and dismiss stale approvals on new commits, so a later change (for
 
 </details>
 
+<a id="running-it-locally"></a>
+
 <details>
 <summary>Running it locally</summary>
 
@@ -156,6 +164,8 @@ python plugins/proofbundle-guard/hooks/proofbundle_gate.py ci-check --repo . --r
 ```
 
 </details>
+
+<a id="the-done-check-in-ci"></a>
 
 <details>
 <summary>The done check in CI</summary>
