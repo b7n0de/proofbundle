@@ -2153,9 +2153,10 @@ _LENGTH_32 = {
     ("checkpoint.py", "_mldsa_cosigned_message"): (1, "a root, no key"),
     ("cli.py", "_resolve_canonical_root"): (1, "a root, no key"),
     ("cli.py", "_expected_pack_root"): (1, "a root, no key"),
-    ("cli.py", "_cmd_scitt_match"): (1, "names a key for the signature axis of `scitt match`; match_statement "
-                                       "applies the rule to it (`ed25519_trust_anchor_weakness`, then "
-                                       "`verify_ed25519_pinned`, which refuses it) and writes nothing"),
+    ("cli.py", "_cmd_scitt_match"): (1, "names a key for the signature axis of `scitt match`; the key is used "
+                                       "only through `verify_ed25519_pinned`, which applies the rule before it "
+                                       "verifies, and on the paths without a signature check it is not used; "
+                                       "writes nothing"),
     ("dsse.py", "openssh_sha256_keyid"): (1, "a key ID, a hash input of the signer's own key; nothing is "
                                              "accepted by it, and no verifier calls it (Z239 F3)"),
     ("dsse.py", "_default_keyid"): (1, "reads the signer's own key to name it; writes no key and accepts none"),
