@@ -1,4 +1,4 @@
-"""The inputs Section 3.4 of draft-gruszka-audit-decision-receipts-07 gives the verifier of an outcome receipt.
+"""The inputs Section 3.4 of draft-gruszka-audit-decision-receipts-05 gives the verifier of an outcome receipt.
 
 Finding B2 of the list of 2 November 2026 (vectors F6, F7 and F8 of the draft's test package). Measured on main
 6f5955d1: ``outcome verify`` took neither the expected ``executor.id`` (step 5), nor effect bytes (step 6), nor the
@@ -12,7 +12,8 @@ the command line) and for the verdicts the draft gives:
 - step 5: ``executor.id`` equals the expected identifier; the outcome key differs from the decision key, and
   ``executor.id`` differs from ``decisionMaker.id``;
 - step 6: where effect bytes are supplied, ``effectDigest`` is present and their SHA-256 equals it;
-- step 7: ``decidedAt <= performedAt < validity.expiresAt`` of the decision, fractions padded to six digits.
+- step 7: ``decidedAt <= performedAt < validity.expiresAt`` of the decision; the fractions are compared padded to six
+  digits, a rule of a coming revision of the draft.
 
 The first sentence of step 6 (an executed outcome without effectDigest) is not here: proofbundle reports it as
 ``execution_proven`` False with a warning, and turning that into a failure belongs to B14 (F68).
