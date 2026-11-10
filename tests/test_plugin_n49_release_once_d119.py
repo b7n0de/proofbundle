@@ -486,7 +486,17 @@ CONFIG_HELD = [("git send-pack --mirror ../origin.git", "force", "tag"),
                ("printf -v K %s%s incl ude.path; GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=$K GIT_CONFIG_VALUE_0=$PWD/../push.cfg "
                 "git push origin", "force", "tag"),
                ("GIT_CONFIG_COUNT=1 GIT_CONFIG_VALUE_0=$PWD/../push.cfg; printf -v GIT_CONFIG_KEY_0 %s%s incl ude.path; "
-                "export GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; git push origin", "force", "tag")]
+                "export GIT_CONFIG_COUNT GIT_CONFIG_KEY_0 GIT_CONFIG_VALUE_0; git push origin", "force", "tag"),
+               # local review of 06d45152 (P1, open at main): every expansion the gate does not resolve, backquotes too,
+               # and a quoted value of GIT_CONFIG_PARAMETERS with blanks; and a name set through an expansion
+               ("git -c \"`printf %s%s incl ude.path`=$PWD/../push.cfg\" push origin", "force", "tag"),
+               ("git -c \"`printf %s%s rem ote.origin.mirror`=true\" push origin", "force", "tag"),
+               ("GIT_CONFIG_PARAMETERS=\"'user.name'='a' '$(printf %s%s incl ude.path)'='$PWD/../push.cfg'\" git push origin",
+                "force", "tag"),
+               ("export X=$PWD/../push.cfg; git --config-env=\"`printf %s%s incl ude.path`=X\" push origin", "force", "tag"),
+               ("N=GIT_CONFIG_GLO; export ${N}BAL=$PWD/../push.cfg; git push origin", "force", "tag"),
+               ("N=GIT_CONFIG_GLO; printf -v \"${N}BAL\" %s $PWD/../push.cfg; export \"${N}BAL\"; git push origin",
+                "force", "tag")]
 #: The named cost of that rule: a plain refspec set by configuration is held back although git opens no door with it.
 OVERCOUNT = [("git -c remote.origin.push=HEAD:refs/heads/main push origin", "force"),
              ("git -c remote.origin.pushurl=../origin.git push origin claude/x", "force"),
@@ -505,7 +515,8 @@ SPELLING_COUNTERS = ["git commit -s -m x", "git commit -qm x", "git commit -am x
                      _TOPIC + "git -c branch.main.mergeOptions=--no-ff merge --no-edit topic",
                      # a plain read of $HOME and an expansion in the value of -c move no configuration
                      "git -C \"$HOME\"/repo push origin claude/x", "git -C ${HOME}/repo push origin claude/x",
-                     "git -c user.name=\"$USER\" push origin claude/x"]
+                     "git -c user.name=\"$USER\" push origin claude/x",
+                     "export GIT_AUTHOR_NAME=\"$USER\"; git push origin claude/x"]
 
 
 def _git_oracle(tmp_path: pathlib.Path, line: str) -> set:

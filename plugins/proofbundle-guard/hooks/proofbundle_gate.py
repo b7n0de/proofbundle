@@ -18300,12 +18300,50 @@ _GIT_CONFIG_FILE_KEY = re.compile(r"\binclude(?:if\.[^\n]*?)?\.path(?![a-z])", r
 #: path is read in many lines and moves no configuration.
 _GIT_CONFIG_FILE_NAMES = r"(?:GIT_CONFIG_GLOBAL|GIT_CONFIG_SYSTEM|HOME|XDG_CONFIG_HOME)"
 _GIT_CONFIG_FILE_ENV = re.compile(r"(?<!\$)(?<!\$\{)\b" + _GIT_CONFIG_FILE_NAMES + r"\b|\$\{" + _GIT_CONFIG_FILE_NAMES + r":?=")
-#: A key of the configuration the line sets but this reader cannot read: GIT_CONFIG_KEY_<n> or GIT_CONFIG_PARAMETERS
-#: set in another form than `NAME=` or with an expansion in its value, and a key of `-c` or `--config-env` with an
-#: expansion (`printf -v K %s%s incl ude.path; git -c "$K=f" push` brings in the file f, measured with git 2.55.0).
-_GIT_CONFIG_UNREAD_KEY = re.compile(r"(?<!\$)(?<!\$\{)\bGIT_CONFIG_(?:KEY_[0-9]+|PARAMETERS)\b(?!=)|"
-                                    r"\bGIT_CONFIG_(?:KEY_[0-9]+|PARAMETERS)=[^\s;&|]*\$|"
-                                    r"(?:^|[\s;&|(])(?:-c|--config-env)[\s=]+[^\s=]*\$")
+#: A key or a name of the configuration the line sets but this reader cannot read (local reviews of 698f882b and
+#: 06d45152, both open at main as well). An expansion is every form the gate does not resolve (_RELEASE_EXPANSION:
+#: `$X`, `${X}`, `$(…)`, a backquoted command, `$((…))`, `<(…)`), marked _RELEASE_UNKNOWN before these rules read the
+#: line; the second review found that a rule which looked for `$` alone missed the backquotes. The rules
+#: (_git_config_unread): GIT_CONFIG_KEY_<n> or GIT_CONFIG_PARAMETERS named in another form than `NAME=`, or named in a
+#: line with an expansion anywhere (a quoted value of GIT_CONFIG_PARAMETERS holds blanks, `'a'='b' '$(…)'='f'`); a key
+#: of `-c` or `--config-env` with an expansion or a pattern before its first `=` (`git -c "`printf %s%s incl
+#: ude.path`=f" push` brings in the file f, measured with git 2.55.0); and a name that a builtin which sets variables
+#: gets through an expansion (`export ${N}BAL=f`, `declare -n R=$N`, `printf -v "$N"`, `read "$N"`).
+_GIT_CONFIG_KEY_NAMES = r"GIT_CONFIG_(?:KEY_[0-9]+|PARAMETERS)"
+_GIT_CONFIG_UNREAD_NAME = re.compile(r"(?<!\$)(?<!\$\{)\b" + _GIT_CONFIG_KEY_NAMES + r"\b(?!=)")
+_GIT_CONFIG_KEY_NAMED = re.compile(r"(?<!\$)(?<!\$\{)\b" + _GIT_CONFIG_KEY_NAMES + r"\b")
+_GIT_CONFIG_UNREAD_OPTION = re.compile(r"(?:^|[\s;&|(])(?:-c|--config-env)[\s=]+[^=\n;&|]*?[" + _RELEASE_UNKNOWN + r"*?\[]")
+#: The builtins of bash that set a variable whose name they get as a word.
+_SHELL_NAME_SETTERS = frozenset({"export", "declare", "typeset", "local", "readonly", "read", "mapfile", "readarray"})
+
+
+def _git_config_unread(text: str) -> bool:
+    """True where the line sets a key or a name of the configuration that this reader cannot read (see above)."""
+    marked = _RELEASE_EXPANSION.sub(_RELEASE_UNKNOWN, text)
+    if _GIT_CONFIG_UNREAD_NAME.search(text) or _GIT_CONFIG_UNREAD_OPTION.search(marked):
+        return True
+    if _GIT_CONFIG_KEY_NAMED.search(text) and _RELEASE_UNKNOWN in marked:
+        return True
+    for part in re.split(r"[;&|()\n]+", marked):
+        words = part.split()
+        k = 0
+        while k < len(words) and re.match(r"[A-Za-z_][A-Za-z0-9_]*\+?=", words[k]):    # the prefix assignments
+            k += 1
+        if k >= len(words):
+            continue
+        name, args = os.path.basename(words[k]), words[k + 1:]
+        if name in _SHELL_NAME_SETTERS:
+            # every argument of read and mapfile is a name, and so is the value of a nameref (declare -n R=NAME)
+            whole = name in ("read", "mapfile", "readarray") or any(a.startswith("-") and "n" in a[1:] for a in args)
+            if any(_RELEASE_UNKNOWN in (a if whole else a.split("=", 1)[0]) for a in args if not a.startswith("-")):
+                return True
+        if name == "printf":
+            for i, a in enumerate(args):
+                if a.startswith("-v"):
+                    target = a[2:] or (args[i + 1] if i + 1 < len(args) else "")
+                    if _RELEASE_UNKNOWN in target:
+                        return True
+    return False
 
 
 def _git_push_config_door(text: str) -> str | None:
@@ -18317,7 +18355,7 @@ def _git_push_config_door(text: str) -> str | None:
     sends a tag). A configuration the line brings in from a file (`_GIT_CONFIG_FILE_KEY`, `_GIT_CONFIG_FILE_ENV`) is the
     door of a forced push as well: its keys are not in the line, so any of the above may stand in it, and so may
     commit.gpgSign (the release of `git -c include.path=f commit` is held back as such a door too). The same holds for
-    a key the line sets in a form this reader cannot read (`_GIT_CONFIG_UNREAD_KEY`).
+    a key or a name the line sets in a form this reader cannot read (`_git_config_unread`).
 
     WHY NO VALUE IS READ (local reviews of 89922dec and 5ee4b8bc, 2026-11-10). The first two forms of this reader took
     the value of remote.<name>.push from the line and freed a plain refspec. Each review then found a value git reads
@@ -18326,7 +18364,7 @@ def _git_push_config_door(text: str) -> str | None:
     git resolves against the repository and the environment, which this reader sees neither of, so it frees none: a
     release frees less, never more. The cost is named in the tests: a plain refspec set by configuration is held back
     although git opens no door with it."""
-    if _GIT_CONFIG_FILE_KEY.search(text) or _GIT_CONFIG_FILE_ENV.search(text) or _GIT_CONFIG_UNREAD_KEY.search(text):
+    if _GIT_CONFIG_FILE_KEY.search(text) or _GIT_CONFIG_FILE_ENV.search(text) or _git_config_unread(text):
         return "force"
     found = _GIT_PUSH_CONFIG.search(text)
     if not found:

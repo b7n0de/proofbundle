@@ -5968,9 +5968,13 @@ makes `git push origin` send the tag, and an include with commit.gpgSign makes `
 these variables in more forms than `NAME=` (local review of 698f882b, open at main as well: `GIT_CONFIG_GLOBAL+=f`,
 `printf -v GIT_CONFIG_GLOBAL %s f`, `read XDG_CONFIG_HOME`, `${HOME:=f}`), so every mention of one of their names
 counts except a plain read of its value (`$HOME`, `${HOME}`); and a key of the configuration the line sets in a form
-this rule cannot read counts as well: GIT_CONFIG_KEY_<n> or GIT_CONFIG_PARAMETERS set otherwise than by `NAME=` or
-with an expansion in the value, and a key of `-c` or `--config-env` with an expansion
-(`printf -v K %s%s incl ude.path; git -c "$K=f" push` brings in the file f). A program the line takes from a file,
+this rule cannot read counts as well: GIT_CONFIG_KEY_<n> or GIT_CONFIG_PARAMETERS named otherwise than by `NAME=`
+or in a line with an expansion anywhere, a key of `-c` or `--config-env` with an expansion or a pattern before its
+first `=` (`printf -v K %s%s incl ude.path; git -c "$K=f" push` brings in the file f), and a name that export, declare,
+typeset, local, readonly, read, mapfile or printf -v gets through an expansion (`export ${N}BAL=f`). An expansion is
+every form the gate does not resolve (_RELEASE_EXPANSION, backquotes included): the local review of 06d45152 found
+that a rule which looked for `$` alone missed `` git -c "`printf %s%s incl ude.path`=f" push ``, and that the value of
+GIT_CONFIG_PARAMETERS holds blanks once quoted. A program the line takes from a file,
 by PATH or GIT_EXEC_PATH, is not read here, as no text of a file the line runs is (_release_unresolved_door).
 `git push --signed` and its prefixes are the door of a signature, and so is a signing option given as the value of
 a word (`git -c branch.main.mergeOptions=-S merge topic`, `GIT_CONFIG_VALUE_0=-qS` for that key): the part after the
