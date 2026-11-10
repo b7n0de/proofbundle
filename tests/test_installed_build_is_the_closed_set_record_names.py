@@ -127,10 +127,13 @@ def test_bytecode_without_its_source_is_not_the_installed_build(tmp_path, monkey
     assert nachher["digest"] != vorher["digest"]
 
 
-def test_the_source_tree_counts_what_the_importer_loads(tmp_path, monkeypatch):
-    """The other measurement path: a source tree took `.py`, `.json` and `.typed` only, so bytecode outside the cache
-    or an extension module beside a `.py` of the same name moved nothing. Each moves the digest now; a text file and
-    the interpreter's own cache do not."""
+def test_the_source_tree_is_every_file_but_the_interpreter_cache(tmp_path, monkeypatch):
+    """The other measurement path: a source tree took `.py`, `.json` and `.typed` only, and three reviews each found
+    one more form the importer loads while the digest stayed: bytecode outside the cache, an extension module, and
+    `signature/__init__.PY`, which CPython takes as the package on a file system that does not tell upper from lower
+    case (fourth local review of aa578913, measured there on a simulated case-insensitive file system; this host's
+    file system tells them apart, so the import half of that case is not shown here). Every file of the tree moves
+    the digest now; only the interpreter's own cache does not."""
     def _keine(name):
         raise im.PackageNotFoundError(name)
 
@@ -141,11 +144,14 @@ def test_the_source_tree_counts_what_the_importer_loads(tmp_path, monkeypatch):
     (pkg / "signature.py").write_text("def verify_ed25519(*a):\n    return False\n")
     basis = VB.measure_build(pkg)
     assert basis["source"] == "source-tree"
-    (pkg / "notiz.txt").write_text("no code\n")
     (pkg / "__pycache__").mkdir()
     (pkg / "__pycache__" / "signature.cpython-312.pyc").write_bytes(b"\0\1")
-    assert VB.measure_build(pkg)["digest"] == basis["digest"], "a text file and the cache are not the build"
-    for name in ("signature.pyc", "signature" + importlib.machinery.EXTENSION_SUFFIXES[0]):
+    assert VB.measure_build(pkg)["digest"] == basis["digest"], "the interpreter's cache is not the build"
+    (pkg / "signature").mkdir()
+    for name in ("signature.pyc", "signature" + importlib.machinery.EXTENSION_SUFFIXES[0], "signature/__init__.PY",
+                 "signature/__init__.Py", "notiz.txt"):
         (pkg / name).write_bytes(b"\0\1\2")
-        assert VB.measure_build(pkg)["digest"] != basis["digest"], name
+        gemessen = VB.measure_build(pkg)
+        assert gemessen["digest"] != basis["digest"] and gemessen["files"] == basis["files"] + 1, name
         (pkg / name).unlink()
+    assert VB.measure_build(pkg)["digest"] == basis["digest"], "each plant taken out, the tree measures as before"

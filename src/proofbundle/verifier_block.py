@@ -79,9 +79,9 @@ _BUILD_ALLOWED = frozenset(_BUILD_REQUIRED) | {"files"}
 _VECTOR_REQUIRED = ("name", "digest", "cases")
 _TEST_RESULT_REQUIRED = ("predicateType", "result", "statementDigest")
 
-#: Files of the package that make up a source-tree build identity. Bytecode and caches are not
-#: the build; they are what a particular interpreter left behind.
-_SOURCE_TREE_SUFFIXES = (".py", ".json", ".typed")
+#: The one directory of the package that is not the build: the cache a particular interpreter left behind.
+#: Every other file of the tree is a member of its source-tree identity (fourth local review, aa578913).
+_INTERPRETER_CACHE = "__pycache__"
 
 
 class VerifierBlockError(ProofBundleError):
@@ -192,7 +192,7 @@ def _installed_record_rows(package_dir: Path):
     try:
         for p in package_dir.rglob("*"):
             teile = p.relative_to(package_dir).parts
-            if "__pycache__" in teile or (p.is_dir() and not p.is_symlink()):
+            if _INTERPRETER_CACHE in teile or (p.is_dir() and not p.is_symlink()):
                 continue
             if f"{IMPLEMENTATION}/{'/'.join(teile)}" not in genannt:
                 return None
@@ -212,24 +212,24 @@ def _innerhalb(p: Path, wurzel: Path) -> bool:
 
 
 def _source_tree_rows(package_dir: Path) -> list[str]:
-    # WHAT PYTHON CAN IMPORT FROM THE TREE IS PART OF ITS IDENTITY (second local review, 9b0181cf, P1): the
-    # rows took `.py`, `.json` and `.typed` only, so an extension module or bytecode outside `__pycache__`,
-    # which the importer loads in place of a `.py` of the same name, left the digest as it was; and a link to a
-    # directory was skipped, so the code behind it was never measured. Every suffix the importer knows counts
-    # now, and a link to a directory is refused, wherever it points: a link to a directory outside brings code
-    # the tree does not hold, and a link inside chooses which code a name imports (`signature -> _bad`) while
-    # every file stays as it was (third local review, 643a33b5, P1). A package needs no link to a directory.
-    import importlib.machinery  # noqa: PLC0415
-    einfuhr = tuple(importlib.machinery.all_suffixes())
+    # EVERY FILE OF THE TREE IS A MEMBER, NOT ONLY THE ONES A LIST OF SUFFIXES NAMES (local reviews of
+    # 9b0181cf, 643a33b5 and aa578913, each P1). The rows took `.py`, `.json` and `.typed`, and each review
+    # found one more form the importer loads in place of a `.py` of the same name while the digest stayed: an
+    # extension module, bytecode outside the cache, and `__init__.PY` on a file system that does not tell upper
+    # from lower case. A list of what the importer may load is a list that ages; the tree is the closed set of
+    # its files, as the installed build is the closed set RECORD names, and only the interpreter's cache stays
+    # outside. A link to a directory is refused wherever it points: one outside brings code the tree does not
+    # hold, and one inside chooses which code a name imports (`signature -> _bad`) while every file stays the
+    # same. A package needs no link to a directory.
     rows: list[str] = []
     for p in sorted(package_dir.rglob("*")):
-        if "__pycache__" in p.relative_to(package_dir).parts:
+        if _INTERPRETER_CACHE in p.relative_to(package_dir).parts:
             continue
         if p.is_symlink() and p.is_dir():
             raise VerifierBlockError(
                 f"{p.relative_to(package_dir).as_posix()} is a link to a directory -- it decides which code a name "
                 "imports and is no file of the tree, so a tree carrying it has no identity of its own")
-        if not p.is_file() or not (p.suffix in _SOURCE_TREE_SUFFIXES or p.name.endswith(einfuhr)):
+        if not p.is_file():
             continue
         if not _innerhalb(p, package_dir):
             raise VerifierBlockError(
