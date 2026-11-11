@@ -17,8 +17,15 @@ Every line is checkable by someone else. "I think so" is not an answer.
 
 - [ ] **A written scope list exists** for this version: what is in, and what is explicitly out, with
       one reason per line. For a PATCH the reason must survive the SemVer question: no semantic
-      change, no new obligation, no changed behaviour at a public interface. In doubt, leave it out
-      and say so in the list. Scope lists live in `docs/release_scope/<version>.md`.
+      change, no new obligation, no changed behaviour at a public interface. The public interface is
+      the four surfaces named in [COMPATIBILITY.md](COMPATIBILITY.md#what-counts-as-the-public-interface):
+      the Python API, the CLI with the meaning of its exit codes, the emitted bytes, and the
+      verification verdict. A fix that rejects input the specification already called invalid is a
+      fix and not a break, and so is a fix that corrects a time verdict to what the specification
+      already states, as COMPATIBILITY.md says for both; both may ship in a PATCH. Their scope line and their
+      CHANGELOG entry say so explicitly, because from the outside a stricter check and a break look
+      identical. In doubt, leave it out and say so in the list. Scope lists live in
+      `docs/release_scope/<version>.md`.
 - [ ] **`scripts/check_version_and_changelog.py --repo .` is green.** Source (`pyproject.toml`),
       the two derived files and the tracked prose places state the version being released. PyPI and
       the project page cannot state it before the upload, so `--external --require-external` is

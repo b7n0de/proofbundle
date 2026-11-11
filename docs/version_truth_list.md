@@ -131,7 +131,7 @@ Moment ist nicht die Eigenschaft, um die es geht.
 ## Wo der Riegel läuft
 
 - CI: `.github/workflows/release-integrity.yml:31` — `python3 scripts/check_version_and_changelog.py --repo .`
-- Release checklist: `RELEASE.md:148`, after the publish `--external --require-external` must be green; before the owner GO, `RELEASE.md:22` checks without the external surfaces
+- Release checklist: `RELEASE.md:155`, after the publish `--external --require-external` must be green; before the owner GO, `RELEASE.md:29` checks without the external surfaces
 
 ## Ehrliche Grenzen
 
