@@ -6028,12 +6028,16 @@ a word (`git -c branch.main.mergeOptions=-S merge topic`, `GIT_CONFIG_VALUE_0=-q
 first `=` of a word is read as a word of its own for the signature (local review of the seventh form, open at main
 as well). A release frees less, never more.
 
-The owner's decision on the cost of this rule (2026-11-11, option A). A review of the change at 44715d92 found that
-the reader takes more CPU time and more Python allocation than main on the named cases (a local review measured, for
-a comment line of 16383 characters, a median of 0.041041 s against 0.012690 s of process CPU time and an allocation
-peak of 1,347,876 against 755,486 bytes), that no door main reads was lost in the comparisons run, and that neither
-bound frees a card release. Under the earlier measure, that this rule be no worse than main in run time and memory
-either, it would not land. The owner chose option A in the wording the review proposed, quoted here as written:
+The owner's decision on the cost of this rule (2026-11-11, option A). The review of 44715d92 assessed the reported
+additional CPU time and Python allocation. For a comment line of 16383 characters, round 34 reported 0.041041 s
+against 0.012690 s of process CPU time and a Python allocation peak of 1,347,876 against 755,486 bytes. The external
+review did not repeat those resource measurements. The comparisons reported for 44715d92 found no transition from a
+door read at main to no door. Inspection of the limit-rejection paths and their visible callers showed that those
+paths retain a door rather than permit a card release; this was not a complete-hook integration test. The final-head
+release-flow tests and the bounded resource run over the complete hook remain to be demonstrated in F2 before landing.
+Under the earlier criterion, that this rule be no worse than main in run time and memory either, it would not land. On
+2026-11-11 at 08:14:37Z the owner chose option A in the wording proposed by the review, with F2 before landing and
+level S with counter-reading and witness, quoted here as written:
 
 <!-- proofbundle:verbatim-quote:begin -->
 - Option 1: A: Den dokumentierten CPU- und Speichermehrbedarf sowie die benannten zusätzlichen Zurückhaltungen als Preis der erweiterten Türerkennung akzeptieren. Keine zuvor durch eine eigene Tür des Inhabers gesperrte Zeile darf durch eine Kartenfreigabe ausführbar werden. Die Lesegrenze von 16384 Zeichen und die 256-Zeichen-Grenze der dafür bezeichneten Helfer bleiben erhalten. Die bisherigen Vergleichs- und Skalierungsläufe sind Stichproben, kein allgemeiner Nachweis linearer Laufzeit oder vollständiger Türerkennung. Vor der Landung werden die relevanten Regressionstests einschließlich der Freigabeabläufe am endgültigen Kopf sowie ein begrenzter Ressourcenlauf über den vollständigen Hook nachgewiesen. Stufe S mit Gegenlesung und Zeuge bleibt bestehen. Bereits an main offene Formen bleiben im Folge-PR für Plugin 0.4.1 und blockieren 510 nicht allein deshalb.
