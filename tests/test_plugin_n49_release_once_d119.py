@@ -653,6 +653,19 @@ def test_a_line_at_the_read_bound_is_read_in_time_and_held_back(piece):
     assert door is not None
 
 
+@pytest.mark.parametrize("piece", _RUNTIME_PIECES)
+def test_a_text_the_brace_expansion_makes_longer_than_the_bound_is_held_back_in_time(piece):
+    """The bound holds for every text the reader searches (local review of c8736cd8, P2): six brace groups make 64
+    words of a line under the bound, and the searches ran on the text of 985684 characters the expansion made."""
+    head = "gi{t..t} commit -S -m x # " + "{,}" * 6
+    command = head + piece * ((gate._RELEASE_READ_MAX - len(head)) // len(piece))
+    assert len(command) <= gate._RELEASE_READ_MAX
+    start = time.monotonic()
+    door = gate._release_door_words(command)
+    assert time.monotonic() - start < 20
+    assert door is not None
+
+
 @pytest.mark.parametrize("piece", _RUNTIME_PIECES + ["a"])
 def test_a_line_above_the_read_bound_is_held_back_unread_at_once(piece):
     """Above the bound the line is not read: it is the door unread at once, which no card frees. With "a" the line

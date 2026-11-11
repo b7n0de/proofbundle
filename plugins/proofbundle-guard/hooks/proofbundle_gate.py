@@ -18174,6 +18174,10 @@ def _release_quote_parts(text: str) -> str:
 #: once, and so did `branch.`, `includeif.`, `-c `, `--config-env `, `${`, `$(` and `bash -c ` repeated. A line above this bound is
 #: not read and is held back as the door unread, which no card frees; at the bound each of those lines is read in a
 #: few seconds at most. The named cost: a long line that names no door is held back too.
+#: THE BOUND HOLDS FOR EVERY TEXT THE READER SEARCHES, not only for the line (local review of c8736cd8, P2): the brace
+#: expansion makes a text of 985684 characters from a line of 15444 (`gi{t..t} commit -S -m x # {,}{,}{,}{,}{,}{,}`
+#: and `remote.` repeated), and the searches ran on it as before. So each reader of a text, _release_door_words_split
+#: and _release_unresolved_door, and the search for patterns hold a longer text back as unread before they search it.
 _RELEASE_READ_MAX = 16384
 
 
@@ -18218,6 +18222,8 @@ def _release_door_words(command: str) -> str | None:
     if _release_reads_again(continued):
         texts += readings + [_release_braced(r) for r in readings]
     texts = list(dict.fromkeys(texts))
+    if any(len(x) > _RELEASE_READ_MAX for x in texts):
+        return "unread"
     globbed = [w for x in texts for w in _release_glob_words(x)]
     if globbed:
         names = [os.path.basename(w).lower() for x in texts for w in _RELEASE_SPLIT.split(x) if w]
@@ -18378,6 +18384,8 @@ def _release_unresolved_door(assembled: str) -> str | None:
     (_RELEASE_TEXT_RUNNERS: eval, `bash -c`) gets an expansion the gate does not resolve, and where a shell reads its
     commands from a pipe (`printf 'su%s' do | sh`). A program word that is a path counts by its last part. Not known to
     the gate: aliases and functions defined outside the line, and the text of a file a line sources or a shell runs."""
+    if len(assembled) > _RELEASE_READ_MAX:
+        return "unread"
     marked = _RELEASE_EXPANSION.sub(_RELEASE_UNKNOWN, assembled)
     sec = _secrets()
     parts = re.split(r"([;&|()\n]+)", marked)
@@ -18512,6 +18520,8 @@ def _git_push_config_door(text: str) -> str | None:
 
 
 def _release_door_words_split(command: str) -> str | None:
+    if len(command) > _RELEASE_READ_MAX:
+        return "unread"
     words = [w for w in _RELEASE_SPLIT.split(command) if w]
     # A program name is compared without case: a file system without case (macOS) finds /usr/bin/sudo for `SUDO`.
     names = [os.path.basename(w).lower() for w in words]

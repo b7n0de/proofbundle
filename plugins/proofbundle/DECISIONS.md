@@ -6006,7 +6006,9 @@ open at main as well: `/usr/lib/git-core/g[i]t-push --mirror z` runs git's push)
 before it. A line longer than 16384 characters is not read and is held back as unread (_RELEASE_READ_MAX, local
 review of 770a375a): several searches of this reader rescan the rest of a line from each start of a key, and a line
 of 630021 characters with `remote.` repeated took them beyond the 120 seconds of the Bash hook, where main answered
-at once. The named cost: a long line that names no door is held back too. A program the line takes from a file,
+at once. The bound holds for every text the reader searches, also for the text the brace expansion makes of a line
+under it (local review of c8736cd8: 15444 characters became 985684). The named cost: a long line that names no door is
+held back too. A program the line takes from a file,
 by PATH or GIT_EXEC_PATH, is not read here, as no text of a file the line runs is (_release_unresolved_door).
 `git push --signed` and its prefixes are the door of a signature, and so is a signing option given as the value of
 a word (`git -c branch.main.mergeOptions=-S merge topic`, `GIT_CONFIG_VALUE_0=-qS` for that key): the part after the
