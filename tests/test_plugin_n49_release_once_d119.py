@@ -666,6 +666,64 @@ def test_a_text_the_brace_expansion_makes_longer_than_the_bound_is_held_back_in_
     assert door is not None
 
 
+#: The heads the second runtime probe put before each piece: one whose door the words name at once, one whose words main
+#: reads as no door, and one whose brace expansion makes the line longer (local review of d9ff9a8c and the probe of
+#: 2026-11-11, where a word of stars, a word of `${` and a word of `{` and commas took seconds to minutes).
+_RUNTIME_HEADS = ["git commit -S -m x # ", "en''v /usr/lib/git-core/g[i]t-push --mirror z # ",
+                  "gi{t..t} commit -S -m x # " + "{,}" * 6]
+_RUNTIME_WORD_PIECES = _RUNTIME_PIECES + ["*", "**", "*a", "{", ",", "{,", "?"]
+
+
+@pytest.mark.parametrize("head", _RUNTIME_HEADS)
+@pytest.mark.parametrize("piece", _RUNTIME_WORD_PIECES)
+def test_every_head_and_piece_at_the_read_bound_is_read_in_time(head, piece):
+    """Each head with each piece up to the bound is read in time: the bound of the line, of every text the reader
+    searches and of every word it hands to a helper together keep the reader in the time main takes, within a few
+    seconds. The two lines of the review of d9ff9a8c are among them: stars after `en''v ... g[i]t-push`, and a word of
+    `{` and commas after six brace groups."""
+    command = head + piece * ((gate._RELEASE_READ_MAX - len(head)) // len(piece))
+    assert len(command) <= gate._RELEASE_READ_MAX
+    start = time.monotonic()
+    gate._release_door_words(command)
+    assert time.monotonic() - start < 20
+
+
+def test_the_two_lines_of_the_review_of_d9ff9a8c_are_held_back_in_time():
+    """The lines the review of d9ff9a8c measured beyond the hook's 120 seconds, cut to the bound: each is a door now,
+    unread, within a few seconds (a word longer than _RELEASE_WORD_MAX is not handed to the helpers)."""
+    for head, tail in (("en''v /usr/lib/git-core/g[i]t-push --mirror ../ziel.git # ", "*"),
+                       ("gi{t..t} commit -S -m x # " + "{,}" * 6 + "{", ",")):
+        command = head + tail * (gate._RELEASE_READ_MAX - len(head) - 1) + ("z" if tail == "*" else "")
+        assert len(command) <= gate._RELEASE_READ_MAX
+        start = time.monotonic()
+        assert gate._release_door_words(command) == "unread"
+        assert time.monotonic() - start < 20
+
+
+@pytest.mark.parametrize("line", [
+    "*" * 16000,
+    "/usr/bin/" + "*" * 16000 + " push --tags z",
+    "g" + "*" * 16000 + "t push --tags z",
+    "env " + "*" * 16000 + " push --mirror z",
+    "su" + "*a" * 8000 + "do id",
+    "?" * 16000 + " commit -S -m x",
+])
+def test_a_program_word_of_a_long_pattern_is_held_back_in_time(line):
+    """A program word of a long pattern (third runtime probe of 2026-11-11: 16000 stars took the comparison of D102
+    beyond 60 seconds, at main as well) holds the line back within a few seconds."""
+    assert len(line) <= gate._RELEASE_READ_MAX
+    start = time.monotonic()
+    assert gate._release_door_words(line) is not None
+    assert time.monotonic() - start < 20
+
+
+@pytest.mark.parametrize("line", ["/usr/bin/s*****u***do id", "/usr/bin/g**i***t commit -S -m x"])
+def test_joined_stars_keep_the_door_a_pattern_program_names(line):
+    """Each run of stars joined to one star matches the same names, so a program word of several stars that may be
+    sudo or git keeps its door."""
+    assert gate._release_door_words(line) is not None
+
+
 @pytest.mark.parametrize("piece", _RUNTIME_PIECES + ["a"])
 def test_a_line_above_the_read_bound_is_held_back_unread_at_once(piece):
     """Above the bound the line is not read: it is the door unread at once, which no card frees. With "a" the line

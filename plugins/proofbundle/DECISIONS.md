@@ -6006,7 +6006,11 @@ open at main as well: `/usr/lib/git-core/g[i]t-push --mirror z` runs git's push)
 before it. A line longer than 16384 characters is not read and is held back as unread (_RELEASE_READ_MAX, local
 review of 770a375a): several searches of this reader rescan the rest of a line from each start of a key, and a line
 of 630021 characters with `remote.` repeated took them beyond the 120 seconds of the Bash hook, where main answered
-at once. The bound holds for every text the reader searches, also for the text the brace expansion makes of a line
+at once. A word longer than 256 characters is not handed to a helper that works a word as a whole and holds the line
+back as unread too (_RELEASE_WORD_MAX, local review of d9ff9a8c: a word of stars, of `${` or of `{` and commas took
+the search for a brace or the comparison of D102 seconds to minutes), and a pattern is compared with each run of stars
+joined to one. The same holds for the program word the reader of an unresolved program word compares (a line of 16000
+stars took that comparison beyond 60 seconds, at main as well). The bound holds for every text the reader searches, also for the text the brace expansion makes of a line
 under it (local review of c8736cd8: 15444 characters became 985684). The named cost: a long line that names no door is
 held back too. A program the line takes from a file,
 by PATH or GIT_EXEC_PATH, is not read here, as no text of a file the line runs is (_release_unresolved_door).

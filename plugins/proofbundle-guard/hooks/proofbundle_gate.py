@@ -18179,6 +18179,15 @@ def _release_quote_parts(text: str) -> str:
 #: and `remote.` repeated), and the searches ran on it as before. So each reader of a text, _release_door_words_split
 #: and _release_unresolved_door, and the search for patterns hold a longer text back as unread before they search it.
 _RELEASE_READ_MAX = 16384
+#: THE LONGEST WORD THE READER HANDS TO A HELPER THAT WORKS A WORD AS A WHOLE (local review of d9ff9a8c and the second
+#: runtime probe of 2026-11-11): the search for the first brace bash expands (_sh_brace_first) took 28 seconds on a word
+#: of `${` repeated, the search for a brace left after the expansion (_RELEASE_BRACE_LEFT) 55 seconds on a word of `{`
+#: and commas, and the comparison of D102 (proofbundle_secrets.may_match) more than the hook's 120 seconds on a word of
+#: stars, each where main answered at once. A word longer than this bound is not handed to them and holds the line back
+#: as unread; no door program has a name of more than ten characters. The same holds for the program word the reader of
+#: an unresolved program word compares with D102 (third runtime probe: a line of 16000 stars took it beyond 60 seconds,
+#: at main as well), and each run of stars is joined to one star before a comparison, which matches the same names.
+_RELEASE_WORD_MAX = 256
 
 
 def _release_door_words(command: str) -> str | None:
@@ -18229,7 +18238,7 @@ def _release_door_words(command: str) -> str | None:
         names = [os.path.basename(w).lower() for x in texts for w in _RELEASE_SPLIT.split(x) if w]
         sec = _secrets()
         if any(n in _RELEASE_DOOR_PROGRAMS or (n.startswith("git-") and len(n) > 4) for n in names) or \
-                any(sec.may_match(os.path.basename(w).lower(), p) for w in globbed for p in _RELEASE_DOOR_PROGRAMS):
+                any(_release_pattern_may_name(sec, w) for w in globbed):
             return "unread"
         # A pattern in the place of the program: the gate cannot tell which program runs (local review of c3ae95a6,
         # open at main as well: `/usr/lib/git-core/g[i]t-push --mirror z` runs git's push). Rather than a list of the
@@ -18238,6 +18247,15 @@ def _release_door_words(command: str) -> str | None:
         if any(_release_glob_program(x) for x in texts):
             return "unread"
     return None
+
+
+def _release_pattern_may_name(sec, word: str) -> bool:
+    """Whether a pattern word may name a door program, by the comparison of D102 (proofbundle_secrets.may_match) on its
+    last part with each run of stars joined to one star, which matches the same names; a part longer than
+    _RELEASE_WORD_MAX is held as one that may (local review of d9ff9a8c: a word of 16000 stars took the comparison
+    beyond the hook's 120 seconds)."""
+    name = re.sub(r"\*+", "*", os.path.basename(word).lower())
+    return len(name) > _RELEASE_WORD_MAX or any(sec.may_match(name, p) for p in _RELEASE_DOOR_PROGRAMS)
 
 
 def _release_glob_program(text: str) -> bool:
@@ -18349,6 +18367,9 @@ def _release_braced(text: str) -> str:
         nonlocal unread
         if "{" not in word:
             return word
+        if len(word) > _RELEASE_WORD_MAX:
+            unread = True
+            return word
         expanded = _sh_brace_expand(word)
         if expanded is None:
             if _sh_brace_first(word) is not None or _RELEASE_BRACE_LEFT.search(word) is not None:
@@ -18402,7 +18423,12 @@ def _release_unresolved_door(assembled: str) -> str | None:
             return "root"
         name = words[k].rsplit("/", 1)[-1].lower()
         if _RELEASE_UNKNOWN in name or _SH_GLOB_CHARS.search(name):
-            pattern = name.replace(_RELEASE_UNKNOWN, "*")
+            # Each run of stars joined to one star matches the same names; a pattern longer than _RELEASE_WORD_MAX
+            # holds the line back (third runtime probe of 2026-11-11: a program word of 16000 stars took the
+            # comparison of D102 beyond 60 seconds, at main as well).
+            pattern = re.sub(r"\*+", "*", name.replace(_RELEASE_UNKNOWN, "*"))
+            if len(pattern) > _RELEASE_WORD_MAX:
+                return "unread"
             if any(sec.may_match(pattern, root) for root in _RELEASE_ROOT):
                 return "root"
             if any(sec.may_match(pattern, signer) for signer in _RELEASE_SIGNERS):
