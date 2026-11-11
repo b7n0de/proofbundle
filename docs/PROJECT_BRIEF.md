@@ -1,5 +1,18 @@
 # proofbundle — one-page project brief (for funders and reviewers)
 
+**One page on proofbundle for funders and reviewers.**
+
+It describes the gap proofbundle addresses, what the tool is, and what funding would buy next. Below that it gives three seeds for grant abstracts.
+
+## Good to know
+
+- A receipt signature binds the recorded claim to a public key and shows that it has not changed since. It does not by itself establish who the signer is, and it does not prove truth, issuer honesty or eval quality.
+- What the page says about the field is stated as of 2026.
+
+The [brief itself](#technical-details) follows below.
+
+## Technical details
+
 ## The gap
 Every AI eval number the public sees — a safety benchmark, a capability score, a leaderboard entry
 — is an **unverifiable claim**: you trust the lab. There is no portable, offline way to prove that

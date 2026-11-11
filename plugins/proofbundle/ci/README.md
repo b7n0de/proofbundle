@@ -1,5 +1,52 @@
 # The proofbundle check in CI
 
+**Check in GitHub Actions that the evidence your repository declares verifies for the exact commit under review.**
+
+This page is for maintainers who want the proofbundle gate to run on every pull request. You copy two templates into your own repository and call the workflow from a workflow of your own. Read it when you set up branch protection for a repository with a `.proofbundle/` declaration.
+
+## How to use it
+
+1. Copy the workflow template to the path below and add the CODEOWNERS template's rules to `.github/CODEOWNERS`. Replace every `@OWNER` with the GitHub users or team who will review changes to your evidence rules. Check the CODEOWNERS file on GitHub for errors before relying on it.
+
+   | File | Copy to |
+   |---|---|
+   | `proofbundle-evidence.yml` | `.github/workflows/proofbundle-evidence.yml` |
+   | `CODEOWNERS.template` | `.github/CODEOWNERS` |
+
+2. Call the workflow from a workflow of your own, in a file the code owners review. For `proofbundle-ref`, use a reviewed full 40-character commit SHA of `b7n0de/proofbundle` that is contained in a `v*` release tag and includes `plugins/proofbundle-guard/hooks/proofbundle_gate.py`. A reviewed but unreleased SHA, or one from before the Guard moved to that path, cannot run this template.
+
+   ```yaml
+   # .github/workflows/evidence.yml of your repository
+   name: evidence
+   on:
+     pull_request:
+     push:
+       branches: [main]
+   jobs:
+     proofbundle:
+       uses: ./.github/workflows/proofbundle-evidence.yml
+       with:
+         require-declaration: true
+         proofbundle-ref: <the full commit SHA of b7n0de/proofbundle you reviewed>
+   ```
+
+3. Make the job a required status check of the branch, require a code owner review, and dismiss stale approvals on new commits.
+
+The check prints one JSON report. It exits 0 only when every declared item verified and names the tree of the commit, or when nothing is declared and `require-declaration` is false.
+
+## Good to know
+
+- The template is not yet measured on GitHub Actions.
+- `require-declaration: false` is a waiver, not a pass.
+- CODEOWNERS protects a pull request only when it is already in effect on the branch the pull request targets, so merge it there first.
+- It protects only together with the settings in step 3. They are settings of your repository, and the template does not check them.
+- A pass shows that every declared item verified and names the tree of the commit under review. It does not show that any recorded value is true.
+
+## Technical details
+
+<details>
+<summary>The two templates</summary>
+
 Two templates for the repository whose evidence the plugin gate checks. They are not workflows of
 proofbundle itself, and nothing here runs until you copy it into your own repository.
 
@@ -8,7 +55,12 @@ proofbundle itself, and nothing here runs until you copy it into your own reposi
 | `proofbundle-evidence.yml` | `.github/workflows/proofbundle-evidence.yml` | A reusable workflow that runs the gate's CI mode on the commit under review. |
 | `CODEOWNERS.template` | `.github/CODEOWNERS` | Puts `.proofbundle/`, the two workflows and CODEOWNERS itself under a required review. |
 
-## What the check decides
+</details>
+
+<a id="what-the-check-decides"></a>
+
+<details>
+<summary>What the check decides</summary>
 
 The CI mode is the gate's own evaluation of HEAD (DECISIONS.md, D22), stricter than before a push.
 
@@ -29,7 +81,12 @@ declaration, a policy or a key to get past the check.
 A pass proves what the gate proves: who signed the recorded bytes and which tree they name. It does not
 prove that any recorded value is true.
 
-## Calling it
+</details>
+
+<a id="calling-it"></a>
+
+<details>
+<summary>Calling it</summary>
 
 ```yaml
 # .github/workflows/evidence.yml of your repository
@@ -60,7 +117,12 @@ owner review, and dismiss stale approvals on new commits, so a later change (for
 - On a pull request the check reads the head of the pull request, not the merge commit, because the
   declaration names the tree of the commit that is pushed.
 
-## Where the check stops
+</details>
+
+<a id="where-the-check-stops"></a>
+
+<details>
+<summary>Where the check stops</summary>
 
 - **This template is not measured on GitHub Actions.** The Actions run of this check, including a merged
   pull request and a following waiver push, is a separate step still to be done; the template says NOT
@@ -90,13 +152,23 @@ owner review, and dismiss stale approvals on new commits, so a later change (for
 - The action pins are copied from proofbundle's own workflows. They were not re-checked against GitHub
   for this template.
 
-## Running it locally
+</details>
+
+<a id="running-it-locally"></a>
+
+<details>
+<summary>Running it locally</summary>
 
 ```sh
 python plugins/proofbundle-guard/hooks/proofbundle_gate.py ci-check --repo . --require-declaration true
 ```
 
-## The done check in CI
+</details>
+
+<a id="the-done-check-in-ci"></a>
+
+<details>
+<summary>The done check in CI</summary>
 
 The workflow's job `done` (input `done-check: true`) is the hard boundary of the user path "Claude says done"
 (DECISIONS.md, D26), once the repository sets the required status check, code owner review and dismissal of stale
@@ -150,3 +222,4 @@ The done policy pins the CI key (and, for the Stop hook, the developer's local t
 written to `$RUNNER_TEMP`, outside the checkout, and the job prints its sha256; upload it with an artifact
 action you pin yourself if you want to keep it.
 
+</details>

@@ -4,33 +4,37 @@
 
 You received an AI result with a receipt. This plugin lets your agent verify it on your own machine and explain what it found. For decision and outcome receipts, it checks the signature against an issuer public key you trust. It also verifies evidence bundles, but a passing bundle check alone does not establish that you should trust its signer or that its claims are true.
 
-## Install
+## How to use it
 
-You need [uv](https://docs.astral.sh/uv/) on `PATH`, a Python version uv can use (3.10 or later), and network access to PyPI on the first start.
+<a id="install"></a>
 
-**Claude Code**
+1. Install the plugin. You need [uv](https://docs.astral.sh/uv/) on `PATH`, a Python version uv can use (3.10 or later), and network access to PyPI on the first start.
 
-```sh
-claude plugin marketplace add b7n0de/proofbundle
-claude plugin install proofbundle@proofbundle
-```
+   **Claude Code**
 
-**Codex**
+   ```sh
+   claude plugin marketplace add b7n0de/proofbundle
+   claude plugin install proofbundle@proofbundle
+   ```
 
-```sh
-codex plugin marketplace add b7n0de/proofbundle
-codex plugin add proofbundle@proofbundle
-```
+   **Codex**
 
-## Try it
+   ```sh
+   codex plugin marketplace add b7n0de/proofbundle
+   codex plugin add proofbundle@proofbundle
+   ```
 
-| Ask your agent in Claude Code | What happens |
-|---|---|
-| `/proofbundle:verify receipt.json` | Checks the receipt with the signer's public key you trust, and explains the result |
-| `/proofbundle:review-receipt receipt.json` | Verifies first, then separates what the signature proves from what the signer only claims |
-| `/proofbundle:emit` | Fills a receipt with facts you give, shows it to you, signs it after you confirm, then verifies it. Experimental, and the skill runs only when you invoke it |
+2. Start a new session so that your agent loads the plugin.
 
-In Codex, ask for the skill by its name, such as `proofbundle:verify`. Give the signer's public key with the command or when your agent asks for it. The skills tell your agent not to take it from the receipt, its file name or a file next to it, unless you confirm that it is the key you trust.
+3. <a id="try-it"></a>Try it. Ask your agent in Claude Code:
+
+   | Ask your agent in Claude Code | What happens |
+   |---|---|
+   | `/proofbundle:verify receipt.json` | Checks the receipt and explains the result; a decision or outcome receipt is checked against an issuer public key you trust |
+   | `/proofbundle:review-receipt receipt.json` | Verifies first, then separates what the signature proves from what the signer only claims |
+   | `/proofbundle:emit` | Fills a receipt with facts you give, shows it to you, signs it after you confirm, then verifies it. Experimental, and the skill runs only when you invoke it |
+
+   In Codex, ask for the skill by its name, such as `proofbundle:verify`. For a decision or outcome receipt, give the issuer's public key with the command or when your agent asks for it. The skills tell your agent not to take it from the receipt, its file name or a file next to it, unless you confirm that it is the key you trust.
 
 ## Good to know
 
@@ -40,7 +44,7 @@ In Codex, ask for the skill by its name, such as `proofbundle:verify`. Give the 
 - Status is experimental in Claude Code and in Codex. So far, less of the plugin is measured under Codex than under Claude Code. Under Codex, signing needs a key file you name.
 - This plugin registers no hook. The pre-push gate and the done check belong to proofbundle-guard, a separate preview plugin for the house profile of b7n0de, which no public catalog lists.
 
-The [technical details](#technical-details) follow below, with the gate, its hooks, the release assets and how to move from an earlier 0.4.0.
+The [technical details](#technical-details) follow below, with the gate, its hooks, the release assets and how to move from an earlier 0.4.0. Each part opens with a click.
 
 ## Technical details
 
@@ -63,7 +67,10 @@ they have not changed since. It does not prove that any recorded value is true.
 
 **Status** · Claude Code: Experimental · Codex: Experimental, a plain `git push` only warns, hook run with a real model not yet measured
 
-## What it adds
+<a id="what-it-adds"></a>
+
+<details>
+<summary>What it adds</summary>
 
 Skills:
 
@@ -99,13 +106,23 @@ report both fields. `safe_for_automation: true` is a precondition for an automat
 is already authorized, never an approval to publish or act on its own; exit 0 means only that the
 signature and structure hold.
 
-## Requirements
+</details>
+
+<a id="requirements"></a>
+
+<details>
+<summary>Requirements</summary>
 
 - [uv](https://docs.astral.sh/uv/) on `PATH`. The server starts with `uv run --script`, which installs
   the package pinned in the header of `server/proofbundle_mcp.py` into a cached environment.
 - Network access to PyPI on the first start, and a Python version uv can use (3.10 or later).
 
-## The pre-push gate
+</details>
+
+<a id="the-pre-push-gate"></a>
+
+<details>
+<summary>The pre-push gate</summary>
 
 With proofbundle-guard installed (D134), a `PreToolUse` hook runs its `hooks/proofbundle_gate.py` before every Bash
 call and before an MCP tool whose
@@ -465,7 +482,12 @@ whose payload is the `--statement` output, or a decision receipt with an `inputS
 digest), then commit the evidence and the declaration under `.proofbundle/`. That second commit does not
 change the digest.
 
-## Done only with a receipt (the Stop hook)
+</details>
+
+<a id="done-only-with-a-receipt-the-stop-hook"></a>
+
+<details>
+<summary>Done only with a receipt (the Stop hook)</summary>
 
 With proofbundle-guard installed (D134), and under Codex its hooks trusted (D13), a `Stop` hook runs its
 `hooks/proofbundle_gate.py stop` when the agent would end its turn, in Claude Code and, from the same folder, in Codex (`stop --host codex`). A push runs the same check at the pushed commit (D30, "The pre-push
@@ -624,7 +646,12 @@ check in CI and exits 0 only for a pass; every NOT MEASURED, every block and a r
 commit instead of the working state: its declaration, policy and order, its tree, and only a clean run on it
 (`git_clean` true); the CI template names the commit it checked out, never HEAD.
 
-## Install from this repository
+</details>
+
+<a id="install-from-this-repository"></a>
+
+<details>
+<summary>Install from this repository</summary>
 
 The repository root carries `.claude-plugin/marketplace.json`, a marketplace with this one plugin, which registers no
 hook. It publishes nothing. After the plugin lands on the default branch:
@@ -646,7 +673,12 @@ claude plugin install proofbundle-guard@proofbundle-house
 A Claude Code session with both plugins installed this way is NOT MEASURED; one with both loaded with `--plugin-dir`
 ran at an earlier state of the split (D134).
 
-## Release 0.4.0 verification and migration
+</details>
+
+<a id="release-040-verification-and-migration"></a>
+
+<details>
+<summary>Release 0.4.0 verification and migration</summary>
 
 This section belongs to the plugin release `proofbundle--v0.4.0`. It replaces an earlier 0.4.0 under Claude Code and
 verifies the release assets.
@@ -727,7 +759,12 @@ dependency; it does not pin the package installed for this separate verification
 
 The project's site is [proofbundle.dev](https://proofbundle.dev).
 
-## Try it from a checkout
+</details>
+
+<a id="try-it-from-a-checkout"></a>
+
+<details>
+<summary>Try it from a checkout</summary>
 
 ```sh
 claude plugin validate --strict plugins/proofbundle
@@ -737,7 +774,12 @@ claude --plugin-dir plugins/proofbundle
 
 In the session, `/mcp` lists the server and `/proofbundle:verify` runs the verify skill.
 
-## Codex
+</details>
+
+<a id="codex"></a>
+
+<details>
+<summary>Codex</summary>
 
 Codex reads `.codex-plugin/plugin.json` before the Claude Code manifest. That manifest declares the
 same MCP server (started with `uv` from the plugin folder). The gate, run with `--host codex`, is registered by the
@@ -795,7 +837,12 @@ and `codex plugin add proofbundle-guard@proofbundle-house` (D134); a Codex insta
 
 Codex reads the same `.claude-plugin/marketplace.json` (D15).
 
-## Evals
+</details>
+
+<a id="evals"></a>
+
+<details>
+<summary>Evals</summary>
 
 `evals/` holds cases for the four skills and the gate, for `claude plugin eval`. The verify and
 review cases grade the result, not the route: a model may call `verify_receipt` without the skill, and
@@ -837,7 +884,12 @@ which the receipts record; the server now pins 6.5.0. They carry public keys onl
 
 Every eval run is a model call on your account.
 
-## Keys
+</details>
+
+<a id="keys"></a>
+
+<details>
+<summary>Keys</summary>
 
 `emit_receipt` signs with the key file you name in `key_path`. Without one it uses
 `${CLAUDE_PLUGIN_DATA}/keys/proofbundle-ed25519.key` and creates it on first use, with mode 0600 in a
@@ -847,12 +899,24 @@ the plugin is uninstalled, unless you uninstall with `--keep-data`.
 A relying party needs your public key through a channel it trusts. A key read from the receipt
 itself proves nothing.
 
-## Package version
+</details>
+
+<a id="package-version"></a>
+
+<details>
+<summary>Package version</summary>
 
 The server pins one exact version of `proofbundle` in its script header. The tools report the
 version they ran with in every result.
 
-## Not part of the Python package
+</details>
+
+<a id="not-part-of-the-python-package"></a>
+
+<details>
+<summary>Not part of the Python package</summary>
 
 This directory is excluded from the sdist and the wheel (`prune plugins` in `MANIFEST.in`). The
 plugin depends on the package; the package does not carry the plugin.
+
+</details>

@@ -50,6 +50,32 @@ def test_the_three_places_name_one_ceiling():
     assert len(set(ceilings.values())) == 1, ceilings
 
 
+#: An upper bound of inspect_ai in a line, as the pin writes it (`<=0.3.N`) or as prose says it (`up to 0.3.N`).
+_STATED = re.compile(r"inspect_ai\b[^\n]*?(?:<=|up to )(0\.3\.\d+)")
+
+
+def test_every_current_page_that_states_the_ceiling_states_the_same_one():
+    """The entry page docs/INSPECT_HAPPY_PATH.md said "up to 0.3.281" when the ceiling had moved to 0.3.288
+    (2026-11-10): it states the ceiling in prose, which `_PIN` does not read, so the three places above stayed equal
+    while a fourth fell behind. Every page in the root and under docs/ that names an upper bound of inspect_ai must
+    name the ceiling of pyproject.toml. CHANGELOG.md, docs/archive/ and docs/release_scope/ record what was true when
+    they were written and are left out."""
+    ceiling = _ceilings()["pyproject inspect"]
+    docs = REPO / "docs"
+    pages = sorted(REPO.glob("*.md")) + sorted(
+        p for p in docs.rglob("*.md") if p.relative_to(docs).parts[0] not in ("archive", "release_scope"))
+    found = {}
+    for page in pages:
+        if page.name == "CHANGELOG.md":
+            continue
+        for number, line in enumerate(page.read_text(encoding="utf-8").splitlines(), 1):
+            for m in _STATED.finditer(line):
+                found[f"{page.relative_to(REPO).as_posix()}:{number}"] = m.group(1)
+    assert any(k.startswith("docs/INSPECT_HAPPY_PATH.md:") for k in found), found
+    assert any(k.startswith("INTEGRATIONS.md:") for k in found), found
+    assert {k: v for k, v in found.items() if v != ceiling} == {}, (ceiling, found)
+
+
 def test_the_ceiling_is_the_target_of_the_newest_measured_bump():
     bumps = _BUMP.findall((REPO / "pyproject.toml").read_text(encoding="utf-8"))
     assert bumps, "pyproject.toml carries no measured bump of inspect_ai"

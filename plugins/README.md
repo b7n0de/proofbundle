@@ -1,5 +1,37 @@
 # Plugins
 
+**Use proofbundle from inside Claude Code or Codex.**
+
+The proofbundle plugin lets your coding agent check a receipt on your own machine. It explains which signature and integrity checks passed, what was not checked, and what a receipt cannot tell you. For decision and outcome receipts, it verifies against an issuer public key you trust. An evidence bundle uses a separate check that does not by itself establish whether you should trust its signer. The same plugin serves both hosts.
+
+## Install
+
+**Claude Code**
+
+```sh
+claude plugin marketplace add b7n0de/proofbundle
+claude plugin install proofbundle@proofbundle
+```
+
+**Codex**
+
+```sh
+codex plugin marketplace add b7n0de/proofbundle
+codex plugin add proofbundle@proofbundle
+```
+
+Then ask for `/proofbundle:verify receipt.json` in Claude Code, or for the skill `proofbundle:verify` in Codex. The [plugin's README](proofbundle/README.md) shows what else it does.
+
+## Good to know
+
+- A passing check confirms only the signature and integrity properties checked for that receipt type, not that any recorded value is true. For decision and outcome receipts, the issuer public key must come from a source you trust. An evidence bundle can pass verification without such an externally supplied key, so a pass alone does not establish signer trust.
+- Status is experimental in both hosts.
+- Receipts for a pytest run or an Inspect AI eval come from the package itself, see [Integrations](../INTEGRATIONS.md).
+
+The [technical details](#technical-details) follow below, with each host's row, its version and its maturity.
+
+## Technical details
+
 Plugins that let an AI coding agent use proofbundle. A plugin calls the `proofbundle` package from
 PyPI, so every verdict is the package's own verdict. A passing verification proves who signed the
 recorded bytes and that they have not changed since, not that any recorded value is true.
