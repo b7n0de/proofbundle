@@ -6018,8 +6018,10 @@ The bound holds for every text the reader searches, also for the text the brace 
 under it (local review of c8736cd8: 15444 characters became 985684). Within the bound no search of the reader tries
 every split of a run between two of its parts, and none reads the rest of a line again at each character (local review
 of 0692fed6: `-c` and 16000 blanks took 1.9 seconds where main took five thousandths; the probe of the next round found
-the reader of pattern words splitting the rest of the line at every character). The named cost: a long line that names
-no door is held back too. A program the line takes from a file,
+the reader of pattern words splitting the rest of the line at every character). The keys of a push and of an include
+and the expansions of a line are found by reading the line once, where a lazy expression searched the rest of it
+again from each start (local review of aa29242d and the scaling probe of the round after it). The named cost: a long
+line that names no door is held back too. A program the line takes from a file,
 by PATH or GIT_EXEC_PATH, is not read here, as no text of a file the line runs is (_release_unresolved_door).
 `git push --signed` and its prefixes are the door of a signature, and so is a signing option given as the value of
 a word (`git -c branch.main.mergeOptions=-S merge topic`, `GIT_CONFIG_VALUE_0=-qS` for that key): the part after the

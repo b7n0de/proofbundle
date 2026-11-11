@@ -18125,6 +18125,57 @@ _RELEASE_LOCALE = re.compile(r'\$"((?:[^"\\]|\\.)*)"', re.S)
 _RELEASE_EXPANSION = re.compile(r"\$\{[^}]*\}|\$\(\([^)]*\)\)|\$\([^)]*\)|\$[A-Za-z_][A-Za-z0-9_]*|\$[0-9@*#?$!-]|"
                                 r"`[^`]*`|[<>]\([^)]*\)")
 _RELEASE_UNKNOWN = "\x01"
+_RELEASE_PARAMETER_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_RELEASE_PARAMETER_SPECIAL = frozenset("0123456789@*#?$!-")
+
+
+def _release_mark_expansions(text: str) -> str:
+    """text with each expansion of _RELEASE_EXPANSION replaced by _RELEASE_UNKNOWN, as `_RELEASE_EXPANSION.sub` gives
+    it, read once from the left. The expression searched from each `${`, `$(`, `$((`, `<(`, `>(` and backquote to the
+    end of the line where its closing character never came, and the release reader asks about whole lines before the signature is
+    read (scaling probe of round 33: `<(` repeated after `git commit -S -m x # ` up to the read bound took 0.12 seconds
+    where main took a ten-thousandth). Here each search for a closing character starts where the last one for that
+    character ended, or returns its answer again where it still holds, so the line is read a bounded number of times."""
+    found: dict[str, tuple[int, int]] = {}
+
+    def after(closer: str, start: int) -> int:
+        known = found.get(closer)
+        if known is not None and known[0] <= start and (known[1] == -1 or known[1] >= start):
+            return known[1]
+        at = text.find(closer, start)
+        found[closer] = (start, at)
+        return at
+    out: list[str] = []
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        end = -1
+        if c == "$" and i + 1 < n:
+            d = text[i + 1]
+            if d == "{":
+                q = after("}", i + 2)
+                end = q + 1 if q >= 0 else -1
+            elif d == "(":
+                q = after(")", i + 2)
+                if q >= 0:
+                    end = q + 2 if i + 2 < n and text[i + 2] == "(" and text.startswith(")", q + 1) else q + 1
+            elif _RELEASE_PARAMETER_NAME.match(d):
+                end = _RELEASE_PARAMETER_NAME.match(text, i + 1).end()
+            elif d in _RELEASE_PARAMETER_SPECIAL:
+                end = i + 2
+        elif c == "`":
+            q = after("`", i + 1)
+            end = q + 1 if q >= 0 else -1
+        elif c in "<>" and i + 1 < n and text[i + 1] == "(":
+            q = after(")", i + 2)
+            end = q + 1 if q >= 0 else -1
+        if end > i:
+            out.append(_RELEASE_UNKNOWN)
+            i = end
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
 #: A dollar sign the shell keeps as text (_release_quote_parts), so that no expansion is read into it. A letter, not a
 #: control character: next to a control character `sudo` still stood at a word boundary and read as the program.
 _RELEASE_LITERAL_DOLLAR = "\u01c2"
@@ -18437,7 +18488,7 @@ def _release_unresolved_door(assembled: str) -> str | None:
     the gate: aliases and functions defined outside the line, and the text of a file a line sources or a shell runs."""
     if len(assembled) > _RELEASE_READ_MAX:
         return "unread"
-    marked = _RELEASE_EXPANSION.sub(_RELEASE_UNKNOWN, assembled)
+    marked = _release_mark_expansions(assembled)
     sec = _secrets()
     parts = re.split(r"([;&|()\n]+)", marked)
     for i in range(0, len(parts), 2):
@@ -18489,13 +18540,60 @@ def _git_short_bundle(word: str, letter: str) -> bool:
 #: push.followTags sends the tags, remote.<name>.mirror mirrors, remote.<name>.push names the refspecs. It is found in
 #: the line's own text, never in its split words, and it is not parsed further: the name of a remote may hold any
 #: character once it is quoted, `.push=` included (`remote.o.push=x.mirror` is the key mirror of the remote `o.push=x`).
-_GIT_PUSH_CONFIG = re.compile(r"(push\.followtags)|remote\.[^\n]*?\.(?:mirror|push)|branch\.[^\n]*?\.(?:merge|remote|pushremote)(?![a-z])|"
-                              r"push\.default(?![a-z])|remote\.pushdefault(?![a-z])", re.I)
+#: The parts of these keys, each read on its own and in any case (_git_push_config_kind): a key with a name in the middle
+#: is the start of the key and an ending after it on the same line, so the line is not searched again from each start.
+_GIT_PUSH_FOLLOW_TAGS = re.compile(r"push\.followtags", re.I)
+_GIT_PUSH_FIXED = re.compile(r"push\.default(?![a-z])|remote\.pushdefault(?![a-z])", re.I)
+_GIT_REMOTE_START = re.compile(r"remote\.", re.I)
+_GIT_REMOTE_END = re.compile(r"\.(?:mirror|push)", re.I)
+_GIT_BRANCH_START = re.compile(r"branch\.", re.I)
+_GIT_BRANCH_END = re.compile(r"\.(?:merge|remote|pushremote)(?![a-z])", re.I)
 #: A configuration the line brings in from a file this reader does not see: an include (`-c include.path=`,
 #: `-c includeIf.<condition>.path=`), or the global or system file moved by GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM, HOME
 #: or XDG_CONFIG_HOME. Measured 2026-11-10 with git 2.55.0: each of them carrying `remote.origin.push=refs/tags/*:refs/tags/*`
 #: makes `git push origin` send the tag.
-_GIT_CONFIG_FILE_KEY = re.compile(r"\binclude(?:if\.[^\n]*?)?\.path(?![a-z])", re.I)
+_GIT_INCLUDE_PATH = re.compile(r"\binclude\.path(?![a-z])", re.I)
+_GIT_INCLUDE_IF_START = re.compile(r"\bincludeif\.", re.I)
+_GIT_PATH_END = re.compile(r"\.path(?![a-z])", re.I)
+
+
+def _git_key_with_a_name(text: str, start: "re.Pattern", end: "re.Pattern") -> int:
+    """The earliest place in text where a key that has a name in its middle begins: a start (`remote.`) and, later on the
+    same line, an ending (`.push`), with anything but a line break between them; -1 where there is none. On a line only
+    its first start can begin the earliest key, and it does where the last ending of the line lies after it, so each
+    line is read once (local review of aa29242d: a lazy expression searched the rest of the line again from each start,
+    `remote.` repeated up to the read bound took 0.165 seconds where main took 0.00018)."""
+    offset = 0
+    for line in text.split("\n"):
+        first = start.search(line)
+        if first is not None:
+            last = -1
+            for m in end.finditer(line, first.end()):
+                last = m.start()
+            if last >= first.end():
+                return offset + first.start()
+        offset += len(line) + 1
+    return -1
+
+
+def _git_config_file_key(text: str) -> bool:
+    """An include of a configuration file, `include.path` or `includeif.<condition>.path`, in any case."""
+    return _GIT_INCLUDE_PATH.search(text) is not None or \
+        _git_key_with_a_name(text, _GIT_INCLUDE_IF_START, _GIT_PATH_END) >= 0
+
+
+def _git_push_config_kind(text: str) -> str | None:
+    """The door of the first key that makes a push send what its words do not show: tag for push.followTags, force for
+    remote.<name>.push and .mirror, branch.<name>.merge, .remote and .pushRemote, push.default and remote.pushDefault;
+    None where the line holds none. The first is the one that begins earliest, as one expression of all of them read
+    it; push.followTags begins where no other of them can."""
+    tags = _GIT_PUSH_FOLLOW_TAGS.search(text)
+    fixed = _GIT_PUSH_FIXED.search(text)
+    starts = [s for s in (fixed.start() if fixed else -1, _git_key_with_a_name(text, _GIT_REMOTE_START, _GIT_REMOTE_END),
+                          _git_key_with_a_name(text, _GIT_BRANCH_START, _GIT_BRANCH_END)) if s >= 0]
+    if tags is not None and (not starts or tags.start() < min(starts)):
+        return "tag"
+    return "force" if starts or tags is not None else None
 #: The shell sets a variable in more forms than `NAME=` (local review of 698f882b, open at main as well): `NAME+=`,
 #: `printf -v NAME`, `read NAME`, `declare -n ref=NAME`, `for NAME in`, `${NAME:=…}` and `${NAME=…}`. So every mention
 #: of one of these names counts, except a plain read of its value (`$NAME`, `${NAME}`, `${NAME:-…}`): `$HOME` in a
@@ -18549,7 +18647,7 @@ def _git_config_unread_option(marked: str) -> bool:
 
 def _git_config_unread(text: str) -> bool:
     """True where the line sets a key or a name of the configuration that this reader cannot read (see above)."""
-    marked = _RELEASE_EXPANSION.sub(_RELEASE_UNKNOWN, text)
+    marked = _release_mark_expansions(text)
     if _GIT_CONFIG_UNREAD_NAME.search(text) or _git_config_unread_option(marked):
         return True
     if _GIT_CONFIG_KEY_NAMED.search(text) and _RELEASE_UNKNOWN in marked:
@@ -18582,7 +18680,7 @@ def _git_push_config_door(text: str) -> str | None:
     (-c, git config, GIT_CONFIG_PARAMETERS, GIT_CONFIG_KEY_<n>, --config-env in either form). So is a key that chooses
     the target of a push without a refspec: branch.<name>.merge, .remote and .pushRemote, push.default and
     remote.pushDefault (local review of 1018aa84: `-c push.default=upstream -c branch.master.merge=refs/tags/x push`
-    sends a tag). A configuration the line brings in from a file (`_GIT_CONFIG_FILE_KEY`, `_GIT_CONFIG_FILE_ENV`) is the
+    sends a tag). A configuration the line brings in from a file (`_git_config_file_key`, `_GIT_CONFIG_FILE_ENV`) is the
     door of a forced push as well: its keys are not in the line, so any of the above may stand in it, and so may
     commit.gpgSign (the release of `git -c include.path=f commit` is held back as such a door too). The same holds for
     a key or a name the line sets in a form this reader cannot read (`_git_config_unread`).
@@ -18594,12 +18692,9 @@ def _git_push_config_door(text: str) -> str | None:
     git resolves against the repository and the environment, which this reader sees neither of, so it frees none: a
     release frees less, never more. The cost is named in the tests: a plain refspec set by configuration is held back
     although git opens no door with it."""
-    if _GIT_CONFIG_FILE_KEY.search(text) or _GIT_CONFIG_FILE_ENV.search(text) or _git_config_unread(text):
+    if _git_config_file_key(text) or _GIT_CONFIG_FILE_ENV.search(text) or _git_config_unread(text):
         return "force"
-    found = _GIT_PUSH_CONFIG.search(text)
-    if not found:
-        return None
-    return "tag" if found.group(1) else "force"
+    return _git_push_config_kind(text)
 
 
 def _release_door_words_split(command: str) -> str | None:
@@ -18707,7 +18802,7 @@ def _release_door_words_split(command: str) -> str | None:
     # The brace mark stands for a word the gate cannot read at all, which may be the program itself
     # (`gi{t..t..1} push --tags z`), so that line is held back whatever programs its other words name.
     if _RELEASE_BRACE_MARK in words or ((exec_path or any(n in _RELEASE_DOOR_PROGRAMS for n in names)) and
-                                        _RELEASE_UNKNOWN in _RELEASE_EXPANSION.sub(_RELEASE_UNKNOWN, command)):
+                                        _RELEASE_UNKNOWN in _release_mark_expansions(command)):
         return "unread"
     return None
 

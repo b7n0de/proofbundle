@@ -829,6 +829,62 @@ def test_the_reader_of_a_configuration_option_reads_each_key_stretch_once(monkey
     assert read[0] <= len(line), (read[0], len(line))
 
 
+def test_the_readers_of_push_and_include_keys_find_what_the_former_expressions_found():
+    """Property: for 40000 short lines drawn from the parts of the keys of a push and of an include, in both cases and
+    with line breaks, the readers that take the first start and the last ending of a line give the door and the include
+    the former lazy expressions gave (local review of aa29242d), which read short lines in time."""
+    import random
+    import re
+    push = re.compile(r"(push\.followtags)|remote\.[^\n]*?\.(?:mirror|push)|branch\.[^\n]*?\.(?:merge|remote|pushremote)(?![a-z])|"
+                      r"push\.default(?![a-z])|remote\.pushdefault(?![a-z])", re.I)
+    include = re.compile(r"\binclude(?:if\.[^\n]*?)?\.path(?![a-z])", re.I)
+    rng = random.Random(510)
+    parts = ["remote.", "branch.", "push.", "followtags", "include", "includeif.", "if.", ".path", ".push", ".mirror",
+             ".merge", ".remote", "pushremote", "default", "pushdefault", "\n", "x", "s", ".", "REMOTE.", ".PUSH", " ",
+             "BRANCH.", ".Path", "pushDefault"]
+    for _ in range(40000):
+        line = "".join(rng.choice(parts) for _ in range(rng.randint(0, 8)))
+        found = push.search(line)
+        assert gate._git_push_config_kind(line) == (None if not found else "tag" if found.group(1) else "force"), repr(line)
+        assert gate._git_config_file_key(line) == bool(include.search(line)), repr(line)
+
+
+@pytest.mark.parametrize("piece", ["remote.", "branch.", "includeif.", "include", "remote.x", "branch.x.",
+                                   "remote.\n", ".push", ".merge"])
+@pytest.mark.parametrize("head", ["git commit -S -m x # ", "git push origin claude/x # "])
+def test_a_key_start_repeated_up_to_the_read_bound_is_read_in_time(head, piece):
+    """A start of a key repeated up to the read bound is read in time (local review of aa29242d: `remote.` repeated took
+    0.165 seconds where main took 0.00018, the lazy expression searched the rest of the line from each start)."""
+    command = head + piece * ((gate._RELEASE_READ_MAX - len(head)) // len(piece))
+    start = time.monotonic()
+    gate._release_door_words(command)
+    assert time.monotonic() - start < 5
+
+
+def test_the_marker_of_expansions_gives_what_the_expression_gives():
+    """Property: for 40000 short lines drawn from the openers and closers of every expansion the gate does not resolve,
+    the marker that reads a line once gives the text `_RELEASE_EXPANSION.sub` gives (scaling probe of round 33: the
+    expression searched from each opener to the end of the line where no closer came)."""
+    import random
+    rng = random.Random(510)
+    parts = ["$", "{", "}", "(", ")", "((", "))", "`", "<", ">", "<(", ">(", "$(", "${", "$((", "a", "_", "1", "@", "#",
+             "?", "!", "-", "*", " ", "\n", "x9", "$$", "'", '"']
+    for _ in range(40000):
+        line = "".join(rng.choice(parts) for _ in range(rng.randint(0, 12)))
+        assert gate._release_mark_expansions(line) == gate._RELEASE_EXPANSION.sub(gate._RELEASE_UNKNOWN, line), repr(line)
+
+
+@pytest.mark.parametrize("piece", ["${", "$(", "$((", "<(", ">(", "`", "$( ", "${a", "$((a)", "$(()"])
+@pytest.mark.parametrize("head", ["git commit -S -m x # ", "git push origin claude/x # ", "", "echo x # "])
+def test_an_opener_without_its_closer_repeated_up_to_the_read_bound_is_read_in_time(head, piece):
+    """An opener of an expansion without its closer, repeated up to the read bound, is read in time: the marker reads the
+    line once."""
+    command = head + piece * ((gate._RELEASE_READ_MAX - len(head)) // len(piece))
+    start = time.monotonic()
+    gate._release_door_words(command)
+    assert time.monotonic() - start < 5
+
+
 def test_the_reader_of_a_configuration_option_finds_the_lines_the_former_expression_found():
     """Property: for 30000 short lines drawn from the characters that make an option, a separator, a key and its end,
     the linear reader of a key of `-c` or `--config-env` answers as the former expression did (local review of
