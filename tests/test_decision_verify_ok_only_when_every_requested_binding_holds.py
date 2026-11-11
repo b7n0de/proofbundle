@@ -17,7 +17,12 @@ WHAT IS PINNED.
   prints JSON, `ok` is false, the binding's field is in the JSON and reads false, and `safeForAutomation` is
   false. Where the field is a reference field, `referencesResolved` is not true.
 - The controls: the same calls with the binding holding exit 0, and their JSON reads `ok` true and the field
-  true. Exit and `ok` never disagree in any case of this file.
+  true, or for the two relation options not false (`lineage_ok` stays None when nothing failed). Every binding
+  has a control, held by `test_every_binding_has_a_control`; the control of `--anchors` uses an anchor of a test
+  type that verifies. Exit and `ok` never disagree in any case of this file.
+- The two relation options keep B22's own promise beyond a nonzero exit: exit 2, the error
+  `relation:target_verification_failed`, and the lineage label the relation engine set, the same as in the
+  control.
 
 Run against main 6b63cda8, the counter-cases and the controls of `--with-related` and `--related-pub` fail
 (exit 0 with `ok` true, and no `lineage_ok` in the JSON); every other case passes there and here. The cases
@@ -35,6 +40,7 @@ import argparse
 import base64
 import contextlib
 import copy
+import hashlib
 import io
 import json
 import shutil
@@ -42,6 +48,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from proofbundle import anchors, dsse
 from proofbundle.cli import build_parser, main
 from proofbundle.decision import _rfc8785_bytes, emit_decision_receipt
 from proofbundle.emit import generate_signer
@@ -76,6 +83,16 @@ NO_BINDING = {
     "--trusted-tsa-root": "trust material for the anchors of --anchors; refused without --anchors",
     "--bitcoin-header": "trust material for the anchors of --anchors; refused without --anchors",
 }
+
+#: An anchor type of this file, registered while the cases run (as tests/test_decision_cli.py registers its own):
+#: it verifies a proof that reads OK, so the control of `--anchors` has an anchor that holds without a timestamp
+#: authority or a block header (the review of 9acb494a: `--anchors` had a counter-case and no control).
+_TEST_ANCHOR = "b22-guard-test-anchor"
+
+
+def _test_anchor_verifier(proof, canonical_root, *, frozen, now):
+    return {"ok": proof == b"OK", "detail": "test anchor of the B22 guard"}
+
 
 #: The fields `automation_summary` reads as references on the decision path (decision.py).
 REFERENCE_FIELDS = {"evidence_bound", "audience_ok", "nonce_ok", "anchors_ok", "subject_derived_ok", "lineage_ok",
@@ -175,6 +192,10 @@ class _Fixture:
             "schema": "proofbundle/trust-policy/v0.2", "policy_id": "p",
             "decision_receipt": {"trusted_decision_makers": [{"id": self.maker, "public_key_b64": self.pub}]}})
         self.broken_anchor = self.write("anchors-broken.json", [{"type": "rfc3161", "token": "AAAA"}])
+        wurzel = hashlib.sha256(dsse.load_payload(json.loads(Path(self.base).read_text(encoding="utf-8")))).digest()
+        self.holding_anchor = self.write("anchors-holding.json", [{
+            "type": _TEST_ANCHOR, "target": "statement", "canonicalRoot": base64.b64encode(wurzel).decode(),
+            "proof": base64.b64encode(b"OK").decode(), "anchoredAt": "2026-07-10T09:00:00Z"}])
         self.tsa_root = self.write_bytes("tsa-root.pem", _self_signed_pem())
         # The inputs of pull request 502, as tests/test_decision_case_checks_of_section_3_3.py and
         # tests/test_decision_consumption_state_of_section_4.py build them: a receipt for an approval, whose
@@ -242,6 +263,7 @@ def _controls(f: _Fixture) -> dict[str, list[str]]:
         "--policy": [f.base, "--pub", f.pub, "--policy", f.policy_pinning_own],
         "--aud": [f.validity, "--pub", f.pub, "--aud", "aud-1", *_IN_WINDOW],
         "--nonce": [f.validity, "--pub", f.pub, "--nonce", "n-1", *_IN_WINDOW],
+        "--anchors": [f.base, "--pub", f.pub, "--anchors", f.holding_anchor],
         "--with-related": [f.base, "--pub", f.pub, "--with-related", f.by_other_key,
                            "--related-pub", f.other_pub],
         "--related-pub": [f.base, "--pub", f.pub, "--with-related", f.validity, "--related-pub", f.pub],
@@ -275,6 +297,16 @@ class TheOptionsComeFromTheParser(unittest.TestCase):
         finally:
             shutil.rmtree(f.tmp, ignore_errors=True)
 
+    def test_every_binding_has_a_control(self):
+        """The controls are held to BINDINGS as the counter-cases are, so a control that goes missing fails here
+        (the review of 9acb494a: fourteen controls for fifteen bindings, and nothing held their number)."""
+        f = _Fixture()
+        try:
+            f.build()
+            self.assertEqual(set(_controls(f)), set(BINDINGS))
+        finally:
+            shutil.rmtree(f.tmp, ignore_errors=True)
+
     def test_control_the_classification_sees_a_new_option(self):
         """The check is no constant: an option added to the parser is seen as unclassified by the same reading."""
         parser = _verify_parser()
@@ -303,9 +335,11 @@ class EveryRequestedBindingDecidesOk(unittest.TestCase):
     def setUpClass(cls):
         cls.f = _Fixture()
         cls.f.build()
+        anchors.register_anchor_type(_TEST_ANCHOR, _test_anchor_verifier)
 
     @classmethod
     def tearDownClass(cls):
+        anchors._VERIFIERS.pop(_TEST_ANCHOR, None)
         shutil.rmtree(cls.f.tmp, ignore_errors=True)
 
     def _json(self, argv: list[str]) -> tuple[int, dict]:
@@ -336,6 +370,26 @@ class EveryRequestedBindingDecidesOk(unittest.TestCase):
                 if option not in ("--with-related", "--related-pub"):
                     # lineage_ok stays None when nothing failed: no edge, nothing to call VERIFIED.
                     self.assertIs(j[feld], True, j)
+
+    def test_a_related_target_that_does_not_verify_keeps_the_promise_of_b22(self):
+        """B22's own promise for both relation options, beyond a nonzero exit (the review of 9acb494a: a change of
+        the exit from 2 to 3 stayed green, and neither the error nor the label was read): exit 2, the error
+        relation:target_verification_failed, and the lineage label as the relation engine set it, the same as in the
+        control of the option."""
+        kontrollen = _controls(self.f)
+        for option, argv in _counter_cases(self.f).items():
+            if option not in ("--with-related", "--related-pub"):
+                continue
+            with self.subTest(option=option):
+                rc, j = self._json(argv)
+                rc_k, j_k = self._json(kontrollen[option])
+                self.assertEqual(rc, 2, j)
+                self.assertEqual(rc_k, 0, j_k)
+                self.assertTrue(any(isinstance(e, str) and e.startswith("relation:target_verification_failed")
+                                    for e in j["errors"]), j["errors"])
+                self.assertFalse(any(isinstance(e, str) and e.startswith("relation:target_verification_failed")
+                                     for e in j_k["errors"]), j_k["errors"])
+                self.assertEqual(j["lineage"]["lineage"], j_k["lineage"]["lineage"])
 
     def test_exit_and_ok_never_disagree(self):
         for name, faelle in (("counter", _counter_cases(self.f)), ("control", _controls(self.f))):
