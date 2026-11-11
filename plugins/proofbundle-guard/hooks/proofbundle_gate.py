@@ -18080,6 +18080,8 @@ _RELEASE_DOORS = {
     "signatur": ("a signature", "eine Signatur"),
     "root": ("root", "Root"),
     "merge_kopf": ("a merge without --match-head-commit", "ein Merge ohne --match-head-commit"),
+    "unread": ("a word the gate cannot read, which may name any door",
+               "ein Wort, das das Gate nicht lesen kann und das jede Tuer nennen kann"),
 }
 #: The reasons of decide() that name a door: --admin and the protection API (D73 H1), a forced push (D86), a tag (D73 H2).
 _RELEASE_DOOR_REASONS = {"house_admin_merge": "admin", "house_protection_api": "admin", "push_force": "force",
@@ -18087,6 +18089,10 @@ _RELEASE_DOOR_REASONS = {"house_admin_merge": "admin", "house_protection_api": "
 _RELEASE_ROOT = frozenset({"sudo", "su", "doas", "pkexec", "run0"})
 _RELEASE_SIGNERS = frozenset({"gpg", "gpg2", "cosign", "minisign", "signify", "sigstore", "rekor-cli", "notation"})
 _RELEASE_PUBLISHERS = frozenset({"uv", "poetry", "flit", "hatch", "pdm", "maturin", "rye"})
+#: The programs whose words these rules read for a door: git (and a program of its exec path), gh, the publishers, the
+#: signers, ssh-keygen, openssl and twine.
+_RELEASE_DOOR_PROGRAMS = frozenset({"git", "gh", "twine", "ssh-keygen", "openssl"}) | _RELEASE_PUBLISHERS | \
+    _RELEASE_SIGNERS
 _RELEASE_SPLIT = re.compile(r"[\s;&|()<>`'\"]+")
 
 
@@ -18119,6 +18125,57 @@ _RELEASE_LOCALE = re.compile(r'\$"((?:[^"\\]|\\.)*)"', re.S)
 _RELEASE_EXPANSION = re.compile(r"\$\{[^}]*\}|\$\(\([^)]*\)\)|\$\([^)]*\)|\$[A-Za-z_][A-Za-z0-9_]*|\$[0-9@*#?$!-]|"
                                 r"`[^`]*`|[<>]\([^)]*\)")
 _RELEASE_UNKNOWN = "\x01"
+_RELEASE_PARAMETER_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_RELEASE_PARAMETER_SPECIAL = frozenset("0123456789@*#?$!-")
+
+
+def _release_mark_expansions(text: str) -> str:
+    """text with each expansion of _RELEASE_EXPANSION replaced by _RELEASE_UNKNOWN, as `_RELEASE_EXPANSION.sub` gives
+    it, read once from the left. The expression searched from each `${`, `$(`, `$((`, `<(`, `>(` and backquote to the
+    end of the line where its closing character never came, and the release reader asks about whole lines before the signature is
+    read (scaling probe of round 33: `<(` repeated after `git commit -S -m x # ` up to the read bound took 0.12 seconds
+    where main took a ten-thousandth). Here each search for a closing character starts where the last one for that
+    character ended, or returns its answer again where it still holds, so the line is read a bounded number of times."""
+    found: dict[str, tuple[int, int]] = {}
+
+    def after(closer: str, start: int) -> int:
+        known = found.get(closer)
+        if known is not None and known[0] <= start and (known[1] == -1 or known[1] >= start):
+            return known[1]
+        at = text.find(closer, start)
+        found[closer] = (start, at)
+        return at
+    out: list[str] = []
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        end = -1
+        if c == "$" and i + 1 < n:
+            d = text[i + 1]
+            if d == "{":
+                q = after("}", i + 2)
+                end = q + 1 if q >= 0 else -1
+            elif d == "(":
+                q = after(")", i + 2)
+                if q >= 0:
+                    end = q + 2 if i + 2 < n and text[i + 2] == "(" and text.startswith(")", q + 1) else q + 1
+            elif _RELEASE_PARAMETER_NAME.match(d):
+                end = _RELEASE_PARAMETER_NAME.match(text, i + 1).end()
+            elif d in _RELEASE_PARAMETER_SPECIAL:
+                end = i + 2
+        elif c == "`":
+            q = after("`", i + 1)
+            end = q + 1 if q >= 0 else -1
+        elif c in "<>" and i + 1 < n and text[i + 1] == "(":
+            q = after(")", i + 2)
+            end = q + 1 if q >= 0 else -1
+        if end > i:
+            out.append(_RELEASE_UNKNOWN)
+            i = end
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
 #: A dollar sign the shell keeps as text (_release_quote_parts), so that no expansion is read into it. A letter, not a
 #: control character: next to a control character `sudo` still stood at a word boundary and read as the program.
 _RELEASE_LITERAL_DOLLAR = "\u01c2"
@@ -18162,6 +18219,30 @@ def _release_quote_parts(text: str) -> str:
     return "".join(out)
 
 
+#: The longest line the release reader reads (local review of 770a375a, P2). Several searches of this reader rescan
+#: the rest of a line from each start of a key, so their work grows with the square of its length: a line of 630021
+#: characters with `remote.` repeated took the reader beyond the 120 seconds of the Bash hook, where main answered at
+#: once, and so did `branch.`, `includeif.`, `-c `, `--config-env `, `${`, `$(` and `bash -c ` repeated. A line above this bound is
+#: not read and is held back as the door unread, which no card frees; at the bound each of those lines is read in a
+#: few seconds at most. The named cost: a long line that names no door is held back too.
+#: THE BOUND HOLDS FOR EVERY TEXT THE READER SEARCHES, not only for the line (local review of c8736cd8, P2): the brace
+#: expansion makes a text of 985684 characters from a line of 15444 (`gi{t..t} commit -S -m x # {,}{,}{,}{,}{,}{,}`
+#: and `remote.` repeated), and the searches ran on it as before. So each reader of a text, _release_door_words_split
+#: and _release_unresolved_door, and the search for patterns hold a longer text back as unread before they search it.
+_RELEASE_READ_MAX = 16384
+#: THE LONGEST WORD THE READER HANDS TO A HELPER THAT WORKS A WORD AS A WHOLE (local review of d9ff9a8c and the second
+#: runtime probe of 2026-11-11): the search for the first brace bash expands (_sh_brace_first) took 28 seconds on a word
+#: of `${` repeated, the search for a brace left after the expansion (_RELEASE_BRACE_LEFT) 55 seconds on a word of `{`
+#: and commas, and the comparison of D102 (proofbundle_secrets.may_match) more than the hook's 120 seconds on a word of
+#: stars, each where main answered at once. A word longer than this bound is not handed to them and holds the line back
+#: as unread; no door program has a name of more than ten characters. The same holds for the program word the reader of
+#: an unresolved program word compares with D102 (third runtime probe: a line of 16000 stars took it beyond 60 seconds,
+#: at main as well). The comparison of D102 itself stays as at main: four local reviews (7411ab31 to 4673bbd4) found
+#: that each change to it, to read such words in time, cost time or memory elsewhere in it. The reader asks it only
+#: about a pattern word it can read in time (_release_pattern_may_name).
+_RELEASE_WORD_MAX = 256
+
+
 def _release_door_words(command: str) -> str | None:
     """The door of the words of a line: of the line as written, and of the line as the shell assembles its words (an
     ANSI-C or locale part read where it has no escape and no text to translate, else not resolved; every quote and
@@ -18169,7 +18250,10 @@ def _release_door_words(command: str) -> str | None:
     quoted parts is read as the shell reads it (reading of G-2, part 8, P1, and the re-reading of its fix). A program
     word with an expansion the gate does not resolve counts as the door root where what is written of it may still
     be a program of _RELEASE_ROOT (_release_unresolved_root). Words that only the assembled line forms can hold a
-    release back too: a release frees less, never more."""
+    release back too: a release frees less, never more. A line longer than _RELEASE_READ_MAX is not read and is the
+    door unread."""
+    if len(command) > _RELEASE_READ_MAX:
+        return "unread"
     door = _release_door_words_split(command)
     if door is not None:
         return door
@@ -18187,7 +18271,123 @@ def _release_door_words(command: str) -> str | None:
         door = _release_unresolved_door(assembled)
         if door is not None:
             return door
+    # A WORD BASH FORMS FROM FILE NAMES (local review of 516d4490, open at main as well): `/usr/bin/g[i]t push --mirror
+    # z` runs git and mirrors, `touch ./--tags; git push --ta[g]s z` sends the tags, and the words name neither. A
+    # word with a pattern outside quotes (_release_glob_words) in a line of a door program, or one that may itself
+    # name a door program, is held back as the door unread, after every other reading, so a line keeps the door it
+    # names and D102 keeps its reading of a root or signer pattern.
+    # The pattern is read in every form the shell gives the line before it expands it (local review of f9c16c41, open
+    # at main as well): after the brace expansion (`/usr/bin/{g..g}[i]t` is `/usr/bin/g[i]t`), and where a program reads
+    # the text again (`bash -c '/usr/bin/g[i]t push --mirror z'`), without the quotes the outer shell removes, as the
+    # gate reads the text of such a program the strict way (_release_assembled).
+    texts = [continued, _release_braced(continued)]
+    if _release_reads_again(continued):
+        texts += readings + [_release_braced(r) for r in readings]
+    texts = list(dict.fromkeys(texts))
+    if any(len(x) > _RELEASE_READ_MAX for x in texts):
+        return "unread"
+    globbed = [w for x in texts for w in _release_glob_words(x)]
+    if globbed:
+        names = [os.path.basename(w).lower() for x in texts for w in _RELEASE_SPLIT.split(x) if w]
+        sec = _secrets()
+        if any(n in _RELEASE_DOOR_PROGRAMS or (n.startswith("git-") and len(n) > 4) for n in names) or \
+                any(_release_pattern_may_name(sec, w) for w in dict.fromkeys(os.path.basename(w).lower() for w in globbed)):
+            return "unread"
+        # A pattern in the place of the program: the gate cannot tell which program runs (local review of c3ae95a6,
+        # open at main as well: `/usr/lib/git-core/g[i]t-push --mirror z` runs git's push). Rather than a list of the
+        # names a pattern may match, a program word with a pattern holds the line back; D102 read a root or signer
+        # pattern before (_release_unresolved_door).
+        if any(_release_glob_program(x) for x in texts):
+            return "unread"
     return None
+
+
+def _release_pattern_may_name(sec, word: str) -> bool:
+    """Whether a pattern word may name a door program, by the comparison of D102 (proofbundle_secrets.may_match) on its
+    last part. main never asked that comparison about a word of a comment or an argument, and it is not built for every
+    such word: a word of 16000 stars, of wide ranges or of many ranges took it beyond the hook's 120 seconds or its
+    memory (local reviews of d9ff9a8c to 4673bbd4). So the reader asks it only about a part without a bracket expression
+    and without a backslash, no longer than _RELEASE_WORD_MAX, with each run of stars joined to one star, which takes the
+    same names there because no star stands in a bracket; every other pattern part is held as one that may name a door
+    program, and the line is held back as unread. A release frees less, never more. The caller asks about each name
+    once, however often it stands in the line (local review of 19182f90: `a* ` repeated up to the read bound made
+    109160 comparisons, 0.16 seconds where main took 0.013)."""
+    name = os.path.basename(word).lower()
+    if len(name) > _RELEASE_WORD_MAX or "[" in name or "\\" in name:
+        return True
+    name = re.sub(r"\*+", "*", name)
+    return any(sec.may_match(name, p) for p in _RELEASE_DOOR_PROGRAMS)
+
+
+def _release_glob_program(text: str) -> bool:
+    """Whether the program word of a run of words of text (_guard_program) holds a pattern outside quotes."""
+    globbed = set(_release_glob_words(text))
+    for part in re.split(r"[;&|()\n]+", text):
+        words = part.split()
+        if not words:
+            continue
+        program = _RELEASE_JOIN.sub("", words[_guard_program(words)])
+        if program in globbed:
+            return True
+    return False
+
+
+def _release_glob_words(text: str) -> list[str]:
+    """The words of text that hold a pattern of bash's pathname expansion outside quotes and not escaped: a `*`, a `?`
+    that is no parameter (`$?`), or a `[` with a `]` after it in the same word. A word the shell assembles from such a
+    pattern is formed from the names of files, which the gate does not read.
+
+    Whether a `[` has a `]` after it is read from a table built once from the right (_release_bracket_closes): the first
+    form asked `text[i + 1:].split()` at every character of the line, not only at a `[`, as the condition of a
+    conditional expression, and so read the rest of the line again for each character (second runtime probe of round
+    31: a line of 16384 characters took 0.4 seconds where main took three hundredths)."""
+    words: list[tuple[str, bool]] = []
+    cur: list[str] = []
+    glob, quote, i = False, "", 0
+    closes = _release_bracket_closes(text) if "[" in text else None
+
+    def close() -> None:
+        nonlocal cur, glob
+        if cur:
+            words.append(("".join(cur), glob))
+        cur, glob = [], False
+    while i < len(text):
+        c = text[i]
+        if quote != "'" and c == "\\" and i + 1 < len(text):
+            cur.append(text[i + 1])
+            i += 2
+            continue
+        if c in "'\"" and quote in ("", c):
+            quote = "" if quote else c
+            i += 1
+            continue
+        if not quote and (c.isspace() or c in ";&|()<>"):
+            close()
+            i += 1
+            continue
+        if not quote and (c == "*" or (c == "?" and not (cur and cur[-1] == "$")) or
+                          (c == "[" and closes is not None and closes[i + 1])):
+            glob = True
+        cur.append(c)
+        i += 1
+    close()
+    return [w for w, g in words if g]
+
+
+def _release_bracket_closes(text: str) -> list[bool]:
+    """For each position p of text and its end, whether the first word of `text[p:].split()` holds a `]`, built once from
+    the right: a blank takes the answer of the position after it, any other character holds a `]` itself or continues
+    the word of the next position, and past the end there is no word."""
+    n = len(text)
+    word = [False] * (n + 1)
+    first = [False] * (n + 1)
+    for p in range(n - 1, -1, -1):
+        if text[p].isspace():
+            first[p] = first[p + 1]
+        else:
+            word[p] = text[p] == "]" or (p + 1 < n and not text[p + 1].isspace() and word[p + 1])
+            first[p] = word[p]
+    return first
 
 
 #: What opens a context in which bash reads the quotes anew: a command substitution (an arithmetic one too), a
@@ -18211,18 +18411,67 @@ def _release_assembled(continued: str) -> list[str]:
     runner apart, so a line where a runner reads a file, `source` or a shell given a script, is read the strict way
     as well: it holds back more, never less."""
     readings = [_RELEASE_JOIN.sub("", _release_quote_parts(continued))]
-    runs_text = any(os.path.basename(word) in _RELEASE_TEXT_RUNNERS
-                    for word in _RELEASE_SPLIT.split(continued) + _RELEASE_SPLIT.split(readings[0]))
-    if runs_text or any(opening in continued for opening in _RELEASE_NEW_CONTEXT):
+    if _release_reads_again(continued):
         readings.append(_RELEASE_JOIN.sub("", _RELEASE_LOCALE.sub(_release_locale,
                                                                   _RELEASE_ANSI_C.sub(_release_ansi_c, continued))))
     return list(dict.fromkeys(readings))
 
 
+def _release_reads_again(continued: str) -> bool:
+    """Whether the shell reads a part of the line again, in a context of its own: a word of _RELEASE_TEXT_RUNNERS, as
+    written or as the shell joins it (`b''ash -c`), or an opening of _RELEASE_NEW_CONTEXT (`"$(...)"`). The one test
+    for it, used by _release_assembled and by the rule for a word formed from file names (local review of 3c79f5e0:
+    that rule had built its own narrower test and missed `echo "$(/usr/bin/g[i]t push --mirror z)"` and
+    `b''ash -c '/usr/bin/g[i]t push --mirror z'`)."""
+    joined = _RELEASE_JOIN.sub("", _release_quote_parts(continued))
+    return any(os.path.basename(word) in _RELEASE_TEXT_RUNNERS
+               for word in _RELEASE_SPLIT.split(continued) + _RELEASE_SPLIT.split(joined)) or \
+        any(opening in continued for opening in _RELEASE_NEW_CONTEXT)
+
+
 def _release_braced(text: str) -> str:
     """The text with each blank-separated word replaced by the words of its brace expansion (D100, _sh_brace_expand),
-    where the gate can expand it: `{s,x}udo` runs sudo."""
-    return "".join(" ".join(_sh_brace_expand(w) or [w]) if "{" in w else w for w in re.split(r"(\s+)", text))
+    where the gate can expand it: `{s,x}udo` runs sudo. A word bash expands and the gate does not (more than
+    _SH_BRACE_MAX words: `git push --ta{,}{,}{,}{,}{,}{,}{,} z` makes 128 words `--ta` and sends the tags, local review of
+    97b77526, open at main as well) keeps the mark _RELEASE_UNKNOWN, so the rule for a word the gate cannot read holds
+    it back as the door unread.
+
+    The same holds for every brace form the gate does not model (local review of 87bc823c, open at main as well: bash
+    reads a range with a step, `--ta{g..g..1}` is `--tag`). Rather than the next form, the rule is closed: a word that
+    still holds a brace with a comma or `..` after the gate's expansion was formed by a rule the gate does not know.
+
+    The mark stands as a word of its own at the end of the line, never joined to a word (local review of 8511dc09: joined
+    to the last word of `env {X{0..0..1}=,git} push --mirror z` it made `git` unreadable and lost the door main reads).
+    Every word the gate reads keeps its reading, and the rule for a word the gate cannot read holds the line back also
+    where that word is the program (`gi{t..t..1} push --tags z`)."""
+    unread = False
+
+    def read(word: str) -> str:
+        nonlocal unread
+        if "{" not in word:
+            return word
+        if len(word) > _RELEASE_WORD_MAX:
+            unread = True
+            return word
+        expanded = _sh_brace_expand(word)
+        if expanded is None:
+            if _sh_brace_first(word) is not None or _RELEASE_BRACE_LEFT.search(word) is not None:
+                unread = True
+            return word
+        if any(_RELEASE_BRACE_LEFT.search(w) for w in expanded):
+            unread = True
+        return " ".join(expanded)
+    braced = "".join(read(w) for w in re.split(r"(\s+)", text))
+    return braced + " " + _RELEASE_BRACE_MARK if unread else braced
+
+
+#: A brace with a comma or a range in it, left in a word after the gate's brace expansion: bash forms it by a rule the
+#: gate does not model (a range with a step, `{a..e..2}`), so the word is one the gate cannot read.
+_RELEASE_BRACE_LEFT = re.compile(r"\{[^{}]*(?:,|\.\.)[^{}]*\}")
+#: The word _release_braced puts at the end of a line with such a word. A mark of its own, not _RELEASE_UNKNOWN, which
+#: stands for an ANSI-C or locale part the gate does not decode and keeps the reading of D102 (root where it may be
+#: the program, nothing in a line of no door program).
+_RELEASE_BRACE_MARK = "\x02"
 
 
 #: The programs that run text as a command: a word of theirs the gate does not resolve may be a root program.
@@ -18239,7 +18488,9 @@ def _release_unresolved_door(assembled: str) -> str | None:
     (_RELEASE_TEXT_RUNNERS: eval, `bash -c`) gets an expansion the gate does not resolve, and where a shell reads its
     commands from a pipe (`printf 'su%s' do | sh`). A program word that is a path counts by its last part. Not known to
     the gate: aliases and functions defined outside the line, and the text of a file a line sources or a shell runs."""
-    marked = _RELEASE_EXPANSION.sub(_RELEASE_UNKNOWN, assembled)
+    if len(assembled) > _RELEASE_READ_MAX:
+        return "unread"
+    marked = _release_mark_expansions(assembled)
     sec = _secrets()
     parts = re.split(r"([;&|()\n]+)", marked)
     for i in range(0, len(parts), 2):
@@ -18255,7 +18506,11 @@ def _release_unresolved_door(assembled: str) -> str | None:
             return "root"
         name = words[k].rsplit("/", 1)[-1].lower()
         if _RELEASE_UNKNOWN in name or _SH_GLOB_CHARS.search(name):
+            # A pattern longer than _RELEASE_WORD_MAX holds the line back (third runtime probe of 2026-11-11: a
+            # program word of 16000 stars took the comparison of D102 beyond 60 seconds, at main as well).
             pattern = name.replace(_RELEASE_UNKNOWN, "*")
+            if len(pattern) > _RELEASE_WORD_MAX:
+                return "unread"
             if any(sec.may_match(pattern, root) for root in _RELEASE_ROOT):
                 return "root"
             if any(sec.may_match(pattern, signer) for signer in _RELEASE_SIGNERS):
@@ -18263,10 +18518,202 @@ def _release_unresolved_door(assembled: str) -> str | None:
     return None
 
 
+def _git_long_option(word: str, *options: str) -> bool:
+    """True when git can take `word` as one of the long `options` (named without the dashes).
+
+    git takes any prefix of a long option that names it alone among the options of the command (measured with git
+    2.55.0: `commit --gpg` and `--gpg-s` sign, `push --tag` sends the tags, `push --follow` follows them, `push --mirro`
+    mirrors), and refuses a prefix that names two (`push --forc`). A release frees less, never more, so every prefix
+    counts here, the ambiguous ones included, and so does the option with a value joined by `=`."""
+    if not word.startswith("--") or len(word) < 3:
+        return False
+    name = word[2:].partition("=")[0]
+    return bool(name) and any(option.startswith(name) or name.startswith(option) for option in options)
+
+
+def _git_short_bundle(word: str, letter: str) -> bool:
+    """True when `word` is a bundle of short options that holds `letter`: git reads `-qS` as `-q -S` and `-fu` as
+    `-f -u` (measured with git 2.55.0). Where a letter before it takes the rest as its value (`-mS` is the message
+    `S`), the bundle still counts: a release frees less, never more."""
+    return len(word) > 1 and word[0] == "-" and word[1] != "-" and letter in word[1:]
+
+
+#: A key of git's configuration that makes a push send what its words do not show, read in any case as git reads it:
+#: push.followTags sends the tags, remote.<name>.mirror mirrors, remote.<name>.push names the refspecs. It is found in
+#: the line's own text, never in its split words, and it is not parsed further: the name of a remote may hold any
+#: character once it is quoted, `.push=` included (`remote.o.push=x.mirror` is the key mirror of the remote `o.push=x`).
+#: The parts of these keys, each read on its own and in any case (_git_push_config_kind): a key with a name in the middle
+#: is the start of the key and an ending after it on the same line, so the line is not searched again from each start.
+_GIT_PUSH_FOLLOW_TAGS = re.compile(r"push\.followtags", re.I)
+_GIT_PUSH_FIXED = re.compile(r"push\.default(?![a-z])|remote\.pushdefault(?![a-z])", re.I)
+_GIT_REMOTE_START = re.compile(r"remote\.", re.I)
+_GIT_REMOTE_END = re.compile(r"\.(?:mirror|push)", re.I)
+_GIT_BRANCH_START = re.compile(r"branch\.", re.I)
+_GIT_BRANCH_END = re.compile(r"\.(?:merge|remote|pushremote)(?![a-z])", re.I)
+#: A configuration the line brings in from a file this reader does not see: an include (`-c include.path=`,
+#: `-c includeIf.<condition>.path=`), or the global or system file moved by GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM, HOME
+#: or XDG_CONFIG_HOME. Measured 2026-11-10 with git 2.55.0: each of them carrying `remote.origin.push=refs/tags/*:refs/tags/*`
+#: makes `git push origin` send the tag.
+_GIT_INCLUDE_PATH = re.compile(r"\binclude\.path(?![a-z])", re.I)
+_GIT_INCLUDE_IF_START = re.compile(r"\bincludeif\.", re.I)
+_GIT_PATH_END = re.compile(r"\.path(?![a-z])", re.I)
+
+
+def _git_key_with_a_name(text: str, start: "re.Pattern", end: "re.Pattern") -> int:
+    """The earliest place in text where a key that has a name in its middle begins: a start (`remote.`) and, later on the
+    same line, an ending (`.push`), with anything but a line break between them; -1 where there is none. On a line only
+    its first start can begin the earliest key, and it does where the last ending of the line lies after it, so each
+    line is read once (local review of aa29242d: a lazy expression searched the rest of the line again from each start,
+    `remote.` repeated up to the read bound took 0.165 seconds where main took 0.00018)."""
+    offset = 0
+    for line in text.split("\n"):
+        first = start.search(line)
+        if first is not None:
+            last = -1
+            for m in end.finditer(line, first.end()):
+                last = m.start()
+            if last >= first.end():
+                return offset + first.start()
+        offset += len(line) + 1
+    return -1
+
+
+def _git_config_file_key(text: str) -> bool:
+    """An include of a configuration file, `include.path` or `includeif.<condition>.path`, in any case."""
+    return _GIT_INCLUDE_PATH.search(text) is not None or \
+        _git_key_with_a_name(text, _GIT_INCLUDE_IF_START, _GIT_PATH_END) >= 0
+
+
+def _git_push_config_kind(text: str) -> str | None:
+    """The door of the first key that makes a push send what its words do not show: tag for push.followTags, force for
+    remote.<name>.push and .mirror, branch.<name>.merge, .remote and .pushRemote, push.default and remote.pushDefault;
+    None where the line holds none. The first is the one that begins earliest, as one expression of all of them read
+    it; push.followTags begins where no other of them can."""
+    tags = _GIT_PUSH_FOLLOW_TAGS.search(text)
+    fixed = _GIT_PUSH_FIXED.search(text)
+    starts = [s for s in (fixed.start() if fixed else -1, _git_key_with_a_name(text, _GIT_REMOTE_START, _GIT_REMOTE_END),
+                          _git_key_with_a_name(text, _GIT_BRANCH_START, _GIT_BRANCH_END)) if s >= 0]
+    if tags is not None and (not starts or tags.start() < min(starts)):
+        return "tag"
+    return "force" if starts or tags is not None else None
+#: The shell sets a variable in more forms than `NAME=` (local review of 698f882b, open at main as well): `NAME+=`,
+#: `printf -v NAME`, `read NAME`, `declare -n ref=NAME`, `for NAME in`, `${NAME:=…}` and `${NAME=…}`. So every mention
+#: of one of these names counts, except a plain read of its value (`$NAME`, `${NAME}`, `${NAME:-…}`): `$HOME` in a
+#: path is read in many lines and moves no configuration.
+_GIT_CONFIG_FILE_NAMES = r"(?:GIT_CONFIG_GLOBAL|GIT_CONFIG_SYSTEM|HOME|XDG_CONFIG_HOME)"
+_GIT_CONFIG_FILE_ENV = re.compile(r"(?<!\$)(?<!\$\{)\b" + _GIT_CONFIG_FILE_NAMES + r"\b|\$\{" + _GIT_CONFIG_FILE_NAMES + r":?=")
+#: A key or a name of the configuration the line sets but this reader cannot read (local reviews of 698f882b and
+#: 06d45152, both open at main as well). An expansion is every form the gate does not resolve (_RELEASE_EXPANSION:
+#: `$X`, `${X}`, `$(…)`, a backquoted command, `$((…))`, `<(…)`), marked _RELEASE_UNKNOWN before these rules read the
+#: line; the second review found that a rule which looked for `$` alone missed the backquotes. The rules
+#: (_git_config_unread): GIT_CONFIG_KEY_<n> or GIT_CONFIG_PARAMETERS named in another form than `NAME=`, or named in a
+#: line with an expansion anywhere (a quoted value of GIT_CONFIG_PARAMETERS holds blanks, `'a'='b' '$(…)'='f'`); a key
+#: of `-c` or `--config-env` with an expansion or a pattern before its first `=` (`git -c "`printf %s%s incl
+#: ude.path`=f" push` brings in the file f, measured with git 2.55.0); and a name that a builtin which sets variables
+#: gets through an expansion (`export ${N}BAL=f`, `declare -n R=$N`, `printf -v "$N"`, `read "$N"`).
+_GIT_CONFIG_KEY_NAMES = r"GIT_CONFIG_(?:KEY_[0-9]+|PARAMETERS)"
+_GIT_CONFIG_UNREAD_NAME = re.compile(r"(?<!\$)(?<!\$\{)\b" + _GIT_CONFIG_KEY_NAMES + r"\b(?!=)")
+_GIT_CONFIG_KEY_NAMED = re.compile(r"(?<!\$)(?<!\$\{)\b" + _GIT_CONFIG_KEY_NAMES + r"\b")
+#: An option of git that sets a key, `-c` or `--config-env`, followed by a separator (_git_config_unread_option).
+_GIT_CONFIG_OPTION = re.compile(r"(?:^|[\s;&|(])(?:-c|--config-env)(?=[\s=])")
+_GIT_CONFIG_SEPARATOR = re.compile(r"[\s=]+")
+_GIT_CONFIG_KEY_TEXT = re.compile(r"[^=\n;&|]*")
+_GIT_CONFIG_KEY_UNREAD = _RELEASE_UNKNOWN + "*?["
+#: The builtins of bash that set a variable whose name they get as a word.
+_SHELL_NAME_SETTERS = frozenset({"export", "declare", "typeset", "local", "readonly", "read", "mapfile", "readarray"})
+
+
+def _git_config_unread_option(marked: str) -> bool:
+    """Whether a key of `-c` or `--config-env` holds an expansion (_RELEASE_UNKNOWN) or a pattern before its first `=`:
+    behind the option a separator of blanks and `=`, then the key, which ends at `=`, a line break, `;`, `&` or `|`.
+
+    A first form was one expression, the option, `[\\s=]+` and a lazy `[^=\\n;&|]*?` up to such a character. Its two
+    parts take the same blanks, so where no such character follows, the search tried every split of the blanks: `-c`
+    and 16000 blanks took 1.9 seconds where main took five thousandths (local review of 0692fed6). This reader takes the
+    whole separator first and the key after it, which finds the same lines: a blank the key could take, the separator
+    takes as well, and an `=` only the separator can take. Each stretch of a key is read once, also where many options
+    share it: a key that starts inside the stretch read for an option before it ends where that stretch ends, since the
+    stretch holds no end of a key (local review of a87d2034: the first form found the end of each key anew, and 3271
+    options in one stretch read 26.7 million characters). The separators of the options do not overlap, so the work
+    grows with the line and not with its square."""
+    last_stop, last_found = -1, -1
+    for m in _GIT_CONFIG_OPTION.finditer(marked):
+        key = _GIT_CONFIG_SEPARATOR.match(marked, m.end()).end()
+        if key >= last_stop:
+            last_stop = _GIT_CONFIG_KEY_TEXT.match(marked, key).end()
+            last_found = max(marked.rfind(c, key, last_stop) for c in _GIT_CONFIG_KEY_UNREAD)
+        if last_found >= key:
+            return True
+    return False
+
+
+def _git_config_unread(text: str) -> bool:
+    """True where the line sets a key or a name of the configuration that this reader cannot read (see above)."""
+    marked = _release_mark_expansions(text)
+    if _GIT_CONFIG_UNREAD_NAME.search(text) or _git_config_unread_option(marked):
+        return True
+    if _GIT_CONFIG_KEY_NAMED.search(text) and _RELEASE_UNKNOWN in marked:
+        return True
+    for part in re.split(r"[;&|()\n]+", marked):
+        words = part.split()
+        k = 0
+        while k < len(words) and re.match(r"[A-Za-z_][A-Za-z0-9_]*\+?=", words[k]):    # the prefix assignments
+            k += 1
+        if k >= len(words):
+            continue
+        name, args = os.path.basename(words[k]), words[k + 1:]
+        if name in _SHELL_NAME_SETTERS:
+            # every argument of read and mapfile is a name, and so is the value of a nameref (declare -n R=NAME)
+            whole = name in ("read", "mapfile", "readarray") or any(a.startswith("-") and "n" in a[1:] for a in args)
+            if any(_RELEASE_UNKNOWN in (a if whole else a.split("=", 1)[0]) for a in args if not a.startswith("-")):
+                return True
+        if name == "printf":
+            for i, a in enumerate(args):
+                if a.startswith("-v"):
+                    target = a[2:] or (args[i + 1] if i + 1 < len(args) else "")
+                    if _RELEASE_UNKNOWN in target:
+                        return True
+    return False
+
+
+def _git_push_config_door(text: str) -> str | None:
+    """The door a configuration of the line opens for a push: push.followTags is the door of a tag, and any key of
+    remote.<name>.push or remote.<name>.mirror is the door of a forced push, whatever its value and wherever it is set
+    (-c, git config, GIT_CONFIG_PARAMETERS, GIT_CONFIG_KEY_<n>, --config-env in either form). So is a key that chooses
+    the target of a push without a refspec: branch.<name>.merge, .remote and .pushRemote, push.default and
+    remote.pushDefault (local review of 1018aa84: `-c push.default=upstream -c branch.master.merge=refs/tags/x push`
+    sends a tag). A configuration the line brings in from a file (`_git_config_file_key`, `_GIT_CONFIG_FILE_ENV`) is the
+    door of a forced push as well: its keys are not in the line, so any of the above may stand in it, and so may
+    commit.gpgSign (the release of `git -c include.path=f commit` is held back as such a door too). The same holds for
+    a key or a name the line sets in a form this reader cannot read (`_git_config_unread`).
+
+    WHY NO VALUE IS READ (local reviews of 89922dec and 5ee4b8bc, 2026-11-10). The first two forms of this reader took
+    the value of remote.<name>.push from the line and freed a plain refspec. Each review then found a value git reads
+    otherwise: by an index or another variable, from the last of two assignments, through an expansion in the middle
+    of the value (`refs/$KIND/v2`), or as a short name git expands to a tag (`remote.z.push=v1`). A value is a refspec
+    git resolves against the repository and the environment, which this reader sees neither of, so it frees none: a
+    release frees less, never more. The cost is named in the tests: a plain refspec set by configuration is held back
+    although git opens no door with it."""
+    if _git_config_file_key(text) or _GIT_CONFIG_FILE_ENV.search(text) or _git_config_unread(text):
+        return "force"
+    return _git_push_config_kind(text)
+
+
 def _release_door_words_split(command: str) -> str | None:
+    if len(command) > _RELEASE_READ_MAX:
+        return "unread"
     words = [w for w in _RELEASE_SPLIT.split(command) if w]
     # A program name is compared without case: a file system without case (macOS) finds /usr/bin/sudo for `SUDO`.
     names = [os.path.basename(w).lower() for w in words]
+    # A PROGRAM OF GIT'S EXEC PATH IS ITS SUBCOMMAND (local review of e64f9ef5, 2026-11-10): git-push, git-send-pack,
+    # git-commit and git-tag run as `git push` and the others do, so `/usr/lib/git-core/git-push --mirro z` mirrors. They
+    # are noted beside the words, by index, and the words themselves stay as written: an option is never read as a
+    # program (`-S/tmp/git-key` is a signature with the key /tmp/git-key, local review of 566b7d16), and no word is
+    # inserted, so the value of `gh -R b7n0de/git-repo` keeps its place and `release` stays gh's subcommand (local review
+    # of 7e2935f5; both readings of the earlier forms lost a door main had read).
+    exec_path = {i: n[4:] for i, n in enumerate(names) if n.startswith("git-") and len(n) > 4 and
+                 not words[i].startswith("-")}
+    git_like = "git" in names or bool(exec_path)
     subs = {}   # the index of the subcommand of each git and gh word: the first word after its options
     for i, name in enumerate(names):
         if name in ("git", "gh"):
@@ -18276,14 +18723,45 @@ def _release_door_words_split(command: str) -> str | None:
             if j < len(words):
                 subs[j] = name
     pushed = [k for k, name in subs.items() if name == "git" and words[k] == "push"]
+    pushed += [i for i, sub in exec_path.items() if sub in ("push", "send-pack", "http-push")]
+    # A QUOTED VALUE WITH A BLANK SHIFTS THE SUBCOMMAND (local review of 5ee4b8bc, 2026-11-10). The split words of
+    # `git -c 'user.name=John Doe' push --tag z` make `Doe` the subcommand, so the push and its options went unread;
+    # git sends the tag. push and tag count at any place after a git word now; a release frees less, never more.
+    git_from = min([i for i, name in enumerate(names) if name == "git"] + list(exec_path), default=None)
+    git_words = words[git_from + 1:] if git_from is not None else []
+    # send-pack and http-push push as push does, with --force, --mirror and --signed (local review of 56e79b09).
+    pushed += [git_from + 1 + i for i, w in enumerate(git_words) if w in ("push", "send-pack", "http-push")]
     after_push = words[min(pushed) + 1:] if pushed else []
     if any(w == "--admin" or w.startswith("--admin=") for w in words):
         return "admin"
-    if any(w in ("-f", "--mirror") or w.startswith("--force") or (w.startswith("+") and len(w) > 1) or
-           (w.startswith("-") and not w.startswith("--") and "f" in w[1:]) for w in after_push):
+    # EVERY SPELLING GIT TAKES (DELTA-GUARD-SIGNATUR-BUENDEL-20261110-01). Main already read `--force...`, a short
+    # bundle with f, `-S<key>` and `--gpg-sign...`, but compared the other words in their full spelling only, so a
+    # release let `git push --mirro`, `git push --tag`, `git commit -qS` and `git commit --gpg` run although git
+    # mirrors, sends the tags and calls the signing program. A long option counts in every prefix
+    # (`_git_long_option`), a short one in every bundle (`_git_short_bundle`), and a push's configuration counts too.
+    config_door = _git_push_config_door(command) if git_like else None
+    # AN OPTION GIVEN AS A VALUE IS READ AS AN OPTION (local review of 38fdfcb3, 2026-11-10, open at main as well):
+    # `git -c branch.main.mergeOptions=-S merge topic` signs the merge, and so does GIT_CONFIG_VALUE_<n>=-S for that key.
+    # The part after the first `=` of a word is read as a word of its own for the signature.
+    values = [w.split("=", 1)[1] for w in words if "=" in w]
+    if any(_git_long_option(w, "force", "mirror") or (w.startswith("+") and len(w) > 1) or _git_short_bundle(w, "f")
+           for w in after_push) or config_door == "force":
         return "force"
-    if any(name == "git" and words[k] == "tag" for k, name in subs.items()) or \
-            any(w in ("--tags", "--follow-tags") or "refs/tags/" in w for w in after_push):
+    # A SUBCOMMAND UNDER ANOTHER NAME (local review of fac72793, 2026-11-10, open at main as well): an alias the line sets
+    # (`-c alias.p=push`) or the autocorrection it switches on (`-c help.autocorrect=immediate puhs --mirro z`) runs a
+    # push the words do not name, so its options go unread. Either one in the line's text holds the release back as a
+    # forced push; an alias or autocorrection from the person's own configuration is not visible here and stays named
+    # as not covered.
+    if git_like and re.search(r"(?i)\balias\.|help\.autocorrect", command):
+        return "force"
+    if any(name == "git" and words[k] == "tag" for k, name in subs.items()) or "tag" in git_words or \
+            "tag" in exec_path.values() or \
+            any(_git_long_option(w, "tags", "follow-tags") or "tags/" in w or
+                ("*" in w and not w.startswith("-")) for w in after_push) or config_door == "tag":
+        # a wildcard refspec (`'refs/*:refs/*'`) takes the tags along, and so does a name below tags/ (`tags/v1`); a
+        # short tag name of a push (`git push z v1`) is read by house rule H2 from the repository (house_tag_out),
+        # which these words do not see
+        # `tag` after git is the subcommand, or the `tag <name>` of a push's refspecs (`git push z tag v1`)
         return "tag"
     if any(name == "gh" and words[k] == "release" for k, name in subs.items()) or \
             any(name == "gh" and words[k] == "api" and any("/releases" in w for w in words[k + 1:])
@@ -18299,13 +18777,36 @@ def _release_door_words_split(command: str) -> str | None:
     # one that sets it false: a release frees less, never more.
     if any(n in _RELEASE_SIGNERS for n in names) or ("ssh-keygen" in names and "-Y" in words and "sign" in words) or \
             ("openssl" in names and any(w in ("-sign", "sign") for w in words)) or \
-            ("git" in names and any(w.startswith(("-S", "--gpg-sign")) or "gpgsign" in w.lower() for w in words)):
+            (git_like and any(_git_short_bundle(w, "S") or _git_long_option(w, "gpg-sign") or
+                              "gpgsign" in w.lower() for w in words + values)) or \
+            any(_git_long_option(w, "signed") for w in after_push):
+        # `-qS` and `-aS` sign as `-S` does, `--gpg` and `--gpg-s` as `--gpg-sign` does, and `git push --signed` (also
+        # `--sign`) signs the push certificate with the owner's key.
         return "signatur"
+    if any(words[k] in ("send-pack", "http-push") or k in exec_path for k in pushed):
+        # H2 does not read send-pack or http-push, nor a push started from git's exec path, and their refspecs may name
+        # a tag by its short name (local reviews of e64f9ef5 and 566b7d16: `git send-pack ../z.git v1` and
+        # `/usr/lib/git-core/git-push ../z.git v1` send the tag v1), so each of them is the door of a tag
+        return "tag"
     if any(n in _RELEASE_ROOT for n in names):
         return "root"
     if any(name == "gh" and words[k] == "pr" and words[k + 1:k + 2] == ["merge"] for k, name in subs.items()) and \
             not any(w == "--match-head-commit" or w.startswith("--match-head-commit=") for w in words):
         return "merge_kopf"
+    # A WORD THE GATE CANNOT READ, IN A LINE OF A DOOR PROGRAM (local reviews of 698f882b, 06d45152 and 5f569e59,
+    # 2026-11-10, each open at main as well). Three reviews in a row found one more shell form that hands git a
+    # configuration, an option or a subcommand its words do not show: `GIT_CONFIG_GLOBAL+=f`, a key in backquotes,
+    # `command export ${N}BAL=f`, `env "${N}BAL=f" git push`, `git "$C" "${K}ude.path=f" push`. Each was an instance of
+    # one class: an expansion the gate does not resolve (_RELEASE_EXPANSION) may stand for any word, so in a line that
+    # runs one of _RELEASE_DOOR_PROGRAMS it may name any door, also as a subcommand (`S=push; git $S --mirror z`) or an
+    # option (`O=-S; git commit $O -m x`). Such a line is held back as the door `unread`, after every door its words
+    # name, so a line keeps the door it names. The named cost: `git push origin "$BRANCH"` and `git -C "$DIR" status` are
+    # held back too, although most values open no door; a release frees less, never more.
+    # The brace mark stands for a word the gate cannot read at all, which may be the program itself
+    # (`gi{t..t..1} push --tags z`), so that line is held back whatever programs its other words name.
+    if _RELEASE_BRACE_MARK in words or ((exec_path or any(n in _RELEASE_DOOR_PROGRAMS for n in names)) and
+                                        _RELEASE_UNKNOWN in _release_mark_expansions(command)):
+        return "unread"
     return None
 
 

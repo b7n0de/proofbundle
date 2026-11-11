@@ -1,5 +1,7 @@
 # Threat model — what a proofbundle receipt catches, and what it structurally cannot
 
+**This page explains which attacks a proofbundle receipt catches and which it cannot catch by design, for anyone who relies on a receipt or reviews proofbundle.** A valid signature shows that the bytes were signed by a given key and have not changed since. It does not show that you should trust that key, or that the result is true. The short list of what a receipt does not prove is [NON_CLAIMS.md](docs/NON_CLAIMS.md).
+
 Revision: 2026-10-14
 
 A proofbundle receipt is a **tamper-evident, signed statement of authorship and integrity** over an eval or

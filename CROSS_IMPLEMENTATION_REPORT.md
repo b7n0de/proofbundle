@@ -1,5 +1,7 @@
 # Cross-Implementation Report (3.2.0 O8)
 
+**Where an independent Rust verifier agrees with the Python one, and what it does not cover yet.** This page is for reviewers who want a second implementation as a check. The Rust verifier is read-only and experimental and reproduces a measured part of the conformance corpus, and the current state comes from `scripts/rust_parity_gate.py`. Agreement between the two does not show that any recorded claim is true.
+
 **Machine-checked as of Finding 11 (2026-07-15):** this file is prose, and prose drifts — it did, in
 practice, before this note existed (a new Python `verify_*` surface can ship with nobody remembering to
 update the tables below). The **live, re-checked-every-run source of truth is
