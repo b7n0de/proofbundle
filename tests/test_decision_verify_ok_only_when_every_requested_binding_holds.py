@@ -21,8 +21,8 @@ WHAT IS PINNED.
   has a control, held by `test_every_binding_has_a_control`; the control of `--anchors` uses an anchor of a test
   type that verifies. Exit and `ok` never disagree in any case of this file.
 - The two relation options keep B22's own promise beyond a nonzero exit: exit 2, the error
-  `relation:target_verification_failed`, and the lineage label the relation engine set, the same as in the
-  control.
+  `relation:target_verification_failed`, and the lineage label NOT_EVALUATED the relation engine sets where no
+  edge names the target, in the counter-case and in the control; their controls read `lineage_ok` null.
 
 Run against main 6b63cda8, the counter-cases and the controls of `--with-related` and `--related-pub` fail
 (exit 0 with `ok` true, and no `lineage_ok` in the JSON); every other case passes there and here. The cases
@@ -367,15 +367,19 @@ class EveryRequestedBindingDecidesOk(unittest.TestCase):
                 self.assertEqual(rc, 0, j)
                 self.assertIs(j["ok"], True, j)
                 self.assertIn(feld, j)
-                if option not in ("--with-related", "--related-pub"):
-                    # lineage_ok stays None when nothing failed: no edge, nothing to call VERIFIED.
+                if option in ("--with-related", "--related-pub"):
+                    # lineage_ok stays None when nothing failed: no edge, nothing to call VERIFIED (the review of
+                    # 4c37d30f: the relation controls read no value of the field at all).
+                    self.assertIsNone(j[feld], j)
+                else:
                     self.assertIs(j[feld], True, j)
 
     def test_a_related_target_that_does_not_verify_keeps_the_promise_of_b22(self):
         """B22's own promise for both relation options, beyond a nonzero exit (the review of 9acb494a: a change of
         the exit from 2 to 3 stayed green, and neither the error nor the label was read): exit 2, the error
-        relation:target_verification_failed, and the lineage label as the relation engine set it, the same as in the
-        control of the option."""
+        relation:target_verification_failed, and the lineage label as the relation engine sets it where no edge names
+        the target, NOT_EVALUATED, in the counter-case and in the control (the review of 4c37d30f: comparing the two
+        labels alone stayed green when both changed together)."""
         kontrollen = _controls(self.f)
         for option, argv in _counter_cases(self.f).items():
             if option not in ("--with-related", "--related-pub"):
@@ -389,7 +393,8 @@ class EveryRequestedBindingDecidesOk(unittest.TestCase):
                                     for e in j["errors"]), j["errors"])
                 self.assertFalse(any(isinstance(e, str) and e.startswith("relation:target_verification_failed")
                                      for e in j_k["errors"]), j_k["errors"])
-                self.assertEqual(j["lineage"]["lineage"], j_k["lineage"]["lineage"])
+                self.assertEqual(j["lineage"]["lineage"], "NOT_EVALUATED", j["lineage"])
+                self.assertEqual(j_k["lineage"]["lineage"], "NOT_EVALUATED", j_k["lineage"])
 
     def test_exit_and_ok_never_disagree(self):
         for name, faelle in (("counter", _counter_cases(self.f)), ("control", _controls(self.f))):
