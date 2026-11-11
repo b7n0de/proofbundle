@@ -19,8 +19,8 @@ Every line is checkable by someone else. "I think so" is not an answer.
       the four surfaces named in [COMPATIBILITY.md](COMPATIBILITY.md#what-counts-as-the-public-interface):
       the Python API, the CLI with the meaning of its exit codes, the emitted bytes, and the
       verification verdict. A fix that rejects input the specification already called invalid is a
-      fix and not a break, as COMPATIBILITY.md says, and so is a fix that corrects a time verdict to
-      what the specification already states; both may ship in a PATCH. Their scope line and their
+      fix and not a break, and so is a fix that corrects a time verdict to what the specification
+      already states, as COMPATIBILITY.md says for both; both may ship in a PATCH. Their scope line and their
       CHANGELOG entry say so explicitly, because from the outside a stricter check and a break look
       identical. In doubt, leave it out and say so in the list. Scope lists live in
       `docs/release_scope/<version>.md`.
