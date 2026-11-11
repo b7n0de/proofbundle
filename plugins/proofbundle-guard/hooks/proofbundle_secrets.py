@@ -132,7 +132,9 @@ class _CharSet:
     """The characters a bracket expression takes: its single characters and its ranges, each range kept as its two
     ends rather than every character between them (local review of 7411ab31 at PR 510: `[a-\U0010ffff]` made the
     comparison list more than a million characters per range, and a word of 84 such ranges ran beyond the hook's 120
-    seconds). A range whose first end lies above its last takes no character, as before."""
+    seconds). A range whose first end lies above its last takes no character, as before. A text of more than one
+    character, which the folding of _token_takes can give (`"ß".upper()` is `"SS"`), is no member, as it was of the
+    former set of single characters (local review of db0016ff: ord() raised on it)."""
 
     __slots__ = ("chars", "ranges")
 
@@ -140,6 +142,8 @@ class _CharSet:
         self.chars, self.ranges = chars, ranges
 
     def __contains__(self, char: str) -> bool:
+        if len(char) != 1:
+            return char in self.chars
         return char in self.chars or any(lo <= ord(char) <= hi for lo, hi in self.ranges)
 
 

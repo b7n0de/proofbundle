@@ -776,15 +776,27 @@ def _former_tokens(part):
     return tokens
 
 
+@pytest.mark.parametrize("letter", ["\u00df", "\u0130", "\ufb00", "\u1f80"])
+def test_a_letter_whose_folding_gives_two_characters_is_no_member_of_a_range(letter):
+    """`[a-z]` takes no letter whose upper or lower case is two characters (`"\u00df".upper()` is `"SS"`), as at main;
+    the review of db0016ff measured a TypeError of ord() here (the property test below reaches it only late)."""
+    sec = gate._secrets()
+    assert sec._may_end_with(sec._pattern_tokens("[a-z]"), letter) is False
+    assert sec._may_match(sec._pattern_tokens("[a-z]"), letter) is False
+
+
 def test_the_comparison_of_d102_takes_the_same_names_as_before():
     """Property: for 20000 patterns drawn from the characters that make stars, ranges, classes and escapes, and names
     drawn from the letters they may take, the comparison of D102 with a run of stars as one token and a range by its
-    ends answers as the comparison at 5bdf225d did, for the whole name (_may_match) and for an ending (_may_end_with)."""
+    ends answers as the comparison at 5bdf225d did, for the whole name (_may_match) and for an ending (_may_end_with).
+    Both draw letters whose case folding gives more than one character or leaves ASCII (`ß`, `İ`, `ﬀ`, `ᾀ`, the Kelvin
+    sign, `é`): the review of db0016ff found that ord() raised on `"ß".upper()`, which the ASCII draw could not reach."""
     import random
     sec = gate._secrets()
     rng = random.Random(510)
-    pattern_chars = "ab*?[]-!^#z\\:.="
-    name_chars = "ab#z-*.["
+    folding = "\u00df\u0130\ufb00\u1f80\u212a\u00e9"
+    pattern_chars = "ab*?[]-!^#z\\:.=" + folding
+    name_chars = "ab#z-*.[" + folding
     for _ in range(20000):
         pattern = "".join(rng.choice(pattern_chars) for _ in range(rng.randint(0, 9)))
         name = "".join(rng.choice(name_chars) for _ in range(rng.randint(0, 5)))
