@@ -395,8 +395,9 @@ def test_the_services_record_takes_a_release_once_even_for_two_requests_at_a_tim
 # --- every spelling git takes (DELTA-GUARD-SIGNATUR-BUENDEL-20261110-01) ----------------------------------------------
 # Main compared several words of a door in their full spelling only, while git takes a long option by any prefix that
 # names it alone, a short one inside a bundle, and a push's targets also from its configuration. The cases below cover
-# these spellings and effects, doors main already read, counter cases and named costs that stay free, and conservative
-# refusals. The oracle tests below run the selected lines through real git in throwaway repositories.
+# these spellings and effects, doors main already read, counter cases that stay free, named costs and other
+# conservative refusals. The git oracle finds no door for the named costs; the release reader still refuses them. The
+# oracle tests below run the selected lines through real git in throwaway repositories.
 
 #: A branch topic with a commit of its own, so that a merge into main makes a merge commit the oracle can see signed.
 _TOPIC = "git switch -q -c topic && git commit -q -m t && git switch -q main && "
