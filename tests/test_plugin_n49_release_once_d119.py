@@ -797,9 +797,29 @@ def test_a_pattern_of_many_ranges_is_compared_in_time(pattern, name):
     assert time.monotonic() - start < 10
 
 
+def test_repeated_ranges_take_memory_by_their_distinct_characters():
+    """Reading a pattern of 500000 repeated ranges keeps its memory near what main kept, the distinct characters
+    (local review of 9b38c066: keeping each written range until the end took 57 MiB where main took 14, and raised a
+    MemoryError under 128 MiB of address space where main finished). The peak is measured by tracemalloc over the
+    comparison alone; the pattern of 1.5 million characters is made before the measurement starts."""
+    import tracemalloc
+    sec = gate._secrets()
+    pattern = "*[" + "a-b" * 500000 + "]"
+    tracemalloc.start()
+    try:
+        assert sec.may_match(pattern, "c" * 255) is False
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert peak < 16 * 1024 * 1024, peak
+
+
 @pytest.mark.parametrize("pattern,inside,outside", [
     ("[a-cb-dz-a]", "abcd", "ez"), ("[a-ab-bc-c]", "abc", "d"), ("[m-pa-e]", "aemp", "fl"),
     ("[a-zA-Z0-9]", "qQ5", "-_"), ("[x-z]", "xyz", "w{"), ("[c-a]", "", "abc"),
+    # 5000 disjoint ranges, more than the 4096 the reader merges at a time.
+    ("[" + "".join(f"{chr(c)}-{chr(c)}" for c in range(0x100, 0x100 + 10000, 2)) + "]", "\u0100\u1486\u280e",
+     "\u0101\u1487\u280f"),
 ])
 def test_ranges_that_overlap_touch_or_turn_take_the_characters_they_take_in_bash(pattern, inside, outside):
     """Ranges sorted and merged once take the same characters as each range alone: overlapping (`a-c` and `b-d`),
