@@ -18291,7 +18291,7 @@ def _release_door_words(command: str) -> str | None:
         names = [os.path.basename(w).lower() for x in texts for w in _RELEASE_SPLIT.split(x) if w]
         sec = _secrets()
         if any(n in _RELEASE_DOOR_PROGRAMS or (n.startswith("git-") and len(n) > 4) for n in names) or \
-                any(_release_pattern_may_name(sec, w) for w in globbed):
+                any(_release_pattern_may_name(sec, w) for w in dict.fromkeys(os.path.basename(w).lower() for w in globbed)):
             return "unread"
         # A pattern in the place of the program: the gate cannot tell which program runs (local review of c3ae95a6,
         # open at main as well: `/usr/lib/git-core/g[i]t-push --mirror z` runs git's push). Rather than a list of the
@@ -18309,7 +18309,9 @@ def _release_pattern_may_name(sec, word: str) -> bool:
     memory (local reviews of d9ff9a8c to 4673bbd4). So the reader asks it only about a part without a bracket expression
     and without a backslash, no longer than _RELEASE_WORD_MAX, with each run of stars joined to one star, which takes the
     same names there because no star stands in a bracket; every other pattern part is held as one that may name a door
-    program, and the line is held back as unread. A release frees less, never more."""
+    program, and the line is held back as unread. A release frees less, never more. The caller asks about each name
+    once, however often it stands in the line (local review of 19182f90: `a* ` repeated up to the read bound made
+    109160 comparisons, 0.16 seconds where main took 0.013)."""
     name = os.path.basename(word).lower()
     if len(name) > _RELEASE_WORD_MAX or "[" in name or "\\" in name:
         return True

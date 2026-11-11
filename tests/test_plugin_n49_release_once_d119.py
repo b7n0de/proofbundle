@@ -885,6 +885,24 @@ def test_an_opener_without_its_closer_repeated_up_to_the_read_bound_is_read_in_t
     assert time.monotonic() - start < 5
 
 
+@pytest.mark.parametrize("line", ["echo x # " + "a* " * 5000, "echo x # " + "/d/a* " * 2500,
+                                  "echo " + " ".join(f"/p{i}/x?y" for i in range(1500))])
+def test_each_pattern_name_is_compared_once_however_often_it_stands(monkeypatch, line):
+    """A pattern name that stands thousands of times in a line, as itself or as the last part of different paths, is
+    compared once with the door programs (local review of 19182f90: `a* ` repeated up to the read bound made 109160
+    comparisons, 0.16 seconds where main took 0.013). Counted at the comparison of D102."""
+    sec = gate._secrets()
+    calls = [0]
+    inner = sec.may_match
+
+    def counted(pattern, name):
+        calls[0] += 1
+        return inner(pattern, name)
+    monkeypatch.setattr(sec, "may_match", counted)
+    gate._release_door_words(line)
+    assert calls[0] <= 2 * len(gate._RELEASE_DOOR_PROGRAMS), calls[0]
+
+
 def test_the_reader_of_a_configuration_option_finds_the_lines_the_former_expression_found():
     """Property: for 30000 short lines drawn from the characters that make an option, a separator, a key and its end,
     the linear reader of a key of `-c` or `--config-env` answers as the former expression did (local review of
