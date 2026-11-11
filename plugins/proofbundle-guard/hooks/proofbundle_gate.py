@@ -18186,7 +18186,8 @@ _RELEASE_READ_MAX = 16384
 #: stars, each where main answered at once. A word longer than this bound is not handed to them and holds the line back
 #: as unread; no door program has a name of more than ten characters. The same holds for the program word the reader of
 #: an unresolved program word compares with D102 (third runtime probe: a line of 16000 stars took it beyond 60 seconds,
-#: at main as well), and each run of stars is joined to one star before a comparison, which matches the same names.
+#: at main as well). The comparison of D102 itself takes a run of stars as one token and a range by its two ends
+#: (proofbundle_secrets._pattern_tokens), so the work within the bound does not grow with a range either.
 _RELEASE_WORD_MAX = 256
 
 
@@ -18251,10 +18252,9 @@ def _release_door_words(command: str) -> str | None:
 
 def _release_pattern_may_name(sec, word: str) -> bool:
     """Whether a pattern word may name a door program, by the comparison of D102 (proofbundle_secrets.may_match) on its
-    last part with each run of stars joined to one star, which matches the same names; a part longer than
-    _RELEASE_WORD_MAX is held as one that may (local review of d9ff9a8c: a word of 16000 stars took the comparison
-    beyond the hook's 120 seconds)."""
-    name = re.sub(r"\*+", "*", os.path.basename(word).lower())
+    last part; a part longer than _RELEASE_WORD_MAX is held as one that may (local review of d9ff9a8c: a word of 16000
+    stars took the comparison beyond the hook's 120 seconds)."""
+    name = os.path.basename(word).lower()
     return len(name) > _RELEASE_WORD_MAX or any(sec.may_match(name, p) for p in _RELEASE_DOOR_PROGRAMS)
 
 
@@ -18423,10 +18423,9 @@ def _release_unresolved_door(assembled: str) -> str | None:
             return "root"
         name = words[k].rsplit("/", 1)[-1].lower()
         if _RELEASE_UNKNOWN in name or _SH_GLOB_CHARS.search(name):
-            # Each run of stars joined to one star matches the same names; a pattern longer than _RELEASE_WORD_MAX
-            # holds the line back (third runtime probe of 2026-11-11: a program word of 16000 stars took the
-            # comparison of D102 beyond 60 seconds, at main as well).
-            pattern = re.sub(r"\*+", "*", name.replace(_RELEASE_UNKNOWN, "*"))
+            # A pattern longer than _RELEASE_WORD_MAX holds the line back (third runtime probe of 2026-11-11: a
+            # program word of 16000 stars took the comparison of D102 beyond 60 seconds, at main as well).
+            pattern = name.replace(_RELEASE_UNKNOWN, "*")
             if len(pattern) > _RELEASE_WORD_MAX:
                 return "unread"
             if any(sec.may_match(pattern, root) for root in _RELEASE_ROOT):

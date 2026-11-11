@@ -128,17 +128,35 @@ def secret_problem(path: str, cwd: str | None, home: str | None) -> str | None:
     return None
 
 
+class _CharSet:
+    """The characters a bracket expression takes: its single characters and its ranges, each range kept as its two
+    ends rather than every character between them (local review of 7411ab31 at PR 510: `[a-\U0010ffff]` made the
+    comparison list more than a million characters per range, and a word of 84 such ranges ran beyond the hook's 120
+    seconds). A range whose first end lies above its last takes no character, as before."""
+
+    __slots__ = ("chars", "ranges")
+
+    def __init__(self, chars: frozenset, ranges: tuple):
+        self.chars, self.ranges = chars, ranges
+
+    def __contains__(self, char: str) -> bool:
+        return char in self.chars or any(lo <= ord(char) <= hi for lo, hi in self.ranges)
+
+
 def _pattern_tokens(part: str) -> list:
     """The tokens of a shell pattern (POSIX 2.13.1): ("lit", c), ("one",) for `?`, ("run",) for `*`, and ("set", S) for
-    a bracket expression, where S is the set of characters it takes, or None where the comparison does not evaluate it
-    and so lets it stand for any one character: a negated expression, a POSIX class (`[[:alpha:]]`), an equivalence
-    class (`[[=h=]]`) and a collating symbol (`[[.h.]]`) (re-reading of the fixes at 21fead88, line 3, P1). A `[`
-    without its `]` is itself, as the shell takes it."""
+    a bracket expression, where S holds the characters it takes (_CharSet), or None where the comparison does not
+    evaluate it and so lets it stand for any one character: a negated expression, a POSIX class (`[[:alpha:]]`), an
+    equivalence class (`[[=h=]]`) and a collating symbol (`[[.h.]]`) (re-reading of the fixes at 21fead88, line 3,
+    P1). A `[` without its `]` is itself, as the shell takes it. A run of stars outside a bracket expression is one
+    ("run",), which takes the same names (local review of 7411ab31: a run of 16000 stars made _may_match walk every
+    star from every star it reached; joining the stars in the written pattern instead changed `[#-**-z]`)."""
     tokens, i, n = [], 0, len(part)
     while i < n:
         c = part[i]
         if c == "*":
-            tokens.append(("run",))
+            if not (tokens and tokens[-1] == ("run",)):
+                tokens.append(("run",))
         elif c == "?":
             tokens.append(("one",))
         elif c == "\\" and i + 1 < n:
@@ -163,15 +181,15 @@ def _pattern_tokens(part: str) -> list:
             if j >= n:
                 tokens.append(("lit", "["))
             else:
-                body, chars, k = part[start:j], set(), 0
+                body, chars, ranges, k = part[start:j], set(), [], 0
                 while k < len(body):
                     if k + 2 < len(body) and body[k + 1] == "-":
-                        chars.update(chr(x) for x in range(ord(body[k]), ord(body[k + 2]) + 1))
+                        ranges.append((ord(body[k]), ord(body[k + 2])))
                         k += 3
                     else:
                         chars.add(body[k])
                         k += 1
-                tokens.append(("set", None if negated or opaque else frozenset(chars)))
+                tokens.append(("set", None if negated or opaque else _CharSet(frozenset(chars), tuple(ranges))))
                 i = j
         else:
             tokens.append(("lit", c))

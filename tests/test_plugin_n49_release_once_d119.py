@@ -688,16 +688,110 @@ def test_every_head_and_piece_at_the_read_bound_is_read_in_time(head, piece):
     assert time.monotonic() - start < 20
 
 
-def test_the_two_lines_of_the_review_of_d9ff9a8c_are_held_back_in_time():
-    """The lines the review of d9ff9a8c measured beyond the hook's 120 seconds, cut to the bound: each is a door now,
-    unread, within a few seconds (a word longer than _RELEASE_WORD_MAX is not handed to the helpers)."""
-    for head, tail in (("en''v /usr/lib/git-core/g[i]t-push --mirror ../ziel.git # ", "*"),
-                       ("gi{t..t} commit -S -m x # " + "{,}" * 6 + "{", ",")):
+def test_the_two_lines_of_the_review_of_d9ff9a8c_are_read_in_time():
+    """The lines the review of d9ff9a8c measured beyond the hook's 120 seconds and 55 seconds, cut to the bound, are read
+    within a few seconds (local review of 7411ab31: a test that asked for unread in both failed). The first line names
+    no door at main, `en''v` before a pattern in the program word is a form open at main (the list for plugin 0.4.1);
+    its comment word is longer than _RELEASE_WORD_MAX and holds it back as unread, a release frees less. The second
+    keeps the door signatur of its `commit -S`, as at main."""
+    for head, tail, door in (("en''v /usr/lib/git-core/g[i]t-push --mirror ../ziel.git # ", "*", "unread"),
+                             ("gi{t..t} commit -S -m x # " + "{,}" * 6 + "{", ",", "signatur")):
         command = head + tail * (gate._RELEASE_READ_MAX - len(head) - 1) + ("z" if tail == "*" else "")
         assert len(command) <= gate._RELEASE_READ_MAX
         start = time.monotonic()
-        assert gate._release_door_words(command) == "unread"
+        assert gate._release_door_words(command) == door
         assert time.monotonic() - start < 20
+
+
+#: A bracket expression of two ranges that meet at a star, `#-*` and `*-z`, which together take every lowercase letter:
+#: joining the stars in the written pattern made it `[#-*-z]` and lost them (local review of 7411ab31, P1).
+_TWO_RANGES_AT_A_STAR = "[#-**-z]"
+
+
+@pytest.mark.parametrize("name", sorted(gate._RELEASE_ROOT) + sorted(gate._RELEASE_SIGNERS))
+@pytest.mark.parametrize("front", ["en''v ", "", "env "])
+def test_a_range_that_ends_at_a_star_keeps_the_door_of_a_root_or_signer_program(name, front):
+    """Every root and signer program written with its second letter as two ranges that meet at a star keeps its door,
+    as at main (local review of 7411ab31: `en''v /usr/bin/s[#-**-z]do true` read root at main and nothing at the
+    head)."""
+    line = f"{front}/usr/bin/{name[0]}{_TWO_RANGES_AT_A_STAR}{name[2:]} --detach-sign x"
+    assert gate._release_door_words(line) == ("root" if name in gate._RELEASE_ROOT else "signatur")
+
+
+def test_a_comment_word_of_wide_ranges_is_read_in_time():
+    """A comment word of 84 ranges up to U+10FFFF, 255 characters, under both bounds (local review of 7411ab31, P2: the
+    comparison of D102 listed every character of each range and ran beyond the hook's 120 seconds, where main answered
+    at once). The comparison takes a range by its two ends now; the line reads as main reads it."""
+    command = "en''v /usr/lib/git-core/g[i]t-push --mirror ../ziel.git # [" + "a-\U0010ffff" * 84 + "]z"
+    assert len(command.split()[-1]) <= gate._RELEASE_WORD_MAX
+    start = time.monotonic()
+    assert gate._release_door_words(command) is None
+    assert time.monotonic() - start < 20
+
+
+def _former_tokens(part):
+    """The tokens of D102 as they stood at 5bdf225d: every star a token, every range listed character by character."""
+    tokens, i, n = [], 0, len(part)
+    while i < n:
+        c = part[i]
+        if c == "*":
+            tokens.append(("run",))
+        elif c == "?":
+            tokens.append(("one",))
+        elif c == "\\" and i + 1 < n:
+            i += 1
+            tokens.append(("lit", part[i]))
+        elif c == "[":
+            j = i + 1
+            negated = j < n and part[j] in "!^"
+            j += 1 if negated else 0
+            start = j
+            if j < n and part[j] == "]":
+                j += 1
+            opaque = False
+            while j < n and part[j] != "]":
+                if part[j] == "[" and j + 1 < n and part[j + 1] in ":=.":
+                    close = part.find(part[j + 1] + "]", j + 2)
+                    if close == -1:
+                        break
+                    opaque, j = True, close + 2
+                else:
+                    j += 1
+            if j >= n:
+                tokens.append(("lit", "["))
+            else:
+                body, chars, k = part[start:j], set(), 0
+                while k < len(body):
+                    if k + 2 < len(body) and body[k + 1] == "-":
+                        chars.update(chr(x) for x in range(ord(body[k]), ord(body[k + 2]) + 1))
+                        k += 3
+                    else:
+                        chars.add(body[k])
+                        k += 1
+                tokens.append(("set", None if negated or opaque else frozenset(chars)))
+                i = j
+        else:
+            tokens.append(("lit", c))
+        i += 1
+    return tokens
+
+
+def test_the_comparison_of_d102_takes_the_same_names_as_before():
+    """Property: for 20000 patterns drawn from the characters that make stars, ranges, classes and escapes, and names
+    drawn from the letters they may take, the comparison of D102 with a run of stars as one token and a range by its
+    ends answers as the comparison at 5bdf225d did, for the whole name (_may_match) and for an ending (_may_end_with)."""
+    import random
+    sec = gate._secrets()
+    rng = random.Random(510)
+    pattern_chars = "ab*?[]-!^#z\\:.="
+    name_chars = "ab#z-*.["
+    for _ in range(20000):
+        pattern = "".join(rng.choice(pattern_chars) for _ in range(rng.randint(0, 9)))
+        name = "".join(rng.choice(name_chars) for _ in range(rng.randint(0, 5)))
+        new, old = sec._pattern_tokens(pattern), _former_tokens(pattern)
+        assert sec._may_match(new, name) == sec._may_match(old, name), (pattern, name)
+        if name:
+            assert sec._may_end_with(new, name) == sec._may_end_with(old, name), (pattern, name)
 
 
 @pytest.mark.parametrize("line", [
@@ -718,9 +812,9 @@ def test_a_program_word_of_a_long_pattern_is_held_back_in_time(line):
 
 
 @pytest.mark.parametrize("line", ["/usr/bin/s*****u***do id", "/usr/bin/g**i***t commit -S -m x"])
-def test_joined_stars_keep_the_door_a_pattern_program_names(line):
-    """Each run of stars joined to one star matches the same names, so a program word of several stars that may be
-    sudo or git keeps its door."""
+def test_a_program_word_of_several_runs_of_stars_keeps_its_door(line):
+    """A run of stars is one token of the comparison and takes the same names, so a program word of several runs of
+    stars that may be sudo or git keeps its door."""
     assert gate._release_door_words(line) is not None
 
 
