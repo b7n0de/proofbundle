@@ -18734,9 +18734,10 @@ def _release_door_words_split(command: str) -> str | None:
     after_push = words[min(pushed) + 1:] if pushed else []
     if any(w == "--admin" or w.startswith("--admin=") for w in words):
         return "admin"
-    # EVERY SPELLING GIT TAKES (DELTA-GUARD-SIGNATUR-BUENDEL-20261110-01). The words were compared in their full
-    # spelling only, so a release let `git push --mirro`, `git push --tag`, `git commit -qS` and `git commit --gpg`
-    # run although git mirrors, sends the tags and signs with the owner's key. A long option counts in every prefix
+    # EVERY SPELLING GIT TAKES (DELTA-GUARD-SIGNATUR-BUENDEL-20261110-01). Main already read `--force...`, a short
+    # bundle with f, `-S<key>` and `--gpg-sign...`, but compared the other words in their full spelling only, so a
+    # release let `git push --mirro`, `git push --tag`, `git commit -qS` and `git commit --gpg` run although git
+    # mirrors, sends the tags and calls the signing program. A long option counts in every prefix
     # (`_git_long_option`), a short one in every bundle (`_git_short_bundle`), and a push's configuration counts too.
     config_door = _git_push_config_door(command) if git_like else None
     # AN OPTION GIVEN AS A VALUE IS READ AS AN OPTION (local review of 38fdfcb3, 2026-11-10, open at main as well):

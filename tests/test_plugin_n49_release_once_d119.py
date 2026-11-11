@@ -393,9 +393,10 @@ def test_the_services_record_takes_a_release_once_even_for_two_requests_at_a_tim
 
 
 # --- every spelling git takes (DELTA-GUARD-SIGNATUR-BUENDEL-20261110-01) ----------------------------------------------
-# The words of a door were compared in their full spelling only. git takes a long option by any prefix that names it
-# alone, a short one inside a bundle, and a push's targets also from its configuration; each line below passed a
-# release at 5bdf225d, and each runs here once more through real git, which shows that git does what the door names.
+# Main compared several words of a door in their full spelling only, while git takes a long option by any prefix that
+# names it alone, a short one inside a bundle, and a push's targets also from its configuration. The cases below cover
+# these spellings and effects, doors main already read, counter cases and named costs that stay free, and conservative
+# refusals. The oracle tests below run the selected lines through real git in throwaway repositories.
 
 #: A branch topic with a commit of its own, so that a merge into main makes a merge commit the oracle can see signed.
 _TOPIC = "git switch -q -c topic && git commit -q -m t && git switch -q main && "
@@ -449,8 +450,10 @@ SPELLINGS = [
     ("git -c help.autocorrect=immediate puhs --mirro origin", "force"),
     ("git -c alias.p=push p --mirror origin", "force"),
 ]
-#: Lines main already read as doors, kept as cases: the reading of git's exec path must not take an option for a
-#: program (local review of 566b7d16, P1, a regression of the fourth form of this rule).
+#: Lines kept as cases. The two signing lines and the lines with an unread brace beside a read word are doors main
+#: already read: the reading of git's exec path must not take an option for a program (local review of 566b7d16, P1, a
+#: regression of the fourth form of this rule). The three abbreviated options at the limit of the brace reader are
+#: doors of this rule, read at that limit.
 KEPT = [("git commit -S/tmp/git-key -m x", "signatur"), ("git commit --gpg-sign=/tmp/git-key -m x", "signatur"),
         # at the limit of the brace reader (six groups, 64 words) the words are read and keep their own door
         ("git push --ta{,}{,}{,}{,}{,}{,} origin", "tag"), ("git push --mirro{,}{,}{,}{,}{,}{,} origin", "force"),
@@ -677,10 +680,10 @@ _RUNTIME_WORD_PIECES = _RUNTIME_PIECES + ["*", "**", "*a", "{", ",", "{,", "?"]
 @pytest.mark.parametrize("head", _RUNTIME_HEADS)
 @pytest.mark.parametrize("piece", _RUNTIME_WORD_PIECES)
 def test_every_head_and_piece_at_the_read_bound_is_read_in_time(head, piece):
-    """Each head with each piece up to the bound is read in time: the bound of the line, of every text the reader
-    searches and of every word it hands to a helper together keep the reader in the time main takes, within a few
-    seconds. The two lines of the review of d9ff9a8c are among them: stars after `en''v ... g[i]t-push`, and a word of
-    `{` and commas after six brace groups."""
+    """Each head with each piece up to the bound is read within 20 seconds of elapsed time: the bound of the line, of
+    every text the reader searches and of every word it hands to a helper keep each named input below that limit. This
+    is a regression check per case, not a comparison with main. The two lines of the review of d9ff9a8c are among them:
+    stars after `en''v ... g[i]t-push`, and a word of `{` and commas after six brace groups."""
     command = head + piece * ((gate._RELEASE_READ_MAX - len(head)) // len(piece))
     assert len(command) <= gate._RELEASE_READ_MAX
     start = time.monotonic()

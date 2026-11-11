@@ -5932,11 +5932,13 @@ git line that names gpgsign, or that begins with -S or --gpg-sign, is the door o
 gpgsign false: a release frees less, never more. H5 does not read git: a git line already asks or needs a card.
 
 A second neighbour in the same rule, the spelling of an option (DELTA-GUARD-SIGNATUR-BUENDEL-20261110-01, 2026-11-10):
-_release_door_words compared each option in its full spelling, while git takes a long option by any prefix that names
-it alone, a short one inside a bundle, and the targets of a push also from its configuration. Measured with git 2.55.0
-in throwaway repositories: `commit -qS` and `-aS` sign (`-mS` does not, its message is S), `--gpg`, `--gpg-s` and
-`--gpg=<key>` sign; `push --signed`, `--sign`, `--si` and `--signed=if-asked` sign the push certificate with the
-owner's key, `--no-signed` does not; `push --tag` sends the tags, `push --follow` follows them, `push --mirro` and
+_release_door_words already read `--force...`, a short bundle with f, `-S<key>` and `--gpg-sign...` (the paragraph
+above), but compared the other options in their full spelling only, while git takes a long option by any prefix that
+names it alone, a short one inside a bundle, and the targets of a push also from its configuration. Measured with git
+2.55.0 in throwaway repositories, where a stand-in signing program records each call and exits with failure, so no
+signature is made: `commit -qS` and `-aS` call it (`-mS` does not, its message is S), and so do `--gpg`, `--gpg-s` and
+`--gpg=<key>`; `push --signed`, `--sign`, `--si` and `--signed=if-asked` call it for the push certificate,
+`--no-signed` does not; `push --tag` sends the tags, `push --follow` follows them, `push --mirro` and
 `--mir` mirror; `-c push.followTags=true` sends the tags, `-c remote.<name>.mirror=true` mirrors,
 `remote.<name>.push=refs/tags/*:refs/tags/*` sends the tags, `remote.<name>.push=+HEAD:refs/heads/main` forces the
 update that the same refspec without `+` is refused; `push --forc` is refused as ambiguous. gh takes no abbreviated
@@ -6006,11 +6008,12 @@ open at main as well: `/usr/lib/git-core/g[i]t-push --mirror z` runs git's push)
 before it. A line longer than 16384 characters is not read and is held back as unread (_RELEASE_READ_MAX, local
 review of 770a375a): several searches of this reader rescan the rest of a line from each start of a key, and a line
 of 630021 characters with `remote.` repeated took them beyond the 120 seconds of the Bash hook, where main answered
-at once. A word longer than 256 characters is not handed to a helper that works a word as a whole and holds the line
-back as unread too (_RELEASE_WORD_MAX, local review of d9ff9a8c: a word of stars, of `${` or of `{` and commas took
+at once. A word longer than 256 characters that would go to a helper working a word as a whole, the search for a brace or
+the comparison of D102, is not handed to it and holds the line back as unread (_RELEASE_WORD_MAX, local review of d9ff9a8c: a word of stars, of `${` or of `{` and commas took
 the search for a brace or the comparison of D102 seconds to minutes). The same holds for the program word the reader of
-an unresolved program word compares (a line of 16000 stars took that comparison beyond 60 seconds, at main as well). The
-comparison of D102 itself stays as at main. The reader asks it about a pattern word of a comment or an argument only
+an unresolved program word compares (a line of 16000 stars took that comparison beyond 60 seconds, at main as well). An
+ordinary argument longer than 256 characters that goes to no such helper stays releasable (measured at 14bb5be4: a
+title of 300 characters behind `gh pr edit` reads as no door). The comparison of D102 itself stays as at main. The reader asks it about a pattern word of a comment or an argument only
 where the word has no bracket expression and no backslash, with each run of stars joined to one star; any other pattern
 word holds the line back as unread. Four local reviews (7411ab31 to 4673bbd4) found that each change to the comparison,
 to read such words in time, cost time or memory elsewhere in it: wide ranges, repeated ranges and many disjoint ranges.
@@ -6066,9 +6069,10 @@ review, decide() named house_tag_out for both lines. The words alone do not read
 the gate cannot name; that stays with H2, named here as not covered by these words.
 
 Counter cases, each without a door before and after: commit -s, -qm, -am and --no-gpg-sign; push -u,
---set-upstream, --no-signed and --no-force; a push behind `-c 'user.name=John Doe'`. Each line of the rule, but for
-`push --forc`, which git refuses, and a local `git tag`, whose tag no remote receives, also runs through real git in
-the tests, which shows that git signs, sends a tag, mirrors or forces the update. A subcommand under another name is
+--set-upstream, --no-signed and --no-force; a push behind `-c 'user.name=John Doe'`. Of the 116 door
+lines of the tests, 106 also run through real git in throwaway repositories, which shows that git calls the signing
+program, sends a tag, mirrors or forces the update; the others, among them `push --forc`, which git refuses, and a
+local `git tag`, whose tag no remote receives, are read by the release reader only. A subcommand under another name is
 held back where the line itself names it: an alias the line sets (`-c alias.p=push`) or the autocorrection it
 switches on (`-c help.autocorrect=immediate puhs --mirro z`, found by the local review of the eighth form, open at
 main as well) makes the line the door of a forced push. Not covered, and named: an alias or an autocorrection from
