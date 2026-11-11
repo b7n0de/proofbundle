@@ -6010,12 +6010,11 @@ at once. A word longer than 256 characters is not handed to a helper that works 
 back as unread too (_RELEASE_WORD_MAX, local review of d9ff9a8c: a word of stars, of `${` or of `{` and commas took
 the search for a brace or the comparison of D102 seconds to minutes). The same holds for the program word the reader of
 an unresolved program word compares (a line of 16000 stars took that comparison beyond 60 seconds, at main as well). The
-comparison of D102 takes a run of stars outside a bracket expression as one token and a range by its two ends, so a
-range such as `[a-\U0010ffff]` is not listed character by character (local review of 7411ab31); the ranges of a bracket
-expression are merged while they are read and looked up by bisection (local review of 75b89f17: searching the whole list
-for each character of a name took 7 seconds where main took a third of one; local review of 9b38c066: keeping each
-written range until the end raised a MemoryError under 128 MiB where main finished). It takes the same names as before, which a
-property test checks against the former comparison. The bound holds for every text the reader searches, also for the text the brace expansion makes of a line
+comparison of D102 itself stays as at main. The reader asks it about a pattern word of a comment or an argument only
+where the word has no bracket expression and no backslash, with each run of stars joined to one star; any other pattern
+word holds the line back as unread. Four local reviews (7411ab31 to 4673bbd4) found that each change to the comparison,
+to read such words in time, cost time or memory elsewhere in it: wide ranges, repeated ranges and many disjoint ranges.
+The bound holds for every text the reader searches, also for the text the brace expansion makes of a line
 under it (local review of c8736cd8: 15444 characters became 985684). The named cost: a long line that names no door is
 held back too. A program the line takes from a file,
 by PATH or GIT_EXEC_PATH, is not read here, as no text of a file the line runs is (_release_unresolved_door).

@@ -718,139 +718,49 @@ def test_a_range_that_ends_at_a_star_keeps_the_door_of_a_root_or_signer_program(
     assert gate._release_door_words(line) == ("root" if name in gate._RELEASE_ROOT else "signatur")
 
 
-def test_a_comment_word_of_wide_ranges_is_read_in_time():
+def test_a_comment_word_of_wide_ranges_is_held_back_in_time():
     """A comment word of 84 ranges up to U+10FFFF, 255 characters, under both bounds (local review of 7411ab31, P2: the
     comparison of D102 listed every character of each range and ran beyond the hook's 120 seconds, where main answered
-    at once). The comparison takes a range by its two ends now; the line reads as main reads it."""
+    at once). The reader does not ask the comparison about a word with a bracket expression; it holds the line back as
+    unread at once, a release frees less."""
     command = "en''v /usr/lib/git-core/g[i]t-push --mirror ../ziel.git # [" + "a-\U0010ffff" * 84 + "]z"
     assert len(command.split()[-1]) <= gate._RELEASE_WORD_MAX
     start = time.monotonic()
-    assert gate._release_door_words(command) is None
+    assert gate._release_door_words(command) == "unread"
     assert time.monotonic() - start < 20
 
 
-def _former_tokens(part):
-    """The tokens of D102 as they stood at 5bdf225d: every star a token, every range listed character by character."""
-    tokens, i, n = [], 0, len(part)
-    while i < n:
-        c = part[i]
-        if c == "*":
-            tokens.append(("run",))
-        elif c == "?":
-            tokens.append(("one",))
-        elif c == "\\" and i + 1 < n:
-            i += 1
-            tokens.append(("lit", part[i]))
-        elif c == "[":
-            j = i + 1
-            negated = j < n and part[j] in "!^"
-            j += 1 if negated else 0
-            start = j
-            if j < n and part[j] == "]":
-                j += 1
-            opaque = False
-            while j < n and part[j] != "]":
-                if part[j] == "[" and j + 1 < n and part[j + 1] in ":=.":
-                    close = part.find(part[j + 1] + "]", j + 2)
-                    if close == -1:
-                        break
-                    opaque, j = True, close + 2
-                else:
-                    j += 1
-            if j >= n:
-                tokens.append(("lit", "["))
-            else:
-                body, chars, k = part[start:j], set(), 0
-                while k < len(body):
-                    if k + 2 < len(body) and body[k + 1] == "-":
-                        chars.update(chr(x) for x in range(ord(body[k]), ord(body[k + 2]) + 1))
-                        k += 3
-                    else:
-                        chars.add(body[k])
-                        k += 1
-                tokens.append(("set", None if negated or opaque else frozenset(chars)))
-                i = j
-        else:
-            tokens.append(("lit", c))
-        i += 1
-    return tokens
-
-
-@pytest.mark.parametrize("letter", ["\u00df", "\u0130", "\ufb00", "\u1f80"])
-def test_a_letter_whose_folding_gives_two_characters_is_no_member_of_a_range(letter):
-    """`[a-z]` takes no letter whose upper or lower case is two characters (`"\u00df".upper()` is `"SS"`), as at main;
-    the review of db0016ff measured a TypeError of ord() here (the property test below reaches it only late)."""
-    sec = gate._secrets()
-    assert sec._may_end_with(sec._pattern_tokens("[a-z]"), letter) is False
-    assert sec._may_match(sec._pattern_tokens("[a-z]"), letter) is False
-
-
-@pytest.mark.parametrize("pattern,name", [("*[" + "a-b" * 500000 + "]", "c" * 255),
-                                          ("*[" + "a-b" * 42666 + "]", "c" * 128000)])
-def test_a_pattern_of_many_ranges_is_compared_in_time(pattern, name):
-    """A pattern of a star and many repeated ranges is compared in about the time main takes (local review of
-    75b89f17: the comparison searched the whole list of ranges for each character of the name, 7 seconds for the first
-    line where main took a third of one, and beyond 120 seconds for the second where main took a tenth)."""
-    sec = gate._secrets()
-    start = time.monotonic()
-    assert sec.may_match(pattern, name) is False
-    assert time.monotonic() - start < 10
-
-
-def test_repeated_ranges_take_memory_by_their_distinct_characters():
-    """Reading a pattern of 500000 repeated ranges keeps its memory near what main kept, the distinct characters
-    (local review of 9b38c066: keeping each written range until the end took 57 MiB where main took 14, and raised a
-    MemoryError under 128 MiB of address space where main finished). The peak is measured by tracemalloc over the
-    comparison alone; the pattern of 1.5 million characters is made before the measurement starts."""
-    import tracemalloc
-    sec = gate._secrets()
-    pattern = "*[" + "a-b" * 500000 + "]"
-    tracemalloc.start()
-    try:
-        assert sec.may_match(pattern, "c" * 255) is False
-        peak = tracemalloc.get_traced_memory()[1]
-    finally:
-        tracemalloc.stop()
-    assert peak < 16 * 1024 * 1024, peak
-
-
-@pytest.mark.parametrize("pattern,inside,outside", [
-    ("[a-cb-dz-a]", "abcd", "ez"), ("[a-ab-bc-c]", "abc", "d"), ("[m-pa-e]", "aemp", "fl"),
-    ("[a-zA-Z0-9]", "qQ5", "-_"), ("[x-z]", "xyz", "w{"), ("[c-a]", "", "abc"),
-    # 5000 disjoint ranges, more than the 4096 the reader merges at a time.
-    ("[" + "".join(f"{chr(c)}-{chr(c)}" for c in range(0x100, 0x100 + 10000, 2)) + "]", "\u0100\u1486\u280e",
-     "\u0101\u1487\u280f"),
+@pytest.mark.parametrize("word", [
+    "*[" + "a-b" * 85 + "]",
+    "*[" + "".join(chr(c) + "-" + chr(c) for c in range(0x10000, 0x10000 + 160, 2)) + "]",
+    "[a-\U0010ffff]" * 18,
 ])
-def test_ranges_that_overlap_touch_or_turn_take_the_characters_they_take_in_bash(pattern, inside, outside):
-    """Ranges sorted and merged once take the same characters as each range alone: overlapping (`a-c` and `b-d`),
-    touching (`a-a`, `b-b`, `c-c`), out of order, and a range whose first end lies above its last, which takes none."""
-    sec = gate._secrets()
-    tokens = sec._pattern_tokens(pattern)
-    for c in inside:
-        assert sec._may_match(tokens, c), (pattern, c)
-    for c in outside:
-        assert not sec._may_match(tokens, c), (pattern, c)
+def test_a_pattern_word_with_a_bracket_or_a_backslash_is_not_handed_to_the_comparison(word):
+    """The local reviews of 75b89f17 to 4673bbd4 found time and memory beyond main in the comparison of D102 for words
+    of many ranges, many disjoint ranges and wide ranges. The reader does not ask the comparison about a word with a
+    bracket expression or a backslash at all: it may name a door program, and the line is held back as unread. The
+    comparison of D102 stays as at main (proofbundle_secrets.py has no change in this pull request)."""
+    assert gate._release_pattern_may_name(gate._secrets(), word) is True
+    assert gate._release_door_words("echo x # " + word) == "unread"
 
 
-def test_the_comparison_of_d102_takes_the_same_names_as_before():
-    """Property: for 20000 patterns drawn from the characters that make stars, ranges, classes and escapes, and names
-    drawn from the letters they may take, the comparison of D102 with a run of stars as one token and a range by its
-    ends answers as the comparison at 5bdf225d did, for the whole name (_may_match) and for an ending (_may_end_with).
-    Both draw letters whose case folding gives more than one character or leaves ASCII (`ß`, `İ`, `ﬀ`, `ᾀ`, the Kelvin
-    sign, `é`): the review of db0016ff found that ord() raised on `"ß".upper()`, which the ASCII draw could not reach."""
-    import random
-    sec = gate._secrets()
-    rng = random.Random(510)
-    folding = "\u00df\u0130\ufb00\u1f80\u212a\u00e9"
-    pattern_chars = "ab*?[]-!^#z\\:.=" + folding
-    name_chars = "ab#z-*.[" + folding
-    for _ in range(20000):
-        pattern = "".join(rng.choice(pattern_chars) for _ in range(rng.randint(0, 9)))
-        name = "".join(rng.choice(name_chars) for _ in range(rng.randint(0, 5)))
-        new, old = sec._pattern_tokens(pattern), _former_tokens(pattern)
-        assert sec._may_match(new, name) == sec._may_match(old, name), (pattern, name)
-        if name:
-            assert sec._may_end_with(new, name) == sec._may_end_with(old, name), (pattern, name)
+def test_a_pattern_part_with_a_backslash_is_not_handed_to_the_comparison():
+    """A part with a backslash is held as one that may name a door program, unread to the comparison. In a line the
+    shell reads `\\*` as a star of text, not a pattern, and so does the reader: `echo x # g\\*t` holds no pattern word
+    and names no door."""
+    assert gate._release_pattern_may_name(gate._secrets(), "g\\*t") is True
+    assert gate._release_door_words("echo x # g\\*t") is None
+
+
+@pytest.mark.parametrize("word, door", [("g**i***t", True), ("*w*i*n*e", True), ("****", True), ("a*b*c", False),
+                                        ("x?z", False), ("?h", True), ("*" * 256, True), ("*" * 257, True)])
+def test_a_pattern_word_without_a_bracket_is_compared_with_its_stars_joined(word, door):
+    """A pattern word without a bracket expression and without a backslash is compared with each run of stars joined to
+    one star, which takes the same names there; `g**i***t` may be git, `*w*i*n*e` may be twine, `a*b*c` names no door
+    program. A word longer than _RELEASE_WORD_MAX may name one."""
+    start = time.monotonic()
+    assert gate._release_pattern_may_name(gate._secrets(), word) is door
+    assert time.monotonic() - start < 5
 
 
 @pytest.mark.parametrize("line", [
@@ -872,8 +782,8 @@ def test_a_program_word_of_a_long_pattern_is_held_back_in_time(line):
 
 @pytest.mark.parametrize("line", ["/usr/bin/s*****u***do id", "/usr/bin/g**i***t commit -S -m x"])
 def test_a_program_word_of_several_runs_of_stars_keeps_its_door(line):
-    """A run of stars is one token of the comparison and takes the same names, so a program word of several runs of
-    stars that may be sudo or git keeps its door."""
+    """A program word of several runs of stars that may be sudo or git keeps its door, by the comparison of D102 as at
+    main."""
     assert gate._release_door_words(line) is not None
 
 

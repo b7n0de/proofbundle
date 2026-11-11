@@ -8,7 +8,6 @@ a key folder or a key file, and they read no file's content.
 """
 from __future__ import annotations
 
-import bisect
 import itertools
 import json
 import os
@@ -129,63 +128,17 @@ def secret_problem(path: str, cwd: str | None, home: str | None) -> str | None:
     return None
 
 
-def _merged_ranges(ranges) -> list:
-    """The ranges as sorted disjoint intervals, overlapping and touching ones joined; a range whose first end lies
-    above its last takes no character and is left out."""
-    merged: list[list[int]] = []
-    for lo, hi in sorted(r for r in ranges if r[0] <= r[1]):
-        if merged and lo <= merged[-1][1] + 1:
-            merged[-1][1] = max(merged[-1][1], hi)
-        else:
-            merged.append([lo, hi])
-    return [(lo, hi) for lo, hi in merged]
-
-
-class _CharSet:
-    """The characters a bracket expression takes: its single characters and its ranges, each range kept as its two
-    ends rather than every character between them (local review of 7411ab31 at PR 510: `[a-\U0010ffff]` made the
-    comparison list more than a million characters per range, and a word of 84 such ranges ran beyond the hook's 120
-    seconds). A range whose first end lies above its last takes no character, as before. A text of more than one
-    character, which the folding of _token_takes can give (`"ß".upper()` is `"SS"`), is no member, as it was of the
-    former set of single characters (local review of db0016ff: ord() raised on it). The ranges are sorted and merged
-    once and looked up by bisection, so a test costs the logarithm of their number, as the former set cost a constant
-    (local review of 75b89f17: a pattern of `*` and 500000 ranges searched the whole list for each character of a name,
-    7 seconds where main took a third of one). _pattern_tokens merges the ranges while it reads them, so their memory
-    grows with the disjoint intervals, never more than the distinct characters main kept (local review of 9b38c066:
-    keeping each written range until the end took 57 MiB for 500000 repeated ranges where main took 14, and raised a
-    MemoryError under 128 MiB of address space where main finished)."""
-
-    __slots__ = ("chars", "starts", "ends")
-
-    def __init__(self, chars: frozenset, ranges):
-        merged = _merged_ranges(ranges)
-        self.chars = chars
-        self.starts = tuple(m[0] for m in merged)
-        self.ends = tuple(m[1] for m in merged)
-
-    def __contains__(self, char: str) -> bool:
-        if len(char) != 1:
-            return char in self.chars
-        if char in self.chars:
-            return True
-        i = bisect.bisect_right(self.starts, ord(char)) - 1
-        return i >= 0 and ord(char) <= self.ends[i]
-
-
 def _pattern_tokens(part: str) -> list:
     """The tokens of a shell pattern (POSIX 2.13.1): ("lit", c), ("one",) for `?`, ("run",) for `*`, and ("set", S) for
-    a bracket expression, where S holds the characters it takes (_CharSet), or None where the comparison does not
-    evaluate it and so lets it stand for any one character: a negated expression, a POSIX class (`[[:alpha:]]`), an
-    equivalence class (`[[=h=]]`) and a collating symbol (`[[.h.]]`) (re-reading of the fixes at 21fead88, line 3,
-    P1). A `[` without its `]` is itself, as the shell takes it. A run of stars outside a bracket expression is one
-    ("run",), which takes the same names (local review of 7411ab31: a run of 16000 stars made _may_match walk every
-    star from every star it reached; joining the stars in the written pattern instead changed `[#-**-z]`)."""
+    a bracket expression, where S is the set of characters it takes, or None where the comparison does not evaluate it
+    and so lets it stand for any one character: a negated expression, a POSIX class (`[[:alpha:]]`), an equivalence
+    class (`[[=h=]]`) and a collating symbol (`[[.h.]]`) (re-reading of the fixes at 21fead88, line 3, P1). A `[`
+    without its `]` is itself, as the shell takes it."""
     tokens, i, n = [], 0, len(part)
     while i < n:
         c = part[i]
         if c == "*":
-            if not (tokens and tokens[-1] == ("run",)):
-                tokens.append(("run",))
+            tokens.append(("run",))
         elif c == "?":
             tokens.append(("one",))
         elif c == "\\" and i + 1 < n:
@@ -210,17 +163,15 @@ def _pattern_tokens(part: str) -> list:
             if j >= n:
                 tokens.append(("lit", "["))
             else:
-                body, chars, merged, ranges, k = part[start:j], set(), [], [], 0
+                body, chars, k = part[start:j], set(), 0
                 while k < len(body):
                     if k + 2 < len(body) and body[k + 1] == "-":
-                        ranges.append((ord(body[k]), ord(body[k + 2])))
-                        if len(ranges) >= max(4096, len(merged)):
-                            merged, ranges = _merged_ranges(merged + ranges), []
+                        chars.update(chr(x) for x in range(ord(body[k]), ord(body[k + 2]) + 1))
                         k += 3
                     else:
                         chars.add(body[k])
                         k += 1
-                tokens.append(("set", None if negated or opaque else _CharSet(frozenset(chars), merged + ranges)))
+                tokens.append(("set", None if negated or opaque else frozenset(chars)))
                 i = j
         else:
             tokens.append(("lit", c))

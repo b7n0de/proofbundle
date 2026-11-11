@@ -18186,8 +18186,9 @@ _RELEASE_READ_MAX = 16384
 #: stars, each where main answered at once. A word longer than this bound is not handed to them and holds the line back
 #: as unread; no door program has a name of more than ten characters. The same holds for the program word the reader of
 #: an unresolved program word compares with D102 (third runtime probe: a line of 16000 stars took it beyond 60 seconds,
-#: at main as well). The comparison of D102 itself takes a run of stars as one token and a range by its two ends
-#: (proofbundle_secrets._pattern_tokens), so the work within the bound does not grow with a range either.
+#: at main as well). The comparison of D102 itself stays as at main: four local reviews (7411ab31 to 4673bbd4) found
+#: that each change to it, to read such words in time, cost time or memory elsewhere in it. The reader asks it only
+#: about a pattern word it can read in time (_release_pattern_may_name).
 _RELEASE_WORD_MAX = 256
 
 
@@ -18252,10 +18253,17 @@ def _release_door_words(command: str) -> str | None:
 
 def _release_pattern_may_name(sec, word: str) -> bool:
     """Whether a pattern word may name a door program, by the comparison of D102 (proofbundle_secrets.may_match) on its
-    last part; a part longer than _RELEASE_WORD_MAX is held as one that may (local review of d9ff9a8c: a word of 16000
-    stars took the comparison beyond the hook's 120 seconds)."""
+    last part. main never asked that comparison about a word of a comment or an argument, and it is not built for every
+    such word: a word of 16000 stars, of wide ranges or of many ranges took it beyond the hook's 120 seconds or its
+    memory (local reviews of d9ff9a8c to 4673bbd4). So the reader asks it only about a part without a bracket expression
+    and without a backslash, no longer than _RELEASE_WORD_MAX, with each run of stars joined to one star, which takes the
+    same names there because no star stands in a bracket; every other pattern part is held as one that may name a door
+    program, and the line is held back as unread. A release frees less, never more."""
     name = os.path.basename(word).lower()
-    return len(name) > _RELEASE_WORD_MAX or any(sec.may_match(name, p) for p in _RELEASE_DOOR_PROGRAMS)
+    if len(name) > _RELEASE_WORD_MAX or "[" in name or "\\" in name:
+        return True
+    name = re.sub(r"\*+", "*", name)
+    return any(sec.may_match(name, p) for p in _RELEASE_DOOR_PROGRAMS)
 
 
 def _release_glob_program(text: str) -> bool:
