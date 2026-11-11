@@ -6028,6 +6028,25 @@ a word (`git -c branch.main.mergeOptions=-S merge topic`, `GIT_CONFIG_VALUE_0=-q
 first `=` of a word is read as a word of its own for the signature (local review of the seventh form, open at main
 as well). A release frees less, never more.
 
+The owner's decision on the cost of this rule (2026-11-11, option A). A review of the change at 44715d92 found that
+the reader takes more CPU time and more Python allocation than main on the named cases (a local review measured, for
+a comment line of 16383 characters, a median of 0.041041 s against 0.012690 s of process CPU time and an allocation
+peak of 1,347,876 against 755,486 bytes), that no door main reads was lost in the comparisons run, and that neither
+bound frees a card release. Under the earlier measure, that this rule be no worse than main in run time and memory
+either, it would not land. The owner chose option A in the wording the review proposed, quoted here as written:
+
+<!-- proofbundle:verbatim-quote:begin -->
+- Option 1: A: Den dokumentierten CPU- und Speichermehrbedarf sowie die benannten zusätzlichen Zurückhaltungen als Preis der erweiterten Türerkennung akzeptieren. Keine zuvor durch eine eigene Tür des Inhabers gesperrte Zeile darf durch eine Kartenfreigabe ausführbar werden. Die Lesegrenze von 16384 Zeichen und die 256-Zeichen-Grenze der dafür bezeichneten Helfer bleiben erhalten. Die bisherigen Vergleichs- und Skalierungsläufe sind Stichproben, kein allgemeiner Nachweis linearer Laufzeit oder vollständiger Türerkennung. Vor der Landung werden die relevanten Regressionstests einschließlich der Freigabeabläufe am endgültigen Kopf sowie ein begrenzter Ressourcenlauf über den vollständigen Hook nachgewiesen. Stufe S mit Gegenlesung und Zeuge bleibt bestehen. Bereits an main offene Formen bleiben im Folge-PR für Plugin 0.4.1 und blockieren 510 nicht allein deshalb.
+<!-- proofbundle:verbatim-quote:end -->
+
+In English: accept the documented additional CPU time and memory and the named additional hold-backs as the price
+of the wider door reading. No line that one of the owner's own doors held back before may become runnable through a
+card release. The read bound of 16384 characters and the bound of 256 characters for the helpers named for it stay.
+The comparison and scaling runs so far are samples, no general proof of linear run time or of complete door reading.
+Before the landing, the relevant regression tests including the release flows are shown at the final head, and a
+bounded resource run over the whole hook. Level S with counter-reading and witness stays. Forms already open at main
+stay in the follow-up pull request for plugin 0.4.1 and do not block this change for that reason alone.
+
 Why no value of remote.<name>.push is read: the first two forms of this rule took the value from the line and freed a
 plain refspec, and the local reviews of each found a value git reads otherwise (by an index or another variable, the
 last of two assignments, `.push=` inside a quoted remote name, an expansion inside the value as in `refs/$KIND/v2`, a
