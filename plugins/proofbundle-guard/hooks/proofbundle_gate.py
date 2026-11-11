@@ -18282,10 +18282,16 @@ def _release_glob_program(text: str) -> bool:
 def _release_glob_words(text: str) -> list[str]:
     """The words of text that hold a pattern of bash's pathname expansion outside quotes and not escaped: a `*`, a `?`
     that is no parameter (`$?`), or a `[` with a `]` after it in the same word. A word the shell assembles from such a
-    pattern is formed from the names of files, which the gate does not read."""
+    pattern is formed from the names of files, which the gate does not read.
+
+    Whether a `[` has a `]` after it is read from a table built once from the right (_release_bracket_closes): the first
+    form asked `text[i + 1:].split()` at every character of the line, not only at a `[`, as the condition of a
+    conditional expression, and so read the rest of the line again for each character (second runtime probe of round
+    31: a line of 16384 characters took 0.4 seconds where main took three hundredths)."""
     words: list[tuple[str, bool]] = []
     cur: list[str] = []
     glob, quote, i = False, "", 0
+    closes = _release_bracket_closes(text) if "[" in text else None
 
     def close() -> None:
         nonlocal cur, glob
@@ -18307,12 +18313,28 @@ def _release_glob_words(text: str) -> list[str]:
             i += 1
             continue
         if not quote and (c == "*" or (c == "?" and not (cur and cur[-1] == "$")) or
-                          (c == "[" and "]" in text[i + 1:].split()[0] if text[i + 1:].split() else False)):
+                          (c == "[" and closes is not None and closes[i + 1])):
             glob = True
         cur.append(c)
         i += 1
     close()
     return [w for w, g in words if g]
+
+
+def _release_bracket_closes(text: str) -> list[bool]:
+    """For each position p of text and its end, whether the first word of `text[p:].split()` holds a `]`, built once from
+    the right: a blank takes the answer of the position after it, any other character holds a `]` itself or continues
+    the word of the next position, and past the end there is no word."""
+    n = len(text)
+    word = [False] * (n + 1)
+    first = [False] * (n + 1)
+    for p in range(n - 1, -1, -1):
+        if text[p].isspace():
+            first[p] = first[p + 1]
+        else:
+            word[p] = text[p] == "]" or (p + 1 < n and not text[p + 1].isspace() and word[p + 1])
+            first[p] = word[p]
+    return first
 
 
 #: What opens a context in which bash reads the quotes anew: a command substitution (an arithmetic one too), a
@@ -18492,15 +18514,41 @@ _GIT_CONFIG_FILE_ENV = re.compile(r"(?<!\$)(?<!\$\{)\b" + _GIT_CONFIG_FILE_NAMES
 _GIT_CONFIG_KEY_NAMES = r"GIT_CONFIG_(?:KEY_[0-9]+|PARAMETERS)"
 _GIT_CONFIG_UNREAD_NAME = re.compile(r"(?<!\$)(?<!\$\{)\b" + _GIT_CONFIG_KEY_NAMES + r"\b(?!=)")
 _GIT_CONFIG_KEY_NAMED = re.compile(r"(?<!\$)(?<!\$\{)\b" + _GIT_CONFIG_KEY_NAMES + r"\b")
-_GIT_CONFIG_UNREAD_OPTION = re.compile(r"(?:^|[\s;&|(])(?:-c|--config-env)[\s=]+[^=\n;&|]*?[" + _RELEASE_UNKNOWN + r"*?\[]")
+#: An option of git that sets a key, `-c` or `--config-env`, followed by a separator (_git_config_unread_option).
+_GIT_CONFIG_OPTION = re.compile(r"(?:^|[\s;&|(])(?:-c|--config-env)(?=[\s=])")
+_GIT_CONFIG_SEPARATOR = re.compile(r"[\s=]+")
+_GIT_CONFIG_KEY_TEXT = re.compile(r"[^=\n;&|]*")
+_GIT_CONFIG_KEY_UNREAD = _RELEASE_UNKNOWN + "*?["
 #: The builtins of bash that set a variable whose name they get as a word.
 _SHELL_NAME_SETTERS = frozenset({"export", "declare", "typeset", "local", "readonly", "read", "mapfile", "readarray"})
+
+
+def _git_config_unread_option(marked: str) -> bool:
+    """Whether a key of `-c` or `--config-env` holds an expansion (_RELEASE_UNKNOWN) or a pattern before its first `=`:
+    behind the option a separator of blanks and `=`, then the key, which ends at `=`, a line break, `;`, `&` or `|`.
+
+    A first form was one expression, the option, `[\\s=]+` and a lazy `[^=\\n;&|]*?` up to such a character. Its two
+    parts take the same blanks, so where no such character follows, the search tried every split of the blanks: `-c`
+    and 16000 blanks took 1.9 seconds where main took five thousandths (local review of 0692fed6). This reader takes the
+    whole separator first and the key after it, which finds the same lines: a blank the key could take, the separator
+    takes as well, and an `=` only the separator can take. Each stretch of a key is read once, also where many options
+    share it, so the work grows with the line and not with its square."""
+    last_stop, last_found = -1, -1
+    for m in _GIT_CONFIG_OPTION.finditer(marked):
+        key = _GIT_CONFIG_SEPARATOR.match(marked, m.end()).end()
+        stop = _GIT_CONFIG_KEY_TEXT.match(marked, key).end()
+        if stop != last_stop:
+            last_stop = stop
+            last_found = max(marked.rfind(c, key, stop) for c in _GIT_CONFIG_KEY_UNREAD)
+        if last_found >= key:
+            return True
+    return False
 
 
 def _git_config_unread(text: str) -> bool:
     """True where the line sets a key or a name of the configuration that this reader cannot read (see above)."""
     marked = _RELEASE_EXPANSION.sub(_RELEASE_UNKNOWN, text)
-    if _GIT_CONFIG_UNREAD_NAME.search(text) or _GIT_CONFIG_UNREAD_OPTION.search(marked):
+    if _GIT_CONFIG_UNREAD_NAME.search(text) or _git_config_unread_option(marked):
         return True
     if _GIT_CONFIG_KEY_NAMED.search(text) and _RELEASE_UNKNOWN in marked:
         return True

@@ -6015,8 +6015,11 @@ where the word has no bracket expression and no backslash, with each run of star
 word holds the line back as unread. Four local reviews (7411ab31 to 4673bbd4) found that each change to the comparison,
 to read such words in time, cost time or memory elsewhere in it: wide ranges, repeated ranges and many disjoint ranges.
 The bound holds for every text the reader searches, also for the text the brace expansion makes of a line
-under it (local review of c8736cd8: 15444 characters became 985684). The named cost: a long line that names no door is
-held back too. A program the line takes from a file,
+under it (local review of c8736cd8: 15444 characters became 985684). Within the bound no search of the reader tries
+every split of a run between two of its parts, and none reads the rest of a line again at each character (local review
+of 0692fed6: `-c` and 16000 blanks took 1.9 seconds where main took five thousandths; the probe of the next round found
+the reader of pattern words splitting the rest of the line at every character). The named cost: a long line that names
+no door is held back too. A program the line takes from a file,
 by PATH or GIT_EXEC_PATH, is not read here, as no text of a file the line runs is (_release_unresolved_door).
 `git push --signed` and its prefixes are the door of a signature, and so is a signing option given as the value of
 a word (`git -c branch.main.mergeOptions=-S merge topic`, `GIT_CONFIG_VALUE_0=-qS` for that key): the part after the

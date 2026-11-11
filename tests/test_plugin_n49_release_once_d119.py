@@ -787,6 +787,97 @@ def test_a_program_word_of_several_runs_of_stars_keeps_its_door(line):
     assert gate._release_door_words(line) is not None
 
 
+#: The keys of the readers of a configuration and the fillers that may follow one of them up to the read bound (local
+#: review of 0692fed6: `-c` and 16000 blanks took 1.9 seconds where main took five thousandths, two parts of one
+#: expression took the same blanks).
+_CONFIG_KEYS = ["-c ", "--config-env ", "-c=", "--config-env=", "-c", "remote.", "branch.", "include.", "includeif.",
+                "push.", "GIT_CONFIG_KEY_0", "GIT_CONFIG_PARAMETERS"]
+_CONFIG_FILLERS = [" ", "\t", "=", "a", ".", ",", "-", "/", " =", "\n"]
+
+
+@pytest.mark.parametrize("key", _CONFIG_KEYS)
+@pytest.mark.parametrize("filler", _CONFIG_FILLERS)
+def test_a_configuration_key_followed_by_a_long_run_is_read_in_time(key, filler):
+    """Each key of a configuration reader, followed by a run of one filler up to the read bound and a last letter, is
+    read within a few seconds; main read each at once."""
+    head = "git push origin claude/x # " + key
+    command = head + filler * ((gate._RELEASE_READ_MAX - len(head) - 1) // len(filler)) + "x"
+    assert len(command) <= gate._RELEASE_READ_MAX
+    start = time.monotonic()
+    gate._release_door_words(command)
+    assert time.monotonic() - start < 5
+
+
+def test_the_reader_of_a_configuration_option_finds_the_lines_the_former_expression_found():
+    """Property: for 30000 short lines drawn from the characters that make an option, a separator, a key and its end,
+    the linear reader of a key of `-c` or `--config-env` answers as the former expression did (local review of
+    0692fed6), which reads short lines in time."""
+    import random
+    import re
+    former = re.compile(r"(?:^|[\s;&|(])(?:-c|--config-env)[\s=]+[^=\n;&|]*?[" + gate._RELEASE_UNKNOWN + r"*?\[]")
+    rng = random.Random(510)
+    parts = ["-c", "--config-env", " ", "=", "\n", ";", "&", "|", "(", "a", "*", "?", "[", gate._RELEASE_UNKNOWN, "\t",
+             "x.y", "-"]
+    for _ in range(30000):
+        line = "".join(rng.choice(parts) for _ in range(rng.randint(0, 12)))
+        assert gate._git_config_unread_option(line) == bool(former.search(line)), repr(line)
+
+
+def _former_glob_words(text):
+    """_release_glob_words as it stood at 0692fed6, which read `text[i + 1:].split()` at every character."""
+    words, cur = [], []
+    glob, quote, i = False, "", 0
+
+    def close():
+        nonlocal cur, glob
+        if cur:
+            words.append(("".join(cur), glob))
+        cur, glob = [], False
+    while i < len(text):
+        c = text[i]
+        if quote != "'" and c == "\\" and i + 1 < len(text):
+            cur.append(text[i + 1])
+            i += 2
+            continue
+        if c in "'\"" and quote in ("", c):
+            quote = "" if quote else c
+            i += 1
+            continue
+        if not quote and (c.isspace() or c in ";&|()<>"):
+            close()
+            i += 1
+            continue
+        if not quote and (c == "*" or (c == "?" and not (cur and cur[-1] == "$")) or
+                          (c == "[" and "]" in text[i + 1:].split()[0] if text[i + 1:].split() else False)):
+            glob = True
+        cur.append(c)
+        i += 1
+    close()
+    return [w for w, g in words if g]
+
+
+def test_the_glob_words_are_the_ones_the_former_reader_found():
+    """Property: for 30000 short lines drawn from brackets, blanks, quotes, escapes and pattern characters, the reader of
+    pattern words with its table of closing brackets finds the words the former reader found (second runtime probe of
+    round 31: the former reader read the rest of the line at every character)."""
+    import random
+    rng = random.Random(510)
+    parts = ["[", "]", " ", "\t", "a", "*", "?", "$", "'", '"', "\\", ";", "(", "x]", "[ ]", "\n"]
+    for _ in range(30000):
+        line = "".join(rng.choice(parts) for _ in range(rng.randint(0, 12)))
+        assert gate._release_glob_words(line) == _former_glob_words(line), repr(line)
+
+
+@pytest.mark.parametrize("piece", ["[", "[ ", " [", "[a", "]", " =", "a "])
+def test_a_line_of_brackets_and_blanks_up_to_the_read_bound_is_read_in_time(piece):
+    """A line of brackets and blanks up to the read bound is read in time; the reader of pattern words reads the rest of
+    the line once, not at each character."""
+    command = "git push origin claude/x # " + piece * ((gate._RELEASE_READ_MAX - 30) // len(piece))
+    start = time.monotonic()
+    gate._release_door_words(command)
+    assert time.monotonic() - start < 5
+
+
 @pytest.mark.parametrize("piece", _RUNTIME_PIECES + ["a"])
 def test_a_line_above_the_read_bound_is_held_back_unread_at_once(piece):
     """Above the bound the line is not read: it is the door unread at once, which no card frees. With "a" the line
