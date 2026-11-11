@@ -2756,6 +2756,14 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
                 merged = dict(pol_trust)
                 merged.update(rp_trust or {})
                 rp_trust = merged
+        # B22, the neighbour of the lens on a1b7d468: `--related-pub` names the key of the `--with-related` target at the
+        # same position, and `_load_related` reads only as many keys as there are targets, so a key without its target
+        # was decoded by nothing and the verify ended as without it. Refused like the anchor trust above, exit 2.
+        _rel_paths = getattr(args, "with_related", None) or []
+        _rel_pubs = getattr(args, "related_pub", None) or []
+        if len(_rel_pubs) > len(_rel_paths):
+            raise ValueError(f"{len(_rel_pubs)} --related-pub given for {len(_rel_paths)} --with-related: each key is "
+                             "paired with the target at its position, and a key without a target is checked by nothing")
         related, rel_errs = _load_related(getattr(args, "with_related", None), pub,
                                           getattr(args, "related_pub", None))
         if rel_errs:
@@ -2815,6 +2823,7 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             "evidence_bound", "audience_ok", "nonce_ok", "freshness_ok", "anchors_ok",
             "action_outcome_proven", "subject_binding", "subject_derived_ok", "action_bytes_ok", "case_ok",
             "consumption_ok",
+            "lineage_ok",   # B22: the outcome of --with-related/--related-pub, named beside the other bindings
             # Findings 01/03 (crypto-review X2): the uniform automation verdict + EvidenceLevel ladder are
             # part of the library result; a pipeline doing `... --json | jq .automation.safeForAutomation`
             # must not get null (indistinguishable from a real "not evaluated"). Emit them here too.
@@ -2898,6 +2907,10 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
     # (cycle, depth, malformed ancestor, attached-but-unverified target) is a tamper/structure signal —
     # fail-closed exit 2, never a silent exit 0. DECLARED_UNRESOLVED stays exit 0 (declared-only is honest).
     if isinstance(result.get("lineage"), dict) and result["lineage"].get("lineage") == "FAIL":
+        return 2
+    # B22: an attached target that did not verify fails the requested lineage check (lineage_ok False) even
+    # when no edge names it and the lineage label is not FAIL; exit 2 like the FAIL above.
+    if result.get("lineage_ok") is False:
         return 2
     if result["policy_ok"] is False:
         return 3
