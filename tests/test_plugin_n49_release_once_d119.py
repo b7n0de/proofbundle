@@ -808,6 +808,27 @@ def test_a_configuration_key_followed_by_a_long_run_is_read_in_time(key, filler)
     assert time.monotonic() - start < 5
 
 
+@pytest.mark.parametrize("piece", [" -c a", " -c ", " --config-env a", " -c a*", " -c a;", " -c=a", " -c\ta"])
+def test_the_reader_of_a_configuration_option_reads_each_key_stretch_once(monkeypatch, piece):
+    """The reader of a key of `-c` or `--config-env` reads each stretch of a key once, also where thousands of options
+    share it (local review of a87d2034: `-c a` repeated up to the bound read 26.7 million characters of keys, ten times
+    the time main took). Counted, not timed: the characters the reader of a key text reads stay within the line."""
+    read = [0]
+
+    class Counted:
+        def __init__(self, inner):
+            self.inner = inner
+
+        def match(self, text, pos):
+            m = self.inner.match(text, pos)
+            read[0] += m.end() - pos
+            return m
+    monkeypatch.setattr(gate, "_GIT_CONFIG_KEY_TEXT", Counted(gate._GIT_CONFIG_KEY_TEXT))
+    line = ("git push origin claude/x # " + piece * 4000)[:gate._RELEASE_READ_MAX - 1] + "x"
+    gate._git_config_unread_option(line)
+    assert read[0] <= len(line), (read[0], len(line))
+
+
 def test_the_reader_of_a_configuration_option_finds_the_lines_the_former_expression_found():
     """Property: for 30000 short lines drawn from the characters that make an option, a separator, a key and its end,
     the linear reader of a key of `-c` or `--config-env` answers as the former expression did (local review of

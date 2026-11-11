@@ -18532,14 +18532,16 @@ def _git_config_unread_option(marked: str) -> bool:
     and 16000 blanks took 1.9 seconds where main took five thousandths (local review of 0692fed6). This reader takes the
     whole separator first and the key after it, which finds the same lines: a blank the key could take, the separator
     takes as well, and an `=` only the separator can take. Each stretch of a key is read once, also where many options
-    share it, so the work grows with the line and not with its square."""
+    share it: a key that starts inside the stretch read for an option before it ends where that stretch ends, since the
+    stretch holds no end of a key (local review of a87d2034: the first form found the end of each key anew, and 3271
+    options in one stretch read 26.7 million characters). The separators of the options do not overlap, so the work
+    grows with the line and not with its square."""
     last_stop, last_found = -1, -1
     for m in _GIT_CONFIG_OPTION.finditer(marked):
         key = _GIT_CONFIG_SEPARATOR.match(marked, m.end()).end()
-        stop = _GIT_CONFIG_KEY_TEXT.match(marked, key).end()
-        if stop != last_stop:
-            last_stop = stop
-            last_found = max(marked.rfind(c, key, stop) for c in _GIT_CONFIG_KEY_UNREAD)
+        if key >= last_stop:
+            last_stop = _GIT_CONFIG_KEY_TEXT.match(marked, key).end()
+            last_found = max(marked.rfind(c, key, last_stop) for c in _GIT_CONFIG_KEY_UNREAD)
         if last_found >= key:
             return True
     return False
