@@ -8,6 +8,7 @@ a key folder or a key file, and they read no file's content.
 """
 from __future__ import annotations
 
+import bisect
 import itertools
 import json
 import os
@@ -134,17 +135,31 @@ class _CharSet:
     comparison list more than a million characters per range, and a word of 84 such ranges ran beyond the hook's 120
     seconds). A range whose first end lies above its last takes no character, as before. A text of more than one
     character, which the folding of _token_takes can give (`"ß".upper()` is `"SS"`), is no member, as it was of the
-    former set of single characters (local review of db0016ff: ord() raised on it)."""
+    former set of single characters (local review of db0016ff: ord() raised on it). The ranges are sorted and merged
+    once and looked up by bisection, so a test costs the logarithm of their number, as the former set cost a constant
+    (local review of 75b89f17: a pattern of `*` and 500000 ranges searched the whole list for each character of a name,
+    7 seconds where main took a third of one)."""
 
-    __slots__ = ("chars", "ranges")
+    __slots__ = ("chars", "starts", "ends")
 
     def __init__(self, chars: frozenset, ranges: tuple):
-        self.chars, self.ranges = chars, ranges
+        merged: list[list[int]] = []
+        for lo, hi in sorted(r for r in ranges if r[0] <= r[1]):
+            if merged and lo <= merged[-1][1] + 1:
+                merged[-1][1] = max(merged[-1][1], hi)
+            else:
+                merged.append([lo, hi])
+        self.chars = chars
+        self.starts = tuple(m[0] for m in merged)
+        self.ends = tuple(m[1] for m in merged)
 
     def __contains__(self, char: str) -> bool:
         if len(char) != 1:
             return char in self.chars
-        return char in self.chars or any(lo <= ord(char) <= hi for lo, hi in self.ranges)
+        if char in self.chars:
+            return True
+        i = bisect.bisect_right(self.starts, ord(char)) - 1
+        return i >= 0 and ord(char) <= self.ends[i]
 
 
 def _pattern_tokens(part: str) -> list:

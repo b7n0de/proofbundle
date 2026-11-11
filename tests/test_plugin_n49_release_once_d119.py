@@ -785,6 +785,33 @@ def test_a_letter_whose_folding_gives_two_characters_is_no_member_of_a_range(let
     assert sec._may_match(sec._pattern_tokens("[a-z]"), letter) is False
 
 
+@pytest.mark.parametrize("pattern,name", [("*[" + "a-b" * 500000 + "]", "c" * 255),
+                                          ("*[" + "a-b" * 42666 + "]", "c" * 128000)])
+def test_a_pattern_of_many_ranges_is_compared_in_time(pattern, name):
+    """A pattern of a star and many repeated ranges is compared in about the time main takes (local review of
+    75b89f17: the comparison searched the whole list of ranges for each character of the name, 7 seconds for the first
+    line where main took a third of one, and beyond 120 seconds for the second where main took a tenth)."""
+    sec = gate._secrets()
+    start = time.monotonic()
+    assert sec.may_match(pattern, name) is False
+    assert time.monotonic() - start < 10
+
+
+@pytest.mark.parametrize("pattern,inside,outside", [
+    ("[a-cb-dz-a]", "abcd", "ez"), ("[a-ab-bc-c]", "abc", "d"), ("[m-pa-e]", "aemp", "fl"),
+    ("[a-zA-Z0-9]", "qQ5", "-_"), ("[x-z]", "xyz", "w{"), ("[c-a]", "", "abc"),
+])
+def test_ranges_that_overlap_touch_or_turn_take_the_characters_they_take_in_bash(pattern, inside, outside):
+    """Ranges sorted and merged once take the same characters as each range alone: overlapping (`a-c` and `b-d`),
+    touching (`a-a`, `b-b`, `c-c`), out of order, and a range whose first end lies above its last, which takes none."""
+    sec = gate._secrets()
+    tokens = sec._pattern_tokens(pattern)
+    for c in inside:
+        assert sec._may_match(tokens, c), (pattern, c)
+    for c in outside:
+        assert not sec._may_match(tokens, c), (pattern, c)
+
+
 def test_the_comparison_of_d102_takes_the_same_names_as_before():
     """Property: for 20000 patterns drawn from the characters that make stars, ranges, classes and escapes, and names
     drawn from the letters they may take, the comparison of D102 with a run of stars as one token and a range by its

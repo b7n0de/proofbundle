@@ -6011,8 +6011,10 @@ back as unread too (_RELEASE_WORD_MAX, local review of d9ff9a8c: a word of stars
 the search for a brace or the comparison of D102 seconds to minutes). The same holds for the program word the reader of
 an unresolved program word compares (a line of 16000 stars took that comparison beyond 60 seconds, at main as well). The
 comparison of D102 takes a run of stars outside a bracket expression as one token and a range by its two ends, so a
-range such as `[a-\U0010ffff]` is not listed character by character (local review of 7411ab31); it takes the same
-names as before, which a property test checks against the former comparison. The bound holds for every text the reader searches, also for the text the brace expansion makes of a line
+range such as `[a-\U0010ffff]` is not listed character by character (local review of 7411ab31); the ranges of a bracket
+expression are sorted and merged once and looked up by bisection (local review of 75b89f17: searching the whole list for
+each character of a name took 7 seconds where main took a third of one). It takes the same names as before, which a
+property test checks against the former comparison. The bound holds for every text the reader searches, also for the text the brace expansion makes of a line
 under it (local review of c8736cd8: 15444 characters became 985684). The named cost: a long line that names no door is
 held back too. A program the line takes from a file,
 by PATH or GIT_EXEC_PATH, is not read here, as no text of a file the line runs is (_release_unresolved_door).
