@@ -171,6 +171,7 @@ its start.
 |---|---|---|
 | structural error of an edge (shape, unknown field, unknown relation, digest not 64 lowercase hex, missing `digestAlgorithm`) | `relation:malformed:` followed by the detail | 2 |
 | attached target named by an edge that does not verify standalone (signature, key, `payloadType`) | `relation:target_verification_failed` | 2 |
+| on `decision verify`, an attached target that does not verify under its key, also when no edge names it; the Rust verifier `pb_verify_rs` judges only a target an edge names | `relation:target_verification_failed` | 2 |
 | attached ancestor, named by an edge of the ancestry, that does not verify standalone | `relation:ancestor_verification_failed` | 2 |
 | attached target whose payload is not a well-formed statement | `RELATION_TARGET_MALFORMED` | 2 |
 | attached ancestry deeper than 32 | `relation:depth_exceeded` | 2 |

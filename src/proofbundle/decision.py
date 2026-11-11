@@ -1057,10 +1057,21 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
                 r["errors"].extend(r["lineage"]["errors"] or ["relation: lineage verification FAILED"])
             # No-Fake (6-Linsen-Audit L2, 2026-07-16): a REQUESTED lineage check that FAILs must be
             # visible in the aggregate `ok` and `automation` — like every other error category in this
-            # result — not only at the CLI exit code. lineage_ok is False ONLY on FAIL (DECLARED_UNRESOLVED
-            # and NOT_EVALUATED are honest non-fails, stay None). This tightens the verdict downward; it
-            # NEVER lifts it (crypto_ok is untouched, lattice monotonicity preserved).
+            # result — not only at the CLI exit code. lineage_ok is False on FAIL, and since B22 also when an
+            # attached target did not verify (below), whatever the label; otherwise DECLARED_UNRESOLVED and
+            # NOT_EVALUATED are honest non-fails and stay None. This tightens the verdict downward; it NEVER
+            # lifts it (crypto_ok is untouched, lattice monotonicity preserved).
             r["lineage_ok"] = False if r["lineage"]["lineage"] == "FAIL" else None
+            # B22 (2026-11-09, measured on main 6b63cda8): an attached target that does not verify under its key
+            # was judged only where an edge names it, so a target no edge names was ignored and `ok` stayed
+            # True, although the caller asked for it to be verified. Every attached target that is not a
+            # verified dict fails the requested lineage check; the lineage label is left as the engine set it.
+            _unbelegt = [lbl for lbl, ziel, _grund in _related_gelesen[1]
+                         if not (type(ziel) is dict and ziel.get("verified") is True)]
+            if _unbelegt and r["lineage"]["lineage"] != "FAIL":
+                r["lineage_ok"] = False
+                r["errors"].append(f"relation:target_verification_failed: {len(_unbelegt)} attached related "
+                                   "target(s) did not verify under their key (fail-closed)")
         # 3.1.2 fail-closed fix (audit 2026-07-13, sibling of the eval-path F4 hardening and the decision
         # template/expiry gates): a relying party who supplies expected_audience/expected_nonce is ASKING for
         # RFC-9901-§7.3-style replay/audience binding. If the receipt carries NO validity object (or a
