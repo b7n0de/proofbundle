@@ -101,18 +101,33 @@ class TheVerifierRefusesWhatTheBuilderDoesNotWrite(unittest.TestCase):
 
     def test_the_v0_1_set_is_the_one_the_released_builder_wrote(self):
         from proofbundle.evidence_pack import _PACK_FORMATS
-        self.assertEqual(_PACK_FORMATS["v0.1"], _V01_MEMBERS)
+        self.assertEqual(dict(_PACK_FORMATS)["v0.1"], _V01_MEMBERS)
         self.assertEqual(set(_pack_v01()), _V01_MEMBERS)
+
+    def test_an_unhashable_pack_version_is_refused_not_raised(self):
+        """The version is compared, not hashed (the membership guard, PR 515): a list or an object as
+        `packVersion`, which a dict lookup would have hashed into a TypeError, is a malformed pack."""
+        from proofbundle.evidence_pack import verify_evidence_pack
+        for wert in (["v0.2"], {"v": "v0.2"}, [], 2, True):
+            with self.subTest(value=wert):
+                pack = _pack()
+                pack["packVersion"] = wert
+                res = verify_evidence_pack(pack)
+                self.assertIs(res["ok"], False)
+                self.assertEqual(res["status"], "malformed_pack", res)
+                self.assertIn("packVersion", res["detail"])
 
     def test_each_version_is_its_own_closed_set(self):
         """The sets are not merged into one: every member that only the OTHER version has is foreign
         to a pack of this version, and is named."""
         from proofbundle.evidence_pack import _PACK_FORMATS, verify_evidence_pack
+        formate = dict(_PACK_FORMATS)
+        self.assertEqual(len(formate), len(_PACK_FORMATS), "a version is named twice")
         bauer = {"v0.1": _pack_v01, "v0.2": _pack}
-        self.assertEqual(sorted(bauer), sorted(_PACK_FORMATS))
-        alle = frozenset().union(*_PACK_FORMATS.values())
+        self.assertEqual(sorted(bauer), sorted(formate))
+        alle = frozenset().union(*formate.values())
         geprueft = 0
-        for version, menge in _PACK_FORMATS.items():
+        for version, menge in formate.items():
             for name in sorted(alle - menge):
                 with self.subTest(version=version, member=name):
                     pack = bauer[version]()

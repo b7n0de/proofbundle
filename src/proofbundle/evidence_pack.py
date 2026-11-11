@@ -57,11 +57,14 @@ _PACK_MEMBERS = frozenset({
 #: against the v0.2 set alone turned a pack that a released version built, and that main verified by its
 #: proof, into `malformed_pack`. A pack is judged against the set of ITS version: the old pack stays
 #: readable, and a member of the other version, an unknown version or a foreign member is still refused.
-_PACK_FORMATS = {
-    "v0.1": frozenset({"type", "packVersion", "canonicalRoot", "proof", "selfContained", "calendars",
-                       "calendarRedundancy", "bundledHeaderEvidence", "frozen"}),
-    _PACK_VERSION: _PACK_MEMBERS,
-}
+#: The formats are pairs, and a pack's `packVersion` is compared with each version by equality. A dict
+#: keyed by version hashed the value from outside, and only `isinstance(version, str)` stood between an
+#: unhashable value and a TypeError; equality hashes nothing (the membership guard, PR 515).
+_PACK_FORMATS = (
+    ("v0.1", frozenset({"type", "packVersion", "canonicalRoot", "proof", "selfContained", "calendars",
+                        "calendarRedundancy", "bundledHeaderEvidence", "frozen"})),
+    (_PACK_VERSION, _PACK_MEMBERS),
+)
 
 
 def _as_dict(v):
@@ -216,10 +219,11 @@ def verify_evidence_pack(pack: dict, *, rp_trust: Optional[dict] = None,
         return {"ok": False, "warn": False, "status": "malformed_pack",
                 "detail": f"evidence pack type is {pack.get('type')!r}, not {_PACK_TYPE!r}"}
     version = pack.get("packVersion")
-    erlaubt = _PACK_FORMATS.get(version) if isinstance(version, str) else None
+    erlaubt = next((mitglieder for v, mitglieder in _PACK_FORMATS if v == version), None)
     if erlaubt is None:
         return {"ok": False, "warn": False, "status": "malformed_pack",
-                "detail": f"evidence pack packVersion is {version!r}, not one of {sorted(_PACK_FORMATS)!r}"}
+                "detail": f"evidence pack packVersion is {version!r}, not one of "
+                          f"{sorted(v for v, _m in _PACK_FORMATS)!r}"}
     fremd = sorted((k for k in pack if k not in erlaubt), key=repr)
     if fremd:
         return {"ok": False, "warn": False, "status": "malformed_pack",
