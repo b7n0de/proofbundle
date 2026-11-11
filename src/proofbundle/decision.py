@@ -10,6 +10,7 @@ Field names are lowerCamelCase (ITE-9); only the proofbundle-local trust policy 
 """
 from __future__ import annotations
 
+import calendar
 import hashlib
 import time
 from datetime import datetime, timezone
@@ -543,12 +544,17 @@ def build_decision_statement(predicate: dict, *, subject_name: str | None = None
     commitment to the decision: by DEFAULT sha256 over the RFC-8785 canonical predicate.
 
     **Caller-attested override (No-Overclaim, 6-lens review):** a caller-supplied `subject_sha256` /
-    `subject_name` is placed into `subject` verbatim and is NOT cross-checked against the predicate here;
-    `verify_decision_receipt` likewise does not re-derive it. So a caller that overrides `subject_sha256`
-    is self-attesting what the statement applies to — a generic in-toto consumer that matches by
-    `subject.digest` (rather than re-hashing the predicate) trusts that value. Omit the override to keep
-    the subject a true commitment to the signed predicate. Its form is checked: an override the verifier
-    would refuse (a sha256 that is not 64 lowercase hex characters) raises here instead of being signed."""
+    `subject_name` is placed into `subject` verbatim and is NOT cross-checked against the predicate
+    here; `verify_decision_receipt` classifies it (`subject_binding`) once the signature verifies
+    and the RFC-8785 canonicalizer is available: a single subject that is not the digest of the
+    predicate is EXTERNAL_ATTESTED and warned, more than one subject is AMBIGUOUS and warned, and
+    only `require_derived_subject` turns a subject that is not derived, or one that cannot be
+    classified, into a failed subject binding. So a caller that overrides `subject_sha256` is
+    self-attesting what the statement applies to — a generic in-toto consumer that matches by
+    `subject.digest` (rather than re-hashing the predicate) trusts that value. Omit the override to
+    keep the subject a true commitment to the signed predicate. Its form is checked: an override the
+    verifier would refuse (a sha256 that is not 64 lowercase hex characters) raises here instead of
+    being signed."""
     predicate = _predicate_once(predicate)  # lens run 8, finding B: one read, checked and signed
     predicate = _eine_kopie(predicate, DecisionReceiptError, "decision predicate")   # one reading (round 12)
     errs = validate_decision_predicate(predicate, strict=False)
@@ -587,12 +593,108 @@ def emit_decision_receipt(predicate: dict, signer, *, subject_name: str | None =
     return dsse.sign_envelope(body, signer, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE, keyid=keyid)
 
 
+def _mikrosekunden(value: Any) -> "int | None":
+    """A timestamp of the form of step 7 of Section 3.2 of draft-gruszka-audit-decision-receipts-05 (RFC 3339, UTC
+    with a trailing "Z"), here with a fraction of one to six digits, as microseconds since the epoch, the fraction
+    padded with zeros to six digits. The fraction limit and the comparison "as if each fraction of a second were
+    padded with zeros to six digits" stand in a coming revision of draft-gruszka-audit-decision-receipts, not in a
+    published one. None for any other value, a fraction of seven or more digits included. The one reader of these
+    times for the case checks here and the outcome's time window (outcome._gebundene_entscheidung)."""
+    if not (isinstance(value, str) and _RFC3339_Z.match(value)):
+        return None
+    haupt, _, bruch = value[:-1].partition(".")
+    if len(bruch) > 6:
+        return None
+    try:
+        zeit = datetime.strptime(haupt, "%Y-%m-%dT%H:%M:%S")
+    except ValueError:
+        return None
+    return calendar.timegm(zeit.timetuple()) * 1_000_000 + int(bruch.ljust(6, "0") or "0")
+
+
+#: The cases of Section 3.3 a decision receipt can be checked under; the relying party chooses, never the receipt.
+_FAELLE = ("approval", "declined")
+
+
+def _fall_freigabe(p: dict, a_bytes: "bytes | None", t_mikro: "int | None") -> "list[str]":
+    """Case 1 of Section 3.3, approval (finding B3, vectors F9, F14, F40 to F50, F74, F76, F89). The reasons it fails;
+    an empty list when it holds."""
+    gruende: list[str] = []
+    dec = _as_dict(p.get("decision"))
+    if dec.get("verdict") != "ALLOW":
+        gruende.append("decision.verdict is not ALLOW")
+    rc = dec.get("reasonCodes")
+    if not (isinstance(rc, list) and "user_approval" in rc):
+        gruende.append("decision.reasonCodes lack user_approval")
+    eintraege = [x for x in _as_list(p.get("inputSnapshot")) if isinstance(x, dict) and x.get("name") == "approval record"]
+    if len(eintraege) != 1:
+        return gruende + [f"inputSnapshot names {len(eintraege)} approval records, exactly one is required"]
+    if a_bytes is None:
+        return gruende + ["the approval record bytes must be supplied"]
+    if hashlib.sha256(a_bytes).hexdigest() != _as_dict(eintraege[0].get("digest")).get("sha256"):
+        return gruende + ["the approval record does not hash to its inputSnapshot digest"]
+    # The record is no in-toto Statement: it is read in its own module, not through a raw JSON reader here, where
+    # every Statement goes through the statement oracle (tests/test_a_statement_says_it_is_an_in_toto_statement.py).
+    from ._approval_record import read_approval_record  # noqa: PLC0415
+    a, grund = read_approval_record(a_bytes)
+    if grund is not None:
+        return gruende + [grund]
+    if not isinstance(a, dict):
+        return gruende + ["the approval record is not a JSON object"]
+    fehlt = [k for k in ("approvalId", "approver", "session", "actionDigest", "approvedAt", "validUntil") if k not in a]
+    if fehlt:
+        return gruende + [f"the approval record lacks {', '.join(fehlt)}"]
+    for k in ("approvalId", "approver", "session"):
+        if not (isinstance(a[k], str) and a[k]):
+            gruende.append(f"approval record {k} is not a non-empty string")
+    if not _is_digest(a["actionDigest"]):
+        gruende.append("approval record actionDigest is not a digest")
+    elif a["actionDigest"] != _as_dict(p.get("proposedAction")).get("parametersDigest"):
+        gruende.append("the approval names other action bytes than proposedAction.parametersDigest")
+    if a.get("approver") != _as_dict(p.get("principal")).get("id"):
+        gruende.append("the approver is not principal.id")
+    angenommen, gueltig_bis = _mikrosekunden(a["approvedAt"]), _mikrosekunden(a["validUntil"])
+    if angenommen is None or gueltig_bis is None:
+        gruende.append("approvedAt or validUntil is not an RFC 3339 UTC timestamp of the draft's form")
+    entschieden = _mikrosekunden(p.get("decidedAt"))
+    ablauf = _mikrosekunden(_as_dict(p.get("validity")).get("expiresAt"))
+    if None in (angenommen, gueltig_bis, entschieden, ablauf, t_mikro):
+        if angenommen is not None and gueltig_bis is not None:
+            gruende.append("decidedAt, validity.expiresAt or the evaluation time is not readable for the bounds")
+    elif not (angenommen <= entschieden <= t_mikro < ablauf <= gueltig_bis):   # type: ignore[operator]
+        gruende.append("approvedAt <= decidedAt <= T < validity.expiresAt <= validUntil does not hold")
+    return gruende
+
+
+def _fall_abgelehnt(p: dict) -> "list[str]":
+    """Case 2 of Section 3.3, declined (vectors F51 to F53). The reasons it fails; an empty list when it holds."""
+    gruende: list[str] = []
+    if _as_dict(p.get("decision")).get("verdict") not in ("DENY", "REFUSE"):
+        gruende.append("decision.verdict is neither DENY nor REFUSE")
+    if "actionOutcome" in p:
+        ao = _as_dict(p.get("actionOutcome"))
+        if ao.get("status") not in ("notAttempted", "blocked", "refused"):
+            gruende.append("actionOutcome.status is not notAttempted, blocked or refused")
+        if ao.get("performedAt") is not None or ao.get("outcomeRef") is not None:
+            gruende.append("actionOutcome names a performance or an outcome")
+    return gruende
+
+
 def _empty_result() -> dict:
     return {
         "ok": None, "structure_ok": None, "crypto_ok": None, "signer_trusted": None,
         "predicate_type_ok": None, "policy_ok": None, "evidence_bound": None, "audience_ok": None,
         "nonce_ok": None, "freshness_ok": None, "anchors_ok": None, "action_outcome_proven": None,
         "subject_binding": None, "subject_derived_ok": None,
+        # Step 10 of Section 3.2 of draft-gruszka-audit-decision-receipts-05 (finding B1, vector F5): whether the
+        # action bytes the relying party supplied hash to proposedAction.parametersDigest. None when none were given.
+        "action_bytes_ok": None,
+        # Section 3.3 (finding B3): whether the receipt holds under the case the relying party chose (approval or
+        # declined). None when no case was chosen.
+        "case_ok": None,
+        # Section 4 (finding B4, Owner choice A on OA-616feb8f26): whether the approval identity is free in the
+        # consumption state the relying party supplied. None when no state was given or Case 1 did not hold.
+        "consumption_ok": None,
         # Finding 01 / Finding 03 (2026-07 verify-layer hardening, additive): a uniform automation-safety
         # verdict (automation_verdict.automation_summary) and a per-digest EvidenceLevel classification
         # (assurance.classify_digest_evidence) computed at the end of verify — never gate anything on
@@ -625,7 +727,7 @@ def _finalize_failclosed(r: dict) -> dict:
     r["automation"] = automation_summary(r, required_checks={
         "crypto": "crypto_ok", "structure": "structure_ok", "policy": "policy_ok",
         "references": ["evidence_bound", "audience_ok", "nonce_ok", "anchors_ok", "subject_derived_ok",
-                       "lineage_ok"],
+                       "lineage_ok", "action_bytes_ok", "case_ok", "consumption_ok"],
     })
     return r
 
@@ -637,7 +739,11 @@ def verify_decision_receipt_or_raise(envelope: dict, public_key: bytes, *, stric
                                      anchors: list | None = None, rp_trust: dict | None = None,
                                      require_derived_subject: bool = False,
                                      evidence_resolver: Callable[[dict], bool] | None = None,
-                                     related: dict | None = None, now: int | None = None) -> dict:
+                                     related: dict | None = None, now: int | None = None,
+                                     action_bytes: bytes | None = None, case: str | None = None,
+                                     approval_record: bytes | None = None,
+                                     consumed_state: bytes | None = None,
+                                     received_copies: bytes | None = None) -> dict:
     """Explicit-exception variant of :func:`verify_decision_receipt`: raises :class:`BundleFormatError`
     when the payload is not a well-formed in-toto Statement (malformed JSON, duplicate key, bad UTF-8),
     instead of returning a fail-closed verdict. Use :func:`verify_decision_receipt` (never-raise) for
@@ -647,7 +753,9 @@ def verify_decision_receipt_or_raise(envelope: dict, public_key: bytes, *, stric
         envelope, public_key, strict=strict, expected_audience=expected_audience,
         expected_nonce=expected_nonce, policy=policy, anchors=anchors, rp_trust=rp_trust,
         require_derived_subject=require_derived_subject, evidence_resolver=evidence_resolver,
-        related=related, now=now, _raise_on_malformed=True)
+        related=related, now=now, action_bytes=action_bytes, case=case,
+        approval_record=approval_record, consumed_state=consumed_state, received_copies=received_copies,
+        _raise_on_malformed=True)
 
 
 @_ein_stand(aussen={"evidence_resolver": "rueckruf"}, rp_trust=_abbild_stand)
@@ -657,6 +765,9 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
                             rp_trust: dict | None = None, require_derived_subject: bool = False,
                             evidence_resolver: Callable[[dict], bool] | None = None,
                             related: dict | None = None, now: int | None = None,
+                            action_bytes: bytes | None = None, case: str | None = None,
+                            approval_record: bytes | None = None, consumed_state: bytes | None = None,
+                            received_copies: bytes | None = None,
                             _raise_on_malformed: bool = False) -> dict:
     """Verify a DSSE-signed Decision Receipt. Crypto first, then structure over the EXACT signed bytes (never
     re-serialized). Returns the snake_case structured result; each check independent, non-applicable = None.
@@ -699,6 +810,13 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     `__bool__` says True), does not promote. Never changes `action_outcome_proven` /
     `evidence_bound` (unchanged, additive) or the aggregate `ok`.
 
+    `action_bytes` (finding B1 of 2 November 2026, additive, default None): the bytes of the action the relying
+    party holds. Step 10 of Section 3.2 of draft-gruszka-audit-decision-receipts-05: where they are given, their
+    SHA-256 MUST equal ``proposedAction.parametersDigest.sha256``. `action_bytes_ok` is True when it does, False when
+    it does not, when the receipt carries no such digest, or when the value is no bytes, and None when no action
+    bytes were given. Judged over authenticated bytes only; a False fails `ok`. Before, a good receipt checked
+    against the bytes of another action (vector F5 of the draft) verified with ok True.
+
     `automation` (Finding 01, additive): a uniform `automationVerdict.automation_summary` verdict —
     `automation["safeForAutomation"]` requires `policy_ok IS True` (never merely `is not False`, unlike the
     permissive `ok` aggregate above) — see `automation_verdict.py`."""
@@ -717,6 +835,16 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     schluessel = _bytes_von(public_key)
     if schluessel is None:
         schluessel = public_key
+    # The action bytes are read here as well, once, by what they store (`_bytes_von`): a value that is no bytes
+    # stays None here and is refused at step 10 below, so it never counts as "no action bytes given".
+    _aktion = _bytes_von(action_bytes) if action_bytes is not None else None
+    # The case and the approval record of Section 3.3 (finding B3), read once as well: the case by its characters,
+    # the record as plain bytes. A case that is no known text and a record that is no bytes are refused below.
+    _fall = _zeichen_von(case) if case is not None else None
+    _freigabe = _bytes_von(approval_record) if approval_record is not None else None
+    # Section 4 (finding B4): the consumption state and the received copies, read once as plain bytes.
+    _verbrauch = _bytes_von(consumed_state) if consumed_state is not None else None
+    _kopien = _bytes_von(received_copies) if received_copies is not None else None
     richtlinie = _richtlinie_von(policy)
     # A dict holding a value that is no JSON value has no plain copy. Its refusal, with the loader's own
     # message, is taken HERE, before any caller code runs (verify lane on pull request 312): handing the
@@ -929,10 +1057,21 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
                 r["errors"].extend(r["lineage"]["errors"] or ["relation: lineage verification FAILED"])
             # No-Fake (6-Linsen-Audit L2, 2026-07-16): a REQUESTED lineage check that FAILs must be
             # visible in the aggregate `ok` and `automation` — like every other error category in this
-            # result — not only at the CLI exit code. lineage_ok is False ONLY on FAIL (DECLARED_UNRESOLVED
-            # and NOT_EVALUATED are honest non-fails, stay None). This tightens the verdict downward; it
-            # NEVER lifts it (crypto_ok is untouched, lattice monotonicity preserved).
+            # result — not only at the CLI exit code. lineage_ok is False on FAIL, and since B22 also when an
+            # attached target did not verify (below), whatever the label; otherwise DECLARED_UNRESOLVED and
+            # NOT_EVALUATED are honest non-fails and stay None. This tightens the verdict downward; it NEVER
+            # lifts it (crypto_ok is untouched, lattice monotonicity preserved).
             r["lineage_ok"] = False if r["lineage"]["lineage"] == "FAIL" else None
+            # B22 (2026-11-09, measured on main 6b63cda8): an attached target that does not verify under its key
+            # was judged only where an edge names it, so a target no edge names was ignored and `ok` stayed
+            # True, although the caller asked for it to be verified. Every attached target that is not a
+            # verified dict fails the requested lineage check; the lineage label is left as the engine set it.
+            _unbelegt = [lbl for lbl, ziel, _grund in _related_gelesen[1]
+                         if not (type(ziel) is dict and ziel.get("verified") is True)]
+            if _unbelegt and r["lineage"]["lineage"] != "FAIL":
+                r["lineage_ok"] = False
+                r["errors"].append(f"relation:target_verification_failed: {len(_unbelegt)} attached related "
+                                   "target(s) did not verify under their key (fail-closed)")
         # 3.1.2 fail-closed fix (audit 2026-07-13, sibling of the eval-path F4 hardening and the decision
         # template/expiry gates): a relying party who supplies expected_audience/expected_nonce is ASKING for
         # RFC-9901-§7.3-style replay/audience binding. If the receipt carries NO validity object (or a
@@ -965,6 +1104,25 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
                 r["errors"].append(
                     "nonce mismatch or absent validity.nonce — requested replay binding cannot be enforced "
                     "(replay?, fail-closed)")
+        # Step 10 of Section 3.2 of draft-gruszka-audit-decision-receipts-05 (finding B1, vector F5): where the
+        # relying party supplies the action bytes, their SHA-256 MUST equal proposedAction.parametersDigest.sha256.
+        # A receipt that names its parameters by reference only carries no digest the bytes could match, so given
+        # bytes fail it; supplied bytes are a requested binding, never a silent pass (as with --aud/--nonce).
+        if action_bytes is not None:
+            _pd = _as_dict(_as_dict(predicate.get("proposedAction")).get("parametersDigest")).get("sha256")
+            if _aktion is None:
+                r["action_bytes_ok"] = False
+                r["errors"].append("action bytes must be bytes — the requested action binding cannot be "
+                                   "checked (fail-closed)")
+            elif not (isinstance(_pd, str) and _SHA256_HEX.match(_pd)):
+                r["action_bytes_ok"] = False
+                r["errors"].append("action bytes supplied but the receipt carries no proposedAction.parametersDigest "
+                                   "— nothing binds them (step 10, fail-closed)")
+            else:
+                r["action_bytes_ok"] = hashlib.sha256(_aktion).hexdigest() == _pd
+                if not r["action_bytes_ok"]:
+                    r["errors"].append("action bytes do not match proposedAction.parametersDigest (step 10, "
+                                       "fail-closed)")
         # Nachtrag 49 K4-01 (`KRAXO-CLOUD-N49-ZEIT-UND-GUELTIGKEIT-01`, Z309): a declared validity.expiresAt is
         # part of the verdict, judged against ONE evaluation time — the `now` POSIX-seconds parameter when the
         # relying party supplies it, else the wall clock read once here (never an artifact time). An expired or
@@ -1019,6 +1177,75 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
                                    "evaluation time (fail-closed)")
             else:
                 r["freshness_ok"] = True
+        # Section 3.3 of draft-gruszka-audit-decision-receipts-05 (finding B3): the checks of the case the relying party
+        # chose, over authenticated bytes, at the one evaluation time T of this verify. An unknown case, a record that
+        # is no bytes, and a record given without the approval case fail closed.
+        if case is not None or approval_record is not None:
+            _t_mikro = (None if _eval_now_posix is None else round(_eval_now_posix * 1_000_000))
+            if _fall not in _FAELLE:
+                _gruende = [f"the case must be one of {list(_FAELLE)} (Section 3.3)"]
+            elif approval_record is not None and (_fall != "approval" or _freigabe is None):
+                _gruende = ["an approval record is checked under the approval case only, and as bytes"]
+            elif _fall == "approval":
+                _gruende = _fall_freigabe(predicate, _freigabe, _t_mikro)
+            else:
+                _gruende = _fall_abgelehnt(predicate)
+            r["case_ok"] = not _gruende
+            r["errors"].extend(f"case {_fall or '?'}: {g} (Section 3.3, fail-closed)" for g in _gruende)
+        # Section 4 of the draft (finding B4, Owner choice A on OA-616feb8f26): approvals are honoured at most once. The
+        # relying party supplies its consumption state (and, optionally, the copies of the approval it received); this
+        # verifier reads them, never writes them and never marks anything consumed. Judged only after Case 1 holds.
+        if consumed_state is not None or received_copies is not None:
+            from ._approval_record import (approval_identity, read_approval_record,  # noqa: PLC0415
+                                           read_consumption_state, read_received_copies)
+            _vgruende: list[str] = []
+            _beurteilt = True   # False: Case 1 does not hold, Section 4 applies after a pass only
+            if _fall != "approval" or approval_record is None:
+                _vgruende.append("a consumption state is checked under the approval case with its record only")
+            elif r["case_ok"] is not True:
+                _beurteilt = False
+            elif _verbrauch is None:
+                _vgruende.append("received copies or a state that is no bytes cannot be checked without the "
+                                 "consumption state (item 5)")
+            else:
+                _stand_gelesen, _grund = read_consumption_state(_verbrauch)
+                _a, _ = read_approval_record(_freigabe) if _freigabe is not None else (None, None)
+                _kennung = approval_identity(_a)
+                if _grund is not None:
+                    _vgruende.append(_grund)
+                elif _kennung is None:
+                    _vgruende.append("the approval record carries no approval identity (item 2)")
+                else:
+                    for _gen, _menge in (_stand_gelesen or {}).items():
+                        if _kennung in _menge:
+                            _vgruende.append(f"approval identity {_kennung} is already consumed in generation {_gen!r} "
+                                             "(items 1 and 4)")
+                    _a_d = _a if isinstance(_a, dict) else {}
+                    _bis = [_mikrosekunden(_a_d.get("validUntil"))]
+                    if received_copies is not None:
+                        _gelesen, _kgrund = read_received_copies(_kopien) if _kopien is not None else (
+                            None, "the received copies are no bytes (item 2)")
+                        if _kgrund is not None:
+                            _vgruende.append(_kgrund)
+                        else:
+                            # Every copy is read whole before it is matched (review 1 of the B1 to B4 series, finding
+                            # 4): a copy of any identity whose validUntil is not readable refuses, never disappears.
+                            for _i, _k in enumerate(_gelesen or []):
+                                _k_bis = _mikrosekunden(_k.get("validUntil"))
+                                if _k_bis is None:
+                                    _vgruende.append(f"received copy {_i} carries no validUntil of the draft's form "
+                                                     "(item 2)")
+                                elif approval_identity(_k) == _kennung:
+                                    _bis.append(_k_bis)
+                    _grenzen = [b for b in _bis if b is not None]
+                    if len(_grenzen) != len(_bis) or _t_mikro is None:
+                        _vgruende.append("a validUntil of the approval or its copies, or T, is not readable (item 2)")
+                    elif not _t_mikro < min(_grenzen):
+                        _vgruende.append("T is not earlier than the earliest validUntil of the approval identity "
+                                         "among the copies received (item 2)")
+            if _beurteilt:
+                r["consumption_ok"] = not _vgruende
+                r["errors"].extend(f"relying party, Section 4: REFUSE — {g}" for g in _vgruende)
 
     # Subject binding (Finding 05, release-review #4 parity with outcome.py): classify whether the subject
     # genuinely commits to the predicate so a consumer never gets ZERO signal on a subject-rehang override.
@@ -1239,7 +1466,9 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
         and r["audience_ok"] is not False and r["nonce_ok"] is not False
         and r["freshness_ok"] is not False
         and r["evidence_bound"] is not False and r["anchors_ok"] is not False
-        and r["subject_derived_ok"] is not False and r["lineage_ok"] is not False)
+        and r["subject_derived_ok"] is not False and r["lineage_ok"] is not False
+        and r["action_bytes_ok"] is not False and r["case_ok"] is not False
+        and r["consumption_ok"] is not False)
 
     # Finding 01 (additive): the STRICTER automation-safety verdict — policy_ok must be True, never merely
     # "not False" — never changes `ok` above.
@@ -1247,7 +1476,7 @@ def verify_decision_receipt(envelope: dict, public_key: bytes, *, strict: bool =
     r["automation"] = automation_summary(r, required_checks={
         "crypto": "crypto_ok", "structure": "structure_ok", "policy": "policy_ok",
         "references": ["evidence_bound", "audience_ok", "nonce_ok", "anchors_ok", "subject_derived_ok",
-                       "lineage_ok"],
+                       "lineage_ok", "action_bytes_ok", "case_ok", "consumption_ok"],
     })
     # Bug-hunt follow-up (3.6.2, P1): mirror the eval-path SIGNER_NOT_PINNED bar (bundle.py:617-619) onto
     # the decision automation surface. automation_summary carries NO signer dimension, so a crypto-valid

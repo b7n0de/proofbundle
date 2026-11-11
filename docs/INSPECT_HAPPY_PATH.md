@@ -1,5 +1,32 @@
 # From an Inspect AI run to a verifiable receipt — the happy path
 
+**Turn an Inspect AI eval into a signed receipt that anyone can check offline.**
+
+You run your eval as usual. A hook writes a signed receipt into the current directory, you publish the receipt with your result, and a reader verifies it with one command and no network. The check confirms that the reported numbers were signed and have not changed since, not that they are true. Whether you should trust the signer depends on a public key you obtained from a source you trust.
+
+## Try it
+
+These are the guide's three steps, but they are not one block to paste all at once. You need an Inspect AI task and a configured model. Run the eval first, then replace `proofbundle_receipt_<eval_id>.json` in the final command with the actual receipt path printed by the hook.
+
+```sh
+pip install "proofbundle[eval,inspect]"
+PROOFBUNDLE_EMIT=1 PROOFBUNDLE_THRESHOLD=0.9 inspect eval my_task.py --model <model>
+proofbundle verify proofbundle_receipt_<eval_id>.json
+```
+
+`0.9` is only an example threshold. Replace `my_task.py` and `<model>` with your own task and model.
+
+## Good to know
+
+- Without `PROOFBUNDLE_THRESHOLD` the hook writes no receipt and prints why.
+- Without `PROOFBUNDLE_KEY` every run signs with a new temporary key. Keep one key for every receipt you share, and share the key that verifies them.
+- An error in the hook never fails your eval.
+- The `inspect` extra installs inspect_ai from 0.3.112 up to 0.3.288, the last version measured with the hook.
+
+The [technical details](#technical-details) follow below, step by step, with a tamper demo you can show your team.
+
+## Technical details
+
 You run an eval with [Inspect AI](https://inspect.aisi.org.uk/), get a signed receipt in the current directory
 by default, attach the receipt to your paper or model card, and any reader verifies it offline in one
 command. Nothing here is a claim about truth. A receipt proves which key signed the reported bytes and

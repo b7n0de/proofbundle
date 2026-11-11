@@ -1,5 +1,7 @@
 # Cross-Implementation Report (3.2.0 O8)
 
+**Where an independent Rust verifier agrees with the Python one, and what it does not cover yet.** This page is for reviewers who want a second implementation as a check. The Rust verifier is read-only and experimental and reproduces a measured part of the conformance corpus, and the current state comes from `scripts/rust_parity_gate.py`. Agreement between the two does not show that any recorded claim is true.
+
 **Machine-checked as of Finding 11 (2026-07-15):** this file is prose, and prose drifts — it did, in
 practice, before this note existed (a new Python `verify_*` surface can ship with nobody remembering to
 update the tables below). The **live, re-checked-every-run source of truth is
@@ -94,7 +96,7 @@ an OPTIONAL layer, not the primary trust — with Sigsum / RFC 3161 / transparen
 `pb_verify_rs verify-bundle`, `verify-relation` and `verify-relation-statement` read their words with argparse's
 rules (Z381). Two forms stay different from the Python CLI by decision, and each is a contract, not a gap:
 
-- **R1.** A help word in a verify command (`-h`, `--help` or an abbreviation such as `--he`, also after the path)
+- **R1.** A help word in a verify command (`-h` or `--help`, also after the path)
   makes the Python CLI print its help and exit 0 without verifying anything, while `pb_verify_rs` exits 2, so an
   exit 0 after a help word is never a verdict.
 - **R2.** An option that only the Python CLI carries out (`--json` and `--policy` on `verify-bundle`, `--strict`
@@ -109,6 +111,12 @@ for the Python CLI and a number for `pb_verify_rs`; under 3.14 a digit of Unicod
 number for the Python CLI and a usage error (exit 2) for `pb_verify_rs`. The earlier relation form, the key as a word
 after the path without `--pub`, is still read by `pb_verify_rs` and refused by the Python CLI with exit 2. It is a
 residual of Z381 named in `docs/release_scope/6.4.0.md`, not a contract.
+
+**R3, a difference to be closed, not a contract.** Since 6.6.0 every parser of the Python CLI is built with
+`allow_abbrev=False`, so an abbreviated long option such as `--expected-r` for `--expected-root` or `--allow-p` for
+`--allow-pending` exits 2. `pb_verify_rs` still reads such an abbreviation as argparse with `allow_abbrev=True` does
+(`tools/pb_verify_rs/src/main.rs`, Z381), and `tools/pb_verify_rs/tests/py_grammatik.rs` still records the earlier
+Python reading as its expectation. The Rust verifier follows as an item of its own, and R3 is removed with it.
 
 ## Pending — NOT yet covered by the Rust verifier (honest scope)
 

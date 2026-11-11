@@ -31,6 +31,7 @@ proofbundle (https://proofbundle.dev).
 | `proposal_decision_receipt.cddl` | Our proposal, one parameter for the `$$event-policy-decision-ext` socket of tool-invocation-00. Not part of any draft. |
 | `out/` | The files `make_example.py` writes, as produced. |
 | `SHA256SUMS` | The SHA-256 of every file above. |
+| `real_session/` | Part 2, a recorded session of a real coding agent behind the proofbundle guard, with the two receipts the guard signed in it; see its README. It has its own SHA256SUMS. |
 
 In `out/`, `vcon.converted.json` and `conversion-report.json` are the converter's output for the sample;
 `vcon.unsigned.json` is the vCon with the gate party and the attachments; `vcon.payload.json` holds the bytes

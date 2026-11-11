@@ -5931,6 +5931,154 @@ its key joined (`-S<key>`). Measured at e7ffa935 on 2026-10-24 in the work profi
 git line that names gpgsign, or that begins with -S or --gpg-sign, is the door of a signature now, also one that sets
 gpgsign false: a release frees less, never more. H5 does not read git: a git line already asks or needs a card.
 
+A second neighbour in the same rule, the spelling of an option (DELTA-GUARD-SIGNATUR-BUENDEL-20261110-01, 2026-11-10):
+_release_door_words already read `--force...`, a short bundle with f, `-S<key>` and `--gpg-sign...` (the paragraph
+above), but compared the other options in their full spelling only, while git takes a long option by any prefix that
+names it alone, a short one inside a bundle, and the targets of a push also from its configuration. Measured with git
+2.55.0 in throwaway repositories, where a stand-in signing program records each call and exits with failure, so no
+signature is made: `commit -qS` and `-aS` call it (`-mS` does not, its message is S), and so do `--gpg`, `--gpg-s` and
+`--gpg=<key>`; `push --signed`, `--sign`, `--si` and `--signed=if-asked` call it for the push certificate,
+`--no-signed` does not; `push --tag` sends the tags, `push --follow` follows them, `push --mirro` and
+`--mir` mirror; `-c push.followTags=true` sends the tags, `-c remote.<name>.mirror=true` mirrors,
+`remote.<name>.push=refs/tags/*:refs/tags/*` sends the tags, `remote.<name>.push=+HEAD:refs/heads/main` forces the
+update that the same refspec without `+` is refused; `push --forc` is refused as ambiguous. gh takes no abbreviated
+flag (`gh pr merge --adm`: unknown flag), so --admin stays read in its full spelling. At 5bdf225d each of these lines
+passed _release_door as no door, so a release of D119 let it run.
+
+The rule now (_git_long_option, _git_short_bundle, _git_push_config_door): a long option counts in every prefix git
+can take, the ambiguous ones included; a short option counts in every bundle that holds it, also after a letter that
+takes the rest as its value; push and tag count at any place after a git word, since a quoted option value with a
+blank (`git -c 'user.name=John Doe' push --tag z`) shifts the subcommand in the split words, and `tag <name>` in a
+push's refspecs sends a tag, and so does a wildcard refspec (`'refs/*:refs/*'`) and a name below tags/
+(`tags/v1`); git send-pack and git http-push are read as push is, with --force, --mirror and --signed, and each of
+them is at least the door of a tag, since house rule H2 does not read them and they take a tag by its short name
+(`git send-pack ../z.git v1`); a program of git's exec path is read as its subcommand as well (`/usr/lib/git-core/git-push
+--mirro z`, `git-commit -qS`), noted beside the words by its index: the words stay as written, an option is
+never taken for a program, and no word is inserted (the fourth form replaced the word and read `-S/tmp/git-key`
+as the program git-key, the fifth inserted `git <name>` and moved the value of `gh -R b7n0de/git-repo`, so `release`
+was no longer gh's subcommand; both lost a door main had read, and the local reviews of those forms found
+them, now kept as cases); a push started from the exec path is at least the door of a tag, as H2 does not
+read it; push.followTags in the line's text is the door of a tag, and any key of
+remote.<name>.push or remote.<name>.mirror in the line's text is the door of a forced push, whatever its value and
+wherever it is set (-c, git config, GIT_CONFIG_PARAMETERS, GIT_CONFIG_KEY_<n>, --config-env in either form).
+So is a key that chooses the target of a push without a refspec, branch.<name>.merge, .remote and .pushRemote,
+push.default and remote.pushDefault (local review of 1018aa84, open at main as well:
+`-c push.default=upstream -c branch.main.merge=refs/tags/x push` sends a tag), and a configuration the line brings in
+from a file it does not show: include.path, includeIf.<condition>.path, GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM, HOME and
+XDG_CONFIG_HOME. Measured with git 2.55.0, each of them with remote.origin.push=refs/tags/*:refs/tags/* in the file
+makes `git push origin` send the tag, and an include with commit.gpgSign makes `git commit` sign. The shell sets
+these variables in more forms than `NAME=` (local review of 698f882b, open at main as well: `GIT_CONFIG_GLOBAL+=f`,
+`printf -v GIT_CONFIG_GLOBAL %s f`, `read XDG_CONFIG_HOME`, `${HOME:=f}`), so every mention of one of their names
+counts except a plain read of its value (`$HOME`, `${HOME}`); and a key of the configuration the line sets in a form
+this rule cannot read counts as well: GIT_CONFIG_KEY_<n> or GIT_CONFIG_PARAMETERS named otherwise than by `NAME=`
+or in a line with an expansion anywhere, a key of `-c` or `--config-env` with an expansion or a pattern before its
+first `=` (`printf -v K %s%s incl ude.path; git -c "$K=f" push` brings in the file f), and a name that export, declare,
+typeset, local, readonly, read, mapfile or printf -v gets through an expansion (`export ${N}BAL=f`). An expansion is
+every form the gate does not resolve (_RELEASE_EXPANSION, backquotes included): the local review of 06d45152 found
+that a rule which looked for `$` alone missed `` git -c "`printf %s%s incl ude.path`=f" push ``, and that the value of
+GIT_CONFIG_PARAMETERS holds blanks once quoted.
+
+The class these forms belong to, closed as a class (local review of 5f569e59, open at main as well, after three
+reviews in a row that each found one more instance: `command export ${N}BAL=f`, `env "${N}BAL=f" git push`,
+`git "$C" "${K}ude.path=f" push`): an expansion the gate does not resolve may stand for any word. In a line that runs
+git (or a program of its exec path), gh, a publisher, a signer, ssh-keygen, openssl or twine it may therefore name any
+door, as a configuration, a subcommand (`S=push; git $S --mirror z`) or an option (`O=-S; git commit $O -m x`). Such a
+line is held back as the door `unread`, after every door its words name, so a line keeps the door it names. The named
+cost: `git push origin "$BRANCH"` and `git -C "$DIR" status` are held back too, although most values open no door; a
+line that runs none of these programs (`printf '%s' "$PWD"`) is not. A brace expansion of more words than the gate
+reads (_SH_BRACE_MAX, 64) is such a word as well (local review of 97b77526, open at main as well:
+`git push --ta{,}{,}{,}{,}{,}{,}{,} z` makes 128 words `--ta` and sends the tags); at the limit the words are read
+and keep their own door. So is every brace form the gate does not model (local review of 87bc823c, open at main as
+well: `--ta{g..g..1}`, a range with a step, is `--tag`): a word that still holds a brace with a comma or `..` after
+the gate's expansion was formed by a rule the gate does not know. The mark of such a word stands as a word of its own
+at the end of the line, never joined to a word: joined to the last word of `env {X{0..0..1}=,git} push --mirror z`
+it made `git` unreadable and lost the door main reads (local review of 8511dc09, a regression of the fifteenth form,
+now kept as cases). A line with that mark is held back also where the unread word is the program itself
+(`gi{t..t..1} push --tags z`). A word bash forms from file names is one too (local review of 516d4490, open at main
+as well: `/usr/bin/g[i]t push --mirror z` mirrors, `touch ./--tags; git push --ta[g]s z` sends the tags): a word with
+a pattern outside quotes in a line of a door program, or one that may itself name a door program, holds the line
+back as unread after every other reading, so D102 keeps its reading of a root or signer pattern. The pattern is
+read in every form the shell gives the line before it expands it (local review of f9c16c41, open at main as well):
+after the brace expansion (`/usr/bin/{g..g}[i]t`) and, where a program reads the text again
+(`bash -c '/usr/bin/g[i]t push --mirror z'`), without the quotes the outer shell removes. Whether a text is read
+again is one test, _release_reads_again, which _release_assembled uses as well (local review of 3c79f5e0: the rule
+had built a narrower test of its own and missed `echo "$(/usr/bin/g[i]t push --mirror z)"` and `b''ash -c '...'`).
+A pattern in the place of the program holds the line back whatever names it may match (local review of c3ae95a6,
+open at main as well: `/usr/lib/git-core/g[i]t-push --mirror z` runs git's push); D102 reads a root or signer pattern
+before it. A line longer than 16384 characters is not read and is held back as unread (_RELEASE_READ_MAX, local
+review of 770a375a): several searches of this reader rescan the rest of a line from each start of a key, and a line
+of 630021 characters with `remote.` repeated took them beyond the 120 seconds of the Bash hook, where main answered
+at once. A word longer than 256 characters that would go to a helper working a word as a whole, the search for a brace or
+the comparison of D102, is not handed to it and holds the line back as unread (_RELEASE_WORD_MAX, local review of d9ff9a8c: a word of stars, of `${` or of `{` and commas took
+the search for a brace or the comparison of D102 seconds to minutes). The same holds for the program word the reader of
+an unresolved program word compares (a line of 16000 stars took that comparison beyond 60 seconds, at main as well). An
+ordinary argument longer than 256 characters that goes to no such helper stays releasable (measured at 14bb5be4: a
+title of 300 characters behind `gh pr edit` reads as no door). The comparison of D102 itself stays as at main. The reader asks it about a pattern word of a comment or an argument only
+where the word has no bracket expression and no backslash, with each run of stars joined to one star; any other pattern
+word holds the line back as unread. Four local reviews (7411ab31 to 4673bbd4) found that each change to the comparison,
+to read such words in time, cost time or memory elsewhere in it: wide ranges, repeated ranges and many disjoint ranges.
+The bound holds for every text the reader searches, also for the text the brace expansion makes of a line
+under it (local review of c8736cd8: 15444 characters became 985684). Within the bound no search of the reader tries
+every split of a run between two of its parts, and none reads the rest of a line again at each character (local review
+of 0692fed6: `-c` and 16000 blanks took 1.9 seconds where main took five thousandths; the probe of the next round found
+the reader of pattern words splitting the rest of the line at every character). The keys of a push and of an include
+and the expansions of a line are found by reading the line once, where a lazy expression searched the rest of it
+again from each start (local review of aa29242d and the scaling probe of the round after it). The named cost: a long
+line that names no door is held back too. A program the line takes from a file,
+by PATH or GIT_EXEC_PATH, is not read here, as no text of a file the line runs is (_release_unresolved_door).
+`git push --signed` and its prefixes are the door of a signature, and so is a signing option given as the value of
+a word (`git -c branch.main.mergeOptions=-S merge topic`, `GIT_CONFIG_VALUE_0=-qS` for that key): the part after the
+first `=` of a word is read as a word of its own for the signature (local review of the seventh form, open at main
+as well). A release frees less, never more.
+
+The owner's decision on the cost of this rule (2026-11-11, option A). The review of 44715d92 assessed the reported
+additional CPU time and Python allocation. For a comment line of 16383 characters, round 34 reported 0.041041 s
+against 0.012690 s of process CPU time and a Python allocation peak of 1,347,876 against 755,486 bytes. The external
+review did not repeat those resource measurements. The comparisons reported for 44715d92 found no transition from a
+door read at main to no door. Inspection of the limit-rejection paths and their visible callers showed that those
+paths retain a door rather than permit a card release; this was not a complete-hook integration test. The final-head
+release-flow tests and the bounded resource run over the complete hook remain to be demonstrated in F2 before landing.
+Under the earlier criterion, that this rule be no worse than main in run time and memory either, it would not land. On
+2026-11-11 at 08:14:37Z the owner chose option A in the wording proposed by the review, with F2 before landing and
+level S with counter-reading and witness, quoted here as written:
+
+<!-- proofbundle:verbatim-quote:begin -->
+- Option 1: A: Den dokumentierten CPU- und Speichermehrbedarf sowie die benannten zusätzlichen Zurückhaltungen als Preis der erweiterten Türerkennung akzeptieren. Keine zuvor durch eine eigene Tür des Inhabers gesperrte Zeile darf durch eine Kartenfreigabe ausführbar werden. Die Lesegrenze von 16384 Zeichen und die 256-Zeichen-Grenze der dafür bezeichneten Helfer bleiben erhalten. Die bisherigen Vergleichs- und Skalierungsläufe sind Stichproben, kein allgemeiner Nachweis linearer Laufzeit oder vollständiger Türerkennung. Vor der Landung werden die relevanten Regressionstests einschließlich der Freigabeabläufe am endgültigen Kopf sowie ein begrenzter Ressourcenlauf über den vollständigen Hook nachgewiesen. Stufe S mit Gegenlesung und Zeuge bleibt bestehen. Bereits an main offene Formen bleiben im Folge-PR für Plugin 0.4.1 und blockieren 510 nicht allein deshalb.
+<!-- proofbundle:verbatim-quote:end -->
+
+In English: accept the documented additional CPU time and memory and the named additional hold-backs as the price
+of the wider door reading. No line that one of the owner's own doors held back before may become runnable through a
+card release. The read bound of 16384 characters and the bound of 256 characters for the helpers named for it stay.
+The comparison and scaling runs so far are samples, no general proof of linear run time or of complete door reading.
+Before the landing, the relevant regression tests including the release flows are shown at the final head, and a
+bounded resource run over the whole hook. Level S with counter-reading and witness stays. Forms already open at main
+stay in the follow-up pull request for plugin 0.4.1 and do not block this change for that reason alone.
+
+Why no value of remote.<name>.push is read: the first two forms of this rule took the value from the line and freed a
+plain refspec, and the local reviews of each found a value git reads otherwise (by an index or another variable, the
+last of two assignments, `.push=` inside a quoted remote name, an expansion inside the value as in `refs/$KIND/v2`, a
+short name git expands to a tag as in `remote.z.push=v1`). A refspec is resolved against the repository and the
+environment, which this rule sees neither of. The named cost: a plain refspec set by configuration is held back
+although git opens no door with it; three such lines are cases of the tests, and a line that moves the global file
+without such a key (`GIT_CONFIG_GLOBAL=/dev/null git push origin claude/x`) is a fourth, and a line that names one of
+those variables in a text (`git commit -m 'fix the HOME page'`) is a fifth.
+
+A short tag name (`git push z v1`, `v1:another`) is not read from the words: house rule H2 reads it from the
+repository (house_tag_out), and D119 takes that reason as the door of a tag; measured on 2026-11-10 at the third local
+review, decide() named house_tag_out for both lines. The words alone do not read a short tag name of a push whose directory
+the gate cannot name; that stays with H2, named here as not covered by these words.
+
+Counter cases, each without a door before and after: commit -s, -qm, -am and --no-gpg-sign; push -u,
+--set-upstream, --no-signed and --no-force; a push behind `-c 'user.name=John Doe'`. Of the 116 door
+lines of the tests, 106 also run through real git in throwaway repositories, which shows that git calls the signing
+program, sends a tag, mirrors or forces the update; the others, among them `push --forc`, which git refuses, and a
+local `git tag`, whose tag no remote receives, are read by the release reader only. A subcommand under another name is
+held back where the line itself names it: an alias the line sets (`-c alias.p=push`) or the autocorrection it
+switches on (`-c help.autocorrect=immediate puhs --mirro z`, found by the local review of the eighth form, open at
+main as well) makes the line the door of a forced push. Not covered, and named: an alias or an autocorrection from
+the configuration of the repository or the person, which the words of the line do not show.
+Tests: tests/test_plugin_n49_release_once_d119.py (every spelling git takes).
+
 The grammar of these programs is read from their manuals (gpg 2.4 and the others as their authors document them); no
 door form was run here. Not covered, and named: a door the shell builds (`$T upload`, a program in a variable); code an
 interpreter runs that uploads or signs (`python -c`, a script); the signing configuration of a repository that signs a

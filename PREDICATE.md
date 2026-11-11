@@ -1,5 +1,7 @@
 # Predicate type — `https://b7n0de.com/proofbundle/eval-receipt/v0.1`
 
+**The in-toto predicate type proofbundle uses for an eval receipt, and what its subject digest means.** This page is for anyone who reads proofbundle receipts with in-toto tooling. Its subject digest is a salted commitment to the model identifier, not the hash of an artifact. The claim inside the receipt is specified in [EVAL_CLAIM.md](EVAL_CLAIM.md).
+
 A self-hosted in-toto **predicate type** for an eval receipt. A self-hosted `predicateType` URI is fully
 [in-toto Statement v1](https://github.com/in-toto/attestation/blob/main/spec/v1/statement.md)-conform and
 the right choice for a solo v0.x — no official in-toto/attestation PR is needed. The URI must uniquely

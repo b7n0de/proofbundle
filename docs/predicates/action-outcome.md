@@ -48,7 +48,7 @@ action-outcome statement  (executor + status + effect + notProven; own detached 
 `decisionRef.sha256` is the **content root** of the referenced Decision Receipt — SHA-256 over its exact
 RFC-8785 canonical Statement bytes, never a re-canonicalized recomputation and never the bare predicate hash.
 `verify_outcome_receipt(..., expected_decision_ref=...)` fails closed when the embedded `decisionRef` does not
-equal the caller's expected content root (`decision_bound`). An optional `requestedActionDigest` pins the exact
+equal the caller's expected content root (`decision_bound`). The required `requestedActionDigest` pins the exact
 proposed action; `effectDigest` / `actualActionDigest` pin the observed effect. Neither predicate semantically
 mixes into the other.
 
@@ -108,8 +108,13 @@ the crypto step fails:
    NOT accepted); or **C** `trust_pack_pinned=True` + `trust_pack_pinned_digest == sha256(JCS(predicate))` (a
    bare `trust_pack_pinned=True` alone is NOT accepted). Without a matching anchor `executor_role_trusted` is
    `False` and the outcome's aggregate is blocked with `TRUST_PACK_NOT_ANCHORED` (see `trust-pack.md` §5 and
-   `outcome.verify_outcome_receipt`'s docstring for the exact parameters). The check binds `executor.keyId`,
-   not `executor.id`: the pack names no identifier per key (§7).
+   `outcome.verify_outcome_receipt`'s docstring for the exact parameters). The check binds `executor.keyId`.
+   It binds `executor.id` only where the pack's entry for that key names `executorIds` (6.6.0,
+   `trust-pack.md` §3): `executor.id` MUST then be one of them, otherwise `executor_id_bound` is False,
+   `executor_role_trusted` is False and the outcome is blocked with `EXECUTOR_ID_NOT_ATTESTED`. A key entry
+   without `executorIds` binds no identifier: `executor_id_bound` stays `None`, the warning
+   `EXECUTOR_ID_NOT_BOUND` says that `executor.id` is the signer's own statement, and the verdict is unchanged
+   (§7).
 
 Read the aggregate verdict, never an individual field alone. `status = refused` / `failed` are first-class,
 honest outcomes (a refusal is a valid, signable outcome — not an error to hide).
@@ -143,19 +148,28 @@ override / tamper / malformed subject, fail-closed `matches = False`). See
 
 ## 7. Open (honest, not yet built)
 
-- Independent attestation of `executor.id` is NOT built. `verify_outcome_receipt(..., trust_pack=...)` checks
-  `executor.keyId` against the pack's `outcomeExecutors` role and binds that key id to the signing key (§5.8);
-  a Trust Pack names no identifier per key, and no verify path compares `executor.id` with anything but
-  `decision_maker_id` (§5.5). An anchored executor key can therefore sign an outcome under any `executor.id`
-  it writes, and each such outcome reports `executor_role_trusted` True, so role separation holds only
-  against a signer that keeps to its own name. `executor.id` is the outcome signer's own statement. The
-  binding of an identifier per executor key, compared with `executor.id`, is scheduled for 6.6.0. A LIVE
-  registry / DID anchor that DISCOVERS and fetches the right Trust Pack for a given executor automatically
-  is further future work.
-- The outcome checks of draft-gruszka-audit-decision-receipts-05 that need an input proofbundle does not take
-  are NOT performed: `verify_outcome_receipt` and `proofbundle outcome verify` take no effect bytes to compare
-  with `effectDigest` (section 3.4 step 6) and no expected `executor.id` (section 3.4 step 5). Both inputs are
-  scheduled for 6.6.0; see `docs/NON_CLAIMS.md`.
+- `executor.id` is bound to the signing key only as far as a Trust Pack names it.
+  `verify_outcome_receipt(..., trust_pack=...)` checks `executor.keyId` against the pack's `outcomeExecutors`
+  role and binds that key id to the signing key (§5.8). Since 6.6.0 a key entry may carry `executorIds`; an
+  anchored executor key then attests only those identifiers, and an outcome under another `executor.id` is not
+  trusted. A key entry without `executorIds` binds no identifier: an anchored executor key can then sign an
+  outcome under any `executor.id` it writes, each such outcome reports `executor_role_trusted` True with the
+  warning `EXECUTOR_ID_NOT_BOUND`, and role separation holds only against a signer that keeps to its own name.
+  Even a named identifier is a permission the pack grants to the key, not proof that the signer is that
+  executor or observed its effect: an outcome signer may be an observer (draft-gruszka-audit-decision-receipts,
+  section 3.1). `expected_executor_id` (`--executor-id`) compares `executor.id` with the identifier the relying
+  party expects, and `decision_maker_id` with the decision maker's (§5.5), both as statements the relying party
+  makes. A LIVE registry / DID anchor that DISCOVERS and fetches the right Trust Pack for a given executor
+  automatically is further future work.
+- The outcome checks of draft-gruszka-audit-decision-receipts that need an input run only when the relying party
+  supplies it: the expected `executor.id` (section 3.4 step 5, `expected_executor_id`, `--executor-id`), the
+  effect bytes (step 6, `effect_bytes`, `--effect`) and the bound decision receipt with its key and the expected
+  `decisionMaker.id` (steps 4, 5 and 7, `decision_envelope`, `decision_public_key`, `decision_maker_id`,
+  `--decision`, `--decision-pub`, `--decision-maker-id`). The bound decision is checked at the evaluation time
+  (`now`, `--verification-time`), and without one at the wall clock. The executed case (`case="executed"`,
+  `--case executed`) requires the expected `executor.id` and the bound decision with its key and the expected
+  `decisionMaker.id`; the effect bytes stay optional in it. Without these inputs a pass is not a pass of the
+  draft's procedure; see `docs/NON_CLAIMS.md`.
 - ~~Third-party corroboration of an outcome (the "overwhelmingly executor-self-attested" gap, Finding 16)~~
   — SELF-FIXABLE PART CLOSED: `receiverRefs[]` (digest-bound, mirrors `evidenceRefs[]`) +
   `assurance.classify_receiver_corroboration` (capped at `CONTENT_RESOLVED`; `INDEPENDENTLY_ATTESTED` is NOT
