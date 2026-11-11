@@ -634,6 +634,36 @@ def _git_oracle(tmp_path: pathlib.Path, line: str) -> set:
             if seen}
 
 
+#: The pieces whose repetition made a search of the release reader rescan the rest of the line from each start (local
+#: review of 770a375a, P2, measured with lines of 200000 characters: each took seconds to minutes where main took
+#: milliseconds).
+_RUNTIME_PIECES = ["remote.", "branch.", "includeif.", "-c ", " -c a", "--config-env ", "${", "$(", "bash -c "]
+
+
+@pytest.mark.parametrize("piece", _RUNTIME_PIECES)
+def test_a_line_at_the_read_bound_is_read_in_time_and_held_back(piece):
+    """At the bound the reader still reads the line, in a few seconds at most, and the signature the line names
+    holds it back."""
+    head = "git commit -S -m x # "
+    command = head + piece * ((gate._RELEASE_READ_MAX - len(head)) // len(piece))
+    assert len(command) <= gate._RELEASE_READ_MAX
+    start = time.monotonic()
+    door = gate._release_door_words(command)
+    assert time.monotonic() - start < 20
+    assert door is not None
+
+
+@pytest.mark.parametrize("piece", _RUNTIME_PIECES + ["a"])
+def test_a_line_above_the_read_bound_is_held_back_unread_at_once(piece):
+    """Above the bound the line is not read: it is the door unread at once, which no card frees. With "a" the line
+    names no door, the named cost of the bound."""
+    command = "git commit -S -m x # " + piece * (gate._RELEASE_READ_MAX // len(piece) + 1)
+    start = time.monotonic()
+    assert gate._release_door_words(command) == "unread"
+    assert time.monotonic() - start < 2
+    assert gate._release_door_words("echo " + "a" * gate._RELEASE_READ_MAX) == "unread"
+
+
 @pytest.mark.parametrize("command, door", SPELLINGS + KEPT + KEPT_WORDS + WORDS_ONLY + [c[:2] for c in CONFIG_HELD] +
                          OVERCOUNT)
 def test_every_spelling_git_takes_is_the_door_it_opens(command, door):

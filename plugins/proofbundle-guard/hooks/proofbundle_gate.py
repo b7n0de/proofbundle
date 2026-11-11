@@ -18168,6 +18168,15 @@ def _release_quote_parts(text: str) -> str:
     return "".join(out)
 
 
+#: The longest line the release reader reads (local review of 770a375a, P2). Several searches of this reader rescan
+#: the rest of a line from each start of a key, so their work grows with the square of its length: a line of 630021
+#: characters with `remote.` repeated took the reader beyond the 120 seconds of the Bash hook, where main answered at
+#: once, and so did `branch.`, `includeif.`, `-c `, `--config-env `, `${`, `$(` and `bash -c ` repeated. A line above this bound is
+#: not read and is held back as the door unread, which no card frees; at the bound each of those lines is read in a
+#: few seconds at most. The named cost: a long line that names no door is held back too.
+_RELEASE_READ_MAX = 16384
+
+
 def _release_door_words(command: str) -> str | None:
     """The door of the words of a line: of the line as written, and of the line as the shell assembles its words (an
     ANSI-C or locale part read where it has no escape and no text to translate, else not resolved; every quote and
@@ -18175,7 +18184,10 @@ def _release_door_words(command: str) -> str | None:
     quoted parts is read as the shell reads it (reading of G-2, part 8, P1, and the re-reading of its fix). A program
     word with an expansion the gate does not resolve counts as the door root where what is written of it may still
     be a program of _RELEASE_ROOT (_release_unresolved_root). Words that only the assembled line forms can hold a
-    release back too: a release frees less, never more."""
+    release back too: a release frees less, never more. A line longer than _RELEASE_READ_MAX is not read and is the
+    door unread."""
+    if len(command) > _RELEASE_READ_MAX:
+        return "unread"
     door = _release_door_words_split(command)
     if door is not None:
         return door
