@@ -6,9 +6,9 @@ This page identifies the audit records for 6.6.0 and explains their limits. It d
 
 ## Records
 
-The [findings register](../findings_register_361.json) is maintained separately from this directory. PLACEHOLDER: its canonical body is to be signed for version `6.6.0`; in this tree it is signed for version `6.5.0`. The signed findings-register check reads that register, rather than the counts displayed on this page.
+The [findings register](../findings_register_361.json) is maintained separately from this directory. Its canonical body is signed for version `6.6.0`. The signed findings-register check reads that register, rather than the counts displayed on this page.
 
-PLACEHOLDER: the signed register reports N register entries for version `6.6.0`, with N closed, N open and N open P0 or P1 entries under the maintainer's classifications. Against 6.5.0 it adds PLACEHOLDER, removes PLACEHOLDER and changes the content of PLACEHOLDER. These totals count register entries only.
+The signed register reports 42 register entries for version `6.6.0`, with 28 closed, 14 open and no open P0 or P1 entries under the maintainer's classifications. Against 6.5.0 it adds one entry, `PIN-CASE-RED-FROM-TAG-UNTIL-PIN-COMMIT-02`, removes none and changes the content of one, `PIN-CASE-RED-FROM-TAG-UNTIL-PIN-COMMIT-01`, whose window closed with pull request 494. These totals count register entries only.
 
 The pre-tag receipt is to be produced from a fresh checkout of the final release-preparation head with `scripts/pre_tag_receipt.py`, version `6.6.0` and `--out audit_artifacts/660/pre_tag_receipt_v6.6.0.json`. The configured audit command runs while the receipt context is produced. Its command and exit status are recorded before signing. Since 6.6.0 the release gate rejects a receipt folder that holds a rejected candidate beside a valid receipt, so this directory holds no other file named like a receipt.
 
@@ -22,7 +22,7 @@ The pre-tag receipt is to be produced from a fresh checkout of the final release
 | Reference measurement of the budget cost axis | PLACEHOLDER: measured on the reference machine on DATE using the code at COMMIT; the counts of expected axes and combinations that passed and of skipped axes, from [the measurement record](../360/budget_axis_latest.json) |
 | Short soak at the release candidate (C6.2) and Rust differential (C8.2), signed and bound to the candidate | Pending |
 | Full 24-hour soak (C6.3) | Informative since 6.6.0; it runs beside the release and does not withhold readiness |
-| Findings register signed for 6.6.0 | Pending; PLACEHOLDER until its canonical body is signed for version `6.6.0` |
+| Findings register signed for 6.6.0 | Recorded; its canonical body is signed for version `6.6.0` |
 | Paths named twice at the final release head | The final-tree check must be recorded before the pre-tag receipt is produced; its completion is not established by this page. |
 
 ## Verification and limits
