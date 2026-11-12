@@ -1,0 +1,1230 @@
+{
+ "recorded": {
+  "gate_commit": "ebda917b7a27dcf78e85de39c76b0e30fb894115",
+  "how": "record() of tests/test_plugin_verdict_first_d136.py called with the gate file of that commit, loaded as a module of its own, in a plugin test module (the caller's environment withheld), on 2026-11-12; the same call with the gate of the tree with D136 gave the same rows",
+  "policy_digest_held_at": "0000000000000000000000000000000000000000000000000000000000000000",
+  "verdict_first_defined": false
+ },
+ "rows": {
+  "claude:api_comment": {
+   "actions": [],
+   "decision": "ask",
+   "receipt_verdict": "ESCALATE",
+   "verdicts": [
+    [
+     "ask",
+     "net_unmodeled_git"
+    ]
+   ]
+  },
+  "claude:comment_after_cd": {
+   "actions": [],
+   "decision": "ask",
+   "receipt_verdict": "ESCALATE",
+   "verdicts": [
+    [
+     "ask",
+     "net_unmodeled_git"
+    ]
+   ]
+  },
+  "claude:comment_quoted_word": {
+   "actions": [],
+   "decision": "ask",
+   "receipt_verdict": "ESCALATE",
+   "statement": {
+    "_type": "https://in-toto.io/Statement/v1",
+    "predicate": {
+     "agent": {
+      "id": "agent:d136"
+     },
+     "decidedAt": "2025-11-12T00:00:00.000000Z",
+     "decision": {
+      "reasonCodes": [
+       "net_unmodeled_git"
+      ],
+      "verdict": "ESCALATE"
+     },
+     "decisionChangeConditions": [
+      {
+       "conditionType": "ruleChange",
+       "description": "a changed gate, mode or rule of the gate"
+      }
+     ],
+     "decisionId": "a-d136#1",
+     "decisionMaker": {
+      "id": "gate:d136"
+     },
+     "decisionType": "preActionAuthorization",
+     "evidenceRefs": [],
+     "inputSnapshot": [
+      {
+       "digest": {
+        "sha256": "7afe8f26babc3906a20e970fd58bc05decbcf8ba513341badee00d028c05cff8"
+       },
+       "mediaType": "text/markdown",
+       "name": "proposed bytes"
+      }
+     ],
+     "notChecked": [
+      {
+       "field": "content",
+       "impact": "an approved text can be wrong",
+       "reason": "the gate does not judge whether the text is true"
+      }
+     ],
+     "policyBoundary": {
+      "bundleRevision": "1",
+      "decisionPath": "outbound-gate/escalate-write",
+      "policyDigest": {
+       "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "policyEngine": "proofbundle-pilot/github-write",
+      "policyId": "outbound-gate-rules"
+     },
+     "principal": {
+      "id": "principal:d136"
+     },
+     "privacy": {
+      "rawInputsIncluded": false
+     },
+     "proposedAction": {
+      "actionType": "github.conversationComment",
+      "method": "write",
+      "parametersDigest": {
+       "sha256": "7afe8f26babc3906a20e970fd58bc05decbcf8ba513341badee00d028c05cff8"
+      },
+      "target": {
+       "name": "https://github.com/o/r/pull/1",
+       "uri": "https://github.com/o/r/pull/1"
+      }
+     },
+     "schemaVersion": "0.1.0",
+     "traceContext": {
+      "parentId": "t-d136",
+      "traceId": "s-d136"
+     },
+     "validity": {
+      "audience": [
+       "observer:d136"
+      ],
+      "expiresAt": "2025-11-12T00:10:00.000000Z",
+      "nonce": "a-d136#1"
+     }
+    },
+    "predicateType": "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1",
+    "subject": [
+     {
+      "digest": {
+       "sha256": "94f0391d89d19f818f5b6c4bf836316d8d0d4b0b9dbb1957392d301573a7ca02"
+      },
+      "name": "decision:a-d136#1"
+     }
+    ]
+   },
+   "verdicts": [
+    [
+     "ask",
+     "net_unmodeled_git"
+    ]
+   ]
+  },
+  "claude:gf_e001_comment": {
+   "actions": [],
+   "decision": "ask",
+   "receipt_verdict": "ESCALATE",
+   "statement": {
+    "_type": "https://in-toto.io/Statement/v1",
+    "predicate": {
+     "agent": {
+      "id": "agent:d136"
+     },
+     "decidedAt": "2025-11-12T00:00:00.000000Z",
+     "decision": {
+      "reasonCodes": [
+       "net_unmodeled_git"
+      ],
+      "verdict": "ESCALATE"
+     },
+     "decisionChangeConditions": [
+      {
+       "conditionType": "ruleChange",
+       "description": "a changed gate, mode or rule of the gate"
+      }
+     ],
+     "decisionId": "a-d136#1",
+     "decisionMaker": {
+      "id": "gate:d136"
+     },
+     "decisionType": "preActionAuthorization",
+     "evidenceRefs": [],
+     "inputSnapshot": [
+      {
+       "digest": {
+        "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881"
+       },
+       "mediaType": "text/markdown",
+       "name": "proposed bytes"
+      }
+     ],
+     "notChecked": [
+      {
+       "field": "content",
+       "impact": "an approved text can be wrong",
+       "reason": "the gate does not judge whether the text is true"
+      }
+     ],
+     "policyBoundary": {
+      "bundleRevision": "1",
+      "decisionPath": "outbound-gate/escalate-write",
+      "policyDigest": {
+       "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "policyEngine": "proofbundle-pilot/github-write",
+      "policyId": "outbound-gate-rules"
+     },
+     "principal": {
+      "id": "principal:d136"
+     },
+     "privacy": {
+      "rawInputsIncluded": false
+     },
+     "proposedAction": {
+      "actionType": "github.conversationComment",
+      "method": "write",
+      "parametersDigest": {
+       "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881"
+      },
+      "target": {
+       "name": "https://github.com/o/r/pull/1",
+       "uri": "https://github.com/o/r/pull/1"
+      }
+     },
+     "schemaVersion": "0.1.0",
+     "traceContext": {
+      "parentId": "t-d136",
+      "traceId": "s-d136"
+     },
+     "validity": {
+      "audience": [
+       "observer:d136"
+      ],
+      "expiresAt": "2025-11-12T00:10:00.000000Z",
+      "nonce": "a-d136#1"
+     }
+    },
+    "predicateType": "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1",
+    "subject": [
+     {
+      "digest": {
+       "sha256": "223aac7790d5b3729452bcbbff16fc4fdbc4e134035338410b256945db446731"
+      },
+      "name": "decision:a-d136#1"
+     }
+    ]
+   },
+   "verdicts": [
+    [
+     "ask",
+     "net_unmodeled_git"
+    ]
+   ]
+  },
+  "claude:mcp_pull_request": {
+   "actions": [
+    "MCP mcp__github__create_pull_request"
+   ],
+   "decision": "ask",
+   "receipt_verdict": "ESCALATE",
+   "statement": {
+    "_type": "https://in-toto.io/Statement/v1",
+    "predicate": {
+     "agent": {
+      "id": "agent:d136"
+     },
+     "decidedAt": "2025-11-12T00:00:00.000000Z",
+     "decision": {
+      "reasonCodes": [
+       "mcp_target_unbound"
+      ],
+      "verdict": "ESCALATE"
+     },
+     "decisionChangeConditions": [
+      {
+       "conditionType": "ruleChange",
+       "description": "a changed gate, mode or rule of the gate"
+      }
+     ],
+     "decisionId": "a-d136#1",
+     "decisionMaker": {
+      "id": "gate:d136"
+     },
+     "decisionType": "preActionAuthorization",
+     "evidenceRefs": [],
+     "inputSnapshot": [],
+     "notChecked": [
+      {
+       "field": "content",
+       "impact": "an approved text can be wrong",
+       "reason": "the gate does not judge whether the text is true"
+      },
+      {
+       "field": "proposedAction",
+       "impact": "an effect cannot be matched to this decision by them",
+       "reason": "the gate does not resolve the target or the bytes of this form"
+      }
+     ],
+     "policyBoundary": {
+      "bundleRevision": "1",
+      "decisionPath": "outbound-gate/escalate-write",
+      "policyDigest": {
+       "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "policyEngine": "proofbundle-pilot/github-write",
+      "policyId": "outbound-gate-rules"
+     },
+     "principal": {
+      "id": "principal:d136"
+     },
+     "privacy": {
+      "rawInputsIncluded": false
+     },
+     "proposedAction": {
+      "actionType": "github.pullRequestBody",
+      "method": "write",
+      "parametersRef": {
+       "uri": "urn:proofbundle:pilot:not-resolved"
+      },
+      "target": {
+       "name": "https://github.com/o/r/compare/main...topic",
+       "uri": "https://github.com/o/r/compare/main...topic"
+      }
+     },
+     "schemaVersion": "0.1.0",
+     "traceContext": {
+      "parentId": "t-d136",
+      "traceId": "s-d136"
+     },
+     "validity": {
+      "audience": [
+       "observer:d136"
+      ],
+      "expiresAt": "2025-11-12T00:10:00.000000Z",
+      "nonce": "a-d136#1"
+     }
+    },
+    "predicateType": "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1",
+    "subject": [
+     {
+      "digest": {
+       "sha256": "065d94f7e2278c7ca5a93f9d1b0a32588ab257c64290c4f633ae28f1075ca09b"
+      },
+      "name": "decision:a-d136#1"
+     }
+    ]
+   },
+   "verdicts": [
+    [
+     "ask",
+     "mcp_target_unbound"
+    ]
+   ]
+  },
+  "claude:merge_by_head": {
+   "actions": [],
+   "decision": "ask",
+   "receipt_verdict": "ESCALATE",
+   "statement": {
+    "_type": "https://in-toto.io/Statement/v1",
+    "predicate": {
+     "agent": {
+      "id": "agent:d136"
+     },
+     "decidedAt": "2025-11-12T00:00:00.000000Z",
+     "decision": {
+      "reasonCodes": [
+       "net_unmodeled_git"
+      ],
+      "verdict": "ESCALATE"
+     },
+     "decisionChangeConditions": [
+      {
+       "conditionType": "ruleChange",
+       "description": "a changed gate, mode or rule of the gate"
+      }
+     ],
+     "decisionId": "a-d136#1",
+     "decisionMaker": {
+      "id": "gate:d136"
+     },
+     "decisionType": "preActionAuthorization",
+     "evidenceRefs": [],
+     "inputSnapshot": [
+      {
+       "digest": {
+        "sha256": "0231d3a3b178fbf1907400d2048083caa70ba35cad2a8e31bd5d9701dbe44982"
+       },
+       "mediaType": "application/json",
+       "name": "proposed bytes"
+      }
+     ],
+     "notChecked": [
+      {
+       "field": "content",
+       "impact": "an approved text can be wrong",
+       "reason": "the gate does not judge whether the text is true"
+      }
+     ],
+     "policyBoundary": {
+      "bundleRevision": "1",
+      "decisionPath": "outbound-gate/escalate-write",
+      "policyDigest": {
+       "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "policyEngine": "proofbundle-pilot/github-write",
+      "policyId": "outbound-gate-rules"
+     },
+     "principal": {
+      "id": "principal:d136"
+     },
+     "privacy": {
+      "rawInputsIncluded": false
+     },
+     "proposedAction": {
+      "actionType": "github.merge",
+      "method": "write",
+      "parametersDigest": {
+       "sha256": "0231d3a3b178fbf1907400d2048083caa70ba35cad2a8e31bd5d9701dbe44982"
+      },
+      "target": {
+       "name": "https://github.com/o/r/pull/7",
+       "uri": "https://github.com/o/r/pull/7"
+      }
+     },
+     "schemaVersion": "0.1.0",
+     "traceContext": {
+      "parentId": "t-d136",
+      "traceId": "s-d136"
+     },
+     "validity": {
+      "audience": [
+       "observer:d136"
+      ],
+      "expiresAt": "2025-11-12T00:10:00.000000Z",
+      "nonce": "a-d136#1"
+     }
+    },
+    "predicateType": "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1",
+    "subject": [
+     {
+      "digest": {
+       "sha256": "dcad1f1750205af57f219054431f2706f06b626697378f3d3b87db7ffa0f7007"
+      },
+      "name": "decision:a-d136#1"
+     }
+    ]
+   },
+   "verdicts": [
+    [
+     "ask",
+     "net_unmodeled_git"
+    ]
+   ]
+  },
+  "claude:not_gated": {
+   "actions": [],
+   "decision": null
+  },
+  "claude:push_plain": {
+   "actions": [
+    "git push"
+   ],
+   "decision": "ask",
+   "receipt_verdict": "ESCALATE",
+   "statement": {
+    "_type": "https://in-toto.io/Statement/v1",
+    "predicate": {
+     "agent": {
+      "id": "agent:d136"
+     },
+     "decidedAt": "2025-11-12T00:00:00.000000Z",
+     "decision": {
+      "reasonCodes": [
+       "not_a_work_tree"
+      ],
+      "verdict": "ESCALATE"
+     },
+     "decisionChangeConditions": [
+      {
+       "conditionType": "ruleChange",
+       "description": "a changed gate, mode or rule of the gate"
+      }
+     ],
+     "decisionId": "a-d136#1",
+     "decisionMaker": {
+      "id": "gate:d136"
+     },
+     "decisionType": "preActionAuthorization",
+     "evidenceRefs": [],
+     "inputSnapshot": [],
+     "notChecked": [
+      {
+       "field": "content",
+       "impact": "an approved text can be wrong",
+       "reason": "the gate does not judge whether the text is true"
+      },
+      {
+       "field": "proposedAction",
+       "impact": "an effect cannot be matched to this decision by them",
+       "reason": "the gate does not resolve the target or the bytes of this form"
+      }
+     ],
+     "policyBoundary": {
+      "bundleRevision": "1",
+      "decisionPath": "outbound-gate/escalate-write",
+      "policyDigest": {
+       "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "policyEngine": "proofbundle-pilot/github-write",
+      "policyId": "outbound-gate-rules"
+     },
+     "principal": {
+      "id": "principal:d136"
+     },
+     "privacy": {
+      "rawInputsIncluded": false
+     },
+     "proposedAction": {
+      "actionType": "git.push",
+      "method": "write",
+      "parametersRef": {
+       "uri": "urn:proofbundle:pilot:not-resolved"
+      },
+      "target": {
+       "name": "not resolved by the gate"
+      }
+     },
+     "schemaVersion": "0.1.0",
+     "traceContext": {
+      "parentId": "t-d136",
+      "traceId": "s-d136"
+     },
+     "validity": {
+      "audience": [
+       "observer:d136"
+      ],
+      "expiresAt": "2025-11-12T00:10:00.000000Z",
+      "nonce": "a-d136#1"
+     }
+    },
+    "predicateType": "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1",
+    "subject": [
+     {
+      "digest": {
+       "sha256": "7691911535de78102d0f69301328bd9de91ba5528951c30eea4b1fb93669a31d"
+      },
+      "name": "decision:a-d136#1"
+     }
+    ]
+   },
+   "verdicts": [
+    [
+     "ask",
+     "not_a_work_tree"
+    ]
+   ]
+  },
+  "claude:push_without_hooks": {
+   "actions": [
+    "git push"
+   ],
+   "decision": "deny",
+   "receipt_verdict": "DENY",
+   "statement": {
+    "_type": "https://in-toto.io/Statement/v1",
+    "predicate": {
+     "agent": {
+      "id": "agent:d136"
+     },
+     "decidedAt": "2025-11-12T00:00:00.000000Z",
+     "decision": {
+      "reasonCodes": [
+       "hooks_disabled"
+      ],
+      "verdict": "DENY"
+     },
+     "decisionChangeConditions": [
+      {
+       "conditionType": "ruleChange",
+       "description": "a changed gate, mode or rule of the gate"
+      }
+     ],
+     "decisionId": "a-d136#1",
+     "decisionMaker": {
+      "id": "gate:d136"
+     },
+     "decisionType": "preActionAuthorization",
+     "evidenceRefs": [],
+     "inputSnapshot": [],
+     "notChecked": [
+      {
+       "field": "content",
+       "impact": "an approved text can be wrong",
+       "reason": "the gate does not judge whether the text is true"
+      },
+      {
+       "field": "proposedAction",
+       "impact": "an effect cannot be matched to this decision by them",
+       "reason": "the gate does not resolve the target or the bytes of this form"
+      }
+     ],
+     "policyBoundary": {
+      "bundleRevision": "1",
+      "decisionPath": "outbound-gate/deny-write",
+      "policyDigest": {
+       "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "policyEngine": "proofbundle-pilot/github-write",
+      "policyId": "outbound-gate-rules"
+     },
+     "principal": {
+      "id": "principal:d136"
+     },
+     "privacy": {
+      "rawInputsIncluded": false
+     },
+     "proposedAction": {
+      "actionType": "git.push",
+      "method": "write",
+      "parametersRef": {
+       "uri": "urn:proofbundle:pilot:not-resolved"
+      },
+      "target": {
+       "name": "not resolved by the gate"
+      }
+     },
+     "schemaVersion": "0.1.0",
+     "traceContext": {
+      "parentId": "t-d136",
+      "traceId": "s-d136"
+     },
+     "validity": {
+      "audience": [
+       "observer:d136"
+      ],
+      "expiresAt": "2025-11-12T00:10:00.000000Z",
+      "nonce": "a-d136#1"
+     }
+    },
+    "predicateType": "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1",
+    "subject": [
+     {
+      "digest": {
+       "sha256": "babd15e36a1f3b25d2f7a896a68cbedc7b29cd32d2576929f450799ccb66600f"
+      },
+      "name": "decision:a-d136#1"
+     }
+    ]
+   },
+   "verdicts": [
+    [
+     "deny",
+     "hooks_disabled"
+    ]
+   ]
+  },
+  "claude:status_outside_a_repository": {
+   "actions": [
+    "git status"
+   ],
+   "decision": "ask",
+   "receipt_verdict": "ESCALATE",
+   "verdicts": [
+    [
+     "ask",
+     "git_form_not_free"
+    ]
+   ]
+  },
+  "claude:write_gate_rules": {
+   "actions": [
+    "file Write"
+   ],
+   "decision": "deny",
+   "receipt_verdict": "DENY",
+   "verdicts": [
+    [
+     "deny",
+     "write_to_gate_dir"
+    ]
+   ]
+  },
+  "codex:api_comment": {
+   "actions": [],
+   "decision": "ask",
+   "receipt_verdict": "DENY",
+   "verdicts": [
+    [
+     "ask",
+     "net_unmodeled_git"
+    ]
+   ]
+  },
+  "codex:comment_after_cd": {
+   "actions": [],
+   "decision": "ask",
+   "receipt_verdict": "DENY",
+   "verdicts": [
+    [
+     "ask",
+     "net_unmodeled_git"
+    ]
+   ]
+  },
+  "codex:comment_quoted_word": {
+   "actions": [],
+   "decision": "ask",
+   "receipt_verdict": "DENY",
+   "statement": {
+    "_type": "https://in-toto.io/Statement/v1",
+    "predicate": {
+     "agent": {
+      "id": "agent:d136"
+     },
+     "decidedAt": "2025-11-12T00:00:00.000000Z",
+     "decision": {
+      "reasonCodes": [
+       "net_unmodeled_git"
+      ],
+      "verdict": "DENY"
+     },
+     "decisionChangeConditions": [
+      {
+       "conditionType": "ruleChange",
+       "description": "a changed gate, mode or rule of the gate"
+      }
+     ],
+     "decisionId": "a-d136#1",
+     "decisionMaker": {
+      "id": "gate:d136"
+     },
+     "decisionType": "preActionAuthorization",
+     "evidenceRefs": [],
+     "inputSnapshot": [
+      {
+       "digest": {
+        "sha256": "7afe8f26babc3906a20e970fd58bc05decbcf8ba513341badee00d028c05cff8"
+       },
+       "mediaType": "text/markdown",
+       "name": "proposed bytes"
+      }
+     ],
+     "notChecked": [
+      {
+       "field": "content",
+       "impact": "an approved text can be wrong",
+       "reason": "the gate does not judge whether the text is true"
+      }
+     ],
+     "policyBoundary": {
+      "bundleRevision": "1",
+      "decisionPath": "outbound-gate/deny-write",
+      "policyDigest": {
+       "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "policyEngine": "proofbundle-pilot/github-write",
+      "policyId": "outbound-gate-rules"
+     },
+     "principal": {
+      "id": "principal:d136"
+     },
+     "privacy": {
+      "rawInputsIncluded": false
+     },
+     "proposedAction": {
+      "actionType": "github.conversationComment",
+      "method": "write",
+      "parametersDigest": {
+       "sha256": "7afe8f26babc3906a20e970fd58bc05decbcf8ba513341badee00d028c05cff8"
+      },
+      "target": {
+       "name": "https://github.com/o/r/pull/1",
+       "uri": "https://github.com/o/r/pull/1"
+      }
+     },
+     "schemaVersion": "0.1.0",
+     "traceContext": {
+      "parentId": "t-d136",
+      "traceId": "s-d136"
+     },
+     "validity": {
+      "audience": [
+       "observer:d136"
+      ],
+      "expiresAt": "2025-11-12T00:10:00.000000Z",
+      "nonce": "a-d136#1"
+     }
+    },
+    "predicateType": "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1",
+    "subject": [
+     {
+      "digest": {
+       "sha256": "717a4355de94c48dca2f66c1455a4d18a3f7c3848f557029b626b361761c2ebf"
+      },
+      "name": "decision:a-d136#1"
+     }
+    ]
+   },
+   "verdicts": [
+    [
+     "ask",
+     "net_unmodeled_git"
+    ]
+   ]
+  },
+  "codex:gf_e001_comment": {
+   "actions": [],
+   "decision": "ask",
+   "receipt_verdict": "DENY",
+   "statement": {
+    "_type": "https://in-toto.io/Statement/v1",
+    "predicate": {
+     "agent": {
+      "id": "agent:d136"
+     },
+     "decidedAt": "2025-11-12T00:00:00.000000Z",
+     "decision": {
+      "reasonCodes": [
+       "net_unmodeled_git"
+      ],
+      "verdict": "DENY"
+     },
+     "decisionChangeConditions": [
+      {
+       "conditionType": "ruleChange",
+       "description": "a changed gate, mode or rule of the gate"
+      }
+     ],
+     "decisionId": "a-d136#1",
+     "decisionMaker": {
+      "id": "gate:d136"
+     },
+     "decisionType": "preActionAuthorization",
+     "evidenceRefs": [],
+     "inputSnapshot": [
+      {
+       "digest": {
+        "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881"
+       },
+       "mediaType": "text/markdown",
+       "name": "proposed bytes"
+      }
+     ],
+     "notChecked": [
+      {
+       "field": "content",
+       "impact": "an approved text can be wrong",
+       "reason": "the gate does not judge whether the text is true"
+      }
+     ],
+     "policyBoundary": {
+      "bundleRevision": "1",
+      "decisionPath": "outbound-gate/deny-write",
+      "policyDigest": {
+       "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "policyEngine": "proofbundle-pilot/github-write",
+      "policyId": "outbound-gate-rules"
+     },
+     "principal": {
+      "id": "principal:d136"
+     },
+     "privacy": {
+      "rawInputsIncluded": false
+     },
+     "proposedAction": {
+      "actionType": "github.conversationComment",
+      "method": "write",
+      "parametersDigest": {
+       "sha256": "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881"
+      },
+      "target": {
+       "name": "https://github.com/o/r/pull/1",
+       "uri": "https://github.com/o/r/pull/1"
+      }
+     },
+     "schemaVersion": "0.1.0",
+     "traceContext": {
+      "parentId": "t-d136",
+      "traceId": "s-d136"
+     },
+     "validity": {
+      "audience": [
+       "observer:d136"
+      ],
+      "expiresAt": "2025-11-12T00:10:00.000000Z",
+      "nonce": "a-d136#1"
+     }
+    },
+    "predicateType": "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1",
+    "subject": [
+     {
+      "digest": {
+       "sha256": "a9f92d50624df351cd7182a58f1063a9755fea4858dac6d0f95f71737363e6d9"
+      },
+      "name": "decision:a-d136#1"
+     }
+    ]
+   },
+   "verdicts": [
+    [
+     "ask",
+     "net_unmodeled_git"
+    ]
+   ]
+  },
+  "codex:mcp_pull_request": {
+   "actions": [
+    "MCP mcp__github__create_pull_request"
+   ],
+   "decision": "deny",
+   "receipt_verdict": "DENY",
+   "statement": {
+    "_type": "https://in-toto.io/Statement/v1",
+    "predicate": {
+     "agent": {
+      "id": "agent:d136"
+     },
+     "decidedAt": "2025-11-12T00:00:00.000000Z",
+     "decision": {
+      "reasonCodes": [
+       "mcp_target_unbound"
+      ],
+      "verdict": "DENY"
+     },
+     "decisionChangeConditions": [
+      {
+       "conditionType": "ruleChange",
+       "description": "a changed gate, mode or rule of the gate"
+      }
+     ],
+     "decisionId": "a-d136#1",
+     "decisionMaker": {
+      "id": "gate:d136"
+     },
+     "decisionType": "preActionAuthorization",
+     "evidenceRefs": [],
+     "inputSnapshot": [],
+     "notChecked": [
+      {
+       "field": "content",
+       "impact": "an approved text can be wrong",
+       "reason": "the gate does not judge whether the text is true"
+      },
+      {
+       "field": "proposedAction",
+       "impact": "an effect cannot be matched to this decision by them",
+       "reason": "the gate does not resolve the target or the bytes of this form"
+      }
+     ],
+     "policyBoundary": {
+      "bundleRevision": "1",
+      "decisionPath": "outbound-gate/deny-write",
+      "policyDigest": {
+       "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "policyEngine": "proofbundle-pilot/github-write",
+      "policyId": "outbound-gate-rules"
+     },
+     "principal": {
+      "id": "principal:d136"
+     },
+     "privacy": {
+      "rawInputsIncluded": false
+     },
+     "proposedAction": {
+      "actionType": "github.pullRequestBody",
+      "method": "write",
+      "parametersRef": {
+       "uri": "urn:proofbundle:pilot:not-resolved"
+      },
+      "target": {
+       "name": "https://github.com/o/r/compare/main...topic",
+       "uri": "https://github.com/o/r/compare/main...topic"
+      }
+     },
+     "schemaVersion": "0.1.0",
+     "traceContext": {
+      "parentId": "t-d136",
+      "traceId": "s-d136"
+     },
+     "validity": {
+      "audience": [
+       "observer:d136"
+      ],
+      "expiresAt": "2025-11-12T00:10:00.000000Z",
+      "nonce": "a-d136#1"
+     }
+    },
+    "predicateType": "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1",
+    "subject": [
+     {
+      "digest": {
+       "sha256": "ba046e8459831b9c367ec0a56da004570dcff219d499345a8e2a58587f455358"
+      },
+      "name": "decision:a-d136#1"
+     }
+    ]
+   },
+   "verdicts": [
+    [
+     "deny",
+     "mcp_target_unbound"
+    ]
+   ]
+  },
+  "codex:merge_by_head": {
+   "actions": [],
+   "decision": "ask",
+   "receipt_verdict": "DENY",
+   "statement": {
+    "_type": "https://in-toto.io/Statement/v1",
+    "predicate": {
+     "agent": {
+      "id": "agent:d136"
+     },
+     "decidedAt": "2025-11-12T00:00:00.000000Z",
+     "decision": {
+      "reasonCodes": [
+       "net_unmodeled_git"
+      ],
+      "verdict": "DENY"
+     },
+     "decisionChangeConditions": [
+      {
+       "conditionType": "ruleChange",
+       "description": "a changed gate, mode or rule of the gate"
+      }
+     ],
+     "decisionId": "a-d136#1",
+     "decisionMaker": {
+      "id": "gate:d136"
+     },
+     "decisionType": "preActionAuthorization",
+     "evidenceRefs": [],
+     "inputSnapshot": [
+      {
+       "digest": {
+        "sha256": "0231d3a3b178fbf1907400d2048083caa70ba35cad2a8e31bd5d9701dbe44982"
+       },
+       "mediaType": "application/json",
+       "name": "proposed bytes"
+      }
+     ],
+     "notChecked": [
+      {
+       "field": "content",
+       "impact": "an approved text can be wrong",
+       "reason": "the gate does not judge whether the text is true"
+      }
+     ],
+     "policyBoundary": {
+      "bundleRevision": "1",
+      "decisionPath": "outbound-gate/deny-write",
+      "policyDigest": {
+       "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "policyEngine": "proofbundle-pilot/github-write",
+      "policyId": "outbound-gate-rules"
+     },
+     "principal": {
+      "id": "principal:d136"
+     },
+     "privacy": {
+      "rawInputsIncluded": false
+     },
+     "proposedAction": {
+      "actionType": "github.merge",
+      "method": "write",
+      "parametersDigest": {
+       "sha256": "0231d3a3b178fbf1907400d2048083caa70ba35cad2a8e31bd5d9701dbe44982"
+      },
+      "target": {
+       "name": "https://github.com/o/r/pull/7",
+       "uri": "https://github.com/o/r/pull/7"
+      }
+     },
+     "schemaVersion": "0.1.0",
+     "traceContext": {
+      "parentId": "t-d136",
+      "traceId": "s-d136"
+     },
+     "validity": {
+      "audience": [
+       "observer:d136"
+      ],
+      "expiresAt": "2025-11-12T00:10:00.000000Z",
+      "nonce": "a-d136#1"
+     }
+    },
+    "predicateType": "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1",
+    "subject": [
+     {
+      "digest": {
+       "sha256": "1b49b14ddcbd3108f2b62e5f9fbd3eeede080f8cf9f3decd23c391401c7f4347"
+      },
+      "name": "decision:a-d136#1"
+     }
+    ]
+   },
+   "verdicts": [
+    [
+     "ask",
+     "net_unmodeled_git"
+    ]
+   ]
+  },
+  "codex:not_gated": {
+   "actions": [],
+   "decision": null
+  },
+  "codex:push_plain": {
+   "actions": [
+    "git push"
+   ],
+   "decision": "warn",
+   "receipt_verdict": null,
+   "verdicts": [
+    [
+     "warn",
+     "codex_context_unbound"
+    ]
+   ]
+  },
+  "codex:push_without_hooks": {
+   "actions": [
+    "git push"
+   ],
+   "decision": "deny",
+   "receipt_verdict": "DENY",
+   "statement": {
+    "_type": "https://in-toto.io/Statement/v1",
+    "predicate": {
+     "agent": {
+      "id": "agent:d136"
+     },
+     "decidedAt": "2025-11-12T00:00:00.000000Z",
+     "decision": {
+      "reasonCodes": [
+       "hooks_disabled"
+      ],
+      "verdict": "DENY"
+     },
+     "decisionChangeConditions": [
+      {
+       "conditionType": "ruleChange",
+       "description": "a changed gate, mode or rule of the gate"
+      }
+     ],
+     "decisionId": "a-d136#1",
+     "decisionMaker": {
+      "id": "gate:d136"
+     },
+     "decisionType": "preActionAuthorization",
+     "evidenceRefs": [],
+     "inputSnapshot": [],
+     "notChecked": [
+      {
+       "field": "content",
+       "impact": "an approved text can be wrong",
+       "reason": "the gate does not judge whether the text is true"
+      },
+      {
+       "field": "proposedAction",
+       "impact": "an effect cannot be matched to this decision by them",
+       "reason": "the gate does not resolve the target or the bytes of this form"
+      }
+     ],
+     "policyBoundary": {
+      "bundleRevision": "1",
+      "decisionPath": "outbound-gate/deny-write",
+      "policyDigest": {
+       "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "policyEngine": "proofbundle-pilot/github-write",
+      "policyId": "outbound-gate-rules"
+     },
+     "principal": {
+      "id": "principal:d136"
+     },
+     "privacy": {
+      "rawInputsIncluded": false
+     },
+     "proposedAction": {
+      "actionType": "git.push",
+      "method": "write",
+      "parametersRef": {
+       "uri": "urn:proofbundle:pilot:not-resolved"
+      },
+      "target": {
+       "name": "not resolved by the gate"
+      }
+     },
+     "schemaVersion": "0.1.0",
+     "traceContext": {
+      "parentId": "t-d136",
+      "traceId": "s-d136"
+     },
+     "validity": {
+      "audience": [
+       "observer:d136"
+      ],
+      "expiresAt": "2025-11-12T00:10:00.000000Z",
+      "nonce": "a-d136#1"
+     }
+    },
+    "predicateType": "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1",
+    "subject": [
+     {
+      "digest": {
+       "sha256": "babd15e36a1f3b25d2f7a896a68cbedc7b29cd32d2576929f450799ccb66600f"
+      },
+      "name": "decision:a-d136#1"
+     }
+    ]
+   },
+   "verdicts": [
+    [
+     "deny",
+     "hooks_disabled"
+    ]
+   ]
+  },
+  "codex:status_outside_a_repository": {
+   "actions": [
+    "git status"
+   ],
+   "decision": "ask",
+   "receipt_verdict": "DENY",
+   "verdicts": [
+    [
+     "ask",
+     "git_form_not_free"
+    ]
+   ]
+  },
+  "codex:write_gate_rules": {
+   "actions": [
+    "file Write"
+   ],
+   "decision": "deny",
+   "receipt_verdict": "DENY",
+   "verdicts": [
+    [
+     "deny",
+     "write_to_gate_dir"
+    ]
+   ]
+  }
+ }
+}

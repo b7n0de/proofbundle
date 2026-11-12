@@ -17,7 +17,7 @@ import subprocess
 import sys
 
 import pytest
-from _gate_answer import Silent
+from _gate_answer import Silent, reason_of
 from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -99,7 +99,7 @@ def test_a_codex_push_keeps_its_reason_and_warns(tmp_path, command):
         "codex_context_unbound", R5_2_DETAIL, R5_2_EVIDENCE, R5_2_FAILED, R5_2_NEXT)
     answer = gate.answer(outcome.decision, outcome.text, host="codex")
     assert set(answer) == CODEX_TOP and set(answer["hookSpecificOutput"]) == CODEX_SPECIFIC_WARN, answer
-    assert answer["systemMessage"] == f"{outcome.text} {gate.CODEX_PUSH_WARNING}"
+    assert reason_of(answer["systemMessage"], "warn") == f"{outcome.text} {gate.CODEX_PUSH_WARNING}"   # D136
     assert answer["hookSpecificOutput"]["additionalContext"] == answer["systemMessage"]
     assert "Codex cannot ask" not in answer["systemMessage"]
 

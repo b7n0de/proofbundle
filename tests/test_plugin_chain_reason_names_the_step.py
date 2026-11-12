@@ -27,6 +27,7 @@ import pytest
 import _worktree_layout as w
 import test_plugin_gate_n2c_push_done as n2c
 from _plugin_env import plugin_env
+from _gate_answer import reason_of  # noqa: E402 - D136: the verdict before the reason
 
 pytestmark = w.d.pytestmark
 gate = n2c.gate
@@ -73,7 +74,7 @@ def _hook(cwd, command: str, host: str = "claude") -> tuple[int, str | None, str
     proc = subprocess.run([sys.executable, "-I", w.G, *args], input=event, capture_output=True, text=True,
                           env=plugin_env(**DELTA), timeout=180, check=False)
     out = json.loads(proc.stdout).get("hookSpecificOutput", {}) if proc.stdout.strip() else {}
-    return proc.returncode, out.get("permissionDecision"), ((out.get("additionalContext") or "") if out.get("permissionDecision") else "")   # D53: the long reason
+    return proc.returncode, out.get("permissionDecision"), (reason_of(out.get("additionalContext") or "", out["permissionDecision"]) if out.get("permissionDecision") else "")   # D53: the long reason
 
 
 def _decide(repo, command: str, host: str = "claude"):

@@ -6999,3 +6999,54 @@ API no longer lists them (measured above). That gap is older than this rule and 
 decision and counts under M5; a test pins that limit, so that a fix of the observer changes it knowingly.
 
 Tests: tests/test_plugin_guard_trace_context_and_merge_digest_d135.py.
+
+## D136. Every text the model gets about a call begins with the verdict (finding GF-E001, owner choice of 2026-11-10)
+
+Finding GF-E001 of echo's guard findings, from a real demonstration session on 2026-11-04 (case 1): the hook answered
+`ask` to `gh pr comment` with the reason id net_unmodeled_git. The user's short line said that the gate asks (D53). The
+model got only additionalContext, which began with `NOT MEASURED: Evidence: a git or gh command, or an unevaluable
+quote, the gate could not resolve.`, and the agent wrote into its transcript that the gate had not escalated. The signed
+receipt of the call recorded `"verdict": "ESCALATE"` with reasonCodes `["net_unmodeled_git"]`. echo measured the same
+text for a plain `gh pr comment 1 --repo … --body "x"`, so it did not come from the quote in the comment. Owner choice
+GF-E001-ZEITPUNKT of 2026-11-10: fixed in a pull request of its own, not with plugin 0.4.1.
+
+The class is the first words, not the one text. Before D136 no text the model got about a call named the decision
+first: an ask and an inactive gate began with NOT MEASURED (Verdict.text, _sh_steps_reason), a deny with
+`proofbundle gate:` and parts marked NOT MEASURED after it, a warning under Codex with NOT MEASURED. Only the user's short
+line named the decision.
+
+The rule:
+- Every text the gate gives the model about a call it answers begins with one verdict sentence. Where the reason has a
+  part marked NOT MEASURED, one sentence on what that mark is follows. Then come `Reason: ` and the reason as before.
+- The verdict sentence is fixed per decision the host enforces (_VERDICT_FIRST): `Verdict: the gate asks (ESCALATE); a
+  person decides in the dialog whether the call runs.`, `Verdict: the gate blocks the call (DENY); it does not run.`,
+  and one each for the warning, the hand-over (D35), the inactive gate (D5) and the pass. The word in brackets is the
+  one a receipt of Level 1 records for that decision. It is read from the table the receipt reads (_PILOT_VERDICTS), so
+  the text and a receipt cannot name two verdicts, and a decision without a receipt word has none. Under Codex an ask
+  is a deny before the sentence is chosen (D12), as its receipt says DENY (D55).
+- The sentence on the mark: `A part marked NOT MEASURED names a check the gate could not complete: it is a reason for
+  this verdict, not a verdict of its own.`
+- One function, verdict_first, writes the sentences. answer() applies it to additionalContext and with it to the long
+  reason of a deny under Claude Code (permissionDecisionReason). pre_tool_answer applies it to the three passes that
+  give the model a text: a rule (D25), a hint (D105), and a GO, a machine check or a release (D92, D111). Where answer()
+  gets no short line, the user's line is that text too.
+- Nothing else changes. The decision, the reason ids, the log line (D21), the receipt and the signer service's own
+  decision (D58) read the outcome, never the printed text. The user's short line (D53) and the rewrite hint (D85) stay
+  as they were.
+- Outside the rule, by design: a D81 hint before a pass that prints nothing (the pass stays silent, D53, and the hint
+  names itself `proofbundle hint (D81)`), the hand-over of open points at SessionStart (D127), which judges no call, and
+  the Stop hook, which gives the model no text.
+
+Measured on 2026-11-12 with a corpus of 11 calls under both hosts (an ask of net_unmodeled_git in five forms, the
+pushes, a write of the gate's rules, a gated MCP tool, a call the gate leaves alone): the gate of main ebda917b and the
+gate with this rule give the same decision, the same verdicts with their reason ids, the same receipt verdict and the
+same receipt statement. The statement's policy digest hashes the gate's own file (_pilot_policy_digest, D55), so it
+names the new file, and with it the subject digest and the signature change; both recordings hold that digest
+constant, and everything else is byte for byte equal. The corpus is in tests/fixtures/plugin_d136/before.json.
+
+Tests: tests/test_plugin_verdict_first_d136.py checks the sentence for every decision under both hosts, the word in
+brackets against the receipt's verdict for every case of the corpus, the case of GF-E001 at the hook as the host runs
+it, the corpus against before.json, and a guard over the gate's source that every additionalContext of an answer to a
+call goes through verdict_first, with a planted place it finds. The helpers of tests/_gate_answer.py read the long
+reason only after checking that the verdict comes first, so every plugin test that reads the long reason checks the
+form too.

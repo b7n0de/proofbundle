@@ -321,7 +321,9 @@ the call as it would without the gate.
 
 The gate reads the declaration and the evidence from the commit at HEAD, not from the working tree.
 It never answers allow. Every deny and ask names the evidence, what failed and the next step, and
-carries the rule never to weaken the declaration, a policy or a key to get past the gate (D19). It acts
+carries the rule never to weaken the declaration, a policy or a key to get past the gate (D19). Every text the model
+gets about a call begins with the verdict, such as `Verdict: the gate asks (ESCALATE)`, with the word a receipt records
+in brackets, and only then the reason; a part marked NOT MEASURED is a reason for that verdict, not a verdict (D136). It acts
 only in a repository that declares evidence; a push under Level 1 stays outside it only under the four conditions of
 owner choice 1 A, and for the local refs only in the narrow range of D5: one ordinary main worktree whose only symbolic
 refs are `HEAD` and `refs/remotes/<remote>/HEAD`. A repository with more worktrees is asked (D5). Additional files

@@ -16019,6 +16019,37 @@ def _inactive_seen_trim(folder: str) -> None:
         pass
 
 
+#: D136 (finding GF-E001): the first sentence of every text the gate gives the model about a call it answers, by the
+#: decision the host enforces. {word} is the word a receipt of Level 1 records for that decision (_PILOT_VERDICTS), so
+#: the text and a receipt cannot name two verdicts.
+_VERDICT_FIRST = {
+    "ask": "Verdict: the gate asks{word}; a person decides in the dialog whether the call runs.",
+    "deny": "Verdict: the gate blocks the call{word}; it does not run.",
+    "warn": "Verdict: the gate warns{word} and makes no permission decision; the call runs as the host allows.",
+    "handover": ("Verdict: the gate hands the push over to git's pre-push check{word} and makes no permission decision "
+                 "of its own; that check decides the push."),
+    "inactive": ("Verdict: the gate is not active here{word} and makes no permission decision; the call runs as the "
+                 "host allows."),
+    "pass": "Verdict: the gate lets the call run{word}.",
+}
+#: D136: what a part marked NOT MEASURED is, said once where the reason has one. Before D136 the text of an ask began
+#: with NOT MEASURED, and a model read that as no verdict at all while the receipt recorded ESCALATE (GF-E001).
+_VERDICT_PARTIAL = ("A part marked NOT MEASURED names a check the gate could not complete: it is a reason for this "
+                    "verdict, not a verdict of its own.")
+
+
+def verdict_first(decision: str, reason: str) -> str:
+    """D136: the text the model gets for an answer of the gate, its verdict first. The verdict sentence of
+    _VERDICT_FIRST, the sentence on NOT MEASURED where the reason has that mark, then the reason as it was. Only the
+    text changes: the decision, the reason ids, the log and a receipt read the outcome, never this text."""
+    word = _PILOT_VERDICTS.get(decision)
+    lead = _VERDICT_FIRST.get(decision, "Verdict: the gate answers " + decision + "{word}.").format(
+        word=f" ({word})" if word else "")
+    if "NOT MEASURED" in reason:
+        lead = f"{lead} {_VERDICT_PARTIAL}"
+    return f"{lead} Reason: {reason}"
+
+
 def answer(decision: str, reason: str, host: str = "claude", short: str | None = None,
            hint: dict | None = None) -> dict | None:
     """The PreToolUse answer (D53). A pass answers nothing: the hook prints nothing, carries no permission decision
@@ -16039,6 +16070,7 @@ def answer(decision: str, reason: str, host: str = "claude", short: str | None =
         decision, reason = "deny", reason + " Codex cannot ask, so the gate denies the call."
     if decision == "warn":
         reason = f"{reason} {CODEX_PUSH_WARNING}"
+    reason = verdict_first(decision, reason)   # D136: the model reads the verdict before the reason
     short = reason if short is None else short
     specific = {"hookEventName": "PreToolUse", "additionalContext": reason}
     if decision not in ("inactive", "warn", "handover"):   # D4: the gate never answers allow (D35 too)
@@ -16066,13 +16098,15 @@ def pre_tool_answer(outcome: "Outcome", host: str, event: object, step: str | No
         short = short_line("pass", outcome, outcome.step or step, _read_language(environ), form=klasse,
                            hint=(getattr(outcome, "autonomy", None) or {}).get("quittung", {}).get("karte", ""))
         return {"systemMessage": short, "hookSpecificOutput": {"hookEventName": "PreToolUse",
-                                                               "additionalContext": outcome.text}}
+                                                               "additionalContext": verdict_first(
+                                                                   "pass", outcome.text)}}   # D136
     if decision == "pass" and any(v.reason_id in HINT_REASONS for v in outcome.verdicts):
         # D105: a hint is a line for the person and the long reason as context for the model (measured: it reaches the
         # model after the tool's result), no permission decision; the call runs
         short = short_line("pass", outcome, outcome.step or step, _read_language(environ), form="hinweis")
         return {"systemMessage": short, "hookSpecificOutput": {"hookEventName": "PreToolUse",
-                                                               "additionalContext": outcome.text}}
+                                                               "additionalContext": verdict_first(
+                                                                   "pass", outcome.text)}}   # D136
     if decision == "pass":
         if not any(v.reason_id == "approved_by_rule" for v in outcome.verdicts):
             return None
@@ -16083,7 +16117,8 @@ def pre_tool_answer(outcome: "Outcome", host: str, event: object, step: str | No
         short = short_line("pass", Outcome("pass", lead.detail, [lead]), outcome.step or step,
                            _read_language(environ), form="rule")
         return {"systemMessage": short, "hookSpecificOutput": {"hookEventName": "PreToolUse",
-                                                               "additionalContext": outcome.text}}
+                                                               "additionalContext": verdict_first(
+                                                                   "pass", outcome.text)}}   # D136
     session = event.get("session_id") if isinstance(event, dict) else None
     if decision == "inactive" and not _inactive_first(host, session, outcome):
         return None

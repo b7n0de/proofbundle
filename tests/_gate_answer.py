@@ -69,9 +69,58 @@ def parsed(proc: subprocess.CompletedProcess, entry: dict | None):
     return Silent(entry)
 
 
-def long_text(answer: dict) -> str:
-    """What the model gets: the long reason (additionalContext)."""
+#: D136 (finding GF-E001): how the text the model gets begins, by the decision the host enforces, written here and not
+#: read from the gate, so a change of the gate's words fails here. The word in brackets is the one a receipt of Level 1
+#: records for that decision.
+VERDICT_LEADS = {
+    "ask": "Verdict: the gate asks (ESCALATE); a person decides in the dialog whether the call runs.",
+    "deny": "Verdict: the gate blocks the call (DENY); it does not run.",
+    "warn": "Verdict: the gate warns and makes no permission decision; the call runs as the host allows.",
+    "handover": ("Verdict: the gate hands the push over to git's pre-push check and makes no permission decision of its "
+                 "own; that check decides the push."),
+    "inactive": "Verdict: the gate is not active here and makes no permission decision; the call runs as the host allows.",
+    "pass": "Verdict: the gate lets the call run (ALLOW).",
+}
+#: D136: the sentence that stands after the verdict where the reason has a part marked NOT MEASURED, and only there.
+NOT_MEASURED_SENTENCE = ("A part marked NOT MEASURED names a check the gate could not complete: it is a reason for this "
+                         "verdict, not a verdict of its own.")
+
+
+def reason_of(text: str, decision: str) -> str:
+    """The reason in a text the model gets (D136), after checking that the text names `decision` first: the verdict
+    sentence of VERDICT_LEADS, the sentence on NOT MEASURED exactly where the reason has that mark, then `Reason: ` and
+    the reason. A text in any other form fails here, so every test that reads the reason this way checks the form too."""
+    lead = VERDICT_LEADS[decision]
+    assert text.startswith(lead + " "), (decision, text[:300])
+    rest = text[len(lead) + 1:]
+    if rest.startswith(NOT_MEASURED_SENTENCE + " "):
+        rest = rest[len(NOT_MEASURED_SENTENCE) + 1:]
+        assert "NOT MEASURED" in rest.removeprefix("Reason: "), text[:300]
+    assert rest.startswith("Reason: "), text[:300]
+    reason = rest[len("Reason: "):]
+    assert ("NOT MEASURED" in reason) == (NOT_MEASURED_SENTENCE in text), text[:300]
+    return reason
+
+
+def model_reason(answer: dict) -> str:
+    """The reason the model gets for an answer, its verdict checked first (reason_of): the decision is the answer's
+    permission decision, or, for an answer without one, the one its verdict sentence names."""
+    text = answer["hookSpecificOutput"]["additionalContext"]
+    decision = answer["hookSpecificOutput"].get("permissionDecision") or next(
+        (d for d, lead in VERDICT_LEADS.items() if text.startswith(lead + " ")), None)
+    assert decision is not None, text[:300]
+    return reason_of(text, decision)
+
+
+def model_text(answer: dict) -> str:
+    """What the model gets, whole: its verdict, then the long reason (additionalContext)."""
     return answer["hookSpecificOutput"]["additionalContext"]
+
+
+def long_text(answer: dict) -> str:
+    """The long reason the model gets (additionalContext), after its verdict (D136): model_reason, so every test that
+    reads the long reason checks that the verdict comes first."""
+    return model_reason(answer)
 
 
 def short_text(answer: dict) -> str:
