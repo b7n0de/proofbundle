@@ -10,6 +10,8 @@ The findings that stay open after 6.5.0 are listed in [the 6.5.0 record](RESTRIS
 
 The 6.5.0 record names `EXPIRED-RECEIPT-OUTSIDE-POLICY-EXITS-3-01` (RESTRISIKO_650.md lines 15 to 19). The 6.6.0 scope row PR507 says that the decision receipt contract now states the order of the exit codes of `decision verify` (docs/release_scope/6.6.0.md line 21). Whether that closes the entry is not measured here.
 
+The 6.5.0 record also names `PIN-CASE-RED-FROM-TAG-UNTIL-PIN-COMMIT-01` (RESTRISIKO_650.md line 23). That window closed when pull request 494, which moves the plugin's pins to 6.5.0, was merged into main on 2026-11-08, and the register of this release records the entry as closed.
+
 ## Open after this release
 
 ### The 24-hour soak runs beside the release
@@ -54,7 +56,7 @@ The receipt library now refuses a member outside the nine signed fields, `signat
 
 ### main may fail the plugin pin case from the tag until the pin commit
 
-Expected from the rule the test states, not measured. `tests/test_plugin_pin_is_the_newest_release.py` accepts pins to the preceding release only while the clone holds no tag of the version of the tree (lines 9 to 22). The plugins pin 6.5.0 in the tree of this release (`plugins/proofbundle/server/proofbundle_mcp.py`, landed with pull request 494). Once the tag v6.6.0 stands, the same window as in RESTRISIKO_650.md line 23 would open until the commit that moves the pins. PLACEHOLDER: the release preparation states whether the owner choice of 2026-11-05 applies again, and the register entry.
+Expected from the rule the test states, not measured. `tests/test_plugin_pin_is_the_newest_release.py` accepts pins to the preceding release only while the clone holds no tag of the version of the tree (lines 9 to 22). The plugins pin 6.5.0 in the tree of this release (`plugins/proofbundle/server/proofbundle_mcp.py`, landed with pull request 494). Once the tag v6.6.0 stands, the same window as in RESTRISIKO_650.md line 23 would open until the commit that moves the pins. By the owner choice of 2026-11-12, plugin 0.4.1 follows the main tag, so the plugins keep pinning 6.5.0 until 6.6.0 is on PyPI and this window is open by design. Register entry `PIN-CASE-RED-FROM-TAG-UNTIL-PIN-COMMIT-02`.
 
 ### Repository tools
 
