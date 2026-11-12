@@ -28,6 +28,7 @@ import json
 import os
 import pathlib
 import shlex
+import subprocess
 import sys
 import time
 
@@ -87,6 +88,16 @@ EXTERNAL = [("git push origin topic", "push"), ("gh pr create --fill", "pr"), ("
             ("gh repo edit --visibility public", "settings")]
 
 
+@pytest.fixture(autouse=True)
+def temp_folder_of_the_case(tmp_path, monkeypatch):
+    """A case's temp folder is its tmp_path in this process (a neighbour of finding M-1, 2 November 2026): the gate
+    frees a Write of a rewrite only inside the work tree or the temp folder, and with a base folder outside /tmp the
+    case of {T} lay outside the /tmp the gate took."""
+    import tempfile
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    monkeypatch.setattr(tempfile, "tempdir", None)
+
+
 def _form(form, repo):
     return form.replace("{R}", str(repo)).replace("{T}", str(repo.parent))
 
@@ -96,6 +107,7 @@ def _hook(repo, tmp_path, command, host="claude", tool="Bash", tool_input=None):
              "tool_input": tool_input if tool_input is not None else {"command": command}}
     env = {k: os.environ[k] for k in ("PATH", "HOME", "LC_ALL", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM",
                                       "PROOFBUNDLE_GATE_DIR")}
+    env["TMPDIR"] = str(tmp_path)   # the case's temp folder, wherever pytest puts it (M-1)
     env["CLAUDE_PLUGIN_DATA"] = env["PLUGIN_DATA"] = str(tmp_path / "data")
     proc, entry = ga.run_hook([sys.executable, "-I", gate.__file__, "--host", host, *AUTONOMOUS], json.dumps(event), env,
                               cwd=str(repo))
@@ -248,6 +260,24 @@ def test_D85_a_write_of_a_rewrite_goes_into_the_work_tree_or_the_temp_folder_to_
     monkeypatch.setattr(tempfile, "tempdir", None)
     target = path.replace("{R}", str(repo)).replace("{T}", str(tmp_path)).replace("{H}", "/home/nobody")
     assert gate._autonomy_write_place(target, str(repo), time.monotonic() + 60) is allowed, target
+
+
+def test_D85_the_temp_folder_of_a_case_is_its_own_folder(tmp_path, monkeypatch):
+    """A neighbour of finding M-1, the full plugin run of 2 November 2026: with a base folder outside /tmp the two cases
+    of `cat > {T}/notes.md` were red. The gate frees a Write of a rewrite only inside the work tree or the temp folder,
+    it took /tmp for the temp folder, in the hook and in this process, and {T} lay elsewhere. A case's temp folder is
+    its tmp_path, wherever pytest puts it: this process's, and the one the hook is handed."""
+    import tempfile
+    assert pathlib.Path(tempfile.gettempdir()).resolve() == tmp_path.resolve()
+    seen = []
+
+    def record(argv, event_text, env, cwd=None):
+        seen.append(env)
+        return subprocess.CompletedProcess(argv, 0, "", ""), None
+
+    monkeypatch.setattr(ga, "run_hook", record)
+    _hook(d71._repo(tmp_path), tmp_path, "git status")
+    assert [env.get("TMPDIR") for env in seen] == [str(tmp_path)], seen
 
 
 def test_D85_a_chain_of_external_calls_only_keeps_the_ask_of_the_whole(tmp_path):

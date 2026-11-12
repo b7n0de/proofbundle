@@ -52,7 +52,10 @@ sys.dont_write_bytecode = _bytecode
 
 pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
 
-HOME = os.environ.get("HOME", "/")
+#: The home directory the shell puts for `~`. The case tables are built at import, before the module fixture of
+#: tests/_plugin_env.py gives the module a HOME of its own, so they name this placeholder and a case puts in the HOME
+#: of its run (_at_home).
+HOME = "<HOME>"
 #: Files in the test directory whose names are options.
 OPTION_FILES = ("--edit", "--no-verify", "-p")
 
@@ -130,6 +133,14 @@ def _expand(shell: str, command: str, cwd: pathlib.Path) -> list[str]:
     return proc.stdout.splitlines()
 
 
+def _at_home(value):
+    """`value`, a word or a list of words, with HOME put in for the home directory of the run."""
+    home = os.environ.get("HOME", "/")
+    if isinstance(value, list):
+        return [word.replace(HOME, home) for word in value]
+    return value.replace(HOME, home) if isinstance(value, str) else value
+
+
 def _decide(command: str, repo: pathlib.Path, host: str) -> gate.Outcome:
     outcome = gate.decide(command, str(repo), time.monotonic() + 60, host=host)
     assert outcome is not None, command
@@ -145,6 +156,7 @@ def _host_answer(outcome: gate.Outcome, host: str) -> str | None:
 
 @pytest.mark.parametrize("command,shell,option", FREE_FORM_CASES.values(), ids=FREE_FORM_CASES.keys())
 def test_a_word_the_shell_rewrites_before_the_options_end_leaves_the_form_not_free(repo, command, shell, option):
+    option = _at_home(option)
     words = _expand(shell, command, repo)
     if isinstance(option, list):
         assert words == option and words != command.split()[1:], f"{shell} gives {words}: the case would be vacuous"

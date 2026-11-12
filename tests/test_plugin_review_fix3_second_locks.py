@@ -41,11 +41,12 @@ def test_strict_git_alone_leaves_a_rewritten_c_value_unknown(value):
     assert name == "git push" and directory is gate.UNKNOWN, directory
 
 
-@pytest.mark.parametrize("value,joined", [("sub", "/work/sub"), ("~/x", os.path.expanduser("~/x"))])
+@pytest.mark.parametrize("value,joined", [("sub", "/work/sub"), ("~/x", "~/x")])
 def test_control_strict_git_joins_a_literal_or_plain_tilde_value(value, joined):
+    """The tilde is put in when the case runs: the module's HOME (tests/_plugin_env.py) is set after collection."""
     words = ["-C", value, "push", "origin", "main"]
     _name, directory, _detail = gate._strict_git(words, "/work", rewrites=_rewrites(words), raws=words)
-    assert directory == os.path.join("/work", joined)
+    assert directory == os.path.join("/work", os.path.expanduser(joined))
 
 
 def _bare(tmp_path: pathlib.Path, attributes: str) -> str:
