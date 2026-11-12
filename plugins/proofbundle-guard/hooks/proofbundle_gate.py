@@ -16023,14 +16023,16 @@ def _inactive_seen_trim(folder: str) -> None:
 #: decision the host enforces. {word} is the word a receipt of Level 1 records for that decision (_PILOT_VERDICTS), so
 #: the text and a receipt cannot name two verdicts.
 _VERDICT_FIRST = {
-    "ask": "Verdict: the gate asks{word}; a person decides in the dialog whether the call runs.",
+    "ask": ("Verdict: the gate asks{word}; the host asks a person whether the call runs, and a run without a "
+            "dialog (claude -p) refuses it."),
     "deny": "Verdict: the gate blocks the call{word}; it does not run.",
     "warn": "Verdict: the gate warns{word} and makes no permission decision; the call runs as the host allows.",
     "handover": ("Verdict: the gate hands the push over to git's pre-push check{word} and makes no permission decision "
                  "of its own; that check decides the push."),
     "inactive": ("Verdict: the gate is not active here{word} and makes no permission decision; the call runs as the "
                  "host allows."),
-    "pass": "Verdict: the gate lets the call run{word}.",
+    "pass": ("Verdict: the gate passes the call{word} and makes no permission decision; the call runs as the host "
+             "allows."),
 }
 #: D136: what a part marked NOT MEASURED is, said once where the reason has one. Before D136 the text of an ask began
 #: with NOT MEASURED, and a model read that as no verdict at all while the receipt recorded ESCALATE (GF-E001).
@@ -16038,13 +16040,19 @@ _VERDICT_PARTIAL = ("A part marked NOT MEASURED names a check the gate could not
                     "verdict, not a verdict of its own.")
 
 
-def verdict_first(decision: str, reason: str) -> str:
-    """D136: the text the model gets for an answer of the gate, its verdict first. The verdict sentence of
-    _VERDICT_FIRST, the sentence on NOT MEASURED where the reason has that mark, then the reason as it was. Only the
-    text changes: the decision, the reason ids, the log and a receipt read the outcome, never this text."""
+def verdict_sentence(decision: str) -> str:
+    """D136: the verdict sentence of _VERDICT_FIRST for a decision, with the receipt's word in brackets where a receipt
+    records one."""
     word = _PILOT_VERDICTS.get(decision)
-    lead = _VERDICT_FIRST.get(decision, "Verdict: the gate answers " + decision + "{word}.").format(
+    return _VERDICT_FIRST.get(decision, "Verdict: the gate answers " + decision + "{word}.").format(
         word=f" ({word})" if word else "")
+
+
+def verdict_first(decision: str, reason: str) -> str:
+    """D136: the text the model gets for an answer of the gate, its verdict first. The verdict sentence, the sentence
+    on NOT MEASURED where the reason has that mark, then the reason as it was. Only the text changes: the decision, the
+    reason ids, the log and a receipt read the outcome, never this text."""
+    lead = verdict_sentence(decision)
     if "NOT MEASURED" in reason:
         lead = f"{lead} {_VERDICT_PARTIAL}"
     return f"{lead} Reason: {reason}"
@@ -24716,14 +24724,24 @@ def main(argv: list[str] | None = None) -> int:
         except Exception:  # noqa: BLE001 - the short line never changes the decision: the long reason stands in
             printed = answer(verdict.decision, verdict.text, host=host)
     if hints:
-        printed = dict(printed or {})
-        specific = dict(printed.get("hookSpecificOutput") or {"hookEventName": "PreToolUse"})
-        specific["additionalContext"] = " ".join(([specific["additionalContext"]] if specific.get("additionalContext")
-                                                  else []) + [_HINTS[h] for h in hints])
-        printed["hookSpecificOutput"] = specific
+        printed = hints_after_the_verdict(printed, verdict, hints)
     if printed is not None:
         sys.stdout.write(json.dumps(printed) + "\n")
     return 0
+
+
+def hints_after_the_verdict(printed: dict | None, outcome: "Outcome | None", hints: list[str]) -> dict:
+    """D81 with D136: the answer with the hints of a Bash call added to the model's context. They follow the text the
+    answer gives the model, which names the verdict first. Where the answer gives the model no text, a pass (D53) or an
+    inactive gate already shown in this session, they follow the outcome's verdict sentence; only beside a call the gate
+    does not judge, which has no verdict, do they stand alone."""
+    printed = dict(printed or {})
+    specific = dict(printed.get("hookSpecificOutput") or {"hookEventName": "PreToolUse"})
+    head = specific.get("additionalContext") or (verdict_sentence(outcome.decision) if outcome is not None else "")
+    specific["additionalContext"] = " ".join(([head] if head else []) + [_HINTS[h] for h in hints])
+    printed["hookSpecificOutput"] = specific
+    return printed
+
 
 def _failure_outcome(exc: BaseException) -> "Outcome":
     """The deny of a call the gate reached no verdict on: a GateError names what it could not read, any other failure

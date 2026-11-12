@@ -73,13 +73,15 @@ def parsed(proc: subprocess.CompletedProcess, entry: dict | None):
 #: read from the gate, so a change of the gate's words fails here. The word in brackets is the one a receipt of Level 1
 #: records for that decision.
 VERDICT_LEADS = {
-    "ask": "Verdict: the gate asks (ESCALATE); a person decides in the dialog whether the call runs.",
+    "ask": ("Verdict: the gate asks (ESCALATE); the host asks a person whether the call runs, and a run without a "
+            "dialog (claude -p) refuses it."),
     "deny": "Verdict: the gate blocks the call (DENY); it does not run.",
     "warn": "Verdict: the gate warns and makes no permission decision; the call runs as the host allows.",
     "handover": ("Verdict: the gate hands the push over to git's pre-push check and makes no permission decision of its "
                  "own; that check decides the push."),
     "inactive": "Verdict: the gate is not active here and makes no permission decision; the call runs as the host allows.",
-    "pass": "Verdict: the gate lets the call run (ALLOW).",
+    "pass": ("Verdict: the gate passes the call (ALLOW) and makes no permission decision; the call runs as the host "
+             "allows."),
 }
 #: D136: the sentence that stands after the verdict where the reason has a part marked NOT MEASURED, and only there.
 NOT_MEASURED_SENTENCE = ("A part marked NOT MEASURED names a check the gate could not complete: it is a reason for this "
