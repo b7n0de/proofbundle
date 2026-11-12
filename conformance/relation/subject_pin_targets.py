@@ -9,8 +9,9 @@ a valid decision predicate, the parent's own predicate without `relationships` a
 case tests its subject axis and nothing else: two subjects (ambiguous) and none (missing). The subjects, the declared
 `targetSubjectDigest` pins and every expectation in `case.json` stay as they were.
 
-THE KEY is a fixed test key derived from a label below, not a secret, so the files can be rebuilt byte for byte; the
-earlier throwaway key was not kept. Parent and target share it, as before. Run from the repository root:
+THE KEY is a fixed test key, the SHA-256 of a label below written out as its seed, not a secret, so the files can be
+rebuilt byte for byte; the earlier throwaway key was not kept. Parent and target share it, as before. Run from the
+repository root:
 
     PYTHONPATH=src python conformance/relation/subject_pin_targets.py
 """
@@ -32,8 +33,13 @@ from proofbundle.decision import DECISION_RECEIPT_PREDICATE_TYPE, emit_decision_
 
 HIER = Path(__file__).resolve().parent
 INTOTO = "application/vnd.in-toto+json"
-SCHLUESSEL = Ed25519PrivateKey.from_private_bytes(
-    hashlib.sha256(b"proofbundle conformance relation target-subject-pin test key").digest())
+#: The seed is written out, so this shipped tool loads no key material from outside it: the sdist guard in
+#: tests/test_sdist_ohne_signierwerkzeug.py exempts only a seed spelled out in the source. It is the SHA-256 of
+#: ETIKETT, which the check below holds, so the key and the files it signed stay the same.
+ETIKETT = b"proofbundle conformance relation target-subject-pin test key"
+SAAT = (b"\xb4\xb3\x4f\x24\x35\x46\x6c\x66\x8f\xa6\xd0\x91\x35\xe5\xfb\x90"
+        b"\x12\x27\x5c\x22\x39\x12\x64\x5d\x33\xeb\xb9\xda\x0b\x57\x94\x32")
+SCHLUESSEL = Ed25519PrivateKey.from_private_bytes(SAAT)
 SUBJEKTE = {
     "target-subject-ambiguous": [{"digest": {"sha256": "a" * 64}, "name": "s1"},
                                  {"digest": {"sha256": "b" * 64}, "name": "s2"}],
@@ -46,6 +52,8 @@ def _schreibe_json(pfad: Path, wert, einrueckung: int) -> None:
 
 
 def baue(fall: str) -> None:
+    if hashlib.sha256(ETIKETT).digest() != SAAT:
+        raise SystemExit("the written-out seed is not the SHA-256 of ETIKETT")
     ordner = HIER / fall
     eltern = json.loads(dsse.load_payload(json.loads((ordner / "receipt.json").read_text(encoding="utf-8"))))
     praedikat = copy.deepcopy(eltern["predicate"])
