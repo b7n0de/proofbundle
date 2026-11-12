@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Cross-check with MolTrust: the AAE conformance vectors v1.4.0 computed with the proofbundle verifier's own steps.
 
-Usage: PYTHONPATH=<proofbundle>/src python -I -B cross_check.py <aae-conformance-vectors checkout> <out.json>
+Usage: PYTHONPATH=<proofbundle checkout>/src python -B cross_check.py <aae-conformance-vectors checkout> <out.json>
+(not -I: it would ignore PYTHONPATH and import an installed proofbundle instead of the checkout)
 
 Written from the text alone: draft-kroehl-agentic-trust-aae-02 (Sections 2.2.2 and 3), the README, docs/CONFORMANCE.md,
 vectors/enforce/README.md, schema/enforce-vector-schema.json and the vectors. The reference code of that repository
@@ -26,6 +27,7 @@ import json
 import sys
 from pathlib import Path
 
+import proofbundle
 from proofbundle.canonical import canonicalize_statement
 
 REPO = Path(sys.argv[1])
@@ -75,9 +77,10 @@ def enforce(path):
             out["trace_action_binding"] = trace["action_binding"]
     na.append("verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 "
               "are not part of the decision receipt of -05")
-    na.append("core_digest: the core names enforce_version, the mandate and transaction digests, the verdict, "
-              "grant_index, the full predicate trace and prev_core_digest; our decisionRef covers a decision "
-              "payload with other members, so the two digests cover different field sets")
+    na.append("core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the "
+              "verdict, grant_index, the structured predicate trace without diagnostic reason text, and "
+              "prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests "
+              "cover different field sets")
     out["not_applicable"] = na
     return out
 
@@ -122,7 +125,7 @@ def native(path):
         stated = delegation.get("delegator_aae_hash", MISSING)
         if len(parents) != 1:
             links.append({"result": "NOT APPLICABLE", "reason": "the parent %r is not in the vector exactly once"
-                          % (parent_id,), "parents_found": len(parents)})
+                          % (parent_id,), "parents_found": len(parents), "hash_stated": stated is not MISSING})
             continue
         ours = "sha-256:" + base64.urlsafe_b64encode(
             hashlib.sha256(parents[0].encode("ascii")).digest()).decode().rstrip("=")
@@ -139,6 +142,7 @@ def native(path):
     return out
 
 
+print("proofbundle module", proofbundle.__file__)
 result = {"repository": "https://github.com/MoltyCel/aae-conformance-vectors", "read_reference_code": False,
           "enforce": [enforce(p) for p in sorted((REPO / "vectors" / "enforce").glob("[0-9]*.json"))],
           "native": [native(p) for p in sorted((REPO / "vectors").glob("[0-9]*.json"))]}

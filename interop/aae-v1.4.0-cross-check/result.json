@@ -16,7 +16,7 @@
    "kernel": "enforce_check",
    "not_applicable": [
     "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
-    "core_digest: the core names enforce_version, the mandate and transaction digests, the verdict, grant_index, the full predicate trace and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
    ],
    "sha256_jcs_without_tag": "c8ee0090f970859f3912dcd283836a351eadd79a7cf0641dc973fce7d6290a2d",
    "trace_action_binding": "PASS"
@@ -37,7 +37,7 @@
    "kernel": "enforce_check",
    "not_applicable": [
     "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
-    "core_digest: the core names enforce_version, the mandate and transaction digests, the verdict, grant_index, the full predicate trace and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
    ],
    "sha256_jcs_without_tag": "6725bd7e4cc4862fe36470a86d27c03b84157b75b13ca2dce8f09d30efc005bc"
   },
@@ -57,7 +57,7 @@
    "kernel": "enforce_check",
    "not_applicable": [
     "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
-    "core_digest: the core names enforce_version, the mandate and transaction digests, the verdict, grant_index, the full predicate trace and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
    ],
    "sha256_jcs_without_tag": "16a85f2beccc6a8a6ba87232649a70e8be33613779108aa8c0c4e55814871afe"
   },
@@ -77,7 +77,7 @@
    "kernel": "enforce_check",
    "not_applicable": [
     "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
-    "core_digest: the core names enforce_version, the mandate and transaction digests, the verdict, grant_index, the full predicate trace and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
    ],
    "sha256_jcs_without_tag": "08ff0df794e6bfb3eccfdc70bcd6c8b8c5e2b1afd6abdb73cc4cc62fd95a7ce9"
   },
@@ -97,7 +97,7 @@
    "kernel": "enforce_check",
    "not_applicable": [
     "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
-    "core_digest: the core names enforce_version, the mandate and transaction digests, the verdict, grant_index, the full predicate trace and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
    ],
    "sha256_jcs_without_tag": "b6a1291f55c1731680d28f2c1c792e4e52f5a5526dc4d20f90ab6c9b22909aae"
   },
@@ -117,7 +117,7 @@
    "kernel": "enforce_check",
    "not_applicable": [
     "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
-    "core_digest: the core names enforce_version, the mandate and transaction digests, the verdict, grant_index, the full predicate trace and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
    ],
    "sha256_jcs_without_tag": "73475cb40a568e8da8a045ced110137e159f890ac4da883b6b17dc651b3a8049"
   },
@@ -137,7 +137,7 @@
    "kernel": "enforce_check",
    "not_applicable": [
     "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
-    "core_digest: the core names enforce_version, the mandate and transaction digests, the verdict, grant_index, the full predicate trace and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
    ],
    "sha256_jcs_without_tag": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
   },
@@ -157,7 +157,7 @@
    "kernel": "enforce_check",
    "not_applicable": [
     "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
-    "core_digest: the core names enforce_version, the mandate and transaction digests, the verdict, grant_index, the full predicate trace and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
    ],
    "sha256_jcs_without_tag": "c8ee0090f970859f3912dcd283836a351eadd79a7cf0641dc973fce7d6290a2d"
   },
@@ -177,7 +177,7 @@
    "kernel": "enforce_check",
    "not_applicable": [
     "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
-    "core_digest: the core names enforce_version, the mandate and transaction digests, the verdict, grant_index, the full predicate trace and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
    ],
    "sha256_jcs_without_tag": "c8ee0090f970859f3912dcd283836a351eadd79a7cf0641dc973fce7d6290a2d"
   },
@@ -197,7 +197,7 @@
    "kernel": "enforce_check",
    "not_applicable": [
     "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
-    "core_digest: the core names enforce_version, the mandate and transaction digests, the verdict, grant_index, the full predicate trace and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
    ],
    "sha256_jcs_without_tag": "c8ee0090f970859f3912dcd283836a351eadd79a7cf0641dc973fce7d6290a2d"
   },
@@ -217,7 +217,7 @@
    "kernel": "enforce_check",
    "not_applicable": [
     "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
-    "core_digest: the core names enforce_version, the mandate and transaction digests, the verdict, grant_index, the full predicate trace and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
    ],
    "sha256_jcs_without_tag": "c8ee0090f970859f3912dcd283836a351eadd79a7cf0641dc973fce7d6290a2d"
   },
@@ -237,7 +237,7 @@
    "kernel": "enforce_check",
    "not_applicable": [
     "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
-    "core_digest: the core names enforce_version, the mandate and transaction digests, the verdict, grant_index, the full predicate trace and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
    ],
    "sha256_jcs_without_tag": "c8ee0090f970859f3912dcd283836a351eadd79a7cf0641dc973fce7d6290a2d"
   },
@@ -257,7 +257,7 @@
    "kernel": "enforce_check",
    "not_applicable": [
     "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
-    "core_digest: the core names enforce_version, the mandate and transaction digests, the verdict, grant_index, the full predicate trace and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
    ],
    "sha256_jcs_without_tag": "c8ee0090f970859f3912dcd283836a351eadd79a7cf0641dc973fce7d6290a2d"
   },
@@ -277,7 +277,7 @@
    "kernel": "enforce_check",
    "not_applicable": [
     "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
-    "core_digest: the core names enforce_version, the mandate and transaction digests, the verdict, grant_index, the full predicate trace and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
    ],
    "sha256_jcs_without_tag": "c8ee0090f970859f3912dcd283836a351eadd79a7cf0641dc973fce7d6290a2d"
   },
@@ -297,7 +297,7 @@
    "kernel": "enforce_check",
    "not_applicable": [
     "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
-    "core_digest: the core names enforce_version, the mandate and transaction digests, the verdict, grant_index, the full predicate trace and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
    ],
    "sha256_jcs_without_tag": "c8ee0090f970859f3912dcd283836a351eadd79a7cf0641dc973fce7d6290a2d"
   },
@@ -317,7 +317,7 @@
    "kernel": "enforce_check",
    "not_applicable": [
     "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
-    "core_digest: the core names enforce_version, the mandate and transaction digests, the verdict, grant_index, the full predicate trace and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
    ],
    "sha256_jcs_without_tag": "c8ee0090f970859f3912dcd283836a351eadd79a7cf0641dc973fce7d6290a2d"
   },
@@ -337,7 +337,7 @@
    "kernel": "enforce_check",
    "not_applicable": [
     "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
-    "core_digest: the core names enforce_version, the mandate and transaction digests, the verdict, grant_index, the full predicate trace and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
    ],
    "sha256_jcs_without_tag": "c8ee0090f970859f3912dcd283836a351eadd79a7cf0641dc973fce7d6290a2d"
   },
@@ -357,7 +357,7 @@
    "kernel": "enforce_check",
    "not_applicable": [
     "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
-    "core_digest: the core names enforce_version, the mandate and transaction digests, the verdict, grant_index, the full predicate trace and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
    ],
    "sha256_jcs_without_tag": "c8ee0090f970859f3912dcd283836a351eadd79a7cf0641dc973fce7d6290a2d"
   },
@@ -377,7 +377,7 @@
    "kernel": "enforce_check",
    "not_applicable": [
     "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
-    "core_digest: the core names enforce_version, the mandate and transaction digests, the verdict, grant_index, the full predicate trace and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
    ],
    "sha256_jcs_without_tag": "c8ee0090f970859f3912dcd283836a351eadd79a7cf0641dc973fce7d6290a2d"
   },
@@ -397,7 +397,7 @@
    "kernel": "enforce_check",
    "not_applicable": [
     "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
-    "core_digest: the core names enforce_version, the mandate and transaction digests, the verdict, grant_index, the full predicate trace and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
    ],
    "sha256_jcs_without_tag": "84a2aca6e961c6ea23bfaaf7420933c07a860e112967cd528c50cea4031bae53",
    "trace_action_binding": "FAIL"
@@ -423,7 +423,7 @@
    "kernel": "enforce_check",
    "not_applicable": [
     "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
-    "core_digest: the core names enforce_version, the mandate and transaction digests, the verdict, grant_index, the full predicate trace and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
    ],
    "sha256_jcs_without_tag": "c8ee0090f970859f3912dcd283836a351eadd79a7cf0641dc973fce7d6290a2d"
   },
@@ -618,6 +618,7 @@
      "result": "NOT APPLICABLE"
     },
     {
+     "hash_stated": false,
      "parents_found": 2,
      "reason": "the parent 'urn:uuid:0000000a-0000-4000-8000-00000000000a' is not in the vector exactly once",
      "result": "NOT APPLICABLE"
