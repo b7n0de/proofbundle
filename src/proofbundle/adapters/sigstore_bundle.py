@@ -723,11 +723,21 @@ def _read_authorities(entries: Any, path: str) -> Tuple[_Authority, ...]:
             uri = _string(obj.get("uri", ""), p + ".uri", "verifier-config", empty=True)
         except _Fail as exc:
             raise _Unreadable(str(exc)) from None
+        # EVERY FIELD THE PATH CHECK READS IS READ HERE, inside the boundary (deep gate 6.6.0 at d8881edc,
+        # iteration 1, finding Z8): the leaf-side fix of 6.6.0 left the trusted root's certificates. cryptography
+        # decodes the validity times and the names of a certificate only when they are first asked for, and
+        # `_chain_problem` asked for the dates outside any boundary, so a CA whose notAfter is a GeneralizedTime of
+        # year 0000 raised a bare ValueError ("year 0 is out of range") out of verify_sigstore_bundle. The dates,
+        # the subject and the issuer name of every certificate of a CA or TSA chain are now read with the
+        # certificate, and such a chain is a trusted root that cannot be read.
         try:
             chain = tuple(x509.load_der_x509_certificate(d) for d in ders)
             for cert in chain:
                 cert.public_key()
-        except (ValueError, UnsupportedAlgorithm) as exc:
+                len(cert.subject)
+                len(cert.issuer)
+                _not_before(cert), _not_after(cert)
+        except (ValueError, UnsupportedAlgorithm, x509.UnsupportedGeneralNameType) as exc:
             raise _Unreadable(f"{p}.certChain holds a certificate that does not parse: {exc}") from None
         start, end = _valid_for(obj["validFor"], p + ".validFor")
         out.append(_Authority(uri=uri, chain=chain, start=start, end=end))
