@@ -2456,6 +2456,25 @@ def _praedikat_ist_positiv_falsch(stmt: dict) -> bool:
     return wert is not None and not isinstance(wert, dict)
 
 
+def _praedikat_strukturfehler(stmt: dict) -> list[str]:
+    """Die Fehler der Strukturpruefung, die der eigenstaendige Verifier des Praedikattyps anlegt (in der Form,
+    in der `decision verify`, `outcome verify` und `relation-statement verify` ohne --strict pruefen). Fuer
+    einen Typ, der nicht zu `_EIGENE_PRAEDIKATTYPEN` gehoert, eine leere Liste: ihn beurteilt diese Stelle
+    nicht."""
+    from .decision import validate_decision_predicate  # noqa: PLC0415
+    from .outcome import validate_outcome_predicate  # noqa: PLC0415
+    from .relation_statement import validate_relation_statement_predicate  # noqa: PLC0415
+    typ = str(stmt.get("predicateType") or "")
+    praedikat = stmt.get("predicate")
+    if typ == _EIGENE_PRAEDIKATTYPEN[0]:
+        return validate_decision_predicate(praedikat, strict=False)
+    if typ == _EIGENE_PRAEDIKATTYPEN[1]:
+        return validate_outcome_predicate(praedikat, strict=False)
+    if typ == _EIGENE_PRAEDIKATTYPEN[2]:
+        return validate_relation_statement_predicate(praedikat)
+    return []
+
+
 def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]]:
     """relation/v0.1 (--with-related): load DSSE envelopes of RELATED receipts, verify each one
     STANDALONE and key it by its computed content root. Same-key is the default v0.1 contract; WP-A
@@ -2478,6 +2497,13 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
     errs: list[str] = []
     paths = paths or []
     related_pubs = related_pubs or []
+    # EIN LESER, EINE PAARPRUEFUNG (deep gate 6.6.0 an d8881edc, Iteration 1, Fund Z6). B22 hatte die Pruefung nur
+    # in `decision verify` gesetzt; `outcome verify` und `relation-statement verify` lesen dieselben Optionen ueber
+    # diesen Leser und nahmen einen `--related-pub` ohne sein Ziel an, auch einen, der kein Base64 ist (exit 0),
+    # waehrend docs/predicates/relation.md ihn fehlerhafte Eingabe mit exit 2 nennt. Jetzt prueft der Leser selbst.
+    if len(related_pubs) > len(paths):
+        return {}, [f"{len(related_pubs)} --related-pub given for {len(paths)} --with-related: each key is paired "
+                    "with the target at its position, and a key without a target is checked by nothing"]
     for i, path in enumerate(paths):
         # position-paired per-target key; empty string or missing = same-key (main pub).
         rp_b64 = related_pubs[i] if i < len(related_pubs) else None
@@ -2543,6 +2569,23 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
                     "statement predicate is "
                     f"{type(stmt['predicate']).__name__}, not an object — an attached target whose "
                     "predicate cannot be read is never silence")
+                verified = False
+                subject_digest_state = "malformed"
+                stmt = None
+        if stmt is not None and isinstance(stmt.get("predicate"), dict):
+            # DIE PRUEFUNG DES EIGENEN TYPS (deep gate 6.6.0 an d8881edc, Iteration 1, Fund Z4). Der Docstring
+            # verspricht "verify each one STANDALONE", geprueft wurden aber nur Signatur, strenges Lesen und
+            # die Form des Praedikats. GEMESSEN an d8881edc: ein korrekt signiertes decision-receipt ohne sein
+            # Pflichtmitglied `decision` kam als verified=True an; ohne Kante endete `decision verify
+            # --with-related` mit exit 0 und ok true, waehrend dieselben Bytes allein structure_ok false und
+            # exit 2 ergeben. Ein Praedikat eines unserer Typen, das die Strukturpruefung seines Typs nicht
+            # besteht, ist jetzt nicht lesbar wie die zwei Zweige darueber. Fremde Typen beurteilt diese
+            # Stelle nicht, und ein fehlendes Praedikat bleibt ein Statement ohne Kanten.
+            struktur = _praedikat_strukturfehler(stmt)
+            if struktur:
+                payload_malformed = (
+                    f"the predicate does not pass the structure check of its type, which the standalone "
+                    f"verifier applies: {struktur[0]}")
                 verified = False
                 subject_digest_state = "malformed"
                 stmt = None
@@ -2756,14 +2799,9 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
                 merged = dict(pol_trust)
                 merged.update(rp_trust or {})
                 rp_trust = merged
-        # B22, the neighbour of the lens on a1b7d468: `--related-pub` names the key of the `--with-related` target at the
-        # same position, and `_load_related` reads only as many keys as there are targets, so a key without its target
-        # was decoded by nothing and the verify ended as without it. Refused like the anchor trust above, exit 2.
-        _rel_paths = getattr(args, "with_related", None) or []
-        _rel_pubs = getattr(args, "related_pub", None) or []
-        if len(_rel_pubs) > len(_rel_paths):
-            raise ValueError(f"{len(_rel_pubs)} --related-pub given for {len(_rel_paths)} --with-related: each key is "
-                             "paired with the target at its position, and a key without a target is checked by nothing")
+        # B22, the neighbour of the lens on a1b7d468: a `--related-pub` without its `--with-related` target is refused,
+        # exit 2. Since the deep gate of 6.6.0 (finding Z6) the check lives in `_load_related`, the one reader of the
+        # option, so `outcome verify` and `relation-statement verify` refuse it as this command does.
         related, rel_errs = _load_related(getattr(args, "with_related", None), pub,
                                           getattr(args, "related_pub", None))
         if rel_errs:
