@@ -6,7 +6,7 @@ This page identifies the audit records for 6.6.0 and explains their limits. It d
 
 ## Records
 
-The [findings register](../findings_register_361.json) is maintained separately from this directory. PLACEHOLDER: its canonical body is to be signed for version `6.6.0`; at `40079b53` it is signed for version `6.5.0`. The signed findings-register check reads that register, rather than the counts displayed on this page.
+The [findings register](../findings_register_361.json) is maintained separately from this directory. PLACEHOLDER: its canonical body is to be signed for version `6.6.0`; in this tree it is signed for version `6.5.0`. The signed findings-register check reads that register, rather than the counts displayed on this page.
 
 PLACEHOLDER: the signed register reports N register entries for version `6.6.0`, with N closed, N open and N open P0 or P1 entries under the maintainer's classifications. Against 6.5.0 it adds PLACEHOLDER, removes PLACEHOLDER and changes the content of PLACEHOLDER. These totals count register entries only.
 

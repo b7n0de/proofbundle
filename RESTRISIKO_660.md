@@ -2,19 +2,19 @@
 
 This file records findings for the 6.6.0 release and their stated status. It does not claim that the release is free of defects. Earlier findings and their recorded status remain documented in [the residual-risk record of 6.5.0](RESTRISIKO_650.md) and the records before it.
 
-DRAFT. Each line names where it comes from, a file and its lines at `40079b53`, the head of the branch `fix/660-containers-refuse-foreign-members`. The release preparation replaces these sources with the release tree and removes this paragraph.
+Each line names where it comes from, a file and its lines in the tree of this release.
 
 ## The record of 6.5.0 in this release
 
 The findings that stay open after 6.5.0 are listed in [the 6.5.0 record](RESTRISIKO_650.md). This record does not measure them again. Where a line of the 6.6.0 changelog touches one of them, its state stays as the 6.5.0 record gives it until a measurement on the release candidate records another one here.
 
-The 6.5.0 record names `EXPIRED-RECEIPT-OUTSIDE-POLICY-EXITS-3-01` (RESTRISIKO_650.md lines 15 to 19). The 6.6.0 scope row PR507 says that the decision receipt contract now states the order of the exit codes of `decision verify` (docs/release_scope/6.6.0.md line 21). Whether that closes the entry is not measured at this draft.
+The 6.5.0 record names `EXPIRED-RECEIPT-OUTSIDE-POLICY-EXITS-3-01` (RESTRISIKO_650.md lines 15 to 19). The 6.6.0 scope row PR507 says that the decision receipt contract now states the order of the exit codes of `decision verify` (docs/release_scope/6.6.0.md line 21). Whether that closes the entry is not measured here.
 
 ## Open after this release
 
 ### The 24-hour soak runs beside the release
 
-Row C6.3 of the audit matrix, the full 24-hour soak, is informative since this release and does not withhold readiness; C6.2, the short soak on the same artefact, stays release-deciding (CHANGELOG.md line 20). The short soak at the 6.6.0 release candidate is PLACEHOLDER: pending at this draft. Until the 24-hour run reports, it remains a named residual risk of this release, as in RESTRISIKO_650.md line 13.
+Row C6.3 of the audit matrix, the full 24-hour soak, is informative since this release and does not withhold readiness; C6.2, the short soak on the same artefact, stays release-deciding (CHANGELOG.md line 26). The short soak at the 6.6.0 release candidate is PLACEHOLDER: pending until the soak reports. Until the 24-hour run reports, it remains a named residual risk of this release, as in RESTRISIKO_650.md line 13.
 
 ### decision verify and outcome verify are not a complete implementation of the draft
 
@@ -24,7 +24,7 @@ Row C6.3 of the audit matrix, the full 24-hour soak, is informative since this r
 - a `decisionType` other than `preActionAuthorization`, an audience entry that is no non-empty string, and a JSON null inside `decision.obligations` or inside an outcome's `validity.audience` (docs/NON_CLAIMS.md lines 104 to 106);
 - a declined decision without `validity.expiresAt` with the declined case (docs/NON_CLAIMS.md lines 107 to 108);
 - timestamps with more than six fraction digits or second 60 in a field read only for its RFC 3339 form, such as `recordedAt` (docs/NON_CLAIMS.md lines 109 to 112);
-- an evaluation time with a fraction of a second, since `--verification-time` takes a whole past second (docs/NON_CLAIMS.md lines 113 to 114; CHANGELOG.md line 16).
+- an evaluation time with a fraction of a second, since `--verification-time` takes a whole past second (docs/NON_CLAIMS.md lines 113 to 114; CHANGELOG.md line 22).
 
 ### executor.id is attested only where a Trust Pack names it
 
@@ -32,37 +32,37 @@ A Trust Pack key attests only the `executor.id` values its `executorIds` name; a
 
 ### Honouring an approval at most once stays with the relying party
 
-proofbundle reads a supplied consumption state and never writes it. Marking an approval consumed durably, and keeping the state, stay with the relying party; a pass says only that the approval identity is not in the state given (docs/NON_CLAIMS.md lines 120 to 122; CHANGELOG.md line 15).
+proofbundle reads a supplied consumption state and never writes it. Marking an approval consumed durably, and keeping the state, stay with the relying party; a pass says only that the approval identity is not in the state given (docs/NON_CLAIMS.md lines 120 to 122; CHANGELOG.md line 21).
 
 ### The Rust verifier differs in two places
 
 - `pb_verify_rs` still reads an abbreviated long option as argparse with `allow_abbrev=True` does. CROSS_IMPLEMENTATION_REPORT.md names this difference R3, and the Rust verifier follows as an item of its own (docs/release_scope/6.6.0.md line 18; CROSS_IMPLEMENTATION_REPORT.md lines 115 to 119).
-- `pb_verify_rs` still judges only a `--with-related` target that an edge of the receipt names; `outcome verify` and `relation-statement verify` are not changed by that fix (CHANGELOG.md line 32).
+- `pb_verify_rs` still judges only a `--with-related` target that an edge of the receipt names; `outcome verify` and `relation-statement verify` are not changed by that fix (CHANGELOG.md line 38).
 
 ### proofbundle scitt match is experimental
 
-`proofbundle scitt match` is EXPERIMENTAL. It reports `sig_valid` as not evaluated, because it does not apply rule 2 of Section 6 of draft-gruszka-scitt-statement-identification-03; `WholeBytes` is a local experimental scheme; input the strict CBOR reader does not read gets no verdict (docs/release_scope/6.6.0.md line 19; CHANGELOG.md line 13).
+`proofbundle scitt match` is EXPERIMENTAL. It reports `sig_valid` as not evaluated, because it does not apply rule 2 of Section 6 of draft-gruszka-scitt-statement-identification-03; `WholeBytes` is a local experimental scheme; input the strict CBOR reader does not read gets no verdict (docs/release_scope/6.6.0.md line 19; CHANGELOG.md line 19).
 
 ### What the producer rules do not cover
 
-- The rule that a producer writes only a signer's output of 64 bytes covers the Ed25519 producers. The ML-DSA signatures of `cosign_checkpoint_mldsa` and `pqsig.sign_mldsa` are not part of it (CHANGELOG.md line 54).
-- `emit_bundle` applies the structural budget of `verify_bundle` before it signs. The byte limit of a serialized file is not part of this check (CHANGELOG.md line 52).
+- The rule that a producer writes only a signer's output of 64 bytes covers the Ed25519 producers. The ML-DSA signatures of `cosign_checkpoint_mldsa` and `pqsig.sign_mldsa` are not part of it (CHANGELOG.md line 60).
+- `emit_bundle` applies the structural budget of `verify_bundle` before it signs. The byte limit of a serialized file is not part of this check (CHANGELOG.md line 58).
 
 ### Pre-tag receipts of earlier releases
 
-The receipt library now refuses a member outside the nine signed fields, `signature` and `signer_pubkey`. The receipt of 5.0.0 carries such a member, and the gate of this release, run against the v5.0.0 tree, rejects it; the gate of the v5.0.0 tag still verifies it. Because the gate source changes, a receipt of 5.1.0 or later bound to an earlier gate reads as `other_tree` (CHANGELOG.md line 62).
+The receipt library now refuses a member outside the nine signed fields, `signature` and `signer_pubkey`. The receipt of 5.0.0 carries such a member, and the gate of this release, run against the v5.0.0 tree, rejects it; the gate of the v5.0.0 tag still verifies it. Because the gate source changes, a receipt of 5.1.0 or later bound to an earlier gate reads as `other_tree` (CHANGELOG.md line 68).
 
 ### main may fail the plugin pin case from the tag until the pin commit
 
-Expected from the rule the test states, not measured at this draft. `tests/test_plugin_pin_is_the_newest_release.py` accepts pins to the preceding release only while the clone holds no tag of the version of the tree (lines 9 to 22). The plugins pin 6.5.0 at `30c93494` (`plugins/proofbundle/server/proofbundle_mcp.py`, landed with pull request 494). Once the tag v6.6.0 stands, the same window as in RESTRISIKO_650.md line 23 would open until the commit that moves the pins. PLACEHOLDER: the release preparation states whether the owner choice of 2026-11-05 applies again, and the register entry.
+Expected from the rule the test states, not measured. `tests/test_plugin_pin_is_the_newest_release.py` accepts pins to the preceding release only while the clone holds no tag of the version of the tree (lines 9 to 22). The plugins pin 6.5.0 in the tree of this release (`plugins/proofbundle/server/proofbundle_mcp.py`, landed with pull request 494). Once the tag v6.6.0 stands, the same window as in RESTRISIKO_650.md line 23 would open until the commit that moves the pins. PLACEHOLDER: the release preparation states whether the owner choice of 2026-11-05 applies again, and the register entry.
 
 ### Repository tools
 
-- The release workflows pin the build frontend and the build backend through `PIP_CONSTRAINT` and `.github/build-constraints.txt`, unchanged since 6.5.0 (`git diff --stat v6.5.0 40079b53 -- .github/build-constraints.txt .github/workflows/release.yml` printed nothing, exit 0). The limits RESTRISIKO_650.md line 27 names stay: only the setuptools version is read back from the built wheel, the pins name versions, not hashes, and the Python interpreter of the build is not pinned.
+- The release workflows pin the build frontend and the build backend through `PIP_CONSTRAINT` and `.github/build-constraints.txt`, unchanged since 6.5.0 (`git diff --stat v6.5.0 82411560 -- .github/build-constraints.txt .github/workflows/release.yml` printed nothing, exit 0). The limits RESTRISIKO_650.md line 27 names stay: only the setuptools version is read back from the built wheel, the pins name versions, not hashes, and the Python interpreter of the build is not pinned.
 
 ### Not measured at this snapshot
 
-The deep gate, the canonical mutation run, the pre-tag audit and the findings register signed for 6.6.0 have not run at this draft; the register at `40079b53` is signed for version `6.5.0` (audit_artifacts/findings_register_361.json, field `version`). Their findings are recorded here before the tag.
+The deep gate, the canonical mutation run, the pre-tag audit and the findings register signed for 6.6.0 have not run when this record was written; the register in this tree is signed for version `6.5.0` (audit_artifacts/findings_register_361.json, field `version`). Their findings are recorded here before the tag.
 
 ## What 6.6.0 does not claim
 
