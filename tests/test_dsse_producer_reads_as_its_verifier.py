@@ -132,3 +132,24 @@ def test_a_json_body_with_a_lone_surrogate_is_left_to_the_verifier():
     body = json.dumps({"s": "\ud800"}).encode("ascii")
     assert not _statement_reader_accepts(body)
     assert _verifies(dsse.sign_envelope(body, _KEY, payload_type=_INTOTO), _INTOTO)
+
+
+def test_a_keyid_with_a_lone_surrogate_is_signed_and_left_to_the_verifier():
+    """Codex, round 4 of the class fix, P1: the probe judged the form of the keyid and refused it as over budget. It
+    measures sizes only; the keyid is written as before (measured at d8881edc), and the verifier refuses the envelope
+    as malformed."""
+    envelope = dsse.sign_envelope(b"x", _KEY, payload_type=_OCTET, keyid="\ud800")
+    assert envelope["signatures"][0]["keyid"] == "\ud800"
+    with pytest.raises(BundleFormatError):
+        dsse.verify_envelope(envelope, _PUB, payload_type=_OCTET)
+
+
+def test_a_keyid_with_lone_surrogates_past_the_string_bound_is_still_refused_for_its_size():
+    with pytest.raises(BundleFormatError, match="verification budget"):
+        dsse.sign_envelope(b"x", _KEY, payload_type=_OCTET, keyid="\ud800" * 1_000_001)
+
+
+def test_a_payload_type_with_a_lone_surrogate_is_a_documented_refusal():
+    """It raised a raw UnicodeEncodeError from PAE at d8881edc; no envelope can be formed for it."""
+    with pytest.raises(BundleFormatError, match="not UTF-8 text"):
+        dsse.sign_envelope(b"x", _KEY, payload_type="application/\ud800", keyid="")

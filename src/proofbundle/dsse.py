@@ -117,6 +117,13 @@ def sign_envelope(body: bytes, signer, *, payload_type: str, keyid: Optional[str
         raise BundleFormatError("DSSE keyid must be a string or None")
     keyid = _zeichen_von(keyid) if keyid is not None else None
     payload_type = typ_text
+    try:
+        payload_type.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        # PAE writes the type as UTF-8; a type with a lone surrogate has no such bytes. This raised a raw
+        # UnicodeEncodeError before (measured at d8881edc); it is the documented refusal now.
+        raise BundleFormatError("DSSE sign_envelope: the payload type is not UTF-8 text, so no PAE can be formed and "
+                                "nothing is signed") from exc
     _read_as_the_verifier_reads(payload_type, bytes(body), keyid)
     sig = _ed25519_signatur_von(signer.sign(pae(payload_type, body)))
     if sig is None:
@@ -166,8 +173,9 @@ def _read_as_the_verifier_reads(payload_type: str, body: bytes, keyid: Optional[
     if keyid is None:
         entry = {"keyid": "k" * _DEFAULT_KEYID_LENGTH, "sig": entry["sig"]}
     elif keyid:
-        entry = {"keyid": keyid, "sig": entry["sig"]}
-    probe = {"payload": base64.b64encode(body).decode("ascii"), "payloadType": payload_type, "signatures": [entry]}
+        entry = {"keyid": _messkopie(keyid), "sig": entry["sig"]}
+    probe = {"payload": base64.b64encode(body).decode("ascii"), "payloadType": _messkopie(payload_type),
+             "signatures": [entry]}
     try:
         _payload_of(_read_once(probe))
         if payload_type.endswith("+json"):
@@ -192,6 +200,13 @@ def _read_as_the_verifier_reads(payload_type: str, body: bytes, keyid: Optional[
 
 
 _NOT_JSON = object()
+
+
+def _messkopie(text: str) -> str:
+    """The text with the same number of characters and every lone surrogate replaced by an ordinary one. The probe
+    measures sizes; whether a keyid is well-formed text is the verifier's question, which refuses such an envelope as
+    malformed, as before (Codex, round 4 of the class fix, P1: a keyid "\\ud800" was refused here as over budget)."""
+    return "".join("x" if 0xD800 <= ord(zeichen) <= 0xDFFF else zeichen for zeichen in text)
 
 
 def _within_budget(envelope: Any) -> None:
