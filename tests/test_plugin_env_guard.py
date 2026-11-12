@@ -334,9 +334,11 @@ def test_child(module_names, monkeypatch):
 '''
 
 
-def _planted_run(tmp_path: pathlib.Path, planted: dict) -> tuple[subprocess.CompletedProcess, dict, dict]:
-    """A pytest run whose caller sets `planted`, with this helper and fixture, a plugin module and a module of another
-    name; what each module's child process, module fixture and plugin_env() saw (names only)."""
+def _planted_run(tmp_path: pathlib.Path, planted: dict, module: str = _PLANTED_MODULE,
+                 umask: int = -1) -> tuple[subprocess.CompletedProcess, dict, dict]:
+    """A pytest run whose caller sets `planted` (and `umask` where given), with this helper and fixture, a plugin module
+    and a module of another name; what each module's child process, module fixture and plugin_env() saw (names only,
+    or what `module` records)."""
     tests = tmp_path / "tests"
     tests.mkdir()
     shutil.copy(TESTS / "_plugin_env.py", tests / "_plugin_env.py")
@@ -344,10 +346,10 @@ def _planted_run(tmp_path: pathlib.Path, planted: dict) -> tuple[subprocess.Comp
                                        encoding="utf-8")
     (tests / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")
     for name in ("test_plugin_planted.py", "test_other_planted.py"):
-        (tests / name).write_text(_PLANTED_MODULE, encoding="utf-8")
+        (tests / name).write_text(module, encoding="utf-8")
     proc = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--rootdir", str(tests),
                            str(tests)], capture_output=True, text=True, timeout=300, check=False,
-                          cwd=tmp_path, env=plugin_env(**planted))
+                          cwd=tmp_path, env=plugin_env(**planted), umask=umask)
     assert proc.returncode == 0, proc.stdout[-2000:]
     plugin = json.loads((tests / "test_plugin_planted.json").read_text(encoding="utf-8"))
     other = json.loads((tests / "test_other_planted.json").read_text(encoding="utf-8"))
@@ -387,6 +389,21 @@ def test_uv_offline_and_its_cache_pass_and_a_proxy_or_certificate_path_does_not(
         assert set(passed) <= set(names), names
         assert not set(withheld) & set(names), names
     assert set(passed) | set(withheld) <= set(other["child"]), other
+
+
+def test_the_active_virtual_environment_reaches_the_child_of_a_plugin_test(tmp_path):
+    """A plugin test whose child starts uv must hand it the caller's VIRTUAL_ENV, which names a path and carries no
+    secret. Measured in the dry run of 6.5.0 on 5 November 2026 (finding T2-3): without it, uv chose the uv-managed
+    Python 3.10.20 instead of the active venv, found nothing for it in its cache with the network off, and
+    test_plugin_gate_runde15_n37.py::test_r14_4_the_real_server_verifies_a_valid_bundle and its neighbour went red under
+    3.11, 3.12 and 3.13; `uv python find` with and without VIRTUAL_ENV named the two interpreters. Here the caller sets
+    VIRTUAL_ENV: the plugin module's child process, its module fixture and plugin_env() see it, as a module of another
+    name does. Red before VIRTUAL_ENV stood in FIXED."""
+    planted = {"VIRTUAL_ENV": str(tmp_path / "planted-venv")}
+    _proc, plugin, other = _planted_run(tmp_path, planted)
+    for names in (plugin["child"], plugin["module"], plugin["helper"]):
+        assert "VIRTUAL_ENV" in names, names
+    assert "VIRTUAL_ENV" in other["child"] and "VIRTUAL_ENV" in other["module"], other
 
 
 _IMPORTING_MODULE = '''
@@ -433,3 +450,101 @@ def test_a_child_of_a_plugin_test_imports_the_proofbundle_the_test_imports(tmp_p
         assert pathlib.Path(seen["self"]).resolve().parent.parent == src, seen
     assert pathlib.Path(plugin["child"]).resolve() == pathlib.Path(plugin["self"]).resolve(), plugin
     assert pathlib.Path(other["child"]).resolve().parent.parent == decoy.resolve(), other
+
+
+_HOME_MODULE = '''
+import json, os, pathlib, subprocess, sys
+import pytest
+from _plugin_env import plugin_env
+
+OUT = pathlib.Path(__file__).with_suffix(".json")
+CHILD = "import os; print(os.environ.get('HOME', ''))"
+
+
+@pytest.fixture(scope="module")
+def module_home():
+    return os.environ.get("HOME", "")
+
+
+def test_child(module_home):
+    child = subprocess.run([sys.executable, "-I", "-c", CHILD], capture_output=True, text=True,
+                           check=True).stdout.strip()
+    try:
+        helper = plugin_env().get("HOME", "")
+    except RuntimeError:
+        helper = None
+    OUT.write_text(json.dumps({"child": child, "module": module_home, "helper": helper,
+                               "uv_cache": os.environ.get("UV_CACHE_DIR")}))
+'''
+
+
+def test_a_plugin_test_module_runs_under_a_home_of_its_own(tmp_path):
+    """Finding M-1 of 2 November 2026: the gate reads its folder under $HOME/.config/proofbundle, FIXED kept the
+    caller's HOME, and the language file there (`de` on the Farmer) turned 12 cases of tests/test_codex_plugin.py red.
+    Here a run whose caller's HOME holds that file and a uv cache: the plugin module's child process, its module
+    fixture and plugin_env() see one HOME that is not the caller's and holds no gate folder, and uv's cache stays the
+    caller's (owner answer of follow-up note 8); a module of another name keeps the caller's HOME, which shows the
+    planting reached the run."""
+    caller = tmp_path / "caller-home"
+    (caller / ".config" / "proofbundle").mkdir(parents=True)
+    (caller / ".config" / "proofbundle" / "language").write_text("de\n", encoding="utf-8")
+    (caller / ".cache" / "uv").mkdir(parents=True)
+    _proc, plugin, other = _planted_run(tmp_path, {"HOME": str(caller), "UV_CACHE_DIR": None}, _HOME_MODULE)
+    assert plugin["child"] == plugin["module"] == plugin["helper"], plugin
+    home = pathlib.Path(plugin["module"])
+    assert home.is_absolute() and home.resolve() != caller.resolve(), plugin
+    assert not (home / ".config" / "proofbundle").exists(), plugin
+    assert plugin["uv_cache"] == str(caller / ".cache" / "uv"), plugin
+    assert other["child"] == other["module"] == str(caller), other
+
+
+def test_this_plugin_test_runs_under_a_home_of_its_own():
+    """The run itself: this module's HOME is not the one the account names and holds no gate folder."""
+    pwd = pytest.importorskip("pwd")
+    home = pathlib.Path(os.environ["HOME"])
+    assert home.resolve() != pathlib.Path(pwd.getpwuid(os.getuid()).pw_dir).resolve(), home
+    assert not (home / ".config" / "proofbundle").exists(), home
+
+
+_UMASK_MODULE = '''
+import json, os, pathlib, subprocess, sys
+import pytest
+
+OUT = pathlib.Path(__file__).with_suffix(".json")
+CHILD = "import os; print(os.umask(0))"
+
+
+def _umask():
+    mask = os.umask(0)
+    os.umask(mask)
+    return mask
+
+
+@pytest.fixture(scope="module")
+def module_umask():
+    return _umask()
+
+
+def test_child(module_umask):
+    child = int(subprocess.run([sys.executable, "-I", "-c", CHILD], capture_output=True, text=True,
+                               check=True).stdout)
+    OUT.write_text(json.dumps({"child": child, "module": module_umask, "test": _umask()}))
+'''
+
+
+def test_a_plugin_test_module_runs_under_umask_022(tmp_path):
+    """A neighbour of finding M-1, measured on 2 November 2026: under the caller's umask 002 the records folder of the
+    key journal tests is writable by the group, and the key signer refuses the export (export_folder_unsafe), so 12
+    cases of tests/test_plugin_z405_key_journal_reconcile.py went red that pass under 022. Here a run whose caller's
+    umask is 002: the plugin module's child process, its module fixture and its test see 022; a module of another
+    name keeps 002, which shows the planting reached the run."""
+    _proc, plugin, other = _planted_run(tmp_path, {}, _UMASK_MODULE, umask=0o002)
+    assert plugin == {"child": 0o022, "module": 0o022, "test": 0o022}, plugin
+    assert other == {"child": 0o002, "module": 0o002, "test": 0o002}, other
+
+
+def test_this_plugin_test_runs_under_umask_022():
+    """The run itself: this module's umask is 022, whatever the caller's is."""
+    mask = os.umask(0)
+    os.umask(mask)
+    assert mask == 0o022, oct(mask)

@@ -25,6 +25,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import subprocess
 import sys
 import time
 
@@ -92,6 +93,7 @@ def _hook(repo, tmp_path, command, host="claude", env_extra=None):
                                       "PROOFBUNDLE_GATE_DIR")}
     if STANDING_GO in os.environ:   # D129: set where a module takes tests/_standing_go.py
         env[STANDING_GO] = os.environ[STANDING_GO]
+    env["TMPDIR"] = str(tmp_path)   # the case's temp folder, wherever pytest puts it (M-1)
     env["CLAUDE_PLUGIN_DATA"] = env["PLUGIN_DATA"] = str(tmp_path / "data")
     env.update(env_extra or {})
     proc, entry = ga.run_hook([sys.executable, "-I", gate.__file__, "--host", host, *AUTONOMOUS], json.dumps(event), env,
@@ -168,6 +170,22 @@ def test_D92_the_other_spellings_of_the_edit(tmp_path, form):
     body = _body(tmp_path, "Text.\n\n" + FOOTER)
     answer, entry = _hook(repo, tmp_path, form.replace("{B}", str(body)))
     assert _decision(answer) is None and "free_pr_edit_form" in entry["reason_ids"], (form, answer)
+
+
+def test_D92_the_hook_is_handed_the_temp_folder_of_the_case(tmp_path, monkeypatch):
+    """A neighbour of finding M-1, the full plugin run of 2 November 2026: with a base folder outside /tmp six cases of
+    an edit were red. The gate frees a body file only inside the work tree or the temp folder, the hook took /tmp for
+    the temp folder, and the body lay in tmp_path elsewhere. The hook is handed the case's tmp_path as its temp
+    folder, wherever pytest puts it."""
+    seen = []
+
+    def record(argv, event_text, env, cwd=None):
+        seen.append(env)
+        return subprocess.CompletedProcess(argv, 0, "", ""), None
+
+    monkeypatch.setattr(ga, "run_hook", record)
+    _hook(d71._repo(tmp_path), tmp_path, "git status")
+    assert [env.get("TMPDIR") for env in seen] == [str(tmp_path)], seen
 
 
 @pytest.mark.parametrize("text, rule", [("Text without the footer.\n", "(b)"),

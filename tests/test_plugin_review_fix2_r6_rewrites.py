@@ -57,6 +57,7 @@ def _shell_word(shell: str, word: str, cwd: pathlib.Path) -> list[str]:
 @pytest.mark.parametrize("word,shell,gives", REWRITTEN.values(), ids=REWRITTEN.keys())
 def test_the_shell_really_rewrites_the_word(tmp_path, word, shell, gives):
     """Non-vacuous: the named shell gives another word than the one the lexer reads."""
+    gives = f2._at_home(gives)
     got = _shell_word(shell, word, tmp_path)
     lexed = [t[1] for t in gate._lex(f"git add {word}") if t[0] == "word"][2:]
     if gives is not None:
