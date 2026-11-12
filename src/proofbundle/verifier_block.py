@@ -49,6 +49,7 @@ from __future__ import annotations
 from collections import Counter
 
 import hashlib
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -79,9 +80,9 @@ _BUILD_ALLOWED = frozenset(_BUILD_REQUIRED) | {"files"}
 _VECTOR_REQUIRED = ("name", "digest", "cases")
 _TEST_RESULT_REQUIRED = ("predicateType", "result", "statementDigest")
 
-#: Files of the package that make up a source-tree build identity. Bytecode and caches are not
-#: the build; they are what a particular interpreter left behind.
-_SOURCE_TREE_SUFFIXES = (".py", ".json", ".typed")
+#: The one directory of the package that is not the build: the cache a particular interpreter left behind.
+#: Every other file of the tree is a member of its source-tree identity (fourth local review, aa578913).
+_INTERPRETER_CACHE = "__pycache__"
 
 
 class VerifierBlockError(ProofBundleError):
@@ -178,6 +179,23 @@ def _installed_record_rows(package_dir: Path):
         except (OSError, ValueError):
             return None
         rows.append(f"{pfad}\0{digest[len('sha256='):]}")
+    # A FILE OF THE PACKAGE THAT RECORD DOES NOT NAME IS NOT THE INSTALLED BUILD (local review of 8a05ceef,
+    # 2026-11-10, P1, the neighbour of DELTA2 N4). Every row was held to its bytes, but the package directory
+    # was never held to the rows: an added `proofbundle/signature/__init__.py` is imported in place of
+    # `signature.py`, and the listing, the digest and `report` stayed those of the wheel. The installed build
+    # is the closed set RECORD names; bytecode is not the build, as above. Anything else makes the tree
+    # measure as what it is, `source-tree`.
+    # A LINK AND BYTECODE OUTSIDE THE CACHE ARE MEMBERS TOO (second local review, 9b0181cf, P1): a link
+    # `signature` to a directory elsewhere and a `signature/__init__.pyc` without its source each import in
+    # place of `signature.py`, and the first form of this check skipped every directory and every `.pyc`.
+    # Only the interpreter's own cache, `__pycache__`, stays outside; a real directory is walked, not judged.
+    genannt = {zeile.split("\0", 1)[0] for zeile in rows}
+    try:
+        for p in _eintraege(package_dir, "package", verzeichnislinks_ablehnen=True):
+            if f"{IMPLEMENTATION}/{'/'.join(p.relative_to(package_dir).parts)}" not in genannt:
+                return None
+    except (OSError, ValueError, VerifierBlockError):
+        return None   # an unlistable directory or a link to a directory: the source-tree path names the refusal
     return rows or None
 
 
@@ -191,10 +209,47 @@ def _innerhalb(p: Path, wurzel: Path) -> bool:
         return False
 
 
+def _eintraege(wurzel: Path, was: str, *, verzeichnislinks_ablehnen: bool):
+    """Every entry below `wurzel` that is not a directory, by one walk that stops at the first directory it cannot
+    list; the interpreter's cache is not walked, and a link to a directory is not followed.
+
+    A WALK THAT DROPS AN ERROR MEASURES PART OF THE TREE (fifth local review, 6e3d4d72, P1): `Path.rglob` swallows the
+    `PermissionError` of a directory it cannot list, and a package directory that can be searched but not listed (mode
+    0111) still lets the importer take `signature/__init__.py` in place of `signature.py`, while both build
+    measurements stayed the same; the vector set read its cases the same way. The third-party verifier of the release
+    gate refuses that case since its external review (R2-5); this walk is the same rule here. With
+    `verzeichnislinks_ablehnen`, a link to a directory is refused, as the package needs (see `_source_tree_rows`); the
+    corpus keeps its own rules for links."""
+    def _halt(fehler: OSError):
+        raise VerifierBlockError(
+            f"a directory of the {was} cannot be listed ({fehler.filename}: {fehler.strerror}) -- a measurement over "
+            "the rest is no measurement of the tree")
+    for ort, verzeichnisse, dateien in os.walk(wurzel, onerror=_halt, followlinks=False):
+        basis = Path(ort)
+        if verzeichnislinks_ablehnen:
+            for name in verzeichnisse:
+                if (basis / name).is_symlink():
+                    raise VerifierBlockError(
+                        f"{(basis / name).relative_to(wurzel).as_posix()} is a link to a directory -- it decides which "
+                        "code a name imports and is no file of the tree, so a tree carrying it has no identity of its own")
+        verzeichnisse[:] = sorted(v for v in verzeichnisse if v != _INTERPRETER_CACHE and not (basis / v).is_symlink())
+        for name in sorted(dateien):
+            yield basis / name
+
+
 def _source_tree_rows(package_dir: Path) -> list[str]:
+    # EVERY FILE OF THE TREE IS A MEMBER, NOT ONLY THE ONES A LIST OF SUFFIXES NAMES (local reviews of
+    # 9b0181cf, 643a33b5 and aa578913, each P1). The rows took `.py`, `.json` and `.typed`, and each review
+    # found one more form the importer loads in place of a `.py` of the same name while the digest stayed: an
+    # extension module, bytecode outside the cache, and `__init__.PY` on a file system that does not tell upper
+    # from lower case. A list of what the importer may load is a list that ages; the tree is the closed set of
+    # its files, as the installed build is the closed set RECORD names, and only the interpreter's cache stays
+    # outside. A link to a directory is refused wherever it points: one outside brings code the tree does not
+    # hold, and one inside chooses which code a name imports (`signature -> _bad`) while every file stays the
+    # same. A package needs no link to a directory.
     rows: list[str] = []
-    for p in sorted(package_dir.rglob("*")):
-        if not p.is_file() or "__pycache__" in p.parts or p.suffix not in _SOURCE_TREE_SUFFIXES:
+    for p in _eintraege(package_dir, "package", verzeichnislinks_ablehnen=True):
+        if not p.is_file():
             continue
         if not _innerhalb(p, package_dir):
             raise VerifierBlockError(
@@ -265,6 +320,18 @@ def measure_vector_set(conformance_dir: "Path | str") -> dict:
                 f"conformance manifest lists one case directory under two spellings: "
                 f"{aufgeloest[ziel]!r} and {rel!r}")
         aufgeloest[ziel] = rel
+    # A CASE THE MANIFEST DOES NOT NAME IS A FOREIGN MEMBER (DELTA2 N4, 2026-11-06). A directory
+    # carrying `case.json` (what `conformance/cross_format.py` loads as a case) moved neither the
+    # digest nor `cases` when the manifest left it out, so a corpus with a case nobody runs measured
+    # like the corpus without it. Helper directories without `case.json` stay outside the set.
+    benannt = set(aufgeloest)
+    fremd = sorted({p.parent.resolve().relative_to(root.resolve()).as_posix()
+                    for p in _eintraege(root, "corpus", verzeichnislinks_ablehnen=False)
+                    if p.name == "case.json" and p.parent.resolve() not in benannt
+                    and _innerhalb(p.parent, root)})
+    if fremd:
+        raise VerifierBlockError("the corpus carries case directories the manifest does not name: "
+                                 + ", ".join(repr(f) for f in fremd))
     rows = [f"manifest.json\0{_sha256_file(manifest_path)}"]
     for rel in cases:
         d = root / rel
@@ -272,8 +339,8 @@ def measure_vector_set(conformance_dir: "Path | str") -> dict:
             raise VerifierBlockError(f"conformance manifest names a case directory that is absent or "
                                      f"outside the corpus: {rel}")
         gefunden = False
-        for p in sorted(d.rglob("*")):
-            if not p.is_file() or "__pycache__" in p.parts:
+        for p in _eintraege(d, "corpus", verzeichnislinks_ablehnen=False):
+            if not p.is_file():
                 continue
             if not _innerhalb(p, root):
                 raise VerifierBlockError(
