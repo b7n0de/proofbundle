@@ -27,6 +27,7 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import json
 from typing import Any, Optional
 
 from .canonical import _ein_stand, _plain_for_jcs, _puffer_von, _zeichen_von
@@ -116,6 +117,7 @@ def sign_envelope(body: bytes, signer, *, payload_type: str, keyid: Optional[str
         raise BundleFormatError("DSSE keyid must be a string or None")
     keyid = _zeichen_von(keyid) if keyid is not None else None
     payload_type = typ_text
+    _read_as_the_verifier_reads(payload_type, bytes(body), keyid)
     sig = _ed25519_signatur_von(signer.sign(pae(payload_type, body)))
     if sig is None:
         raise BundleFormatError("DSSE sign_envelope: the signer returned no 64-byte Ed25519 signature, so no "
@@ -130,6 +132,53 @@ def sign_envelope(body: bytes, signer, *, payload_type: str, keyid: Optional[str
         "payloadType": payload_type,
         "signatures": [entry],
     }
+
+
+#: The length of the keyid `_default_keyid` writes: "SHA256:" and the 43 characters of an unpadded base64 SHA-256.
+_DEFAULT_KEYID_LENGTH = 50
+
+
+def _read_as_the_verifier_reads(payload_type: str, body: bytes, keyid: Optional[str]) -> None:
+    """Refuse, before anything is signed, an envelope that `verify_envelope` would refuse for its budget.
+
+    THE CLASS (deep gate 6.6.0 at d8881edc, iteration 1, finding Z7): a producer wrote a caller's value into an
+    artifact that its own verifier reads under a budget it never applied. 6.6.0 closed it for `emit_bundle`,
+    `issue_sd_jwt` and `present_with_key_binding`; the DSSE primitive every statement producer signs through was
+    still open. Measured at d8881edc: a `keyid` of 1,000,001 characters, and a decision receipt whose statement
+    encodes to more than 1,000,000 base64 characters, were each signed and then refused by `verify_envelope` with
+    `string_len`.
+
+    The envelope is read here as the verifier reads it: the structural budget over the whole envelope (`_read_once`),
+    the `input_bytes` bound on the base64 payload (`_payload_of`), and, for a payload type with the `+json` suffix
+    (RFC 6839) that the statement verifiers parse, the structural budget of the parsed payload. The signature is
+    measured at the Ed25519 length of 64 bytes and the default keyid at its fixed length, so the signer is asked
+    nothing. A body that is not JSON is left to the verifier as before: refusing it here is not a budget question,
+    and tests build such envelopes on purpose."""
+    from ._strict_json import enforce_structural_budget  # noqa: PLC0415 - local import avoids a cycle
+    from .errors import ProofBundleError  # noqa: PLC0415
+    entry: dict = {"sig": base64.b64encode(bytes(64)).decode("ascii")}
+    if keyid is None:
+        entry = {"keyid": "k" * _DEFAULT_KEYID_LENGTH, "sig": entry["sig"]}
+    elif keyid:
+        entry = {"keyid": keyid, "sig": entry["sig"]}
+    probe = {"payload": base64.b64encode(body).decode("ascii"), "payloadType": payload_type, "signatures": [entry]}
+    try:
+        _payload_of(_read_once(probe))
+        if payload_type.endswith("+json"):
+            try:
+                parsed = json.loads(body)
+            except RecursionError as exc:
+                raise BundleFormatError("JSON nesting is too deep") from exc
+            except ValueError:
+                parsed = _NOT_JSON
+            if parsed is not _NOT_JSON:
+                enforce_structural_budget(parsed)
+    except ProofBundleError as exc:
+        raise BundleFormatError(f"DSSE sign_envelope: the envelope would exceed the verification budget of "
+                                f"verify_envelope, so nothing is signed (fail-closed): {exc}") from exc
+
+
+_NOT_JSON = object()
 
 
 def _within_budget(envelope: Any) -> None:
