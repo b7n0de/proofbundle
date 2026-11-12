@@ -668,7 +668,7 @@ def main() -> int:
         if not ((_fall_b / "case.json").is_file() and _fremd.is_file()):
             failures.append(f"B22 vector: {_name_b} or the foreign target is missing from the corpus")
             continue
-        _case_b = json.loads((_fall_b / "case.json").read_text(encoding="utf-8"))
+        _case_b = _loads_strict((_fall_b / "case.json").read_bytes())
         _pub_b = (_fall_b / _case_b["pub"]).read_text(encoding="utf-8").strip()
         _in_b = str(_fall_b / _case_b["input"])
         _common_b = _relation_argv_common(_case_b, _fall_b)
