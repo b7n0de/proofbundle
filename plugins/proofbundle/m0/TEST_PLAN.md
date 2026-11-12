@@ -83,3 +83,14 @@ M1 is reached for one host and one area when all of the following hold. Each hol
 | Claude Code | Verify and Guard, house profile | first, on the operator machine's Linux state; owner choice A of 2026-10-21: after the tag v6.3.1 the gate runs in account B, while account A and account C stay without it |
 | Codex | Verify | only after a run with a real model (TV-6) |
 | Codex | Guard | BLOCKED until TG-5 |
+
+## Inputs from readers (requirements, not part of M1)
+
+Requirements a reader proposed in public, kept here so that they are not lost. They bind no acceptance above: each
+becomes a row of the Guard table, with its own ID, only once PRODUCT_SPEC.md carries the property. Until then nothing in
+the plugin is claimed for them.
+
+| ID | Source | Requirement | How it would be measured |
+|---|---|---|---|
+| TI-1 | a reader's public comment, 12 November 2026, under the post on the path from approval to outcome | the approval names the executor, and the person who approves signs that, so the expected executor is not set later by the relying party's policy | an outcome whose executor differs from the one the signed approval names is refused; an approval that names no executor, or whose executor is not covered by the approver's signature, does not admit an outcome |
+| TI-2 | the same comment | each use goes to an append-only log the agent cannot rewrite; "not used before" is a check that reads the log to its current head and finds no earlier use | a reset of the use record shows up as a log shorter than one already seen, not as a first use; the case of TG-6 is the measurement to repeat against it |
