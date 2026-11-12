@@ -235,6 +235,28 @@ def _gate_source_digest() -> str:
         return "unreadable"
 
 
+def _submodules_in_folder(repo: Path, scoped: Path) -> set:
+    """The gitlinks (mode 160000) of HEAD's tree under the receipt folder, as paths below `repo`.
+
+    Local review of ef69e3a1 (2026-11-10, P2): the walk on disk entered an initialised submodule and judged its files,
+    which are not in the commit's tree, so the third-party verifier never saw them; an uninitialised one is an empty
+    directory on disk that the walk cannot tell from any other. HEAD's tree tells both apart. Where git cannot answer
+    (no repository at `repo`), the set is empty: the tree digest the verdict also needs then fails on its own."""
+    rel = scoped.relative_to(repo).as_posix()
+    try:
+        r = _lib().git_run(repo, "ls-tree", "--full-tree", "-r", "-z", "HEAD", "--", f":(literal){rel}", timeout=10)
+    except (OSError, RuntimeError):
+        return set()
+    if r.returncode != 0:
+        return set()
+    out = set()
+    for eintrag in r.stdout.split(b"\0"):
+        kopf, _tab, pfad = eintrag.partition(b"\t")
+        if kopf.startswith(b"160000 "):
+            out.add(repo / os.fsdecode(pfad))
+    return out
+
+
 def _receipt_candidates(repo: Path, version: str) -> list:
     """Every *.json under audit_artifacts/<token>/ — the pre-tag receipt candidates, as
     ``(relpath, receipt_dict_or_None, unreadable_reason_or_None)``.
@@ -249,7 +271,33 @@ def _receipt_candidates(repo: Path, version: str) -> list:
     out: list = []
     if not scoped.is_dir():
         return out
-    for f in sorted(scoped.rglob("*.json")):
+    # ONE WALK THAT NAMES WHAT IT CANNOT LIST, AND A LINK IS NO RECEIPT (local reviews of 6e3d4d72 and 9f5d5eec,
+    # 2026-11-10). `rglob` dropped the error of a subdirectory it could not list, so a candidate in it was neither
+    # verified nor rejected, while the third-party verifier reads the commit's tree and sees it. And a committed link to
+    # a regular receipt was read through, so the gate counted one receipt twice where the verifier, which reads the link
+    # text from the commit, rejected it. Both readers now judge the folder alike: a directory that cannot be listed and a
+    # symbolic link are rejected candidates.
+    gefunden: list = []
+    unlistbar: list = []
+    untermodule = _submodules_in_folder(repo, scoped)
+    for ort, verzeichnisse, dateien in os.walk(scoped, onerror=unlistbar.append, followlinks=False):
+        verzeichnisse[:] = [n for n in verzeichnisse if Path(ort) / n not in untermodule]  # never into a submodule
+        gefunden += [Path(ort) / n for n in verzeichnisse + dateien if n.endswith(".json")]
+    for modul in sorted(untermodule):
+        out.append((str(modul.relative_to(repo)), None,
+                    "the receipt folder holds a submodule — its files are not in the commit's tree, so the third-party "
+                    "verifier cannot read them; a submodule is a rejected candidate in both readers, whatever its name"))
+    for fehler in unlistbar:
+        ort = Path(fehler.filename) if fehler.filename else scoped
+        out.append((str(ort.relative_to(repo)) if ort.is_relative_to(repo) else str(ort), None,
+                    f"a directory of the receipt folder cannot be listed ({fehler.strerror}) — a candidate in it "
+                    "cannot be judged, which is a finding, never the leniency reserved for absence"))
+    for f in sorted(gefunden):
+        if f.is_symlink() and f.is_file():
+            out.append((str(f.relative_to(repo)), None,
+                        "receipt path is a symbolic link — a receipt is a regular file, and the third-party verifier "
+                        "reads the link itself from the commit, not the file it points to"))
+            continue
         if not f.is_file():
             # NICHT-REGULAER IST EBENFALLS REJECTED (deep gate Lauf 9, L5-600-PRETAG-NONREG-01, P2).
             # Der Absatz oben schloss am 05.09.2026 den UNLESBAREN Beleg — und liess die Zeile
@@ -282,8 +330,10 @@ def _receipt_candidates(repo: Path, version: str) -> list:
                         "about the artefact, never the leniency reserved for absence"))
             continue
         try:
-            rc = json.loads(f.read_text(encoding="utf-8", errors="ignore"))
-        except (OSError, json.JSONDecodeError) as exc:
+            # ONE READING WITH THE THIRD-PARTY VERIFIER (2026-11-10): strict UTF-8 and no member twice,
+            # through the library both call (`receipt_json`); a JSONDecodeError is a ValueError too.
+            rc = _lib().receipt_json(f.read_bytes())
+        except (OSError, ValueError) as exc:
             out.append((str(f.relative_to(repo)), None,
                         f"receipt file is present but unreadable ({type(exc).__name__}: {exc})"))
             continue
@@ -567,7 +617,10 @@ def _evaluate(repo: Path, version: str | None = None) -> dict:
             except Exception:  # noqa: BLE001
                 anderer = False
         (other_tree if anderer else rejected).append({"path": rp, "reason": reason})
-    ok = bool(verified)
+    # A REJECTED CANDIDATE OUTRANKS A VERIFIED ONE TOO (DELTA2 N1, 2026-11-06). `ok` was
+    # `bool(verified)`, so a genuine receipt carried a broken one beside it to ok=True and
+    # state=verified, against the sentence below. One known-bad artefact in the folder is a finding.
+    ok = bool(verified) and not rejected
     # ── THE TYPED STATE, and why a consumer must key on it (deep gate 2026-09-05, L5-G6-01, P2) ────────
     #
     # C12.1 narrows "no receipt binds this tree" to NOT_APPLICABLE on a pull request, because a receipt
@@ -584,7 +637,7 @@ def _evaluate(repo: Path, version: str | None = None) -> dict:
     # (no receipt at all). `rejected` keeps its meaning: a present artefact that claims to be a
     # receipt for this version and is broken. A rejected candidate outranks other_tree: one known-bad
     # artefact in the folder is a finding, whatever else lies beside it.
-    state = ("verified" if verified else "rejected" if rejected
+    state = ("rejected" if rejected else "verified" if verified
              else "other_tree" if other_tree else "absent")
     # PRESENTATIONAL ONLY: the CHANGELOG discipline line is reported for a reader but cannot move the
     # verdict in either direction (L5-02 kept; the attestation is the receipt's job now).
@@ -605,8 +658,12 @@ def _evaluate(repo: Path, version: str | None = None) -> dict:
         "changelog_records_audit": changelog_ok,
         "changelog_is_presentational": True,
         "reason": None if ok else (
-            f"no valid pre-tag audit RECEIPT binds tree {tree[:12]} + version {version} + this gate. "
-            + (f"{len(rejected)} candidate receipt(s) rejected: {[r['reason'] for r in rejected]}"
+            (f"{len(verified)} valid receipt(s) bind tree {tree[:12]} + version {version} + this gate, "
+             "but a rejected candidate lies beside them. "
+             if verified else
+             f"no valid pre-tag audit RECEIPT binds tree {tree[:12]} + version {version} + this gate. ")
+            + (f"{len(rejected)} candidate receipt(s) rejected: "
+               f"{[(r['path'], r['reason']) for r in rejected]}"
                if rejected else
                f"{len(other_tree)} valid receipt(s) bind ANOTHER tree or gate version, none this one: "
                f"{[r['path'] for r in other_tree]} — a receipt attests one candidate tree; this tree "

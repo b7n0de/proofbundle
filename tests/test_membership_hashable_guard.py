@@ -1529,6 +1529,19 @@ _OTHER_USES_CLASSIFIED = {
         (1, _OWN_SET.format(x="obj", what="a dict (isinstance(obj, dict) returns before it)")),
     ("proofbundle/relation.py", "validate_relationships", "set(_EDGE_ALLOWED)", "Sub set(edge)"):
         (1, _OWN_SET.format(x="edge", what="a dict (a non-dict edge is skipped by `continue` before it)")),
+    # Seen once the evidence pack judged a pack against the closed member set of its own version (pull
+    # request 515). The versions and their sets are (version, members) pairs, and the pack's version is
+    # compared with each by equality, which hashes nothing; a dict keyed by version hashed it.
+    ("proofbundle/evidence_pack.py", "<modulebene>", "_PACK_MEMBERS", "Tuple"):
+        (1, "own value: the member set of v0.2 in _PACK_FORMATS, the pairs verify_evidence_pack picks by "
+         "equality with the pack's version; it tests only the keys of the plain pack dict against the set, "
+         "and the keys of a dict are hashable"),
+    ("proofbundle/evidence_pack.py", "<modulebene>",
+     "frozenset({'type', 'packVersion', 'canonicalRoot', 'proof', 'selfContained', 'calendars', "
+     "'calendarRedundancy', 'bundledHeaderEvidence', 'frozen'})", "Tuple"):
+        (1, "own value: the member set of v0.1 in _PACK_FORMATS, the pairs verify_evidence_pack picks by "
+         "equality with the pack's version; it tests only the keys of the plain pack dict against the set, "
+         "and the keys of a dict are hashable"),
 }
 
 
