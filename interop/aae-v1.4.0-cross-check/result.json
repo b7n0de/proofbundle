@@ -485,7 +485,7 @@
    "file": "01-valid-root-aae.json",
    "id": "aae-vector-01",
    "not_applicable": [
-    "steps 1 to 8 and the rest of step 9 of Section 5 of AAE (JWS and DID signature, cty, validity, subject binding, single use, actions, constraints, revocation, depth, cycle, monotonicity): the decision receipt of -05 has no such members"
+    "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to the decision-receipt procedure is implemented here."
    ],
    "step": 7
   },
@@ -495,7 +495,7 @@
    "file": "02-expired-not-after.json",
    "id": "aae-vector-02",
    "not_applicable": [
-    "steps 1 to 8 and the rest of step 9 of Section 5 of AAE (JWS and DID signature, cty, validity, subject binding, single use, actions, constraints, revocation, depth, cycle, monotonicity): the decision receipt of -05 has no such members"
+    "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to the decision-receipt procedure is implemented here."
    ],
    "step": 3
   },
@@ -505,7 +505,7 @@
    "file": "03-too-early-not-before.json",
    "id": "aae-vector-03",
    "not_applicable": [
-    "steps 1 to 8 and the rest of step 9 of Section 5 of AAE (JWS and DID signature, cty, validity, subject binding, single use, actions, constraints, revocation, depth, cycle, monotonicity): the decision receipt of -05 has no such members"
+    "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to the decision-receipt procedure is implemented here."
    ],
    "step": 3
   },
@@ -515,7 +515,7 @@
    "file": "04-revocation-endpoint-5xx.json",
    "id": "aae-vector-04",
    "not_applicable": [
-    "steps 1 to 8 and the rest of step 9 of Section 5 of AAE (JWS and DID signature, cty, validity, subject binding, single use, actions, constraints, revocation, depth, cycle, monotonicity): the decision receipt of -05 has no such members"
+    "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to the decision-receipt procedure is implemented here."
    ],
    "step": 8
   },
@@ -525,7 +525,7 @@
    "file": "05-single-use-replay.json",
    "id": "aae-vector-05",
    "not_applicable": [
-    "steps 1 to 8 and the rest of step 9 of Section 5 of AAE (JWS and DID signature, cty, validity, subject binding, single use, actions, constraints, revocation, depth, cycle, monotonicity): the decision receipt of -05 has no such members"
+    "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to the decision-receipt procedure is implemented here."
    ],
    "step": 5
   },
@@ -548,7 +548,7 @@
    "file": "06-delegation-valid-depth-2.json",
    "id": "aae-vector-06",
    "not_applicable": [
-    "steps 1 to 8 and the rest of step 9 of Section 5 of AAE (JWS and DID signature, cty, validity, subject binding, single use, actions, constraints, revocation, depth, cycle, monotonicity): the decision receipt of -05 has no such members"
+    "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to the decision-receipt procedure is implemented here."
    ],
    "step": 9
   },
@@ -565,7 +565,7 @@
    "file": "07-delegation-action-superset.json",
    "id": "aae-vector-07",
    "not_applicable": [
-    "steps 1 to 8 and the rest of step 9 of Section 5 of AAE (JWS and DID signature, cty, validity, subject binding, single use, actions, constraints, revocation, depth, cycle, monotonicity): the decision receipt of -05 has no such members"
+    "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to the decision-receipt procedure is implemented here."
    ],
    "step": 9
   },
@@ -582,7 +582,7 @@
    "file": "08-delegation-constraint-relaxation.json",
    "id": "aae-vector-08",
    "not_applicable": [
-    "steps 1 to 8 and the rest of step 9 of Section 5 of AAE (JWS and DID signature, cty, validity, subject binding, single use, actions, constraints, revocation, depth, cycle, monotonicity): the decision receipt of -05 has no such members"
+    "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to the decision-receipt procedure is implemented here."
    ],
    "step": 9
   },
@@ -605,7 +605,7 @@
    "file": "09-delegation-depth-exceeded.json",
    "id": "aae-vector-09",
    "not_applicable": [
-    "steps 1 to 8 and the rest of step 9 of Section 5 of AAE (JWS and DID signature, cty, validity, subject binding, single use, actions, constraints, revocation, depth, cycle, monotonicity): the decision receipt of -05 has no such members"
+    "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to the decision-receipt procedure is implemented here."
    ],
    "step": 9
   },
@@ -628,7 +628,7 @@
    "file": "10-delegation-cycle-detection.json",
    "id": "aae-vector-10",
    "not_applicable": [
-    "steps 1 to 8 and the rest of step 9 of Section 5 of AAE (JWS and DID signature, cty, validity, subject binding, single use, actions, constraints, revocation, depth, cycle, monotonicity): the decision receipt of -05 has no such members"
+    "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to the decision-receipt procedure is implemented here."
    ],
    "step": 9
   },
@@ -645,7 +645,7 @@
    "file": "11-delegation-cascade-revocation.json",
    "id": "aae-vector-11",
    "not_applicable": [
-    "steps 1 to 8 and the rest of step 9 of Section 5 of AAE (JWS and DID signature, cty, validity, subject binding, single use, actions, constraints, revocation, depth, cycle, monotonicity): the decision receipt of -05 has no such members"
+    "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to the decision-receipt procedure is implemented here."
    ],
    "step": 9
   },
@@ -655,7 +655,7 @@
    "file": "12-signing-authority-mismatch.json",
    "id": "aae-vector-12",
    "not_applicable": [
-    "steps 1 to 8 and the rest of step 9 of Section 5 of AAE (JWS and DID signature, cty, validity, subject binding, single use, actions, constraints, revocation, depth, cycle, monotonicity): the decision receipt of -05 has no such members"
+    "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to the decision-receipt procedure is implemented here."
    ],
    "step": 1
   },
@@ -665,7 +665,7 @@
    "file": "13-unrecognized-required-constraint.json",
    "id": "aae-vector-13",
    "not_applicable": [
-    "steps 1 to 8 and the rest of step 9 of Section 5 of AAE (JWS and DID signature, cty, validity, subject binding, single use, actions, constraints, revocation, depth, cycle, monotonicity): the decision receipt of -05 has no such members"
+    "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to the decision-receipt procedure is implemented here."
    ],
    "step": 7
   },
@@ -675,7 +675,7 @@
    "file": "14-cty-header-wrong.json",
    "id": "aae-vector-14",
    "not_applicable": [
-    "steps 1 to 8 and the rest of step 9 of Section 5 of AAE (JWS and DID signature, cty, validity, subject binding, single use, actions, constraints, revocation, depth, cycle, monotonicity): the decision receipt of -05 has no such members"
+    "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to the decision-receipt procedure is implemented here."
    ],
    "step": 2
   },
@@ -692,7 +692,7 @@
    "file": "15-currency-mismatch-delegation.json",
    "id": "aae-vector-15",
    "not_applicable": [
-    "steps 1 to 8 and the rest of step 9 of Section 5 of AAE (JWS and DID signature, cty, validity, subject binding, single use, actions, constraints, revocation, depth, cycle, monotonicity): the decision receipt of -05 has no such members"
+    "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to the decision-receipt procedure is implemented here."
    ],
    "step": 9
   }

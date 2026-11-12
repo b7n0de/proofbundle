@@ -17,9 +17,10 @@ exact payload bytes, which must be their own RFC 8785 (JCS) serialization. Two o
   exact   SHA-256 over exact octets, as decisionRef is taken. AAE's delegator_aae_hash is "sha-256:" ||
           base64url(SHA-256(parent JWS compact serialization as retrieved)) (Section 3).
 
-Everything else in the vectors rests on a field set our verifier does not have (grants, constraints, verdicts, the
-enforce core with its trace, ratification, the nine steps of Section 5 of AAE) and is reported as NOT APPLICABLE with
-the reason, never as a failure.
+This run reads the 26 enforce and 15 native vector files only; it does not read the six AAE/PSEA composition
+vectors. For the files read, NOT APPLICABLE marks a check this digest-level run does not evaluate, not an AAE
+rejection or a claim that decision receipts lack analogous checks. No mapping of the remaining AAE checks to the
+decision-receipt procedure is implemented here.
 """
 import base64
 import hashlib
@@ -136,9 +137,11 @@ def native(path):
             links.append({"result": "equal" if stated == ours else "DIFFERENT", "parent": parent_id,
                           "stated": stated, "computed": ours})
     out["delegator_aae_hash"] = links or "NOT APPLICABLE: not a delegated AAE"
-    out["not_applicable"] = ["steps 1 to 8 and the rest of step 9 of Section 5 of AAE (JWS and DID signature, cty, "
-                             "validity, subject binding, single use, actions, constraints, revocation, depth, cycle, "
-                             "monotonicity): the decision receipt of -05 has no such members"]
+    out["not_applicable"] = [
+        "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are "
+        "outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to "
+        "the decision-receipt procedure is implemented here."
+    ]
     return out
 
 

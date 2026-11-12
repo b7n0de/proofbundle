@@ -1,8 +1,6 @@
 # Cross-check with MolTrust: the AAE conformance vectors v1.4.0, computed with the proofbundle verifier
 
-Run on 12 November 2026, as our half of a cross-check MolTrust proposed on the audit list. MolTrust computes the
-Appendix A vectors of draft-gruszka-audit-decision-receipts with a checker of its own; we compute the vectors of
-https://github.com/MoltyCel/aae-conformance-vectors with the steps of our verifier that carry over.
+Run on 12 November 2026 for the digest-level part of the cross-check MolTrust proposed on the audit list. This run reads the 26 enforce vectors and 15 native vectors at the pinned commit. The six AAE/PSEA composition vectors under interop/psea/vectors are outside this run and were not evaluated. MolTrust's offered run of Appendix A of draft-gruszka-audit-decision-receipts-05 is separate.
 
 ## What was read first
 
@@ -29,11 +27,7 @@ serialization. Two of its steps carry over:
 - **Exact octets**: SHA-256 over exact octets, as decisionRef is taken. AAE's delegator_aae_hash is `sha-256:`
   followed by base64url of SHA-256 over the parent JWS compact serialization as retrieved (Section 3).
 
-The rest rests on a field set our verifier does not have, and is marked NOT APPLICABLE with its reason, not as a
-failure: grant selection, dispositions and the constraint language, the verdict, the enforce core and its digest (the
-core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured
-predicate trace without diagnostic reason text, and prev_core_digest; decisionRef covers a decision payload with other
-members), ratification, and the nine steps of Section 5 of AAE apart from the delegator_aae_hash link.
+For the 41 vector files read, NOT APPLICABLE marks a check for which this digest-level run provides no corresponding result. It is neither an AAE rejection nor an AAE conformance result. The run does not implement AAE grant selection, dispositions, the constraint language, verdict computation or ratification. The enforce core and decisionRef cover different field sets. The enforce core contains enforce_version, mandate_digest, transaction_digest, action_digest, verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest. The native checks in Section 5 other than the parent-JWS hash comparison are not evaluated here. No mapping of those checks to the decision-receipt procedure is implemented in this run.
 
 ## Result
 
@@ -67,8 +61,7 @@ vectors are NOT APPLICABLE, each with the reason in `result.json`.
     git clone https://github.com/MoltyCel/aae-conformance-vectors && git -C aae-conformance-vectors checkout v1.4.0
     PYTHONPATH=/absolute/path/to/proofbundle/src python3 -B cross_check.py aae-conformance-vectors result.json
 
-Not with `-I`: it ignores `PYTHONPATH` and would import an installed proofbundle instead of the checkout. `output.txt`
-is the full output of that run, with the versions, the commits and the imported module path at its head.
+Not with `-I`, which ignores `PYTHONPATH` and would import an installed proofbundle instead of the checkout. `output.txt` records the run, including its versions, commits and imported module path. Only the absolute checkout-directory prefix in that path is replaced with `<proofbundle-checkout>`; the remaining output is unchanged.
 
 ## Files and licence
 

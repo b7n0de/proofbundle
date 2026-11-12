@@ -1,10 +1,11 @@
-run 2026-11-12T09:41:43Z
+Redaction note: only the absolute checkout-directory prefix in the module path has been replaced with <proofbundle-checkout>.
+run 2026-11-12T11:57:36Z
 vectors: 531f880155ea1ce993a7ca74137b12c255d5b2ee (tag v1.4.0, tag object 04954c3a0e086feeaebfa0451698bc4361016ed3)
-proofbundle checkout: af3f330379c48d03ec41101805c441f2e2e61080 (src identical to 82411560: yes)
+proofbundle checkout: 00055c0b441d2f6d04753349f7cf2bf01c1cd8c8 (src identical to 82411560: yes)
 python 3.10.12
 rfc8785 0.1.4
 command: PYTHONPATH=src python -B cross_check.py <aae-conformance-vectors at v1.4.0> result.json
-proofbundle module /mnt/bigstore/claude_worktrees/pb_aae_kreuzprobe/src/proofbundle/__init__.py
+proofbundle module <proofbundle-checkout>/src/proofbundle/__init__.py
 aae-enforce-vector-01    enforce_check  PERMIT   binding sha256:8c2938c57c38e grants equal [0] trace PASS
 aae-enforce-vector-02    enforce_check  DENY     binding sha256:53279c9ddd3e1 grants equal [] trace -
 aae-enforce-vector-03    enforce_check  DENY     binding sha256:cd136e3625479 grants equal [] trace -
