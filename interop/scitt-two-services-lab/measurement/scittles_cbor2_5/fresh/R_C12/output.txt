@@ -1,0 +1,6 @@
+service scittles http://127.0.0.1:18000 id 200 a466697373756572781c68747470733a2f2f7472616e73706172656e63792e6578616d706c65686a776b735f757269782168747470733a2f2f747261
+R_C12 POST 400 Registration Failed: Failed to register statement: Unknown COSE attribute with value: [CoseAlgorithm - -19]
+R_C12 LOOKUP reference_tbs /entries/c3f5f1376467... 404 Not Found: Receipt with entry ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc no
+R_C12 LOOKUP reference_tbs /signed-statements/c3f5f1376467... 404 Not Found: No Signed Statement found with ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6
+R_C12 LOOKUP sha256_whole /entries/f868bef38c6b... 404 Not Found: Receipt with entry ID f868bef38c6bf945c845b1dd327bc82b0cd71493b68fe4c11761fde6f4f6d988 no
+R_C12 LOOKUP sha256_whole /signed-statements/f868bef38c6b... 404 Not Found: No Signed Statement found with ID f868bef38c6bf945c845b1dd327bc82b0cd71493b68fe4c11761fde

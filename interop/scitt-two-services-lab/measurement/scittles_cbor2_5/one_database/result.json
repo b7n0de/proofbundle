@@ -1,0 +1,842 @@
+{
+ "base": "http://127.0.0.1:18000",
+ "end": "2026-11-12T08:57:31Z",
+ "service": "scittles",
+ "service_id": {
+  "body": "a466697373756572781c68747470733a2f2f7472616e73706172656e63792e6578616d706c65686a776b735f757269782168747470733a2f2f7472616e73706172656e63792e6578616d706c652f6a776b7375726567697374726174696f6e5f656e64706f696e74782468747470733a2f2f7472616e73706172656e63792e6578616d706c652f656e747269657370726563656970745f656e64706f696e74782f68747470733a2f2f7472616e73706172656e63792e6578616d706c652f656e74726965732f7b656e7472795f69647d",
+  "status": 200
+ },
+ "start": "2026-11-12T08:57:30Z",
+ "statements": {
+  "D1": {
+   "bytes_equal": true,
+   "differences": [],
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "Not Found: Receipt with entry ID 68be9ac5b1207175ea0d41400d855e56d218b6a013f95858084030ca7a4d57bb not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "reference_tbs /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID 68be9ac5b1207175ea0d41400d855e56d218b6a013f95858084030ca7a4d57bb",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /entries/%s": {
+     "error": "Not Found: Receipt with entry ID 2a659bc1c19a50ac22458e45dcce6c4daba456512e3a779edae114196a75b06a not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID 2a659bc1c19a50ac22458e45dcce6c4daba456512e3a779edae114196a75b06a",
+     "found": false,
+     "status": 404
+    }
+   },
+   "receipt": {
+    "error": null,
+    "length": 131,
+    "path": "/entries/2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "status": 200,
+    "tries": 1
+   },
+   "receipt_at_registration": {
+    "alg": -7,
+    "length": 131,
+    "readable": true,
+    "sha256": "4f78b96976990cfb3612655d06370de8c369e417e130b98e1a997673ebf132d0",
+    "vds_395": 1
+   },
+   "receipt_header": {
+    "alg": -7,
+    "length": 131,
+    "readable": true,
+    "sha256": "4f78b96976990cfb3612655d06370de8c369e417e130b98e1a997673ebf132d0",
+    "vds_395": 1
+   },
+   "reference_equal": true,
+   "registration": {
+    "content_type": "application/cose",
+    "error": null,
+    "length": 131,
+    "location": "https://transparency.example/entries/2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "status": 201,
+    "txid": null
+   },
+   "service_entry_id": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+   "statement": {
+    "error": null,
+    "length": 1124,
+    "path": "/signed-statements/2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "status": 200,
+    "tries": 1
+   },
+   "statement_returned": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "864a873a4b1319635a1f99c31b1bd95bfe51f76a291804b640fe406600f053a5",
+    "sha256_signature": "32d1b608b20c5f78d3ac3326eef6d7770a2a5f6cecb990ca43ffcd4a2305fc94",
+    "sha256_whole": "2a659bc1c19a50ac22458e45dcce6c4daba456512e3a779edae114196a75b06a",
+    "tag18": true,
+    "tbs_sha256": "68be9ac5b1207175ea0d41400d855e56d218b6a013f95858084030ca7a4d57bb",
+    "unprotected_hex": "a0"
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "864a873a4b1319635a1f99c31b1bd95bfe51f76a291804b640fe406600f053a5",
+    "sha256_signature": "32d1b608b20c5f78d3ac3326eef6d7770a2a5f6cecb990ca43ffcd4a2305fc94",
+    "sha256_whole": "2a659bc1c19a50ac22458e45dcce6c4daba456512e3a779edae114196a75b06a",
+    "tag18": true,
+    "tbs_sha256": "68be9ac5b1207175ea0d41400d855e56d218b6a013f95858084030ca7a4d57bb",
+    "unprotected_hex": "a0"
+   }
+  },
+  "D2": {
+   "bytes_equal": true,
+   "differences": [],
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "Not Found: Receipt with entry ID 13bdab9800ca4f03dbb9238d05041e9a17b4e7ad8bc83850360f4bb5bae76916 not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "reference_tbs /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID 13bdab9800ca4f03dbb9238d05041e9a17b4e7ad8bc83850360f4bb5bae76916",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /entries/%s": {
+     "error": "Not Found: Receipt with entry ID 730100d5c5f2221abd9a7f7a23dcff66096010478307b156ae2e662d3d1d8280 not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID 730100d5c5f2221abd9a7f7a23dcff66096010478307b156ae2e662d3d1d8280",
+     "found": false,
+     "status": 404
+    }
+   },
+   "receipt": {
+    "error": null,
+    "length": 166,
+    "path": "/entries/3122f8f771955dbfceae73eb54b7319a3373efe538afb5e3d68c6e0742a5234c",
+    "status": 200,
+    "tries": 1
+   },
+   "receipt_at_registration": {
+    "alg": -7,
+    "length": 166,
+    "readable": true,
+    "sha256": "c9c8a4933f9d1cff9780c434ddeef99dcffd6e9db78bac25b5338cb9587a2251",
+    "vds_395": 1
+   },
+   "receipt_header": {
+    "alg": -7,
+    "length": 166,
+    "readable": true,
+    "sha256": "c9c8a4933f9d1cff9780c434ddeef99dcffd6e9db78bac25b5338cb9587a2251",
+    "vds_395": 1
+   },
+   "reference_equal": true,
+   "registration": {
+    "content_type": "application/cose",
+    "error": null,
+    "length": 166,
+    "location": "https://transparency.example/entries/3122f8f771955dbfceae73eb54b7319a3373efe538afb5e3d68c6e0742a5234c",
+    "status": 201,
+    "txid": null
+   },
+   "service_entry_id": "3122f8f771955dbfceae73eb54b7319a3373efe538afb5e3d68c6e0742a5234c",
+   "statement": {
+    "error": null,
+    "length": 1114,
+    "path": "/signed-statements/3122f8f771955dbfceae73eb54b7319a3373efe538afb5e3d68c6e0742a5234c",
+    "status": 200,
+    "tries": 1
+   },
+   "statement_returned": {
+    "readable": true,
+    "sha256_payload": "3122f8f771955dbfceae73eb54b7319a3373efe538afb5e3d68c6e0742a5234c",
+    "sha256_protected": "d11e7f051d2b12d14ec0b8ba1d82658cdfccaf34deafbaa56176e1c2236fb451",
+    "sha256_signature": "4b6fbe3997ee432e0a731c3ef87e690277a3059971a60b9e86b3ed9a51a6e18e",
+    "sha256_whole": "730100d5c5f2221abd9a7f7a23dcff66096010478307b156ae2e662d3d1d8280",
+    "tag18": true,
+    "tbs_sha256": "13bdab9800ca4f03dbb9238d05041e9a17b4e7ad8bc83850360f4bb5bae76916",
+    "unprotected_hex": "a0"
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "3122f8f771955dbfceae73eb54b7319a3373efe538afb5e3d68c6e0742a5234c",
+    "sha256_protected": "d11e7f051d2b12d14ec0b8ba1d82658cdfccaf34deafbaa56176e1c2236fb451",
+    "sha256_signature": "4b6fbe3997ee432e0a731c3ef87e690277a3059971a60b9e86b3ed9a51a6e18e",
+    "sha256_whole": "730100d5c5f2221abd9a7f7a23dcff66096010478307b156ae2e662d3d1d8280",
+    "tag18": true,
+    "tbs_sha256": "13bdab9800ca4f03dbb9238d05041e9a17b4e7ad8bc83850360f4bb5bae76916",
+    "unprotected_hex": "a0"
+   }
+  },
+  "D3": {
+   "bytes_equal": true,
+   "differences": [],
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "Not Found: Receipt with entry ID 3e5b5334311af5f5f4c7f40e4a0a29d620e2ee8c5e5f998c134a04d78fba978a not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "reference_tbs /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID 3e5b5334311af5f5f4c7f40e4a0a29d620e2ee8c5e5f998c134a04d78fba978a",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /entries/%s": {
+     "error": "Not Found: Receipt with entry ID c97e5bffbd1597ce9a47ddf8aef989e4091c6880bcbe4f3904787e5961eb5013 not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID c97e5bffbd1597ce9a47ddf8aef989e4091c6880bcbe4f3904787e5961eb5013",
+     "found": false,
+     "status": 404
+    }
+   },
+   "receipt": {
+    "error": null,
+    "length": 166,
+    "path": "/entries/9d6e51a8f54b38f3e7dc9808180faa849c63ba65a3a7d5ab40039b206e37e137",
+    "status": 200,
+    "tries": 1
+   },
+   "receipt_at_registration": {
+    "alg": -7,
+    "length": 166,
+    "readable": true,
+    "sha256": "0c634ec6fea8b624223286dc8079a1294ab2deaaae9c0edaf8eba5aad1e4e8da",
+    "vds_395": 1
+   },
+   "receipt_header": {
+    "alg": -7,
+    "length": 166,
+    "readable": true,
+    "sha256": "0c634ec6fea8b624223286dc8079a1294ab2deaaae9c0edaf8eba5aad1e4e8da",
+    "vds_395": 1
+   },
+   "reference_equal": true,
+   "registration": {
+    "content_type": "application/cose",
+    "error": null,
+    "length": 166,
+    "location": "https://transparency.example/entries/9d6e51a8f54b38f3e7dc9808180faa849c63ba65a3a7d5ab40039b206e37e137",
+    "status": 201,
+    "txid": null
+   },
+   "service_entry_id": "9d6e51a8f54b38f3e7dc9808180faa849c63ba65a3a7d5ab40039b206e37e137",
+   "statement": {
+    "error": null,
+    "length": 1200,
+    "path": "/signed-statements/9d6e51a8f54b38f3e7dc9808180faa849c63ba65a3a7d5ab40039b206e37e137",
+    "status": 200,
+    "tries": 1
+   },
+   "statement_returned": {
+    "readable": true,
+    "sha256_payload": "9d6e51a8f54b38f3e7dc9808180faa849c63ba65a3a7d5ab40039b206e37e137",
+    "sha256_protected": "aa68716c042d16ab2fc85d4158d9a2f2032cbe18c024d6f4cd56c319a02357ec",
+    "sha256_signature": "907482db08e68ad7469e39335f2270ed39091eec6e69e04401bd1fd06e08aa3b",
+    "sha256_whole": "c97e5bffbd1597ce9a47ddf8aef989e4091c6880bcbe4f3904787e5961eb5013",
+    "tag18": true,
+    "tbs_sha256": "3e5b5334311af5f5f4c7f40e4a0a29d620e2ee8c5e5f998c134a04d78fba978a",
+    "unprotected_hex": "a0"
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "9d6e51a8f54b38f3e7dc9808180faa849c63ba65a3a7d5ab40039b206e37e137",
+    "sha256_protected": "aa68716c042d16ab2fc85d4158d9a2f2032cbe18c024d6f4cd56c319a02357ec",
+    "sha256_signature": "907482db08e68ad7469e39335f2270ed39091eec6e69e04401bd1fd06e08aa3b",
+    "sha256_whole": "c97e5bffbd1597ce9a47ddf8aef989e4091c6880bcbe4f3904787e5961eb5013",
+    "tag18": true,
+    "tbs_sha256": "3e5b5334311af5f5f4c7f40e4a0a29d620e2ee8c5e5f998c134a04d78fba978a",
+    "unprotected_hex": "a0"
+   }
+  },
+  "D4": {
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "Not Found: Receipt with entry ID 56f25480a891606b0b1155b9bf79161542ac03de91eed133d038efabe394ac4b not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "reference_tbs /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID 56f25480a891606b0b1155b9bf79161542ac03de91eed133d038efabe394ac4b",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /entries/%s": {
+     "error": "Not Found: Receipt with entry ID ab233c50c81d989d492642e567e051f26f48939a337789b5c2e4e5262d93bfca not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID ab233c50c81d989d492642e567e051f26f48939a337789b5c2e4e5262d93bfca",
+     "found": false,
+     "status": 404
+    }
+   },
+   "registration": {
+    "content_type": "application/concise-problem-details+cbor",
+    "error": "Already Registered: Statement with this hash already registered",
+    "length": 67,
+    "location": null,
+    "status": 400,
+    "txid": null
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "1d43063df86fb37ae40e628e9818ebf6b1a93e76d9956045a32c8fe9c00c4aa7",
+    "sha256_signature": "5644945f0b8ef79f11f04f4dddaafff626a9ff988cae93bb67e61dd2e314d53e",
+    "sha256_whole": "ab233c50c81d989d492642e567e051f26f48939a337789b5c2e4e5262d93bfca",
+    "tag18": true,
+    "tbs_sha256": "56f25480a891606b0b1155b9bf79161542ac03de91eed133d038efabe394ac4b",
+    "unprotected_hex": "a0"
+   }
+  },
+  "D5": {
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "Not Found: Receipt with entry ID fd65de01223fc579a6a45f36d4714e7273a75619fb59a412d570bb11af48b5ed not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "reference_tbs /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID fd65de01223fc579a6a45f36d4714e7273a75619fb59a412d570bb11af48b5ed",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /entries/%s": {
+     "error": "Not Found: Receipt with entry ID 87950051a19bee4f58b4283b002c969b684053d43c1b8bf64fd5dda2e49f41f5 not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID 87950051a19bee4f58b4283b002c969b684053d43c1b8bf64fd5dda2e49f41f5",
+     "found": false,
+     "status": 404
+    }
+   },
+   "registration": {
+    "content_type": "application/concise-problem-details+cbor",
+    "error": "Registration Failed: Failed to register statement: Unknown COSE attribute with value: [CoseAlgorithm - -19]",
+    "length": 111,
+    "location": null,
+    "status": 400,
+    "txid": null
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "cfc6bb5fb8f40af577dbbe768fc5337a3bd318ec59ba667796af4c421c6c531e",
+    "sha256_signature": "e15fdcdb986e5df96cb8a79b38296584d8dfdf4b647f2381f4e77cd08cc6eb4e",
+    "sha256_whole": "87950051a19bee4f58b4283b002c969b684053d43c1b8bf64fd5dda2e49f41f5",
+    "tag18": true,
+    "tbs_sha256": "fd65de01223fc579a6a45f36d4714e7273a75619fb59a412d570bb11af48b5ed",
+    "unprotected_hex": "a0"
+   }
+  },
+  "D6": {
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "Not Found: Receipt with entry ID 68be9ac5b1207175ea0d41400d855e56d218b6a013f95858084030ca7a4d57bb not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "reference_tbs /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID 68be9ac5b1207175ea0d41400d855e56d218b6a013f95858084030ca7a4d57bb",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /entries/%s": {
+     "error": "Not Found: Receipt with entry ID 12de0300622e78ef7bed2bfa1a82ba2fa7e2940b231441d9fb03bd807a69a518 not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID 12de0300622e78ef7bed2bfa1a82ba2fa7e2940b231441d9fb03bd807a69a518",
+     "found": false,
+     "status": 404
+    }
+   },
+   "registration": {
+    "content_type": "application/concise-problem-details+cbor",
+    "error": "Already Registered: Statement with this hash already registered",
+    "length": 67,
+    "location": null,
+    "status": 400,
+    "txid": null
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "864a873a4b1319635a1f99c31b1bd95bfe51f76a291804b640fe406600f053a5",
+    "sha256_signature": "32d1b608b20c5f78d3ac3326eef6d7770a2a5f6cecb990ca43ffcd4a2305fc94",
+    "sha256_whole": "12de0300622e78ef7bed2bfa1a82ba2fa7e2940b231441d9fb03bd807a69a518",
+    "tag18": true,
+    "tbs_sha256": "68be9ac5b1207175ea0d41400d855e56d218b6a013f95858084030ca7a4d57bb",
+    "unprotected_hex": "a13a000100006562376c6162"
+   }
+  },
+  "R_C1": {
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "Not Found: Receipt with entry ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "reference_tbs /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /entries/%s": {
+     "error": "Not Found: Receipt with entry ID 9c7253617b9fe51ba25eb0f957dadea493ca03e98c4a81806237757f13d054c6 not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID 9c7253617b9fe51ba25eb0f957dadea493ca03e98c4a81806237757f13d054c6",
+     "found": false,
+     "status": 404
+    }
+   },
+   "registration": {
+    "content_type": "application/concise-problem-details+cbor",
+    "error": "Registration Failed: Failed to register statement: Unknown COSE attribute with value: [CoseAlgorithm - -19]",
+    "length": 111,
+    "location": null,
+    "status": 400,
+    "txid": null
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "f456f18321d8835fbf3cf4209cb99997bb3c5749f8abc63620a24a71e44a8b61",
+    "sha256_signature": "e4060330a3cdb3e1407493a7f857a906f99c5d2855a542feebf59ed99e6615a8",
+    "sha256_whole": "9c7253617b9fe51ba25eb0f957dadea493ca03e98c4a81806237757f13d054c6",
+    "tag18": true,
+    "tbs_sha256": "c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+    "unprotected_hex": "a0"
+   }
+  },
+  "R_C11": {
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "Not Found: Receipt with entry ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "reference_tbs /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /entries/%s": {
+     "error": "Not Found: Receipt with entry ID d1e77e708d759c9b393e93708968887df1ef0e56872166877f68d4ff9e43afe1 not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID d1e77e708d759c9b393e93708968887df1ef0e56872166877f68d4ff9e43afe1",
+     "found": false,
+     "status": 404
+    }
+   },
+   "registration": {
+    "content_type": "application/concise-problem-details+cbor",
+    "error": "Registration Failed: Failed to register statement: Unknown COSE attribute with value: [CoseAlgorithm - -19]",
+    "length": 111,
+    "location": null,
+    "status": 400,
+    "txid": null
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "f456f18321d8835fbf3cf4209cb99997bb3c5749f8abc63620a24a71e44a8b61",
+    "sha256_signature": "0094c108f50fa1f891332aee053b1a6a362684879203e3ff1144aefe237d84f3",
+    "sha256_whole": "d1e77e708d759c9b393e93708968887df1ef0e56872166877f68d4ff9e43afe1",
+    "tag18": true,
+    "tbs_sha256": "c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+    "unprotected_hex": "a0"
+   }
+  },
+  "R_C12": {
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "Not Found: Receipt with entry ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "reference_tbs /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /entries/%s": {
+     "error": "Not Found: Receipt with entry ID f868bef38c6bf945c845b1dd327bc82b0cd71493b68fe4c11761fde6f4f6d988 not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID f868bef38c6bf945c845b1dd327bc82b0cd71493b68fe4c11761fde6f4f6d988",
+     "found": false,
+     "status": 404
+    }
+   },
+   "registration": {
+    "content_type": "application/concise-problem-details+cbor",
+    "error": "Registration Failed: Failed to register statement: Unknown COSE attribute with value: [CoseAlgorithm - -19]",
+    "length": 111,
+    "location": null,
+    "status": 400,
+    "txid": null
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "f456f18321d8835fbf3cf4209cb99997bb3c5749f8abc63620a24a71e44a8b61",
+    "sha256_signature": "e4060330a3cdb3e1407493a7f857a906f99c5d2855a542feebf59ed99e6615a8",
+    "sha256_whole": "f868bef38c6bf945c845b1dd327bc82b0cd71493b68fe4c11761fde6f4f6d988",
+    "tag18": true,
+    "tbs_sha256": "c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+    "unprotected_hex": "a0"
+   }
+  },
+  "R_C2": {
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "Not Found: Receipt with entry ID a102994c9cd4fae75e351b1c104e9e9a31994ab3b4fa4a4ce9b2dbcb1ac7ecc6 not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "reference_tbs /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID a102994c9cd4fae75e351b1c104e9e9a31994ab3b4fa4a4ce9b2dbcb1ac7ecc6",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /entries/%s": {
+     "error": "Not Found: Receipt with entry ID f5afbb3b0c7d822b00741e5eacd9128b723922bf3cad6ed5a3ab00e884b58e99 not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID f5afbb3b0c7d822b00741e5eacd9128b723922bf3cad6ed5a3ab00e884b58e99",
+     "found": false,
+     "status": 404
+    }
+   },
+   "registration": {
+    "content_type": "application/concise-problem-details+cbor",
+    "error": "Registration Failed: Failed to register statement: Unknown COSE attribute with value: [CoseAlgorithm - -19]",
+    "length": 111,
+    "location": null,
+    "status": 400,
+    "txid": null
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "9d6e51a8f54b38f3e7dc9808180faa849c63ba65a3a7d5ab40039b206e37e137",
+    "sha256_protected": "1a0de3fc2227bd2272b3d4fd885e8e51ed79f59aad9f36a7da92c114ec8937dd",
+    "sha256_signature": "98697e986fc26da030f42f396dce772626a431a7ac778df804662c17ac387cdb",
+    "sha256_whole": "f5afbb3b0c7d822b00741e5eacd9128b723922bf3cad6ed5a3ab00e884b58e99",
+    "tag18": true,
+    "tbs_sha256": "a102994c9cd4fae75e351b1c104e9e9a31994ab3b4fa4a4ce9b2dbcb1ac7ecc6",
+    "unprotected_hex": "a0"
+   }
+  },
+  "R_C3": {
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "Not Found: Receipt with entry ID 94fa362e4a0b2aa52a95a4ec07bba27cccd4dce93822faeeff4eece519e69956 not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "reference_tbs /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID 94fa362e4a0b2aa52a95a4ec07bba27cccd4dce93822faeeff4eece519e69956",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /entries/%s": {
+     "error": "Not Found: Receipt with entry ID 63723353fdf05662cfcc618e8b47fd4142dce4a71e84b61a6bdbdde988e837ab not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID 63723353fdf05662cfcc618e8b47fd4142dce4a71e84b61a6bdbdde988e837ab",
+     "found": false,
+     "status": 404
+    }
+   },
+   "registration": {
+    "content_type": "application/concise-problem-details+cbor",
+    "error": "Registration Failed: Failed to register statement: Unknown COSE attribute with value: [CoseAlgorithm - -19]",
+    "length": 111,
+    "location": null,
+    "status": 400,
+    "txid": null
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "14123e64864620a04fced3cb9aa29525e18e369742f4409a50a02a26dd36731e",
+    "sha256_protected": "f456f18321d8835fbf3cf4209cb99997bb3c5749f8abc63620a24a71e44a8b61",
+    "sha256_signature": "3b4de70ca5199e7ba775a731a131a21af576a15d48243aa3b553a608c3dd42aa",
+    "sha256_whole": "63723353fdf05662cfcc618e8b47fd4142dce4a71e84b61a6bdbdde988e837ab",
+    "tag18": true,
+    "tbs_sha256": "94fa362e4a0b2aa52a95a4ec07bba27cccd4dce93822faeeff4eece519e69956",
+    "unprotected_hex": "a0"
+   }
+  },
+  "R_C4": {
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "Not Found: Receipt with entry ID 22bc5feaae17102e60e39cbd7d65dc68d40bc28cea7864c78fc72346a4d41451 not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "reference_tbs /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID 22bc5feaae17102e60e39cbd7d65dc68d40bc28cea7864c78fc72346a4d41451",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /entries/%s": {
+     "error": "Not Found: Receipt with entry ID 65eb1e45177add009aef819b438c910aae934c3a05b7966ef73614e11ff07bcc not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID 65eb1e45177add009aef819b438c910aae934c3a05b7966ef73614e11ff07bcc",
+     "found": false,
+     "status": 404
+    }
+   },
+   "registration": {
+    "content_type": "application/concise-problem-details+cbor",
+    "error": "Registration Failed: Failed to register statement: Unknown COSE attribute with value: [CoseAlgorithm - -19]",
+    "length": 111,
+    "location": null,
+    "status": 400,
+    "txid": null
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "bfe2710d8f1760902cf9f4cf517d33a15bcda102c14c23f56292d0f64fbb804b",
+    "sha256_signature": "918d5f96ed780f3ac4ae40e9806819d7315e03c731f3fb4d5e4e35bce87b53d0",
+    "sha256_whole": "65eb1e45177add009aef819b438c910aae934c3a05b7966ef73614e11ff07bcc",
+    "tag18": true,
+    "tbs_sha256": "22bc5feaae17102e60e39cbd7d65dc68d40bc28cea7864c78fc72346a4d41451",
+    "unprotected_hex": "a0"
+   }
+  },
+  "R_C5": {
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "Not Found: Receipt with entry ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "reference_tbs /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /entries/%s": {
+     "error": "Not Found: Receipt with entry ID fbab2b2b1c572ca374458ba2590fa5ca0da056a6ce47666f7220f1bca4250ab8 not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID fbab2b2b1c572ca374458ba2590fa5ca0da056a6ce47666f7220f1bca4250ab8",
+     "found": false,
+     "status": 404
+    }
+   },
+   "registration": {
+    "content_type": "application/concise-problem-details+cbor",
+    "error": "Registration Failed: Failed to register statement: Unknown COSE attribute with value: [CoseAlgorithm - -19]",
+    "length": 111,
+    "location": null,
+    "status": 400,
+    "txid": null
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "f456f18321d8835fbf3cf4209cb99997bb3c5749f8abc63620a24a71e44a8b61",
+    "sha256_signature": "e4060330a3cdb3e1407493a7f857a906f99c5d2855a542feebf59ed99e6615a8",
+    "sha256_whole": "fbab2b2b1c572ca374458ba2590fa5ca0da056a6ce47666f7220f1bca4250ab8",
+    "tag18": true,
+    "tbs_sha256": "c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+    "unprotected_hex": "a13a00011171736164646564206166746572207369676e696e67"
+   }
+  },
+  "R_C6": {
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "Not Found: Receipt with entry ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "reference_tbs /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /entries/%s": {
+     "error": "Not Found: Receipt with entry ID f8bf927260ae6d9c6edadeb79e0295e39dc30341b21b1a61d6cf31b35d778bf8 not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID f8bf927260ae6d9c6edadeb79e0295e39dc30341b21b1a61d6cf31b35d778bf8",
+     "found": false,
+     "status": 404
+    }
+   },
+   "registration": {
+    "content_type": "application/concise-problem-details+cbor",
+    "error": "Registration Failed: Failed to register statement: Unknown COSE attribute with value: [CoseAlgorithm - -19]",
+    "length": 111,
+    "location": null,
+    "status": 400,
+    "txid": null
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "f456f18321d8835fbf3cf4209cb99997bb3c5749f8abc63620a24a71e44a8b61",
+    "sha256_signature": "34e31aa125dcb75be74573c9bb413fb969c62dddff8dd0b3420dd2ede5259408",
+    "sha256_whole": "f8bf927260ae6d9c6edadeb79e0295e39dc30341b21b1a61d6cf31b35d778bf8",
+    "tag18": true,
+    "tbs_sha256": "c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+    "unprotected_hex": "a0"
+   }
+  },
+  "R_C7": {
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "Not Found: Receipt with entry ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "reference_tbs /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /entries/%s": {
+     "error": "Not Found: Receipt with entry ID 0a5390069e431e6dd83764ee276b28f69d34986a9e64d82f05ef3322bc66d61c not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID 0a5390069e431e6dd83764ee276b28f69d34986a9e64d82f05ef3322bc66d61c",
+     "found": false,
+     "status": 404
+    }
+   },
+   "registration": {
+    "content_type": "application/concise-problem-details+cbor",
+    "error": "Registration Failed: Failed to register statement: Unknown COSE attribute with value: [CoseAlgorithm - -19]",
+    "length": 111,
+    "location": null,
+    "status": 400,
+    "txid": null
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "f456f18321d8835fbf3cf4209cb99997bb3c5749f8abc63620a24a71e44a8b61",
+    "sha256_signature": "4b6a8803ad58098c748ecc7f4e7d05ba4d4a9f7a6c87ef191c622b5e1617e5b8",
+    "sha256_whole": "0a5390069e431e6dd83764ee276b28f69d34986a9e64d82f05ef3322bc66d61c",
+    "tag18": true,
+    "tbs_sha256": "c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+    "unprotected_hex": "a0"
+   }
+  },
+  "R_C8": {
+   "lookup": {
+    "sha256_whole /entries/%s": {
+     "error": "Not Found: Receipt with entry ID 7ceb07265f8b803a1ff96924da0b3a48b8355ec9daed0a9a31cd36cddaf34fdb not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID 7ceb07265f8b803a1ff96924da0b3a48b8355ec9daed0a9a31cd36cddaf34fdb",
+     "found": false,
+     "status": 404
+    }
+   },
+   "registration": {
+    "content_type": "application/concise-problem-details+cbor",
+    "error": "Registration Failed: Failed to register statement: Unknown COSE attribute with value: [CoseAlgorithm - -19]",
+    "length": 111,
+    "location": null,
+    "status": 400,
+    "txid": null
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": null,
+    "sha256_protected": "f456f18321d8835fbf3cf4209cb99997bb3c5749f8abc63620a24a71e44a8b61",
+    "sha256_signature": "10c5f02fa77aa2c6e57761bf03e1b79a579ca0708998d1302ba9f537d1f253a0",
+    "sha256_whole": "7ceb07265f8b803a1ff96924da0b3a48b8355ec9daed0a9a31cd36cddaf34fdb",
+    "tag18": true,
+    "tbs_sha256": null,
+    "unprotected_hex": "a0"
+   }
+  },
+  "R_C9": {
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "Not Found: Receipt with entry ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "reference_tbs /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /entries/%s": {
+     "error": "Not Found: Receipt with entry ID c205d745619c3087ad1f83f6c1f7883f4fff616f8f90ecbe64c4aa08854b28e6 not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID c205d745619c3087ad1f83f6c1f7883f4fff616f8f90ecbe64c4aa08854b28e6",
+     "found": false,
+     "status": 404
+    }
+   },
+   "registration": {
+    "content_type": "application/concise-problem-details+cbor",
+    "error": "Registration Failed: Failed to register statement: Message was not tagged.",
+    "length": 78,
+    "location": null,
+    "status": 400,
+    "txid": null
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "f456f18321d8835fbf3cf4209cb99997bb3c5749f8abc63620a24a71e44a8b61",
+    "sha256_signature": "e4060330a3cdb3e1407493a7f857a906f99c5d2855a542feebf59ed99e6615a8",
+    "sha256_whole": "c205d745619c3087ad1f83f6c1f7883f4fff616f8f90ecbe64c4aa08854b28e6",
+    "tag18": false,
+    "tbs_sha256": "c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+    "unprotected_hex": "a0"
+   }
+  }
+ }
+}

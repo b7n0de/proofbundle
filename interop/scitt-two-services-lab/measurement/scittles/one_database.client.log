@@ -1,0 +1,84 @@
+service scittles http://127.0.0.1:18000 id 200 a466697373756572781c68747470733a2f2f7472616e73706172656e63792e6578616d706c65686a776b735f757269782168747470733a2f2f747261
+D1 POST 400 Registration Failed: Failed to register statement: Bytes cannot be decoded as COSE message
+D1 LOOKUP reference_tbs /entries/68be9ac5b120... 404 Not Found: Receipt with entry ID 68be9ac5b1207175ea0d41400d855e56d218b6a013f95858084030ca7a4d57bb no
+D1 LOOKUP reference_tbs /signed-statements/68be9ac5b120... 404 Not Found: No Signed Statement found with ID 68be9ac5b1207175ea0d41400d855e56d218b6a013f95858084030c
+D1 LOOKUP sha256_whole /entries/2a659bc1c19a... 404 Not Found: Receipt with entry ID 2a659bc1c19a50ac22458e45dcce6c4daba456512e3a779edae114196a75b06a no
+D1 LOOKUP sha256_whole /signed-statements/2a659bc1c19a... 404 Not Found: No Signed Statement found with ID 2a659bc1c19a50ac22458e45dcce6c4daba456512e3a779edae1141
+D2 POST 400 Registration Failed: Failed to register statement: Bytes cannot be decoded as COSE message
+D2 LOOKUP reference_tbs /entries/13bdab9800ca... 404 Not Found: Receipt with entry ID 13bdab9800ca4f03dbb9238d05041e9a17b4e7ad8bc83850360f4bb5bae76916 no
+D2 LOOKUP reference_tbs /signed-statements/13bdab9800ca... 404 Not Found: No Signed Statement found with ID 13bdab9800ca4f03dbb9238d05041e9a17b4e7ad8bc83850360f4bb
+D2 LOOKUP sha256_whole /entries/730100d5c5f2... 404 Not Found: Receipt with entry ID 730100d5c5f2221abd9a7f7a23dcff66096010478307b156ae2e662d3d1d8280 no
+D2 LOOKUP sha256_whole /signed-statements/730100d5c5f2... 404 Not Found: No Signed Statement found with ID 730100d5c5f2221abd9a7f7a23dcff66096010478307b156ae2e662
+D3 POST 400 Registration Failed: Failed to register statement: Bytes cannot be decoded as COSE message
+D3 LOOKUP reference_tbs /entries/3e5b5334311a... 404 Not Found: Receipt with entry ID 3e5b5334311af5f5f4c7f40e4a0a29d620e2ee8c5e5f998c134a04d78fba978a no
+D3 LOOKUP reference_tbs /signed-statements/3e5b5334311a... 404 Not Found: No Signed Statement found with ID 3e5b5334311af5f5f4c7f40e4a0a29d620e2ee8c5e5f998c134a04d
+D3 LOOKUP sha256_whole /entries/c97e5bffbd15... 404 Not Found: Receipt with entry ID c97e5bffbd1597ce9a47ddf8aef989e4091c6880bcbe4f3904787e5961eb5013 no
+D3 LOOKUP sha256_whole /signed-statements/c97e5bffbd15... 404 Not Found: No Signed Statement found with ID c97e5bffbd1597ce9a47ddf8aef989e4091c6880bcbe4f3904787e5
+D4 POST 400 Registration Failed: Failed to register statement: Bytes cannot be decoded as COSE message
+D4 LOOKUP reference_tbs /entries/56f25480a891... 404 Not Found: Receipt with entry ID 56f25480a891606b0b1155b9bf79161542ac03de91eed133d038efabe394ac4b no
+D4 LOOKUP reference_tbs /signed-statements/56f25480a891... 404 Not Found: No Signed Statement found with ID 56f25480a891606b0b1155b9bf79161542ac03de91eed133d038efa
+D4 LOOKUP sha256_whole /entries/ab233c50c81d... 404 Not Found: Receipt with entry ID ab233c50c81d989d492642e567e051f26f48939a337789b5c2e4e5262d93bfca no
+D4 LOOKUP sha256_whole /signed-statements/ab233c50c81d... 404 Not Found: No Signed Statement found with ID ab233c50c81d989d492642e567e051f26f48939a337789b5c2e4e52
+D5 POST 400 Registration Failed: Failed to register statement: Bytes cannot be decoded as COSE message
+D5 LOOKUP reference_tbs /entries/fd65de01223f... 404 Not Found: Receipt with entry ID fd65de01223fc579a6a45f36d4714e7273a75619fb59a412d570bb11af48b5ed no
+D5 LOOKUP reference_tbs /signed-statements/fd65de01223f... 404 Not Found: No Signed Statement found with ID fd65de01223fc579a6a45f36d4714e7273a75619fb59a412d570bb1
+D5 LOOKUP sha256_whole /entries/87950051a19b... 404 Not Found: Receipt with entry ID 87950051a19bee4f58b4283b002c969b684053d43c1b8bf64fd5dda2e49f41f5 no
+D5 LOOKUP sha256_whole /signed-statements/87950051a19b... 404 Not Found: No Signed Statement found with ID 87950051a19bee4f58b4283b002c969b684053d43c1b8bf64fd5dda
+D6 POST 400 Registration Failed: Failed to register statement: Bytes cannot be decoded as COSE message
+D6 LOOKUP reference_tbs /entries/68be9ac5b120... 404 Not Found: Receipt with entry ID 68be9ac5b1207175ea0d41400d855e56d218b6a013f95858084030ca7a4d57bb no
+D6 LOOKUP reference_tbs /signed-statements/68be9ac5b120... 404 Not Found: No Signed Statement found with ID 68be9ac5b1207175ea0d41400d855e56d218b6a013f95858084030c
+D6 LOOKUP sha256_whole /entries/12de0300622e... 404 Not Found: Receipt with entry ID 12de0300622e78ef7bed2bfa1a82ba2fa7e2940b231441d9fb03bd807a69a518 no
+D6 LOOKUP sha256_whole /signed-statements/12de0300622e... 404 Not Found: No Signed Statement found with ID 12de0300622e78ef7bed2bfa1a82ba2fa7e2940b231441d9fb03bd8
+R_C1 POST 400 Registration Failed: Failed to register statement: Bytes cannot be decoded as COSE message
+R_C1 LOOKUP reference_tbs /entries/c3f5f1376467... 404 Not Found: Receipt with entry ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc no
+R_C1 LOOKUP reference_tbs /signed-statements/c3f5f1376467... 404 Not Found: No Signed Statement found with ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6
+R_C1 LOOKUP sha256_whole /entries/9c7253617b9f... 404 Not Found: Receipt with entry ID 9c7253617b9fe51ba25eb0f957dadea493ca03e98c4a81806237757f13d054c6 no
+R_C1 LOOKUP sha256_whole /signed-statements/9c7253617b9f... 404 Not Found: No Signed Statement found with ID 9c7253617b9fe51ba25eb0f957dadea493ca03e98c4a81806237757
+R_C11 POST 400 Registration Failed: Failed to register statement: Bytes cannot be decoded as COSE message
+R_C11 LOOKUP reference_tbs /entries/c3f5f1376467... 404 Not Found: Receipt with entry ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc no
+R_C11 LOOKUP reference_tbs /signed-statements/c3f5f1376467... 404 Not Found: No Signed Statement found with ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6
+R_C11 LOOKUP sha256_whole /entries/d1e77e708d75... 404 Not Found: Receipt with entry ID d1e77e708d759c9b393e93708968887df1ef0e56872166877f68d4ff9e43afe1 no
+R_C11 LOOKUP sha256_whole /signed-statements/d1e77e708d75... 404 Not Found: No Signed Statement found with ID d1e77e708d759c9b393e93708968887df1ef0e56872166877f68d4f
+R_C12 POST 400 Registration Failed: Failed to register statement: Bytes cannot be decoded as COSE message
+R_C12 LOOKUP reference_tbs /entries/c3f5f1376467... 404 Not Found: Receipt with entry ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc no
+R_C12 LOOKUP reference_tbs /signed-statements/c3f5f1376467... 404 Not Found: No Signed Statement found with ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6
+R_C12 LOOKUP sha256_whole /entries/f868bef38c6b... 404 Not Found: Receipt with entry ID f868bef38c6bf945c845b1dd327bc82b0cd71493b68fe4c11761fde6f4f6d988 no
+R_C12 LOOKUP sha256_whole /signed-statements/f868bef38c6b... 404 Not Found: No Signed Statement found with ID f868bef38c6bf945c845b1dd327bc82b0cd71493b68fe4c11761fde
+R_C2 POST 400 Registration Failed: Failed to register statement: Bytes cannot be decoded as COSE message
+R_C2 LOOKUP reference_tbs /entries/a102994c9cd4... 404 Not Found: Receipt with entry ID a102994c9cd4fae75e351b1c104e9e9a31994ab3b4fa4a4ce9b2dbcb1ac7ecc6 no
+R_C2 LOOKUP reference_tbs /signed-statements/a102994c9cd4... 404 Not Found: No Signed Statement found with ID a102994c9cd4fae75e351b1c104e9e9a31994ab3b4fa4a4ce9b2dbc
+R_C2 LOOKUP sha256_whole /entries/f5afbb3b0c7d... 404 Not Found: Receipt with entry ID f5afbb3b0c7d822b00741e5eacd9128b723922bf3cad6ed5a3ab00e884b58e99 no
+R_C2 LOOKUP sha256_whole /signed-statements/f5afbb3b0c7d... 404 Not Found: No Signed Statement found with ID f5afbb3b0c7d822b00741e5eacd9128b723922bf3cad6ed5a3ab00e
+R_C3 POST 400 Registration Failed: Failed to register statement: Bytes cannot be decoded as COSE message
+R_C3 LOOKUP reference_tbs /entries/94fa362e4a0b... 404 Not Found: Receipt with entry ID 94fa362e4a0b2aa52a95a4ec07bba27cccd4dce93822faeeff4eece519e69956 no
+R_C3 LOOKUP reference_tbs /signed-statements/94fa362e4a0b... 404 Not Found: No Signed Statement found with ID 94fa362e4a0b2aa52a95a4ec07bba27cccd4dce93822faeeff4eece
+R_C3 LOOKUP sha256_whole /entries/63723353fdf0... 404 Not Found: Receipt with entry ID 63723353fdf05662cfcc618e8b47fd4142dce4a71e84b61a6bdbdde988e837ab no
+R_C3 LOOKUP sha256_whole /signed-statements/63723353fdf0... 404 Not Found: No Signed Statement found with ID 63723353fdf05662cfcc618e8b47fd4142dce4a71e84b61a6bdbdde
+R_C4 POST 400 Registration Failed: Failed to register statement: Bytes cannot be decoded as COSE message
+R_C4 LOOKUP reference_tbs /entries/22bc5feaae17... 404 Not Found: Receipt with entry ID 22bc5feaae17102e60e39cbd7d65dc68d40bc28cea7864c78fc72346a4d41451 no
+R_C4 LOOKUP reference_tbs /signed-statements/22bc5feaae17... 404 Not Found: No Signed Statement found with ID 22bc5feaae17102e60e39cbd7d65dc68d40bc28cea7864c78fc7234
+R_C4 LOOKUP sha256_whole /entries/65eb1e45177a... 404 Not Found: Receipt with entry ID 65eb1e45177add009aef819b438c910aae934c3a05b7966ef73614e11ff07bcc no
+R_C4 LOOKUP sha256_whole /signed-statements/65eb1e45177a... 404 Not Found: No Signed Statement found with ID 65eb1e45177add009aef819b438c910aae934c3a05b7966ef73614e
+R_C5 POST 400 Registration Failed: Failed to register statement: Bytes cannot be decoded as COSE message
+R_C5 LOOKUP reference_tbs /entries/c3f5f1376467... 404 Not Found: Receipt with entry ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc no
+R_C5 LOOKUP reference_tbs /signed-statements/c3f5f1376467... 404 Not Found: No Signed Statement found with ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6
+R_C5 LOOKUP sha256_whole /entries/fbab2b2b1c57... 404 Not Found: Receipt with entry ID fbab2b2b1c572ca374458ba2590fa5ca0da056a6ce47666f7220f1bca4250ab8 no
+R_C5 LOOKUP sha256_whole /signed-statements/fbab2b2b1c57... 404 Not Found: No Signed Statement found with ID fbab2b2b1c572ca374458ba2590fa5ca0da056a6ce47666f7220f1b
+R_C6 POST 400 Registration Failed: Failed to register statement: Bytes cannot be decoded as COSE message
+R_C6 LOOKUP reference_tbs /entries/c3f5f1376467... 404 Not Found: Receipt with entry ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc no
+R_C6 LOOKUP reference_tbs /signed-statements/c3f5f1376467... 404 Not Found: No Signed Statement found with ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6
+R_C6 LOOKUP sha256_whole /entries/f8bf927260ae... 404 Not Found: Receipt with entry ID f8bf927260ae6d9c6edadeb79e0295e39dc30341b21b1a61d6cf31b35d778bf8 no
+R_C6 LOOKUP sha256_whole /signed-statements/f8bf927260ae... 404 Not Found: No Signed Statement found with ID f8bf927260ae6d9c6edadeb79e0295e39dc30341b21b1a61d6cf31b
+R_C7 POST 400 Registration Failed: Failed to register statement: Bytes cannot be decoded as COSE message
+R_C7 LOOKUP reference_tbs /entries/c3f5f1376467... 404 Not Found: Receipt with entry ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc no
+R_C7 LOOKUP reference_tbs /signed-statements/c3f5f1376467... 404 Not Found: No Signed Statement found with ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6
+R_C7 LOOKUP sha256_whole /entries/0a5390069e43... 404 Not Found: Receipt with entry ID 0a5390069e431e6dd83764ee276b28f69d34986a9e64d82f05ef3322bc66d61c no
+R_C7 LOOKUP sha256_whole /signed-statements/0a5390069e43... 404 Not Found: No Signed Statement found with ID 0a5390069e431e6dd83764ee276b28f69d34986a9e64d82f05ef332
+R_C8 POST 400 Registration Failed: Failed to register statement: Bytes cannot be decoded as COSE message
+R_C8 LOOKUP sha256_whole /entries/7ceb07265f8b... 404 Not Found: Receipt with entry ID 7ceb07265f8b803a1ff96924da0b3a48b8355ec9daed0a9a31cd36cddaf34fdb no
+R_C8 LOOKUP sha256_whole /signed-statements/7ceb07265f8b... 404 Not Found: No Signed Statement found with ID 7ceb07265f8b803a1ff96924da0b3a48b8355ec9daed0a9a31cd36c
+R_C9 POST 400 Registration Failed: Failed to register statement: Message was not tagged.
+R_C9 LOOKUP reference_tbs /entries/c3f5f1376467... 404 Not Found: Receipt with entry ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc no
+R_C9 LOOKUP reference_tbs /signed-statements/c3f5f1376467... 404 Not Found: No Signed Statement found with ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6
+R_C9 LOOKUP sha256_whole /entries/c205d745619c... 404 Not Found: Receipt with entry ID c205d745619c3087ad1f83f6c1f7883f4fff616f8f90ecbe64c4aa08854b28e6 no
+R_C9 LOOKUP sha256_whole /signed-statements/c205d745619c... 404 Not Found: No Signed Statement found with ID c205d745619c3087ad1f83f6c1f7883f4fff616f8f90ecbe64c4aa0

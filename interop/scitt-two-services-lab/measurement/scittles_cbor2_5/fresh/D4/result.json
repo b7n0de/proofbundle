@@ -1,0 +1,96 @@
+{
+ "base": "http://127.0.0.1:18000",
+ "end": "2026-11-12T08:56:01Z",
+ "service": "scittles",
+ "service_id": {
+  "body": "a466697373756572781c68747470733a2f2f7472616e73706172656e63792e6578616d706c65686a776b735f757269782168747470733a2f2f7472616e73706172656e63792e6578616d706c652f6a776b7375726567697374726174696f6e5f656e64706f696e74782468747470733a2f2f7472616e73706172656e63792e6578616d706c652f656e747269657370726563656970745f656e64706f696e74782f68747470733a2f2f7472616e73706172656e63792e6578616d706c652f656e74726965732f7b656e7472795f69647d",
+  "status": 200
+ },
+ "start": "2026-11-12T08:56:00Z",
+ "statements": {
+  "D4": {
+   "bytes_equal": true,
+   "differences": [],
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "Not Found: Receipt with entry ID 56f25480a891606b0b1155b9bf79161542ac03de91eed133d038efabe394ac4b not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "reference_tbs /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID 56f25480a891606b0b1155b9bf79161542ac03de91eed133d038efabe394ac4b",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /entries/%s": {
+     "error": "Not Found: Receipt with entry ID ab233c50c81d989d492642e567e051f26f48939a337789b5c2e4e5262d93bfca not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID ab233c50c81d989d492642e567e051f26f48939a337789b5c2e4e5262d93bfca",
+     "found": false,
+     "status": 404
+    }
+   },
+   "receipt": {
+    "error": null,
+    "length": 131,
+    "path": "/entries/2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "status": 200,
+    "tries": 1
+   },
+   "receipt_at_registration": {
+    "alg": -7,
+    "length": 131,
+    "readable": true,
+    "sha256": "9a33a397b8f4d4c6df48a4468ec8e8d8fb00fbeb9e8915a38de1adc1d32beb2b",
+    "vds_395": 1
+   },
+   "receipt_header": {
+    "alg": -7,
+    "length": 131,
+    "readable": true,
+    "sha256": "9a33a397b8f4d4c6df48a4468ec8e8d8fb00fbeb9e8915a38de1adc1d32beb2b",
+    "vds_395": 1
+   },
+   "reference_equal": true,
+   "registration": {
+    "content_type": "application/cose",
+    "error": null,
+    "length": 131,
+    "location": "https://transparency.example/entries/2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "status": 201,
+    "txid": null
+   },
+   "service_entry_id": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+   "statement": {
+    "error": null,
+    "length": 1080,
+    "path": "/signed-statements/2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "status": 200,
+    "tries": 1
+   },
+   "statement_returned": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "1d43063df86fb37ae40e628e9818ebf6b1a93e76d9956045a32c8fe9c00c4aa7",
+    "sha256_signature": "5644945f0b8ef79f11f04f4dddaafff626a9ff988cae93bb67e61dd2e314d53e",
+    "sha256_whole": "ab233c50c81d989d492642e567e051f26f48939a337789b5c2e4e5262d93bfca",
+    "tag18": true,
+    "tbs_sha256": "56f25480a891606b0b1155b9bf79161542ac03de91eed133d038efabe394ac4b",
+    "unprotected_hex": "a0"
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "1d43063df86fb37ae40e628e9818ebf6b1a93e76d9956045a32c8fe9c00c4aa7",
+    "sha256_signature": "5644945f0b8ef79f11f04f4dddaafff626a9ff988cae93bb67e61dd2e314d53e",
+    "sha256_whole": "ab233c50c81d989d492642e567e051f26f48939a337789b5c2e4e5262d93bfca",
+    "tag18": true,
+    "tbs_sha256": "56f25480a891606b0b1155b9bf79161542ac03de91eed133d038efabe394ac4b",
+    "unprotected_hex": "a0"
+   }
+  }
+ }
+}

@@ -1,0 +1,57 @@
+anyio==4.16.0
+asn1crypto==1.5.1
+attrs==26.1.0
+azure-confidentialledger==1.1.1
+azure-core==1.41.0
+azure-identity==1.27.0
+cbor2==5.9.0
+ccf==7.0.22
+certifi==2026.10.23
+certvalidator==0.11.1
+cffi==2.1.1
+charset-normalizer==3.5.2
+cryptography==50.0.2
+cwt==3.3.0
+ecdsa==0.19.2
+h11==0.16.0
+httpcore==1.0.9
+httpx==0.28.1
+idna==3.20
+isodate==0.7.2
+jwcrypto==1.5.9
+loguru==0.8.0
+msal==1.39.0
+msal-extensions==1.3.1
+oscrypto==1.3.0
+packaging==26.3
+pycose==1.1.0
+pycparser==3.12
+pyhpke==0.6.5
+PyJWT==2.15.1
+pyscitt @ file:///tmp/pyscitt
+requests==2.34.2
+six==1.17.0
+types-jwcrypto==1.6.1.20260928
+typing_extensions==4.16.0
+urllib3==2.8.0
+2026-11-12 08:52:53.699 +00:00 | INFO     | pyscitt.client:advance:139 - Advancing clock by 1 seconds
+2026-11-12 08:52:53.708 +00:00 | DEBUG    | pyscitt.client:request:521 - POST /gov/members/state-digests/978deb8b003ec2178523a698fa1f9368e1a76e113c057d73292c7672e7690406:update 200
+2026-11-12 08:52:53.709 +00:00 | INFO     | pyscitt.client:advance:139 - Advancing clock by 1 seconds
+2026-11-12 08:52:53.711 +00:00 | DEBUG    | pyscitt.client:request:521 - POST /gov/members/state-digests/978deb8b003ec2178523a698fa1f9368e1a76e113c057d73292c7672e7690406:ack 204
+2026-11-12 08:52:53.711 +00:00 | INFO     | pyscitt.client:advance:139 - Advancing clock by 1 seconds
+2026-11-12 08:52:53.721 +00:00 | DEBUG    | pyscitt.client:request:521 - POST /gov/members/proposals:create 200
+2026-11-12 08:52:53.721 +00:00 | INFO     | pyscitt.client:advance:139 - Advancing clock by 1 seconds
+2026-11-12 08:52:53.730 +00:00 | DEBUG    | pyscitt.client:request:521 - POST /gov/members/proposals/2f9835a60fe52c5d231c0d691a115f18b728c0716eb1c6787c6ba03e3249c65b/ballots/978deb8b003ec2178523a698fa1f9368e1a76e113c057d73292c7672e7690406:submit 200
+2026-11-12 08:52:53.731 +00:00 | DEBUG    | pyscitt.client:request:521 - GET /node/network/nodes 200
+2026-11-12 08:52:53.732 +00:00 | DEBUG    | pyscitt.client:request:521 - GET node/network 200
+2026-11-12 08:52:53.732 +00:00 | INFO     | pyscitt.client:advance:139 - Advancing clock by 1 seconds
+2026-11-12 08:52:53.742 +00:00 | DEBUG    | pyscitt.client:request:521 - POST /gov/members/proposals:create 200
+2026-11-12 08:52:53.742 +00:00 | INFO     | pyscitt.client:advance:139 - Advancing clock by 1 seconds
+2026-11-12 08:52:53.755 +00:00 | DEBUG    | pyscitt.client:request:521 - POST /gov/members/proposals/9dae5bfee620e28ac3f8380200ab48a6d1785acf112ff6f7cad0929c4aa5d1ae/ballots/978deb8b003ec2178523a698fa1f9368e1a76e113c057d73292c7672e7690406:submit 200
+2026-11-12 08:52:53.756 +00:00 | DEBUG    | pyscitt.client:request:521 - GET /node/network/nodes 200
+2026-11-12 08:52:53.756 +00:00 | DEBUG    | pyscitt.client:request:521 - GET /node/network 200
+Activating member credentials...
+Configuring service...
+Opening service...
+{"version":"0.21.0-15-g6531df8"}
+{"authentication":{"allowUnauthenticated":true},"policy":{"policyScript":"export function apply(phdr) { if (!phdr.cwt.iss) {return 'Issuer not found'} else return true; }"}}

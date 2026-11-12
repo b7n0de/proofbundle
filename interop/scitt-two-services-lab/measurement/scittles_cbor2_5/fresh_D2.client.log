@@ -1,0 +1,9 @@
+service scittles http://127.0.0.1:18000 id 200 a466697373756572781c68747470733a2f2f7472616e73706172656e63792e6578616d706c65686a776b735f757269782168747470733a2f2f747261
+D2 POST 201 https://transparency.example/entries/3122f8f771955dbfceae73eb54b7319a3373efe538afb5e3d68c6e0742a5234c
+D2 GET /entries/3122f8f771955dbfceae73eb54b7319a3373efe538afb5e3d68c6e0742a5234c 200 131
+D2 GET /signed-statements/3122f8f771955dbfceae73eb54b7319a3373efe538afb5e3d68c6e0742a5234c 200 1114
+D2 reference equal 13bdab9800ca4f03dbb9238d05041e9a17b4e7ad8bc83850360f4bb5bae76916 bytes equal
+D2 LOOKUP reference_tbs /entries/13bdab9800ca... 404 Not Found: Receipt with entry ID 13bdab9800ca4f03dbb9238d05041e9a17b4e7ad8bc83850360f4bb5bae76916 no
+D2 LOOKUP reference_tbs /signed-statements/13bdab9800ca... 404 Not Found: No Signed Statement found with ID 13bdab9800ca4f03dbb9238d05041e9a17b4e7ad8bc83850360f4bb
+D2 LOOKUP sha256_whole /entries/730100d5c5f2... 404 Not Found: Receipt with entry ID 730100d5c5f2221abd9a7f7a23dcff66096010478307b156ae2e662d3d1d8280 no
+D2 LOOKUP sha256_whole /signed-statements/730100d5c5f2... 404 Not Found: No Signed Statement found with ID 730100d5c5f2221abd9a7f7a23dcff66096010478307b156ae2e662

@@ -1,0 +1,44 @@
+{
+ "base": "http://127.0.0.1:18000",
+ "end": "2026-11-12T08:57:19Z",
+ "service": "scittles",
+ "service_id": {
+  "body": "a466697373756572781c68747470733a2f2f7472616e73706172656e63792e6578616d706c65686a776b735f757269782168747470733a2f2f7472616e73706172656e63792e6578616d706c652f6a776b7375726567697374726174696f6e5f656e64706f696e74782468747470733a2f2f7472616e73706172656e63792e6578616d706c652f656e747269657370726563656970745f656e64706f696e74782f68747470733a2f2f7472616e73706172656e63792e6578616d706c652f656e74726965732f7b656e7472795f69647d",
+  "status": 200
+ },
+ "start": "2026-11-12T08:57:19Z",
+ "statements": {
+  "R_C8": {
+   "lookup": {
+    "sha256_whole /entries/%s": {
+     "error": "Not Found: Receipt with entry ID 7ceb07265f8b803a1ff96924da0b3a48b8355ec9daed0a9a31cd36cddaf34fdb not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID 7ceb07265f8b803a1ff96924da0b3a48b8355ec9daed0a9a31cd36cddaf34fdb",
+     "found": false,
+     "status": 404
+    }
+   },
+   "registration": {
+    "content_type": "application/concise-problem-details+cbor",
+    "error": "Registration Failed: Failed to register statement: Unknown COSE attribute with value: [CoseAlgorithm - -19]",
+    "length": 111,
+    "location": null,
+    "status": 400,
+    "txid": null
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": null,
+    "sha256_protected": "f456f18321d8835fbf3cf4209cb99997bb3c5749f8abc63620a24a71e44a8b61",
+    "sha256_signature": "10c5f02fa77aa2c6e57761bf03e1b79a579ca0708998d1302ba9f537d1f253a0",
+    "sha256_whole": "7ceb07265f8b803a1ff96924da0b3a48b8355ec9daed0a9a31cd36cddaf34fdb",
+    "tag18": true,
+    "tbs_sha256": null,
+    "unprotected_hex": "a0"
+   }
+  }
+ }
+}

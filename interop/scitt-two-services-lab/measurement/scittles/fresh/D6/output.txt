@@ -1,0 +1,6 @@
+service scittles http://127.0.0.1:18000 id 200 a466697373756572781c68747470733a2f2f7472616e73706172656e63792e6578616d706c65686a776b735f757269782168747470733a2f2f747261
+D6 POST 400 Registration Failed: Failed to register statement: Bytes cannot be decoded as COSE message
+D6 LOOKUP reference_tbs /entries/68be9ac5b120... 404 Not Found: Receipt with entry ID 68be9ac5b1207175ea0d41400d855e56d218b6a013f95858084030ca7a4d57bb no
+D6 LOOKUP reference_tbs /signed-statements/68be9ac5b120... 404 Not Found: No Signed Statement found with ID 68be9ac5b1207175ea0d41400d855e56d218b6a013f95858084030c
+D6 LOOKUP sha256_whole /entries/12de0300622e... 404 Not Found: Receipt with entry ID 12de0300622e78ef7bed2bfa1a82ba2fa7e2940b231441d9fb03bd807a69a518 no
+D6 LOOKUP sha256_whole /signed-statements/12de0300622e... 404 Not Found: No Signed Statement found with ID 12de0300622e78ef7bed2bfa1a82ba2fa7e2940b231441d9fb03bd8

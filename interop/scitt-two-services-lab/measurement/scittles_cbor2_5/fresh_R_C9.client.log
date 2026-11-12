@@ -1,0 +1,6 @@
+service scittles http://127.0.0.1:18000 id 200 a466697373756572781c68747470733a2f2f7472616e73706172656e63792e6578616d706c65686a776b735f757269782168747470733a2f2f747261
+R_C9 POST 400 Registration Failed: Failed to register statement: Message was not tagged.
+R_C9 LOOKUP reference_tbs /entries/c3f5f1376467... 404 Not Found: Receipt with entry ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc no
+R_C9 LOOKUP reference_tbs /signed-statements/c3f5f1376467... 404 Not Found: No Signed Statement found with ID c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6
+R_C9 LOOKUP sha256_whole /entries/c205d745619c... 404 Not Found: Receipt with entry ID c205d745619c3087ad1f83f6c1f7883f4fff616f8f90ecbe64c4aa08854b28e6 no
+R_C9 LOOKUP sha256_whole /signed-statements/c205d745619c... 404 Not Found: No Signed Statement found with ID c205d745619c3087ad1f83f6c1f7883f4fff616f8f90ecbe64c4aa0

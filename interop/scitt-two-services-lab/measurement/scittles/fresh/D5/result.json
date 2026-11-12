@@ -1,0 +1,54 @@
+{
+ "base": "http://127.0.0.1:18000",
+ "end": "2026-11-12T08:53:54Z",
+ "service": "scittles",
+ "service_id": {
+  "body": "a466697373756572781c68747470733a2f2f7472616e73706172656e63792e6578616d706c65686a776b735f757269782168747470733a2f2f7472616e73706172656e63792e6578616d706c652f6a776b7375726567697374726174696f6e5f656e64706f696e74782468747470733a2f2f7472616e73706172656e63792e6578616d706c652f656e747269657370726563656970745f656e64706f696e74782f68747470733a2f2f7472616e73706172656e63792e6578616d706c652f656e74726965732f7b656e7472795f69647d",
+  "status": 200
+ },
+ "start": "2026-11-12T08:53:54Z",
+ "statements": {
+  "D5": {
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "Not Found: Receipt with entry ID fd65de01223fc579a6a45f36d4714e7273a75619fb59a412d570bb11af48b5ed not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "reference_tbs /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID fd65de01223fc579a6a45f36d4714e7273a75619fb59a412d570bb11af48b5ed",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /entries/%s": {
+     "error": "Not Found: Receipt with entry ID 87950051a19bee4f58b4283b002c969b684053d43c1b8bf64fd5dda2e49f41f5 not known to this service",
+     "found": false,
+     "status": 404
+    },
+    "sha256_whole /signed-statements/%s": {
+     "error": "Not Found: No Signed Statement found with ID 87950051a19bee4f58b4283b002c969b684053d43c1b8bf64fd5dda2e49f41f5",
+     "found": false,
+     "status": 404
+    }
+   },
+   "registration": {
+    "content_type": "application/concise-problem-details+cbor",
+    "error": "Registration Failed: Failed to register statement: Bytes cannot be decoded as COSE message",
+    "length": 94,
+    "location": null,
+    "status": 400,
+    "txid": null
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "cfc6bb5fb8f40af577dbbe768fc5337a3bd318ec59ba667796af4c421c6c531e",
+    "sha256_signature": "e15fdcdb986e5df96cb8a79b38296584d8dfdf4b647f2381f4e77cd08cc6eb4e",
+    "sha256_whole": "87950051a19bee4f58b4283b002c969b684053d43c1b8bf64fd5dda2e49f41f5",
+    "tag18": true,
+    "tbs_sha256": "fd65de01223fc579a6a45f36d4714e7273a75619fb59a412d570bb11af48b5ed",
+    "unprotected_hex": "a0"
+   }
+  }
+ }
+}

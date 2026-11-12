@@ -1,0 +1,199 @@
+{
+ "did_x509_issuer": "did:x509:0:sha256:uFkuuQ5IFFSh4ILumKsS5m-fhSvsxQKBY7B6aKZJ6Vw::eku:1.3.6.1.5.5.7.3.3",
+ "eku": "1.3.6.1.5.5.7.3.3",
+ "seed_prefix": "b7lab DELTA-SCITT-INTEROP-LABOR-20261112-01 ",
+ "statements": {
+  "D1": {
+   "alg": -7,
+   "base_statement": "01",
+   "leaf": "p256",
+   "length": 1124,
+   "reference_submitted": {
+    "tbs_sha256": "68be9ac5b1207175ea0d41400d855e56d218b6a013f95858084030ca7a4d57bb"
+   },
+   "set": "D",
+   "sha256_whole": "2a659bc1c19a50ac22458e45dcce6c4daba456512e3a779edae114196a75b06a"
+  },
+  "D2": {
+   "alg": -8,
+   "base_statement": "02",
+   "leaf": "ed25519",
+   "length": 1114,
+   "reference_submitted": {
+    "tbs_sha256": "13bdab9800ca4f03dbb9238d05041e9a17b4e7ad8bc83850360f4bb5bae76916"
+   },
+   "set": "D",
+   "sha256_whole": "730100d5c5f2221abd9a7f7a23dcff66096010478307b156ae2e662d3d1d8280"
+  },
+  "D3": {
+   "alg": -8,
+   "base_statement": "03",
+   "leaf": "ed25519",
+   "length": 1200,
+   "reference_submitted": {
+    "tbs_sha256": "3e5b5334311af5f5f4c7f40e4a0a29d620e2ee8c5e5f998c134a04d78fba978a"
+   },
+   "set": "D",
+   "sha256_whole": "c97e5bffbd1597ce9a47ddf8aef989e4091c6880bcbe4f3904787e5961eb5013"
+  },
+  "D4": {
+   "alg": -8,
+   "base_statement": "01",
+   "leaf": "ed25519",
+   "length": 1080,
+   "reference_submitted": {
+    "tbs_sha256": "56f25480a891606b0b1155b9bf79161542ac03de91eed133d038efabe394ac4b"
+   },
+   "set": "D",
+   "sha256_whole": "ab233c50c81d989d492642e567e051f26f48939a337789b5c2e4e5262d93bfca"
+  },
+  "D5": {
+   "alg": -19,
+   "base_statement": "01",
+   "leaf": "ed25519",
+   "length": 1080,
+   "reference_submitted": {
+    "tbs_sha256": "fd65de01223fc579a6a45f36d4714e7273a75619fb59a412d570bb11af48b5ed"
+   },
+   "set": "D",
+   "sha256_whole": "87950051a19bee4f58b4283b002c969b684053d43c1b8bf64fd5dda2e49f41f5"
+  },
+  "D6": {
+   "alg": -7,
+   "base_statement": "01",
+   "change": "D1 with one entry in the unprotected header, not signed again",
+   "leaf": "p256",
+   "length": 1135,
+   "reference_submitted": {
+    "tbs_sha256": "68be9ac5b1207175ea0d41400d855e56d218b6a013f95858084030ca7a4d57bb"
+   },
+   "set": "D",
+   "sha256_whole": "12de0300622e78ef7bed2bfa1a82ba2fa7e2940b231441d9fb03bd807a69a518"
+  },
+  "R_C1": {
+   "cases": [
+    "C1",
+    "C10",
+    "C13",
+    "C14"
+   ],
+   "length": 330,
+   "reference_submitted": {
+    "tbs_sha256": "c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc"
+   },
+   "set": "R",
+   "sha256_whole": "9c7253617b9fe51ba25eb0f957dadea493ca03e98c4a81806237757f13d054c6"
+  },
+  "R_C11": {
+   "cases": [
+    "C11"
+   ],
+   "length": 330,
+   "reference_submitted": {
+    "tbs_sha256": "c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc"
+   },
+   "set": "R",
+   "sha256_whole": "d1e77e708d759c9b393e93708968887df1ef0e56872166877f68d4ff9e43afe1"
+  },
+  "R_C12": {
+   "cases": [
+    "C12"
+   ],
+   "length": 331,
+   "reference_submitted": {
+    "tbs_sha256": "c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc"
+   },
+   "set": "R",
+   "sha256_whole": "f868bef38c6bf945c845b1dd327bc82b0cd71493b68fe4c11761fde6f4f6d988"
+  },
+  "R_C2": {
+   "cases": [
+    "C2"
+   ],
+   "length": 450,
+   "reference_submitted": {
+    "tbs_sha256": "a102994c9cd4fae75e351b1c104e9e9a31994ab3b4fa4a4ce9b2dbcb1ac7ecc6"
+   },
+   "set": "R",
+   "sha256_whole": "f5afbb3b0c7d822b00741e5eacd9128b723922bf3cad6ed5a3ab00e884b58e99"
+  },
+  "R_C3": {
+   "cases": [
+    "C3"
+   ],
+   "length": 339,
+   "reference_submitted": {
+    "tbs_sha256": "94fa362e4a0b2aa52a95a4ec07bba27cccd4dce93822faeeff4eece519e69956"
+   },
+   "set": "R",
+   "sha256_whole": "63723353fdf05662cfcc618e8b47fd4142dce4a71e84b61a6bdbdde988e837ab"
+  },
+  "R_C4": {
+   "cases": [
+    "C4"
+   ],
+   "length": 330,
+   "reference_submitted": {
+    "tbs_sha256": "22bc5feaae17102e60e39cbd7d65dc68d40bc28cea7864c78fc72346a4d41451"
+   },
+   "set": "R",
+   "sha256_whole": "65eb1e45177add009aef819b438c910aae934c3a05b7966ef73614e11ff07bcc"
+  },
+  "R_C5": {
+   "cases": [
+    "C5"
+   ],
+   "length": 355,
+   "reference_submitted": {
+    "tbs_sha256": "c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc"
+   },
+   "set": "R",
+   "sha256_whole": "fbab2b2b1c572ca374458ba2590fa5ca0da056a6ce47666f7220f1bca4250ab8"
+  },
+  "R_C6": {
+   "cases": [
+    "C6"
+   ],
+   "length": 330,
+   "reference_submitted": {
+    "tbs_sha256": "c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc"
+   },
+   "set": "R",
+   "sha256_whole": "f8bf927260ae6d9c6edadeb79e0295e39dc30341b21b1a61d6cf31b35d778bf8"
+  },
+  "R_C7": {
+   "cases": [
+    "C7"
+   ],
+   "length": 330,
+   "reference_submitted": {
+    "tbs_sha256": "c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc"
+   },
+   "set": "R",
+   "sha256_whole": "0a5390069e431e6dd83764ee276b28f69d34986a9e64d82f05ef3322bc66d61c"
+  },
+  "R_C8": {
+   "cases": [
+    "C8"
+   ],
+   "length": 195,
+   "reference_submitted": {
+    "reason": "payload absent and not supplied",
+    "tbs_sha256": null
+   },
+   "set": "R",
+   "sha256_whole": "7ceb07265f8b803a1ff96924da0b3a48b8355ec9daed0a9a31cd36cddaf34fdb"
+  },
+  "R_C9": {
+   "cases": [
+    "C9"
+   ],
+   "length": 329,
+   "reference_submitted": {
+    "tbs_sha256": "c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc"
+   },
+   "set": "R",
+   "sha256_whole": "c205d745619c3087ad1f83f6c1f7883f4fff616f8f90ecbe64c4aa08854b28e6"
+  }
+ }
+}

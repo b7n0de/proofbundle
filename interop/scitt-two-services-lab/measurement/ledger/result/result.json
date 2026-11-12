@@ -1,0 +1,1101 @@
+{
+ "base": "https://127.0.0.1:18443",
+ "end": "2026-11-12T08:53:07Z",
+ "service": "ledger",
+ "service_id": {
+  "body": "{\"version\":\"0.21.0-15-g6531df8\"}",
+  "status": 200
+ },
+ "start": "2026-11-12T08:53:00Z",
+ "statements": {
+  "D1": {
+   "bytes_equal": false,
+   "differences": [
+    "unprotected_hex"
+   ],
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: 68be9ac5b1207175ea0d41400d855e56d218b6a013f95858084030ca7a4d57bb",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: 68be9ac5b1207175ea0d41400d855e56d218b6a013f95858084030ca7a4d57bb",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: 68be9ac5b1207175ea0d41400d855e56d218b6a013f95858084030ca7a4d57bb",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: 2a659bc1c19a50ac22458e45dcce6c4daba456512e3a779edae114196a75b06a",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: 2a659bc1c19a50ac22458e45dcce6c4daba456512e3a779edae114196a75b06a",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: 2a659bc1c19a50ac22458e45dcce6c4daba456512e3a779edae114196a75b06a",
+     "found": false,
+     "status": 400
+    }
+   },
+   "receipt": {
+    "error": null,
+    "length": 508,
+    "path": "/entries/2.13",
+    "status": 200,
+    "tries": 2
+   },
+   "receipt_at_registration": {
+    "alg": -35,
+    "length": 508,
+    "readable": true,
+    "sha256": "55861e809e6ea8e8bfb9e004834275a375c43d8db03dd488716a521fba573833",
+    "vds_395": 2
+   },
+   "receipt_header": {
+    "alg": -35,
+    "length": 508,
+    "readable": true,
+    "sha256": "55861e809e6ea8e8bfb9e004834275a375c43d8db03dd488716a521fba573833",
+    "vds_395": 2
+   },
+   "reference_equal": true,
+   "registration": {
+    "content_type": "application/cose",
+    "error": null,
+    "length": 508,
+    "location": "https://127.0.0.1:18443/entries/2.13",
+    "status": 201,
+    "txid": "2.13"
+   },
+   "service_entry_id": "2.13",
+   "statement": {
+    "error": null,
+    "length": 1639,
+    "path": "/entries/2.13/statement",
+    "status": 200,
+    "tries": 1
+   },
+   "statement_returned": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "864a873a4b1319635a1f99c31b1bd95bfe51f76a291804b640fe406600f053a5",
+    "sha256_signature": "32d1b608b20c5f78d3ac3326eef6d7770a2a5f6cecb990ca43ffcd4a2305fc94",
+    "sha256_whole": "a1ef463cdcc43ebf0576e0b7320ece8252082e402cd81149d4210e14ce605bfb",
+    "tag18": true,
+    "tbs_sha256": "68be9ac5b1207175ea0d41400d855e56d218b6a013f95858084030ca7a4d57bb",
+    "unprotected_hex": "a119018a815901fcd284588da5013822045840303964333565303266366664393064383861666564393832336232656566623864383565323734363838613632383665613733636132383533616262356436300fa3016e3132372e302e302e313a38303030027673636974742e6363662e7369676e61747572652e7631061a6af57e6c19018b02666363662e7631a1647478696464322e3134a119018ca1208158ffa20183582061a6fe9c05c56592a4ffbea297976e46e90aa162df88bfbb2996083950e9a19a784863653a322e31333a6162313530653862656637353366323264346266326362316238646235316138343030373864356465626638613264646437393432646538636631663764323458202a659bc1c19a50ac22458e45dcce6c4daba456512e3a779edae114196a75b06a028382f55820745fff3402231998a238952cf66a380c34eb6e689df777ac156fc6c6a85f460a82f55820bc6d207da10601d470be6f11a3c5e68d7b22891135b0b2c08a8d670d6f7e932482f55820d7410f5cedc1d20c4336d3398e480df18ff2a70fad82e247a2e8ec79351ee7c5f6586040a93bf1b710d979bbe60077cf2dcb89094922cc8c702fe7f13510e6477b82e24ff36b6d60897c1f8d6cce24ae9ee4a861bc80b86642ab75f323194c99147876e79462d64551056a39c7248e4069eafb5072fd1c901e72e9011de50f452360aa"
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "864a873a4b1319635a1f99c31b1bd95bfe51f76a291804b640fe406600f053a5",
+    "sha256_signature": "32d1b608b20c5f78d3ac3326eef6d7770a2a5f6cecb990ca43ffcd4a2305fc94",
+    "sha256_whole": "2a659bc1c19a50ac22458e45dcce6c4daba456512e3a779edae114196a75b06a",
+    "tag18": true,
+    "tbs_sha256": "68be9ac5b1207175ea0d41400d855e56d218b6a013f95858084030ca7a4d57bb",
+    "unprotected_hex": "a0"
+   }
+  },
+  "D2": {
+   "bytes_equal": false,
+   "differences": [
+    "unprotected_hex"
+   ],
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: 13bdab9800ca4f03dbb9238d05041e9a17b4e7ad8bc83850360f4bb5bae76916",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: 13bdab9800ca4f03dbb9238d05041e9a17b4e7ad8bc83850360f4bb5bae76916",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: 13bdab9800ca4f03dbb9238d05041e9a17b4e7ad8bc83850360f4bb5bae76916",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: 730100d5c5f2221abd9a7f7a23dcff66096010478307b156ae2e662d3d1d8280",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: 730100d5c5f2221abd9a7f7a23dcff66096010478307b156ae2e662d3d1d8280",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: 730100d5c5f2221abd9a7f7a23dcff66096010478307b156ae2e662d3d1d8280",
+     "found": false,
+     "status": 400
+    }
+   },
+   "receipt": {
+    "error": null,
+    "length": 545,
+    "path": "/entries/2.15",
+    "status": 200,
+    "tries": 2
+   },
+   "receipt_at_registration": {
+    "alg": -35,
+    "length": 545,
+    "readable": true,
+    "sha256": "2ed69312ea054654c1c85e1df1f32a377b6317e94a8eca4c2bb18702b11f8b2b",
+    "vds_395": 2
+   },
+   "receipt_header": {
+    "alg": -35,
+    "length": 545,
+    "readable": true,
+    "sha256": "2ed69312ea054654c1c85e1df1f32a377b6317e94a8eca4c2bb18702b11f8b2b",
+    "vds_395": 2
+   },
+   "reference_equal": true,
+   "registration": {
+    "content_type": "application/cose",
+    "error": null,
+    "length": 545,
+    "location": "https://127.0.0.1:18443/entries/2.15",
+    "status": 201,
+    "txid": "2.15"
+   },
+   "service_entry_id": "2.15",
+   "statement": {
+    "error": null,
+    "length": 1666,
+    "path": "/entries/2.15/statement",
+    "status": 200,
+    "tries": 1
+   },
+   "statement_returned": {
+    "readable": true,
+    "sha256_payload": "3122f8f771955dbfceae73eb54b7319a3373efe538afb5e3d68c6e0742a5234c",
+    "sha256_protected": "d11e7f051d2b12d14ec0b8ba1d82658cdfccaf34deafbaa56176e1c2236fb451",
+    "sha256_signature": "4b6fbe3997ee432e0a731c3ef87e690277a3059971a60b9e86b3ed9a51a6e18e",
+    "sha256_whole": "9a3f92e38acfd75d87c997a619eaed066b21df05d4b57f92daac02c92033d8f4",
+    "tag18": true,
+    "tbs_sha256": "13bdab9800ca4f03dbb9238d05041e9a17b4e7ad8bc83850360f4bb5bae76916",
+    "unprotected_hex": "a119018a81590221d284588da5013822045840303964333565303266366664393064383861666564393832336232656566623864383565323734363838613632383665613733636132383533616262356436300fa3016e3132372e302e302e313a38303030027673636974742e6363662e7369676e61747572652e7631061a6af57e6d19018b02666363662e7631a1647478696464322e3136a119018ca12081590123a2018358208a23d177a27de56160616c3b9855b5261f1812d122d86c85fc9ec96738a08804784863653a322e31353a396563323837666663646232363165326530393830623762393964663739306262393132313366646134646137386232643561663234373763383233373132385820730100d5c5f2221abd9a7f7a23dcff66096010478307b156ae2e662d3d1d8280028482f5582067aa6a3c1329eff5016b7dbd73ea3a6dd0f09e2dc8de2ad8ea834298e8abfd7682f558209cb56562facdbdf36d829486b87ce25a3a8f7d1540be7d6790554dc17d918e9d82f55820bc6d207da10601d470be6f11a3c5e68d7b22891135b0b2c08a8d670d6f7e932482f55820d7410f5cedc1d20c4336d3398e480df18ff2a70fad82e247a2e8ec79351ee7c5f65860a7c5ca90641e082a0519219086990d344f4a35be527224092a82c9ba585bb8cb6e658a161f80789980b639667b28cfa8a2193808ed41ad6797c5942c8eae8bd74cc80d455a3082850ce53a4cc8ed5c8d6961e2f44d89670ecce4c4d66e0f64aa"
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "3122f8f771955dbfceae73eb54b7319a3373efe538afb5e3d68c6e0742a5234c",
+    "sha256_protected": "d11e7f051d2b12d14ec0b8ba1d82658cdfccaf34deafbaa56176e1c2236fb451",
+    "sha256_signature": "4b6fbe3997ee432e0a731c3ef87e690277a3059971a60b9e86b3ed9a51a6e18e",
+    "sha256_whole": "730100d5c5f2221abd9a7f7a23dcff66096010478307b156ae2e662d3d1d8280",
+    "tag18": true,
+    "tbs_sha256": "13bdab9800ca4f03dbb9238d05041e9a17b4e7ad8bc83850360f4bb5bae76916",
+    "unprotected_hex": "a0"
+   }
+  },
+  "D3": {
+   "bytes_equal": false,
+   "differences": [
+    "unprotected_hex"
+   ],
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: 3e5b5334311af5f5f4c7f40e4a0a29d620e2ee8c5e5f998c134a04d78fba978a",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: 3e5b5334311af5f5f4c7f40e4a0a29d620e2ee8c5e5f998c134a04d78fba978a",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: 3e5b5334311af5f5f4c7f40e4a0a29d620e2ee8c5e5f998c134a04d78fba978a",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: c97e5bffbd1597ce9a47ddf8aef989e4091c6880bcbe4f3904787e5961eb5013",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: c97e5bffbd1597ce9a47ddf8aef989e4091c6880bcbe4f3904787e5961eb5013",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: c97e5bffbd1597ce9a47ddf8aef989e4091c6880bcbe4f3904787e5961eb5013",
+     "found": false,
+     "status": 400
+    }
+   },
+   "receipt": {
+    "error": null,
+    "length": 472,
+    "path": "/entries/2.17",
+    "status": 200,
+    "tries": 2
+   },
+   "receipt_at_registration": {
+    "alg": -35,
+    "length": 472,
+    "readable": true,
+    "sha256": "5a3b7d2cfbf7c11938c521d41c94974b2d5973b0971d6873b1a7ebd6e2629097",
+    "vds_395": 2
+   },
+   "receipt_header": {
+    "alg": -35,
+    "length": 472,
+    "readable": true,
+    "sha256": "5a3b7d2cfbf7c11938c521d41c94974b2d5973b0971d6873b1a7ebd6e2629097",
+    "vds_395": 2
+   },
+   "reference_equal": true,
+   "registration": {
+    "content_type": "application/cose",
+    "error": null,
+    "length": 472,
+    "location": "https://127.0.0.1:18443/entries/2.17",
+    "status": 201,
+    "txid": "2.17"
+   },
+   "service_entry_id": "2.17",
+   "statement": {
+    "error": null,
+    "length": 1679,
+    "path": "/entries/2.17/statement",
+    "status": 200,
+    "tries": 1
+   },
+   "statement_returned": {
+    "readable": true,
+    "sha256_payload": "9d6e51a8f54b38f3e7dc9808180faa849c63ba65a3a7d5ab40039b206e37e137",
+    "sha256_protected": "aa68716c042d16ab2fc85d4158d9a2f2032cbe18c024d6f4cd56c319a02357ec",
+    "sha256_signature": "907482db08e68ad7469e39335f2270ed39091eec6e69e04401bd1fd06e08aa3b",
+    "sha256_whole": "1167c5f56f499dedd7a7c29e5419af304ce05c4733cdf1ee72c71603cc45712d",
+    "tag18": true,
+    "tbs_sha256": "3e5b5334311af5f5f4c7f40e4a0a29d620e2ee8c5e5f998c134a04d78fba978a",
+    "unprotected_hex": "a119018a815901d8d284588da5013822045840303964333565303266366664393064383861666564393832336232656566623864383565323734363838613632383665613733636132383533616262356436300fa3016e3132372e302e302e313a38303030027673636974742e6363662e7369676e61747572652e7631061a6af57e6f19018b02666363662e7631a1647478696464322e3138a119018ca1208158dba201835820dfd8b86a67fe55bf70959ae21ae8d8942cc2e655182e44d47b58898b2ca7f0dc784863653a322e31373a313438393361313563646135656466356638613037373434376438363630303836343266383264623663313734303839333361373465376331383632306466635820c97e5bffbd1597ce9a47ddf8aef989e4091c6880bcbe4f3904787e5961eb5013028282f55820cf55bf507a5ce7f5f7c34dafc2242aec4543b9bf595bc28d7d89c47fc45b064582f55820e6b3d122c37a589337d4231c471d7b976d9fac736d59fb080d43e36d058a1295f65860abceeecee13b078426c9de210bcbdcd083b918c5e60e0f2b3665a8cf1e25c484ded7e06f9ec6246be51f51b5db5ef25b2c4ac4937717f2a7af12658e4d30d62e1cebbe6625ffad63ff8b78f40233f9c7415c3874f60e18d24e09cc6b0d7cd79d"
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "9d6e51a8f54b38f3e7dc9808180faa849c63ba65a3a7d5ab40039b206e37e137",
+    "sha256_protected": "aa68716c042d16ab2fc85d4158d9a2f2032cbe18c024d6f4cd56c319a02357ec",
+    "sha256_signature": "907482db08e68ad7469e39335f2270ed39091eec6e69e04401bd1fd06e08aa3b",
+    "sha256_whole": "c97e5bffbd1597ce9a47ddf8aef989e4091c6880bcbe4f3904787e5961eb5013",
+    "tag18": true,
+    "tbs_sha256": "3e5b5334311af5f5f4c7f40e4a0a29d620e2ee8c5e5f998c134a04d78fba978a",
+    "unprotected_hex": "a0"
+   }
+  },
+  "D4": {
+   "bytes_equal": false,
+   "differences": [
+    "unprotected_hex"
+   ],
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: 56f25480a891606b0b1155b9bf79161542ac03de91eed133d038efabe394ac4b",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: 56f25480a891606b0b1155b9bf79161542ac03de91eed133d038efabe394ac4b",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: 56f25480a891606b0b1155b9bf79161542ac03de91eed133d038efabe394ac4b",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: ab233c50c81d989d492642e567e051f26f48939a337789b5c2e4e5262d93bfca",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: ab233c50c81d989d492642e567e051f26f48939a337789b5c2e4e5262d93bfca",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: ab233c50c81d989d492642e567e051f26f48939a337789b5c2e4e5262d93bfca",
+     "found": false,
+     "status": 400
+    }
+   },
+   "receipt": {
+    "error": null,
+    "length": 508,
+    "path": "/entries/2.19",
+    "status": 200,
+    "tries": 2
+   },
+   "receipt_at_registration": {
+    "alg": -35,
+    "length": 508,
+    "readable": true,
+    "sha256": "2146cd123e086ae76dc622fd7e84a5b1ce04c9a6067593f2c06ad564d990bc26",
+    "vds_395": 2
+   },
+   "receipt_header": {
+    "alg": -35,
+    "length": 508,
+    "readable": true,
+    "sha256": "2146cd123e086ae76dc622fd7e84a5b1ce04c9a6067593f2c06ad564d990bc26",
+    "vds_395": 2
+   },
+   "reference_equal": true,
+   "registration": {
+    "content_type": "application/cose",
+    "error": null,
+    "length": 508,
+    "location": "https://127.0.0.1:18443/entries/2.19",
+    "status": 201,
+    "txid": "2.19"
+   },
+   "service_entry_id": "2.19",
+   "statement": {
+    "error": null,
+    "length": 1595,
+    "path": "/entries/2.19/statement",
+    "status": 200,
+    "tries": 1
+   },
+   "statement_returned": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "1d43063df86fb37ae40e628e9818ebf6b1a93e76d9956045a32c8fe9c00c4aa7",
+    "sha256_signature": "5644945f0b8ef79f11f04f4dddaafff626a9ff988cae93bb67e61dd2e314d53e",
+    "sha256_whole": "d467f73888816936209e7468cb4396b5cd450dde4dafe042df93131a9e59d2f9",
+    "tag18": true,
+    "tbs_sha256": "56f25480a891606b0b1155b9bf79161542ac03de91eed133d038efabe394ac4b",
+    "unprotected_hex": "a119018a815901fcd284588da5013822045840303964333565303266366664393064383861666564393832336232656566623864383565323734363838613632383665613733636132383533616262356436300fa3016e3132372e302e302e313a38303030027673636974742e6363662e7369676e61747572652e7631061a6af57e7019018b02666363662e7631a1647478696464322e3230a119018ca1208158ffa20183582071137f8b56b62784cb4d29bfa2cf35154c6adb5698dee2d014ccefaa5725501c784863653a322e31393a613938363166633535393635383734643830383838343162353566383530363038643237383331393735373464373533643633623237366337613263633565665820ab233c50c81d989d492642e567e051f26f48939a337789b5c2e4e5262d93bfca028382f55820bfc1b135349e538197f5f9f6d43a0d512a7012aaace977156b9795f8196697b382f558208dd94c580d7caab2baa0743c3c98407590495ba586f474eb20d35a955251ea9b82f55820e6b3d122c37a589337d4231c471d7b976d9fac736d59fb080d43e36d058a1295f65860e0a8cd25474811dd45c10da310733b1e9746ddb70606da5005c6a638088a8e0f16145210cc858500c822ca27b82c84a5098eb11f4506270f94debbde3c8c5832cbc68ba1ed1fd2f721b6f42a2f60b4c0d16d172c957a894f533a4261c32dac2b"
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "1d43063df86fb37ae40e628e9818ebf6b1a93e76d9956045a32c8fe9c00c4aa7",
+    "sha256_signature": "5644945f0b8ef79f11f04f4dddaafff626a9ff988cae93bb67e61dd2e314d53e",
+    "sha256_whole": "ab233c50c81d989d492642e567e051f26f48939a337789b5c2e4e5262d93bfca",
+    "tag18": true,
+    "tbs_sha256": "56f25480a891606b0b1155b9bf79161542ac03de91eed133d038efabe394ac4b",
+    "unprotected_hex": "a0"
+   }
+  },
+  "D5": {
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: fd65de01223fc579a6a45f36d4714e7273a75619fb59a412d570bb11af48b5ed",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: fd65de01223fc579a6a45f36d4714e7273a75619fb59a412d570bb11af48b5ed",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: fd65de01223fc579a6a45f36d4714e7273a75619fb59a412d570bb11af48b5ed",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: 87950051a19bee4f58b4283b002c969b684053d43c1b8bf64fd5dda2e49f41f5",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: 87950051a19bee4f58b4283b002c969b684053d43c1b8bf64fd5dda2e49f41f5",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: 87950051a19bee4f58b4283b002c969b684053d43c1b8bf64fd5dda2e49f41f5",
+     "found": false,
+     "status": 400
+    }
+   },
+   "registration": {
+    "content_type": "application/concise-problem-details+cbor",
+    "error": "InvalidInput: COSE algorithm -19 is not supported",
+    "length": 53,
+    "location": null,
+    "status": 400,
+    "txid": null
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "cfc6bb5fb8f40af577dbbe768fc5337a3bd318ec59ba667796af4c421c6c531e",
+    "sha256_signature": "e15fdcdb986e5df96cb8a79b38296584d8dfdf4b647f2381f4e77cd08cc6eb4e",
+    "sha256_whole": "87950051a19bee4f58b4283b002c969b684053d43c1b8bf64fd5dda2e49f41f5",
+    "tag18": true,
+    "tbs_sha256": "fd65de01223fc579a6a45f36d4714e7273a75619fb59a412d570bb11af48b5ed",
+    "unprotected_hex": "a0"
+   }
+  },
+  "D6": {
+   "bytes_equal": false,
+   "differences": [
+    "unprotected_hex"
+   ],
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: 68be9ac5b1207175ea0d41400d855e56d218b6a013f95858084030ca7a4d57bb",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: 68be9ac5b1207175ea0d41400d855e56d218b6a013f95858084030ca7a4d57bb",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: 68be9ac5b1207175ea0d41400d855e56d218b6a013f95858084030ca7a4d57bb",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: 12de0300622e78ef7bed2bfa1a82ba2fa7e2940b231441d9fb03bd807a69a518",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: 12de0300622e78ef7bed2bfa1a82ba2fa7e2940b231441d9fb03bd807a69a518",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: 12de0300622e78ef7bed2bfa1a82ba2fa7e2940b231441d9fb03bd807a69a518",
+     "found": false,
+     "status": 400
+    }
+   },
+   "receipt": {
+    "error": null,
+    "length": 508,
+    "path": "/entries/2.21",
+    "status": 200,
+    "tries": 2
+   },
+   "receipt_at_registration": {
+    "alg": -35,
+    "length": 508,
+    "readable": true,
+    "sha256": "05cbb2e9d581ba40e539ae2fb566dff95ef4f7fac3ee195b8470fbbe63267bdd",
+    "vds_395": 2
+   },
+   "receipt_header": {
+    "alg": -35,
+    "length": 508,
+    "readable": true,
+    "sha256": "05cbb2e9d581ba40e539ae2fb566dff95ef4f7fac3ee195b8470fbbe63267bdd",
+    "vds_395": 2
+   },
+   "reference_equal": true,
+   "registration": {
+    "content_type": "application/cose",
+    "error": null,
+    "length": 508,
+    "location": "https://127.0.0.1:18443/entries/2.21",
+    "status": 201,
+    "txid": "2.21"
+   },
+   "service_entry_id": "2.21",
+   "statement": {
+    "error": null,
+    "length": 1639,
+    "path": "/entries/2.21/statement",
+    "status": 200,
+    "tries": 1
+   },
+   "statement_returned": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "864a873a4b1319635a1f99c31b1bd95bfe51f76a291804b640fe406600f053a5",
+    "sha256_signature": "32d1b608b20c5f78d3ac3326eef6d7770a2a5f6cecb990ca43ffcd4a2305fc94",
+    "sha256_whole": "07b207250e7cb06eda6f4dbef103238f358527016b8ddcd17d077949be75cbc8",
+    "tag18": true,
+    "tbs_sha256": "68be9ac5b1207175ea0d41400d855e56d218b6a013f95858084030ca7a4d57bb",
+    "unprotected_hex": "a119018a815901fcd284588da5013822045840303964333565303266366664393064383861666564393832336232656566623864383565323734363838613632383665613733636132383533616262356436300fa3016e3132372e302e302e313a38303030027673636974742e6363662e7369676e61747572652e7631061a6af57e7119018b02666363662e7631a1647478696464322e3232a119018ca1208158ffa201835820cffa9a4d10d5a2278bf0f1dd021ba4fd7cde76801cf07b316a22d83f0f948660784863653a322e32313a6235393566303934386166323837323835333432383934393435383134343634316435613038396464303435643131643431313965366266626234643563306558202a659bc1c19a50ac22458e45dcce6c4daba456512e3a779edae114196a75b06a028382f558202b9f4b970d1d4a53a14fc2f34a2809dd11b055af00345c69971783a3c872576b82f558209f2ca6f7b66d706a367cf6f2dd182532ce1a8c215b7e70e4d1e0d21274addb4282f55820e6b3d122c37a589337d4231c471d7b976d9fac736d59fb080d43e36d058a1295f65860e58ee759d880e0d4d4dc55b57cc565d28d8dc98c1866c4c6bc72abb8bf1b68ade9cbc14f9a52e81fa8082ba4337fec0544e23ba68ec59ec26508e6c163d6a3c9e556839d27b2d4c02980373830b604133e95def6e86a20ca14d3137acb47ace6"
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "864a873a4b1319635a1f99c31b1bd95bfe51f76a291804b640fe406600f053a5",
+    "sha256_signature": "32d1b608b20c5f78d3ac3326eef6d7770a2a5f6cecb990ca43ffcd4a2305fc94",
+    "sha256_whole": "12de0300622e78ef7bed2bfa1a82ba2fa7e2940b231441d9fb03bd807a69a518",
+    "tag18": true,
+    "tbs_sha256": "68be9ac5b1207175ea0d41400d855e56d218b6a013f95858084030ca7a4d57bb",
+    "unprotected_hex": "a13a000100006562376c6162"
+   }
+  },
+  "R_C1": {
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: 9c7253617b9fe51ba25eb0f957dadea493ca03e98c4a81806237757f13d054c6",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: 9c7253617b9fe51ba25eb0f957dadea493ca03e98c4a81806237757f13d054c6",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: 9c7253617b9fe51ba25eb0f957dadea493ca03e98c4a81806237757f13d054c6",
+     "found": false,
+     "status": 400
+    }
+   },
+   "registration": {
+    "content_type": "application/concise-problem-details+cbor",
+    "error": "InvalidInput: CWT_Claims issuer is unsupported",
+    "length": 50,
+    "location": null,
+    "status": 400,
+    "txid": null
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "f456f18321d8835fbf3cf4209cb99997bb3c5749f8abc63620a24a71e44a8b61",
+    "sha256_signature": "e4060330a3cdb3e1407493a7f857a906f99c5d2855a542feebf59ed99e6615a8",
+    "sha256_whole": "9c7253617b9fe51ba25eb0f957dadea493ca03e98c4a81806237757f13d054c6",
+    "tag18": true,
+    "tbs_sha256": "c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+    "unprotected_hex": "a0"
+   }
+  },
+  "R_C11": {
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: d1e77e708d759c9b393e93708968887df1ef0e56872166877f68d4ff9e43afe1",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: d1e77e708d759c9b393e93708968887df1ef0e56872166877f68d4ff9e43afe1",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: d1e77e708d759c9b393e93708968887df1ef0e56872166877f68d4ff9e43afe1",
+     "found": false,
+     "status": 400
+    }
+   },
+   "registration": {
+    "content_type": "application/concise-problem-details+cbor",
+    "error": "InvalidInput: CWT_Claims issuer is unsupported",
+    "length": 50,
+    "location": null,
+    "status": 400,
+    "txid": null
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "f456f18321d8835fbf3cf4209cb99997bb3c5749f8abc63620a24a71e44a8b61",
+    "sha256_signature": "0094c108f50fa1f891332aee053b1a6a362684879203e3ff1144aefe237d84f3",
+    "sha256_whole": "d1e77e708d759c9b393e93708968887df1ef0e56872166877f68d4ff9e43afe1",
+    "tag18": true,
+    "tbs_sha256": "c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+    "unprotected_hex": "a0"
+   }
+  },
+  "R_C12": {
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: f868bef38c6bf945c845b1dd327bc82b0cd71493b68fe4c11761fde6f4f6d988",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: f868bef38c6bf945c845b1dd327bc82b0cd71493b68fe4c11761fde6f4f6d988",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: f868bef38c6bf945c845b1dd327bc82b0cd71493b68fe4c11761fde6f4f6d988",
+     "found": false,
+     "status": 400
+    }
+   },
+   "registration": {
+    "content_type": "application/concise-problem-details+cbor",
+    "error": "InvalidInput: CWT_Claims issuer is unsupported",
+    "length": 50,
+    "location": null,
+    "status": 400,
+    "txid": null
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "f456f18321d8835fbf3cf4209cb99997bb3c5749f8abc63620a24a71e44a8b61",
+    "sha256_signature": "e4060330a3cdb3e1407493a7f857a906f99c5d2855a542feebf59ed99e6615a8",
+    "sha256_whole": "f868bef38c6bf945c845b1dd327bc82b0cd71493b68fe4c11761fde6f4f6d988",
+    "tag18": true,
+    "tbs_sha256": "c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+    "unprotected_hex": "a0"
+   }
+  },
+  "R_C2": {
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: a102994c9cd4fae75e351b1c104e9e9a31994ab3b4fa4a4ce9b2dbcb1ac7ecc6",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: a102994c9cd4fae75e351b1c104e9e9a31994ab3b4fa4a4ce9b2dbcb1ac7ecc6",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: a102994c9cd4fae75e351b1c104e9e9a31994ab3b4fa4a4ce9b2dbcb1ac7ecc6",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: f5afbb3b0c7d822b00741e5eacd9128b723922bf3cad6ed5a3ab00e884b58e99",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: f5afbb3b0c7d822b00741e5eacd9128b723922bf3cad6ed5a3ab00e884b58e99",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: f5afbb3b0c7d822b00741e5eacd9128b723922bf3cad6ed5a3ab00e884b58e99",
+     "found": false,
+     "status": 400
+    }
+   },
+   "registration": {
+    "content_type": "application/concise-problem-details+cbor",
+    "error": "InvalidInput: CWT_Claims issuer is unsupported",
+    "length": 50,
+    "location": null,
+    "status": 400,
+    "txid": null
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "9d6e51a8f54b38f3e7dc9808180faa849c63ba65a3a7d5ab40039b206e37e137",
+    "sha256_protected": "1a0de3fc2227bd2272b3d4fd885e8e51ed79f59aad9f36a7da92c114ec8937dd",
+    "sha256_signature": "98697e986fc26da030f42f396dce772626a431a7ac778df804662c17ac387cdb",
+    "sha256_whole": "f5afbb3b0c7d822b00741e5eacd9128b723922bf3cad6ed5a3ab00e884b58e99",
+    "tag18": true,
+    "tbs_sha256": "a102994c9cd4fae75e351b1c104e9e9a31994ab3b4fa4a4ce9b2dbcb1ac7ecc6",
+    "unprotected_hex": "a0"
+   }
+  },
+  "R_C3": {
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: 94fa362e4a0b2aa52a95a4ec07bba27cccd4dce93822faeeff4eece519e69956",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: 94fa362e4a0b2aa52a95a4ec07bba27cccd4dce93822faeeff4eece519e69956",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: 94fa362e4a0b2aa52a95a4ec07bba27cccd4dce93822faeeff4eece519e69956",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: 63723353fdf05662cfcc618e8b47fd4142dce4a71e84b61a6bdbdde988e837ab",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: 63723353fdf05662cfcc618e8b47fd4142dce4a71e84b61a6bdbdde988e837ab",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: 63723353fdf05662cfcc618e8b47fd4142dce4a71e84b61a6bdbdde988e837ab",
+     "found": false,
+     "status": 400
+    }
+   },
+   "registration": {
+    "content_type": "application/concise-problem-details+cbor",
+    "error": "InvalidInput: CWT_Claims issuer is unsupported",
+    "length": 50,
+    "location": null,
+    "status": 400,
+    "txid": null
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "14123e64864620a04fced3cb9aa29525e18e369742f4409a50a02a26dd36731e",
+    "sha256_protected": "f456f18321d8835fbf3cf4209cb99997bb3c5749f8abc63620a24a71e44a8b61",
+    "sha256_signature": "3b4de70ca5199e7ba775a731a131a21af576a15d48243aa3b553a608c3dd42aa",
+    "sha256_whole": "63723353fdf05662cfcc618e8b47fd4142dce4a71e84b61a6bdbdde988e837ab",
+    "tag18": true,
+    "tbs_sha256": "94fa362e4a0b2aa52a95a4ec07bba27cccd4dce93822faeeff4eece519e69956",
+    "unprotected_hex": "a0"
+   }
+  },
+  "R_C4": {
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: 22bc5feaae17102e60e39cbd7d65dc68d40bc28cea7864c78fc72346a4d41451",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: 22bc5feaae17102e60e39cbd7d65dc68d40bc28cea7864c78fc72346a4d41451",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: 22bc5feaae17102e60e39cbd7d65dc68d40bc28cea7864c78fc72346a4d41451",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: 65eb1e45177add009aef819b438c910aae934c3a05b7966ef73614e11ff07bcc",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: 65eb1e45177add009aef819b438c910aae934c3a05b7966ef73614e11ff07bcc",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: 65eb1e45177add009aef819b438c910aae934c3a05b7966ef73614e11ff07bcc",
+     "found": false,
+     "status": 400
+    }
+   },
+   "registration": {
+    "content_type": "application/concise-problem-details+cbor",
+    "error": "InvalidInput: CWT_Claims issuer is unsupported",
+    "length": 50,
+    "location": null,
+    "status": 400,
+    "txid": null
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "bfe2710d8f1760902cf9f4cf517d33a15bcda102c14c23f56292d0f64fbb804b",
+    "sha256_signature": "918d5f96ed780f3ac4ae40e9806819d7315e03c731f3fb4d5e4e35bce87b53d0",
+    "sha256_whole": "65eb1e45177add009aef819b438c910aae934c3a05b7966ef73614e11ff07bcc",
+    "tag18": true,
+    "tbs_sha256": "22bc5feaae17102e60e39cbd7d65dc68d40bc28cea7864c78fc72346a4d41451",
+    "unprotected_hex": "a0"
+   }
+  },
+  "R_C5": {
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: fbab2b2b1c572ca374458ba2590fa5ca0da056a6ce47666f7220f1bca4250ab8",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: fbab2b2b1c572ca374458ba2590fa5ca0da056a6ce47666f7220f1bca4250ab8",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: fbab2b2b1c572ca374458ba2590fa5ca0da056a6ce47666f7220f1bca4250ab8",
+     "found": false,
+     "status": 400
+    }
+   },
+   "registration": {
+    "content_type": "application/concise-problem-details+cbor",
+    "error": "InvalidInput: CWT_Claims issuer is unsupported",
+    "length": 50,
+    "location": null,
+    "status": 400,
+    "txid": null
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "f456f18321d8835fbf3cf4209cb99997bb3c5749f8abc63620a24a71e44a8b61",
+    "sha256_signature": "e4060330a3cdb3e1407493a7f857a906f99c5d2855a542feebf59ed99e6615a8",
+    "sha256_whole": "fbab2b2b1c572ca374458ba2590fa5ca0da056a6ce47666f7220f1bca4250ab8",
+    "tag18": true,
+    "tbs_sha256": "c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+    "unprotected_hex": "a13a00011171736164646564206166746572207369676e696e67"
+   }
+  },
+  "R_C6": {
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: f8bf927260ae6d9c6edadeb79e0295e39dc30341b21b1a61d6cf31b35d778bf8",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: f8bf927260ae6d9c6edadeb79e0295e39dc30341b21b1a61d6cf31b35d778bf8",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: f8bf927260ae6d9c6edadeb79e0295e39dc30341b21b1a61d6cf31b35d778bf8",
+     "found": false,
+     "status": 400
+    }
+   },
+   "registration": {
+    "content_type": "application/concise-problem-details+cbor",
+    "error": "InvalidInput: CWT_Claims issuer is unsupported",
+    "length": 50,
+    "location": null,
+    "status": 400,
+    "txid": null
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "f456f18321d8835fbf3cf4209cb99997bb3c5749f8abc63620a24a71e44a8b61",
+    "sha256_signature": "34e31aa125dcb75be74573c9bb413fb969c62dddff8dd0b3420dd2ede5259408",
+    "sha256_whole": "f8bf927260ae6d9c6edadeb79e0295e39dc30341b21b1a61d6cf31b35d778bf8",
+    "tag18": true,
+    "tbs_sha256": "c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+    "unprotected_hex": "a0"
+   }
+  },
+  "R_C7": {
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: 0a5390069e431e6dd83764ee276b28f69d34986a9e64d82f05ef3322bc66d61c",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: 0a5390069e431e6dd83764ee276b28f69d34986a9e64d82f05ef3322bc66d61c",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: 0a5390069e431e6dd83764ee276b28f69d34986a9e64d82f05ef3322bc66d61c",
+     "found": false,
+     "status": 400
+    }
+   },
+   "registration": {
+    "content_type": "application/concise-problem-details+cbor",
+    "error": "InvalidInput: CWT_Claims issuer is unsupported",
+    "length": 50,
+    "location": null,
+    "status": 400,
+    "txid": null
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "f456f18321d8835fbf3cf4209cb99997bb3c5749f8abc63620a24a71e44a8b61",
+    "sha256_signature": "4b6a8803ad58098c748ecc7f4e7d05ba4d4a9f7a6c87ef191c622b5e1617e5b8",
+    "sha256_whole": "0a5390069e431e6dd83764ee276b28f69d34986a9e64d82f05ef3322bc66d61c",
+    "tag18": true,
+    "tbs_sha256": "c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+    "unprotected_hex": "a0"
+   }
+  },
+  "R_C8": {
+   "lookup": {
+    "sha256_whole /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: 7ceb07265f8b803a1ff96924da0b3a48b8355ec9daed0a9a31cd36cddaf34fdb",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: 7ceb07265f8b803a1ff96924da0b3a48b8355ec9daed0a9a31cd36cddaf34fdb",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: 7ceb07265f8b803a1ff96924da0b3a48b8355ec9daed0a9a31cd36cddaf34fdb",
+     "found": false,
+     "status": 400
+    }
+   },
+   "registration": {
+    "content_type": "application/concise-problem-details+cbor",
+    "error": "InvalidInput: Detached or empty payloads are not supported",
+    "length": 62,
+    "location": null,
+    "status": 400,
+    "txid": null
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": null,
+    "sha256_protected": "f456f18321d8835fbf3cf4209cb99997bb3c5749f8abc63620a24a71e44a8b61",
+    "sha256_signature": "10c5f02fa77aa2c6e57761bf03e1b79a579ca0708998d1302ba9f537d1f253a0",
+    "sha256_whole": "7ceb07265f8b803a1ff96924da0b3a48b8355ec9daed0a9a31cd36cddaf34fdb",
+    "tag18": true,
+    "tbs_sha256": null,
+    "unprotected_hex": "a0"
+   }
+  },
+  "R_C9": {
+   "lookup": {
+    "reference_tbs /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+     "found": false,
+     "status": 400
+    },
+    "reference_tbs /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s": {
+     "error": "InvalidInput: Invalid transaction ID: c205d745619c3087ad1f83f6c1f7883f4fff616f8f90ecbe64c4aa08854b28e6",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /entries/%s/statement": {
+     "error": "InvalidInput: Invalid transaction ID: c205d745619c3087ad1f83f6c1f7883f4fff616f8f90ecbe64c4aa08854b28e6",
+     "found": false,
+     "status": 400
+    },
+    "sha256_whole /operations/%s": {
+     "error": "InvalidInput: Invalid Operation ID: c205d745619c3087ad1f83f6c1f7883f4fff616f8f90ecbe64c4aa08854b28e6",
+     "found": false,
+     "status": 400
+    }
+   },
+   "registration": {
+    "content_type": "application/concise-problem-details+cbor",
+    "error": "InvalidInput: COSE_Sign1 is not tagged",
+    "length": 42,
+    "location": null,
+    "status": 400,
+    "txid": null
+   },
+   "submitted": {
+    "readable": true,
+    "sha256_payload": "2f869df86acd0dd1c8a2960aacee8ecacb9edaf3097ee5078ccef37c067ad18c",
+    "sha256_protected": "f456f18321d8835fbf3cf4209cb99997bb3c5749f8abc63620a24a71e44a8b61",
+    "sha256_signature": "e4060330a3cdb3e1407493a7f857a906f99c5d2855a542feebf59ed99e6615a8",
+    "sha256_whole": "c205d745619c3087ad1f83f6c1f7883f4fff616f8f90ecbe64c4aa08854b28e6",
+    "tag18": false,
+    "tbs_sha256": "c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+    "unprotected_hex": "a0"
+   }
+  }
+ }
+}

@@ -1,0 +1,8 @@
+-- Generating identity private key and certificate for participant "member0"...
+Identity curve: secp384r1
+Identity private key generated at:   member0_privk.pem
+Identity certificate generated at:   member0_cert.pem (to be registered in CCF)
+-- Generating RSA encryption key pair for participant "member0"...
+writing RSA key
+Encryption private key generated at:  member0_enc_privk.pem
+Encryption public key generated at:   member0_enc_pubk.pem (to be registered in CCF)
