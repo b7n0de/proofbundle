@@ -175,3 +175,38 @@ def test_an_attachment_without_a_predicate_is_judged_as_before(tmp_path, command
     target = dsse.sign_envelope(rfc8785.dumps(statement), _KEY, payload_type=_INTOTO)
     code, report = _verify_with(tmp_path, command, target)
     assert code == 0 and report["ok"] is True
+
+
+# ---- the relationships member of an attachment (the circle at 07f9ef3a, conformance case
+# relation-malformed-relationships-successor): the relation profile judges it, with its own codes ----
+
+def _resign_with(envelope: dict, member: str, value) -> dict:
+    statement = json.loads(dsse.load_payload(envelope))
+    statement["predicate"][member] = value
+    statement["subject"][0]["digest"]["sha256"] = hashlib.sha256(rfc8785.dumps(statement["predicate"])).hexdigest()
+    return dsse.sign_envelope(rfc8785.dumps(statement), _KEY, payload_type=_INTOTO)
+
+
+def _loaded(tmp_path, envelope: dict) -> dict:
+    path = tmp_path / "attached.json"
+    path.write_text(json.dumps(envelope), encoding="utf-8")
+    related, errors = cli._load_related([str(path)], _PUB)
+    assert errors == []
+    (entry,) = related.values()
+    return entry
+
+
+@pytest.mark.parametrize("value", [42, "x", {"a": 1}])
+def test_unreadable_relationships_of_a_decision_attachment_are_left_to_the_relation_profile(tmp_path, value):
+    """docs/predicates/relation.md gives an unreadable block on an attached neighbour its own code,
+    RELATION_MALFORMED_SUCCESSOR; the structure check of the attachment does not take it over."""
+    entry = _loaded(tmp_path, _resign_with(emit_decision_receipt(_decision("urn:test:other"), _KEY, strict=False),
+                                           "relationships", value))
+    assert entry["verified"] is True and entry["payload_malformed"] is None
+
+
+def test_unreadable_relationships_of_a_relation_statement_attachment_fail_its_structure(tmp_path):
+    """For a relation-statement, `relationships` is the required content of its type, so its structure check keeps it."""
+    from proofbundle.relation_statement import emit_relation_statement
+    entry = _loaded(tmp_path, _resign_with(emit_relation_statement(_RELATION, _KEY), "relationships", 42))
+    assert entry["verified"] is False and entry["payload_malformed"]

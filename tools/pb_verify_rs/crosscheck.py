@@ -409,7 +409,6 @@ def main() -> int:
     # gruen, solange irgendeine Schranke greift, auch eine andere.
     from proofbundle.budget import DEFAULT_BUDGET  # noqa: PLC0415
     from proofbundle._wire_b64 import decode_b64  # noqa: PLC0415
-    from proofbundle.dsse import sign_envelope as _sign_env  # noqa: PLC0415
     from proofbundle.dsse import verify_envelope as _verify_env  # noqa: PLC0415
 
     # Das DSSE-Primitiv direkt, nicht ueber ein Predicate: `emit_outcome_receipt` weist ein
@@ -418,7 +417,15 @@ def main() -> int:
     # Genau dieselbe Verwechslung wie beim `canonicalize_refuses`-Zweig weiter unten: eine
     # Erwartung auf den falschen Pruefpfad gelegt.
     gross = {"a": 1, "ueberDerSchranke": "x" * (DEFAULT_BUDGET.string_len + 1)}
-    env_b = _sign_env(json.dumps(gross).encode(), sk, payload_type=INTOTO_PT)
+    # BUILT WITHOUT THE PRODUCER (deep gate 6.6.0, Z7): since 6.6.0 `sign_envelope` reads the envelope as its verifier
+    # does before it signs, and refuses exactly this vector. Both verifiers must still receive it; an attacker does not
+    # build it with our producer. The same PAE, the same base64 and the same keyid as `sign_envelope`.
+    from proofbundle.dsse import _default_keyid as _keyid_von, pae as _pae  # noqa: PLC0415
+    _roh = json.dumps(gross).encode()
+    _sig = base64.b64encode(sk.sign(_pae(INTOTO_PT, _roh))).decode("ascii")
+    _eintrag = {"keyid": _keyid_von(sk), "sig": _sig} if _keyid_von(sk) else {"sig": _sig}
+    env_b = {"payload": base64.b64encode(_roh).decode("ascii"), "payloadType": INTOTO_PT,
+             "signatures": [_eintrag]}
     (tmp / "env_budget.json").write_text(json.dumps(env_b))
     try:
         # LAUF11-L2, MEIN EIGENER RUECKFALL: diese Zeile entstand BEIM Bau des L4-Vektors und

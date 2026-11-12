@@ -2710,7 +2710,20 @@ class TestTheSerializerAfterTheCopyGivesTheEntrysRefusal(_Basis):
                         self.assertIs(result["structure_ok"], True)
                         self.assertIs(result["sig_ok"], True)
                     else:
-                        self.assertGreater(tiefste, 64)
+                        # Since deep gate 6.6.0 (Z7) the DSSE producer reads a `+json` payload as the statement
+                        # verifiers read it. Measured at d8881edc: these exporters wrote 984 to 987 levels deep, and
+                        # their own verifier answered ok False. The deepest written is now the deepest the verifier
+                        # reads, exactly, and it verifies. The wrappers are the containers of the statement around the
+                        # value, counted at this head: 7 for the in-toto harness, 4 for the eval-result harness and
+                        # anchors, 5 for the SVR policy.
+                        wrappers = {"export_intoto_dsse": 7, "export_eval_result_dsse": 4, "export_svr_dsse": 5}
+                        verifier = {"export_intoto_dsse": intoto.verify_intoto_dsse,
+                                    "export_eval_result_dsse": intoto.verify_eval_result_dsse,
+                                    "export_svr_dsse": intoto.verify_svr_dsse}
+                        exporter = name.split()[0]
+                        self.assertEqual(tiefste, DEFAULT_BUDGET.json_depth - wrappers[exporter])
+                        result = verifier[exporter](aufruf(_geschachtelt(tiefste, art)), self.pub)
+                        self.assertIs(result["ok"], True)
                     self.assertEqual(danach, ["refused"] * 13, tiefste)
 
     def test_f3_a_number_the_serializer_refuses_is_the_exporters_refusal(self):

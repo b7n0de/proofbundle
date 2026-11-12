@@ -124,3 +124,11 @@ def test_a_decision_receipt_its_verifier_refuses_for_size_is_not_emitted():
         emit_decision_receipt(_decision("x" * 1_000_000), _KEY, strict=False)
     control = emit_decision_receipt(_decision("x"), _KEY, strict=False)
     assert verify_decision_receipt(control, _PUB)["ok"] is True
+
+
+def test_a_json_body_with_a_lone_surrogate_is_left_to_the_verifier():
+    """Only the budget is judged before signing. A lone surrogate is a question of form: the statement verifiers refuse
+    it as malformed, and tests build such envelopes on purpose (tests/test_sibling_never_raise_361.py)."""
+    body = json.dumps({"s": "\ud800"}).encode("ascii")
+    assert not _statement_reader_accepts(body)
+    assert _verifies(dsse.sign_envelope(body, _KEY, payload_type=_INTOTO), _INTOTO)

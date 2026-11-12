@@ -153,7 +153,13 @@ def _read_as_the_verifier_reads(payload_type: str, body: bytes, keyid: Optional[
     (RFC 6839) that the statement verifiers parse, the structural budget of the parsed payload. The signature is
     measured at the Ed25519 length of 64 bytes and the default keyid at its fixed length, so the signer is asked
     nothing. A body that is not JSON is left to the verifier as before: refusing it here is not a budget question,
-    and tests build such envelopes on purpose."""
+    and tests build such envelopes on purpose. The same holds for a JSON text whose strings cannot be written as
+    UTF-8 (a lone surrogate): the statement verifiers refuse it as malformed, a question of form and not of size.
+
+    Only the budget is judged here, and the `+json` payload is read for it: measured at d8881edc, the in-toto
+    exporters signed `+json` payloads 64 levels deep and more, which `verify_eval_result_dsse` then answered with ok
+    False. Everything this function raises is a budget refusal; a caller that wants to hand a verifier an envelope
+    past its budget, as a test of that verifier does, builds it without this producer."""
     from ._strict_json import enforce_structural_budget  # noqa: PLC0415 - local import avoids a cycle
     from .errors import ProofBundleError  # noqa: PLC0415
     entry: dict = {"sig": base64.b64encode(bytes(64)).decode("ascii")}
@@ -171,6 +177,13 @@ def _read_as_the_verifier_reads(payload_type: str, body: bytes, keyid: Optional[
                 raise BundleFormatError("JSON nesting is too deep") from exc
             except ValueError:
                 parsed = _NOT_JSON
+            if parsed is not _NOT_JSON:
+                try:
+                    json.dumps(parsed, ensure_ascii=False).encode("utf-8")
+                except UnicodeEncodeError:
+                    parsed = _NOT_JSON  # a lone surrogate: malformed, left to the verifier as a body that is not JSON
+                except RecursionError as exc:
+                    raise BundleFormatError("JSON nesting is too deep") from exc
             if parsed is not _NOT_JSON:
                 enforce_structural_budget(parsed)
     except ProofBundleError as exc:
