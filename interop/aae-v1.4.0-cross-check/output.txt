@@ -1,0 +1,48 @@
+run 2026-11-12T08:57:05Z
+vectors: 531f880155ea1ce993a7ca74137b12c255d5b2ee (tag v1.4.0, tag object 04954c3a0e086feeaebfa0451698bc4361016ed3)
+proofbundle: 82411560bb0c240c4cb9af8a6c08061789faeb64
+python 3.10.12
+rfc8785 0.1.4
+command: PYTHONPATH=src python -I -B cross_check.py <aae-conformance-vectors at v1.4.0> result.json
+aae-enforce-vector-01    enforce_check  PERMIT   binding sha256:8c2938c57c38e grants equal [0] trace PASS
+aae-enforce-vector-02    enforce_check  DENY     binding sha256:53279c9ddd3e1 grants equal [] trace -
+aae-enforce-vector-03    enforce_check  DENY     binding sha256:cd136e3625479 grants equal [] trace -
+aae-enforce-vector-04    enforce_check  DENY     binding sha256:0b0fee1363a6c grants equal [] trace -
+aae-enforce-vector-05    enforce_check  DENY     binding sha256:5ebd4a7f5fc72 grants equal [] trace -
+aae-enforce-vector-06    enforce_check  DENY     binding sha256:17f1683f48ede grants equal [] trace -
+aae-enforce-vector-07    enforce_check  DENY     binding sha256:5d80304e9faf8 grants equal [] trace -
+aae-enforce-vector-08    enforce_check  DENY     binding sha256:8c2938c57c38e grants equal [0] trace -
+aae-enforce-vector-09    enforce_check  DENY     binding sha256:8c2938c57c38e grants equal [0] trace -
+aae-enforce-vector-10    enforce_check  DENY     binding sha256:8c2938c57c38e grants equal [0] trace -
+aae-enforce-vector-11    enforce_check  PERMIT   binding sha256:8c2938c57c38e grants equal [0] trace -
+aae-enforce-vector-12    enforce_check  DENY     binding sha256:8c2938c57c38e grants equal [0] trace -
+aae-enforce-vector-13    enforce_check  PERMIT   binding sha256:8c2938c57c38e grants equal [0] trace -
+aae-enforce-vector-14    enforce_check  DENY     binding sha256:8c2938c57c38e grants equal [0] trace -
+aae-enforce-vector-15    enforce_check  PERMIT   binding sha256:8c2938c57c38e grants equal [0] trace -
+aae-enforce-vector-16    enforce_check  DENY     binding sha256:8c2938c57c38e grants equal [0] trace -
+aae-enforce-vector-17    enforce_check  DENY     binding sha256:8c2938c57c38e grants equal [0] trace -
+aae-enforce-vector-18    enforce_check  DENY     binding sha256:8c2938c57c38e grants equal [0] trace -
+aae-enforce-vector-19    enforce_check  PENDING  binding sha256:8c2938c57c38e grants equal [0] trace -
+aae-enforce-vector-20    enforce_check  DENY     binding sha256:80cac1c6718a9 grants equal [] trace FAIL
+aae-enforce-vector-21    enforce_check  DENY     binding sha256:8c2938c57c38e grants equal [0, 1] trace -
+aae-enforce-vector-22    ratify         RATIFIED binding NOT APPLICABLE grants equal [] trace -
+aae-enforce-vector-23    ratify         REJECTED binding NOT APPLICABLE grants equal [] trace -
+aae-enforce-vector-24    ratify         RatifyError binding NOT APPLICABLE grants equal [] trace -
+aae-enforce-vector-25    ratify         RatifyError binding NOT APPLICABLE grants equal [] trace -
+aae-enforce-vector-26    ratify         RATIFIED binding NOT APPLICABLE grants equal [] trace -
+aae-vector-01                ACCEPT step 7 delegator_aae_hash NOT APPLICABLE: not a delegated AAE
+aae-vector-02                REJECT step 3 delegator_aae_hash NOT APPLICABLE: not a delegated AAE
+aae-vector-03                REJECT step 3 delegator_aae_hash NOT APPLICABLE: not a delegated AAE
+aae-vector-04                REJECT step 8 delegator_aae_hash NOT APPLICABLE: not a delegated AAE
+aae-vector-05                REJECT step 5 delegator_aae_hash NOT APPLICABLE: not a delegated AAE
+aae-vector-06                ACCEPT step 9 delegator_aae_hash ['equal', 'equal']
+aae-vector-07                REJECT step 9 delegator_aae_hash ['NOT APPLICABLE']
+aae-vector-08                REJECT step 9 delegator_aae_hash ['NOT APPLICABLE']
+aae-vector-09                REJECT step 9 delegator_aae_hash ['NOT APPLICABLE', 'NOT APPLICABLE']
+aae-vector-10                REJECT step 9 delegator_aae_hash ['NOT APPLICABLE', 'NOT APPLICABLE']
+aae-vector-11                REJECT step 9 delegator_aae_hash ['equal']
+aae-vector-12                REJECT step 1 delegator_aae_hash NOT APPLICABLE: not a delegated AAE
+aae-vector-13                REJECT step 7 delegator_aae_hash NOT APPLICABLE: not a delegated AAE
+aae-vector-14                REJECT step 2 delegator_aae_hash NOT APPLICABLE: not a delegated AAE
+aae-vector-15                REJECT step 9 delegator_aae_hash ['NOT APPLICABLE']
+exit 0
