@@ -23,8 +23,18 @@
   "tests/test_lauf8_klassenfixes_600.py::EinUnlesbarerNachbarMaskiertKeineRuecknahme::test_GEGENRICHTUNG_ein_gewoehnlicher_stiller_nachbar_bleibt_still": "gruen",
   "tests/test_lauf8_klassenfixes_600.py::EinArtefaktEineSchreibweise::test_ueberzaehliges_padding_faellt": "rot",
   "tests/test_lauf8_klassenfixes_600.py::EinArtefaktEineSchreibweise::test_GEGENRICHTUNG_die_kanonische_form_kommt_durch": "gruen",
-  "tests/test_lauf8_klassenfixes_600.py::EinArtefaktEineSchreibweise::test_GEGENRICHTUNG_die_dokumentierte_pad_bit_duldung_bleibt": "gruen"
+  "tests/test_lauf8_klassenfixes_600.py::EinArtefaktEineSchreibweise::test_GEGENRICHTUNG_die_dokumentierte_pad_bit_duldung_bleibt": "gruen",
+  "tests/test_lauf8_klassenfixes_600.py::EinNichtLesbaresPraedikatIstNichtSchweigen::test_ein_skelett_als_eigenes_praedikat_ist_ein_formfehler": "rot"
  },
- "gemessen_rot_in_dieser_datei": 8,
- "hinweis_zur_gesamtzahl": "angesagt_rot/gemessen_rot 10 gelten fuer den GESAMTEN Nachweisbestand aus drei Dateien; in DIESER Datei sind es 8, die zwei anderen liegen in test_c2sp_freiheitsachse_ergaenzung.py und test_wire_bytes_strict.py."
+ "gemessen_rot_in_dieser_datei": 9,
+ "hinweis_zur_gesamtzahl": "angesagt_rot/gemessen_rot 10 gelten fuer den GESAMTEN Nachweisbestand aus drei Dateien; in DIESER Datei sind es 8, die zwei anderen liegen in test_c2sp_freiheitsachse_ergaenzung.py und test_wire_bytes_strict.py.",
+ "nachgemessen": [
+  {
+   "knoten": "tests/test_lauf8_klassenfixes_600.py::EinNichtLesbaresPraedikatIstNichtSchweigen::test_ein_skelett_als_eigenes_praedikat_ist_ein_formfehler",
+   "ergebnis": "rot",
+   "gegen": "d8881edc3d5a61c23461ce7895b0853b84ea38a7",
+   "utc": "2026-11-12T20:05:06Z",
+   "anlass": "deep gate 6.6.0 at d8881edc, finding Z4: the knoten came with the fix and was run against the head without it, the whole file: 1 failed (this knoten), 18 passed"
+  }
+ ]
 }
