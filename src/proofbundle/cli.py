@@ -2466,6 +2466,12 @@ def _praedikat_strukturfehler(stmt: dict) -> list[str]:
     from .relation_statement import validate_relation_statement_predicate  # noqa: PLC0415
     typ = str(stmt.get("predicateType") or "")
     praedikat = stmt.get("predicate")
+    # Auf einem ANHANG ist `relationships: null` dasselbe wie ein fehlendes Mitglied (docs/predicates/relation.md,
+    # "The statement oracle"); die eigenstaendigen Validatoren pruefen den Beleg selbst und weisen es dort ab.
+    # Geprueft wird deshalb eine Kopie ohne dieses Mitglied; die signierten Bytes und der content root bleiben,
+    # wie sie sind (Codex, Runde 1 des Klassenfix, P1).
+    if isinstance(praedikat, dict) and "relationships" in praedikat and praedikat["relationships"] is None:
+        praedikat = {k: v for k, v in praedikat.items() if k != "relationships"}
     if typ == _EIGENE_PRAEDIKATTYPEN[0]:
         return validate_decision_predicate(praedikat, strict=False)
     if typ == _EIGENE_PRAEDIKATTYPEN[1]:
@@ -3154,7 +3160,7 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
             # None). executor_role_trusted/receiver_* are None unless the caller supplied a trust_pack.
             "automation", "evidence_levels", "executor_role_trusted", "receiver_bound", "receiver_role_trusted",
             # WP-B: the relations trust-policy verdict on the outcome path (mirrors decision --json).
-            "lineage", "policy_ok", "relations_policy_codes", "warnings", "errors",
+            "lineage", "lineage_ok", "policy_ok", "relations_policy_codes", "warnings", "errors",
         ) if k in result}
         # Nachtrag 46g: the per-process origin token never travels in CLI output (also not nested in lineage).
         print(json.dumps(_without_origin_token(report), indent=2, default=str))
@@ -3216,6 +3222,10 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
     # relation/v0.1 (adversarial-review finding, 2026-07-16): mirror of the decision-verify gate —
     # a REQUESTED lineage check (--with-related / edges present) that FAILs must never exit 0.
     if isinstance(result.get("lineage"), dict) and result["lineage"].get("lineage") == "FAIL":
+        return 2
+    # B22 on this command (deep gate 6.6.0, review of the fix of finding Z4): an attached target that did not
+    # verify fails the requested lineage check (lineage_ok False) even where no edge names it; exit 2.
+    if result.get("lineage_ok") is False:
         return 2
     # WP-B: the relations trust-policy gate is exit-3 class, IDENTICAL to the decision path
     # (RELATION_SIGNER_UNAUTHORIZED / RELATION_TARGET_MISMATCH / LINEAGE_REQUIREMENT_FAILED).
@@ -3333,7 +3343,7 @@ def _cmd_relation_statement_verify(args: argparse.Namespace) -> int:
     if args.json:
         report = {k: result[k] for k in (
             "ok", "crypto_ok", "structure_ok", "predicate_type_ok", "subject_binding",
-            "subject_derived_ok", "lineage", "policy_ok", "relations_policy_codes",
+            "subject_derived_ok", "lineage", "lineage_ok", "policy_ok", "relations_policy_codes",
             "warnings", "errors",
         ) if k in result}
         # Nachtrag 46g: the per-process origin token never travels in CLI output (also not nested in lineage).
@@ -3368,6 +3378,9 @@ def _cmd_relation_statement_verify(args: argparse.Namespace) -> int:
     if result["subject_derived_ok"] is False:
         return 2
     if isinstance(result.get("lineage"), dict) and result["lineage"].get("lineage") == "FAIL":
+        return 2
+    # B22 on this command (deep gate 6.6.0, review of the fix of finding Z4), as on decision and outcome verify.
+    if result.get("lineage_ok") is False:
         return 2
     if result["policy_ok"] is False:
         return 3

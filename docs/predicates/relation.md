@@ -171,9 +171,9 @@ its start.
 |---|---|---|
 | structural error of an edge (shape, unknown field, unknown relation, digest not 64 lowercase hex, missing `digestAlgorithm`) | `relation:malformed:` followed by the detail | 2 |
 | attached target named by an edge that does not verify standalone (signature, key, `payloadType`) | `relation:target_verification_failed` | 2 |
-| on `decision verify`, an attached target that does not verify under its key, also when no edge names it; the Rust verifier `pb_verify_rs` judges only a target an edge names | `relation:target_verification_failed` | 2 |
+| on `decision verify`, `outcome verify` and `relation-statement verify`, an attached target that does not verify under its key, also when no edge names it; the Rust verifier `pb_verify_rs` judges only a target an edge names | `relation:target_verification_failed` | 2 |
 | attached ancestor, named by an edge of the ancestry, that does not verify standalone | `relation:ancestor_verification_failed` | 2 |
-| attached target whose payload is not a well-formed statement | `RELATION_TARGET_MALFORMED` | 2 |
+| attached target whose payload is not a well-formed statement, or whose predicate of the decision-receipt, action-outcome or relation-statement type fails the structure check of its type (a `relationships` member whose value is `null` counts as absent there); the Rust verifier `pb_verify_rs` does not apply the structure check of the type | `RELATION_TARGET_MALFORMED` | 2 |
 | attached ancestry deeper than 32 | `relation:depth_exceeded` | 2 |
 | a cycle | `relation:cycle` | 2 |
 | `targetSubjectDigest` against several subjects, a malformed or a wrong one (§5) | `RELATION_TARGET_SUBJECT_AMBIGUOUS`, `RELATION_TARGET_SUBJECT_MALFORMED`, `RELATION_TARGET_SUBJECT_MISMATCH` | 2 |
