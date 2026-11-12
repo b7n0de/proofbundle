@@ -1,0 +1,73 @@
+# Residual risk, release 6.6.0
+
+This file records findings for the 6.6.0 release and their stated status. It does not claim that the release is free of defects. Earlier findings and their recorded status remain documented in [the residual-risk record of 6.5.0](RESTRISIKO_650.md) and the records before it.
+
+DRAFT. Each line names where it comes from, a file and its lines at `40079b53`, the head of the branch `fix/660-containers-refuse-foreign-members`. The release preparation replaces these sources with the release tree and removes this paragraph.
+
+## The record of 6.5.0 in this release
+
+The findings that stay open after 6.5.0 are listed in [the 6.5.0 record](RESTRISIKO_650.md). This record does not measure them again. Where a line of the 6.6.0 changelog touches one of them, its state stays as the 6.5.0 record gives it until a measurement on the release candidate records another one here.
+
+The 6.5.0 record names `EXPIRED-RECEIPT-OUTSIDE-POLICY-EXITS-3-01` (RESTRISIKO_650.md lines 15 to 19). The 6.6.0 scope row PR507 says that the decision receipt contract now states the order of the exit codes of `decision verify` (docs/release_scope/6.6.0.md line 21). Whether that closes the entry is not measured at this draft.
+
+## Open after this release
+
+### The 24-hour soak runs beside the release
+
+Row C6.3 of the audit matrix, the full 24-hour soak, is informative since this release and does not withhold readiness; C6.2, the short soak on the same artefact, stays release-deciding (CHANGELOG.md line 20). The short soak at the 6.6.0 release candidate is PLACEHOLDER: pending at this draft. Until the 24-hour run reports, it remains a named residual risk of this release, as in RESTRISIKO_650.md line 13.
+
+### decision verify and outcome verify are not a complete implementation of the draft
+
+`decision verify` and `outcome verify` take the inputs of the offline verification of draft-gruszka-audit-decision-receipts, and the draft's stricter field rules stay a named limit (docs/release_scope/6.6.0.md line 16). Without an input its check is not performed, and Section 3.1 requires the expected `executor.id` and, for Case 1, the approval record bytes, so a pass without them is not a pass of the draft's procedure (docs/NON_CLAIMS.md lines 87 to 95). Even with every input supplied, a receipt the draft rejects can pass them (docs/NON_CLAIMS.md lines 97 to 99). The measured examples, not a complete list:
+
+- an evaluation time before `decidedAt` outside Case 1 (docs/NON_CLAIMS.md lines 101 to 103);
+- a `decisionType` other than `preActionAuthorization`, an audience entry that is no non-empty string, and a JSON null inside `decision.obligations` or inside an outcome's `validity.audience` (docs/NON_CLAIMS.md lines 104 to 106);
+- a declined decision without `validity.expiresAt` with the declined case (docs/NON_CLAIMS.md lines 107 to 108);
+- timestamps with more than six fraction digits or second 60 in a field read only for its RFC 3339 form, such as `recordedAt` (docs/NON_CLAIMS.md lines 109 to 112);
+- an evaluation time with a fraction of a second, since `--verification-time` takes a whole past second (docs/NON_CLAIMS.md lines 113 to 114; CHANGELOG.md line 16).
+
+### executor.id is attested only where a Trust Pack names it
+
+A Trust Pack key attests only the `executor.id` values its `executorIds` name; a key entry without `executorIds` binds no identifier and says so with `EXECUTOR_ID_NOT_BOUND` (docs/release_scope/6.6.0.md line 17). Without `executorIds` an anchored executor key can still write any `executor.id`, and even a named identifier is a permission the pack grants to the key, not proof that the signer is that executor or observed its effect (docs/NON_CLAIMS.md lines 70 to 76). A trust policy for `executor.id` other than the relying party's own statement stays outside (docs/NON_CLAIMS.md lines 115 to 119).
+
+### Honouring an approval at most once stays with the relying party
+
+proofbundle reads a supplied consumption state and never writes it. Marking an approval consumed durably, and keeping the state, stay with the relying party; a pass says only that the approval identity is not in the state given (docs/NON_CLAIMS.md lines 120 to 122; CHANGELOG.md line 15).
+
+### The Rust verifier differs in two places
+
+- `pb_verify_rs` still reads an abbreviated long option as argparse with `allow_abbrev=True` does. CROSS_IMPLEMENTATION_REPORT.md names this difference R3, and the Rust verifier follows as an item of its own (docs/release_scope/6.6.0.md line 18; CROSS_IMPLEMENTATION_REPORT.md lines 115 to 119).
+- `pb_verify_rs` still judges only a `--with-related` target that an edge of the receipt names; `outcome verify` and `relation-statement verify` are not changed by that fix (CHANGELOG.md line 32).
+
+### proofbundle scitt match is experimental
+
+`proofbundle scitt match` is EXPERIMENTAL. It reports `sig_valid` as not evaluated, because it does not apply rule 2 of Section 6 of draft-gruszka-scitt-statement-identification-03; `WholeBytes` is a local experimental scheme; input the strict CBOR reader does not read gets no verdict (docs/release_scope/6.6.0.md line 19; CHANGELOG.md line 13).
+
+### What the producer rules do not cover
+
+- The rule that a producer writes only a signer's output of 64 bytes covers the Ed25519 producers. The ML-DSA signatures of `cosign_checkpoint_mldsa` and `pqsig.sign_mldsa` are not part of it (CHANGELOG.md line 54).
+- `emit_bundle` applies the structural budget of `verify_bundle` before it signs. The byte limit of a serialized file is not part of this check (CHANGELOG.md line 52).
+
+### Pre-tag receipts of earlier releases
+
+The receipt library now refuses a member outside the nine signed fields, `signature` and `signer_pubkey`. The receipt of 5.0.0 carries such a member, and the gate of this release, run against the v5.0.0 tree, rejects it; the gate of the v5.0.0 tag still verifies it. Because the gate source changes, a receipt of 5.1.0 or later bound to an earlier gate reads as `other_tree` (CHANGELOG.md line 62).
+
+### main may fail the plugin pin case from the tag until the pin commit
+
+Expected from the rule the test states, not measured at this draft. `tests/test_plugin_pin_is_the_newest_release.py` accepts pins to the preceding release only while the clone holds no tag of the version of the tree (lines 9 to 22). The plugins pin 6.5.0 at `30c93494` (`plugins/proofbundle/server/proofbundle_mcp.py`, landed with pull request 494). Once the tag v6.6.0 stands, the same window as in RESTRISIKO_650.md line 23 would open until the commit that moves the pins. PLACEHOLDER: the release preparation states whether the owner choice of 2026-11-05 applies again, and the register entry.
+
+### Repository tools
+
+- The release workflows pin the build frontend and the build backend through `PIP_CONSTRAINT` and `.github/build-constraints.txt`, unchanged since 6.5.0 (`git diff --stat v6.5.0 40079b53 -- .github/build-constraints.txt .github/workflows/release.yml` printed nothing, exit 0). The limits RESTRISIKO_650.md line 27 names stay: only the setuptools version is read back from the built wheel, the pins name versions, not hashes, and the Python interpreter of the build is not pinned.
+
+### Not measured at this snapshot
+
+The deep gate, the canonical mutation run, the pre-tag audit and the findings register signed for 6.6.0 have not run at this draft; the register at `40079b53` is signed for version `6.5.0` (audit_artifacts/findings_register_361.json, field `version`). Their findings are recorded here before the tag.
+
+## What 6.6.0 does not claim
+
+The negative list of docs/NON_CLAIMS.md stands for this release unchanged. A receipt does not prove the semantic truth of a result, fairness, safety, generalization, the right threshold or metric, or that a model or dataset is what its name suggests (lines 20 to 34). It does not replace an audit, in-toto, SLSA or a transparency log (lines 36 to 42). A verified decision receipt is not an authorization token and does not prove that a decision was correct or that an action happened (lines 51 to 64). A verified enclave Attestation Result does not prove that the enclave is genuine (lines 126 to 129).
+
+## What this file does not say
+
+It does not say that the findings above are the only open ones. A finding that is not listed here is not shown to be absent.
