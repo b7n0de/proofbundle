@@ -16,7 +16,7 @@ The 6.5.0 record also names `PIN-CASE-RED-FROM-TAG-UNTIL-PIN-COMMIT-01` (RESTRIS
 
 ### The 24-hour soak runs beside the release
 
-Row C6.3 of the audit matrix, the full 24-hour soak, is informative since this release and does not withhold readiness; C6.2, the short soak on the same artefact, stays release-deciding (CHANGELOG.md line 26). The short soak at the 6.6.0 release candidate is PLACEHOLDER: pending until the soak reports. Until the 24-hour run reports, it remains a named residual risk of this release, as in RESTRISIKO_650.md line 13.
+Row C6.3 of the audit matrix, the full 24-hour soak, is informative since this release and does not withhold readiness; C6.2, the short soak on the same artefact, stays release-deciding (CHANGELOG.md line 26). The short soak at the 6.6.0 release candidate, row C6.2, had not reported when this record was written. Until the 24-hour run reports, it remains a named residual risk of this release, as in RESTRISIKO_650.md line 13.
 
 ### decision verify and outcome verify are not a complete implementation of the draft
 
@@ -38,8 +38,8 @@ proofbundle reads a supplied consumption state and never writes it. Marking an a
 
 ### The Rust verifier differs in two places
 
-- `pb_verify_rs` still reads an abbreviated long option as argparse with `allow_abbrev=True` does. CROSS_IMPLEMENTATION_REPORT.md names this difference R3, and the Rust verifier follows as an item of its own (docs/release_scope/6.6.0.md line 18; CROSS_IMPLEMENTATION_REPORT.md lines 115 to 119).
-- `pb_verify_rs` still judges only a `--with-related` target that an edge of the receipt names; `outcome verify` and `relation-statement verify` are not changed by that fix (CHANGELOG.md line 38).
+- `pb_verify_rs` still reads an abbreviated long option as argparse with `allow_abbrev=True` does. CROSS_IMPLEMENTATION_REPORT.md names this difference R3, and the Rust verifier follows as an item of its own (docs/release_scope/6.6.0.md line 18; CROSS_IMPLEMENTATION_REPORT.md lines 116 to 120).
+- `pb_verify_rs` applies the rule of B22 as the three Python commands do, but does not apply the structure check of its type to an attached receipt. CROSS_IMPLEMENTATION_REPORT.md names this difference R4, and the Rust verifier follows as an item of its own (CHANGELOG.md line 40; CROSS_IMPLEMENTATION_REPORT.md lines 122 to 131).
 
 ### proofbundle scitt match is experimental
 
@@ -47,12 +47,12 @@ proofbundle reads a supplied consumption state and never writes it. Marking an a
 
 ### What the producer rules do not cover
 
-- The rule that a producer writes only a signer's output of 64 bytes covers the Ed25519 producers. The ML-DSA signatures of `cosign_checkpoint_mldsa` and `pqsig.sign_mldsa` are not part of it (CHANGELOG.md line 60).
-- `emit_bundle` applies the structural budget of `verify_bundle` before it signs. The byte limit of a serialized file is not part of this check (CHANGELOG.md line 58).
+- The rule that a producer writes only a signer's output of 64 bytes covers the Ed25519 producers. The ML-DSA signatures of `cosign_checkpoint_mldsa` and `pqsig.sign_mldsa` are not part of it (CHANGELOG.md line 66).
+- `emit_bundle` applies the structural budget of `verify_bundle` before it signs. The byte limit of a serialized file is not part of this check (CHANGELOG.md line 64).
 
 ### Pre-tag receipts of earlier releases
 
-The receipt library now refuses a member outside the nine signed fields, `signature` and `signer_pubkey`. The receipt of 5.0.0 carries such a member, and the gate of this release, run against the v5.0.0 tree, rejects it; the gate of the v5.0.0 tag still verifies it. Because the gate source changes, a receipt of 5.1.0 or later bound to an earlier gate reads as `other_tree` (CHANGELOG.md line 68).
+The receipt library now refuses a member outside the nine signed fields, `signature` and `signer_pubkey`. The receipt of 5.0.0 carries such a member, and the gate of this release, run against the v5.0.0 tree, rejects it; the gate of the v5.0.0 tag still verifies it. Because the gate source changes, a receipt of 5.1.0 or later bound to an earlier gate reads as `other_tree` (CHANGELOG.md line 76).
 
 ### main may fail the plugin pin case from the tag until the pin commit
 
@@ -64,11 +64,11 @@ Expected from the rule the test states, not measured. `tests/test_plugin_pin_is_
 
 ### Not measured at this snapshot
 
-The deep gate, the canonical mutation run, the pre-tag audit and the findings register signed for 6.6.0 have not run when this record was written; the register in this tree is signed for version `6.5.0` (audit_artifacts/findings_register_361.json, field `version`). Their findings are recorded here before the tag.
+The findings register in this tree is signed for version `6.6.0` (audit_artifacts/findings_register_361.json, field `version`). The deep gate ran at d8881edc, and its four findings are fixed in pull request 519 (CHANGELOG.md lines 40, 42, 54 and 68). It ran again at c3472f6f and ended in its first iteration with seven findings: six are fixed as classes with their neighbours (CHANGELOG.md lines 80 to 90), and the seventh names the new `executorIds` member of a Trust Pack key, the format extension of this release (CHANGELOG.md line 44). The deep gate at the head that carries those fixes, the canonical mutation run and the pre-tag audit have not run when this record was written. Their findings are recorded here before the tag.
 
 ## What 6.6.0 does not claim
 
-The negative list of docs/NON_CLAIMS.md stands for this release unchanged. A receipt does not prove the semantic truth of a result, fairness, safety, generalization, the right threshold or metric, or that a model or dataset is what its name suggests (lines 20 to 34). It does not replace an audit, in-toto, SLSA or a transparency log (lines 36 to 42). A verified decision receipt is not an authorization token and does not prove that a decision was correct or that an action happened (lines 51 to 64). A verified enclave Attestation Result does not prove that the enclave is genuine (lines 126 to 129).
+The negative list of docs/NON_CLAIMS.md stands for this release; 6.6.0 changes its point on `executor.id` and the section on the steps of the decision receipt draft, as above. A receipt does not prove the semantic truth of a result, fairness, safety, generalization, the right threshold or metric, or that a model or dataset is what its name suggests (lines 20 to 34). It does not replace an audit, in-toto, SLSA or a transparency log (lines 36 to 42). A verified decision receipt is not an authorization token and does not prove that a decision was correct or that an action happened (lines 51 to 64). A verified enclave Attestation Result does not prove that the enclave is genuine (lines 126 to 129).
 
 ## What this file does not say
 

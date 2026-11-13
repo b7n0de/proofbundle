@@ -167,16 +167,37 @@ def _read_as_the_verifier_reads(payload_type: str, body: bytes, keyid: Optional[
     exporters signed `+json` payloads 64 levels deep and more, which `verify_eval_result_dsse` then answered with ok
     False. Everything this function raises is a budget refusal; a caller that wants to hand a verifier an envelope
     past its budget, as a test of that verifier does, builds it without this producer."""
-    from ._strict_json import enforce_structural_budget  # noqa: PLC0415 - local import avoids a cycle
-    from .errors import ProofBundleError  # noqa: PLC0415
-    entry: dict = {"sig": base64.b64encode(bytes(64)).decode("ascii")}
     if keyid is None:
-        entry = {"keyid": "k" * _DEFAULT_KEYID_LENGTH, "sig": entry["sig"]}
+        eintrag: tuple = ("k" * _DEFAULT_KEYID_LENGTH, 64)
     elif keyid:
-        entry = {"keyid": _messkopie(keyid), "sig": entry["sig"]}
+        eintrag = (keyid, 64)
+    else:
+        eintrag = (None, 64)
+    _read_entries_as_the_verifier_reads(payload_type, body, [eintrag])
+
+
+def _read_entries_as_the_verifier_reads(payload_type: str, body: bytes, eintraege: list) -> None:
+    """`_read_as_the_verifier_reads` for an envelope of several signatures: ``eintraege`` holds one ``(keyid, length)``
+    per signature, the keyid as it is written (None writes none) and the byte length of the signature its algorithm
+    writes. The count of signatures is judged against the verifier's cap as well.
+
+    THE MULTI-SIGNATURE PRODUCER WAS OUTSIDE THE PREFLIGHT (deep gate 6.6.0 at c3472f6f, L6 Z7, P1): `sign_trust_pack`
+    built its envelope itself and never passed `sign_envelope`, so a pack whose `nonClaims` holds 800,000 characters
+    was signed and `verify_trust_pack` refused it (`string_len` over the base64 payload). It reads its envelope here
+    now, with the 64 bytes of Ed25519 and the 3309 bytes of ML-DSA-65 per entry."""
+    from ._strict_json import enforce_structural_budget  # noqa: PLC0415 - local import avoids a cycle
+    from .budget import DEFAULT_BUDGET  # noqa: PLC0415
+    from .errors import ProofBundleError  # noqa: PLC0415
+    signaturen: list = []
+    for kid, laenge in eintraege:
+        entry: dict = {"sig": base64.b64encode(bytes(laenge)).decode("ascii")}
+        if kid is not None:
+            entry = {"keyid": _messkopie(kid), "sig": entry["sig"]}
+        signaturen.append(entry)
     probe = {"payload": base64.b64encode(body).decode("ascii"), "payloadType": _messkopie(payload_type),
-             "signatures": [entry]}
+             "signatures": signaturen}
     try:
+        DEFAULT_BUDGET.check("signatures", len(signaturen))
         _payload_of(_read_once(probe))
         if payload_type.endswith("+json"):
             try:

@@ -479,6 +479,17 @@ def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None 
     msg = dsse.pae(INTOTO_STATEMENT_PAYLOAD_TYPE, body)
     from .signature import _ed25519_signatur_von, _signaturbytes_von  # noqa: PLC0415
     keys = _as_dict(predicate.get("keys"))
+    # THE PACK IS READ AS ITS VERIFIER READS IT, before anything is signed (deep gate 6.6.0 at c3472f6f, L6 Z7, P1):
+    # this producer builds its envelope itself and never passed the preflight of `dsse.sign_envelope`, so a pack whose
+    # `nonClaims` holds 800,000 characters was signed and `verify_trust_pack` refused it. Each entry is measured with
+    # the keyid it writes and the signature length of the algorithm its key declares, as the loop below writes it.
+    try:
+        dsse._read_entries_as_the_verifier_reads(INTOTO_STATEMENT_PAYLOAD_TYPE, body, [
+            (kid, _SIG_RAW_LEN["mldsa65"] if isinstance(keys.get(kid), dict) and keys[kid].get("alg") == "mldsa65"
+             else _SIG_RAW_LEN["ed25519"]) for kid, _sk in paare])
+    except BundleFormatError as exc:
+        raise TrustPackError(f"the trust pack would exceed the verification budget of verify_trust_pack, so nothing "
+                             f"is signed (fail-closed): {exc}") from exc
     signatures = []
     for kid, sk in paare:
         # THE OUTPUT IS READ BY THE ALGORITHM THE KEY DECLARES (circle of the class fix after 6.5.0): the check of 64

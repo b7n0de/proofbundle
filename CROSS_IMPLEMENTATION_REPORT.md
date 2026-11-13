@@ -47,6 +47,7 @@ a green run means the Rust verifier computed the SAME value / reached the SAME v
 | RFC 6962 Merkle tree head | RFC 6962 | `merkle-root` | byte-identical hex vs Python |
 | native bundle verify exit-code contract (sig + inclusion + root/tree-size) | RFC 6962 / 9162 | `verify-bundle` | same exit code (0/1/2) as the Python CLI, incl. relying-party `--expected-root` / `--expected-tree-size` |
 | trust-pack/v0.1 root-of-trust THRESHOLD (Ed25519 leg only, Finding 11) | proofbundle `trust_pack.py` (TUF-inspired) | `verify-trust-pack-threshold` | same `root_threshold_met` boolean as Python's `verify_trust_pack`, on both a threshold-met and a threshold-NOT-met envelope; DISTINCT-key-material dedup (aliasing defense) reproduced independently. **PARTIAL**, not COVERED — see Pending below for what this slice does NOT check |
+| primary payload of a relation surface is its own RFC 8785 serialization, and a relation statement carries `schemaVersion` 0.1.x and a non-empty `statementId` (deep gate 6.6.0 at c3472f6f, L6 Z11) | RFC 8785 + proofbundle `relation_statement.py` | `verify-relation`, `verify-relation-statement` | same exit code as the Python CLI on a canonical control and on each mutant (block 4j) |
 
 The PAE byte rule (`DSSEv1 SP LEN(type) SP type SP LEN(body) SP body`) and the RFC 6962 node rule
 (`SHA256(0x01 ‖ left ‖ right)`) are implemented from the specs in Rust, not ported from the Python
