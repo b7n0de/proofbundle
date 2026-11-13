@@ -439,8 +439,8 @@ def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None 
                     subject_sha256: str | None = None, strict: bool = True) -> dict:
     """Threshold-sign a Trust Pack as a MULTI-signature DSSE in-toto Statement. ``signers`` maps keyId ->
     Ed25519 private key (or ML-DSA-65 key for an ``mldsa65`` key); each produces a ``{keyid, sig}`` entry over the
-    same PAE. A ``hybrid-ed25519-mldsa65`` key is refused, because its verifier needs a second leg this producer does
-    not write. Fail-closed: an invalid
+    same PAE. A signer for a ``hybrid-ed25519-mldsa65`` key is refused, because its verifier needs a second leg this
+    producer does not write; a pack may declare such a key that does not sign. Fail-closed: an invalid
     predicate raises before signing; a signer keyId not present in the pack's ``keys`` raises (never sign under
     an unknown identity). The predicate is read once (`_read_once`): what is validated is what is
     signed.
@@ -481,11 +481,13 @@ def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None 
     msg = dsse.pae(INTOTO_STATEMENT_PAYLOAD_TYPE, body)
     from .signature import _ed25519_signatur_von, _signaturbytes_von  # noqa: PLC0415
     keys = _as_dict(predicate.get("keys"))
-    # A HYBRID KEY IS NOT SIGNED HERE (deep gate 6.6.0 at c3472f6f, review of the fix of L6 Z7, P1): the loop below
-    # signs each key with one `.sign` and writes one `sig`, and `verify_trust_pack` counts a hybrid-ed25519-mldsa65 key
-    # only with both legs, `sig` and `sigPq` (no downgrade). The pack this function returned for such a key therefore
-    # never met the threshold its own verifier counts. Until this producer writes both legs, it refuses such a signer
-    # before anything is signed; a pack with a hybrid root is built with both legs outside it (RESTRISIKO_660.md).
+    # A HYBRID KEY DOES NOT SIGN HERE (deep gate 6.6.0 at c3472f6f, review of the fix of L6 Z7, rounds 1 and 2, P1):
+    # the loop below signs each key with one `.sign` and writes one `sig`, and `verify_trust_pack` counts a
+    # hybrid-ed25519-mldsa65 key only with both legs, `sig` and `sigPq` (no downgrade). The hybrid signature this
+    # function wrote therefore never counted; the pack failed whenever the other signers did not meet the threshold on
+    # their own. Until this producer writes both legs, it refuses a signer for such a key before anything is signed,
+    # also one the other signers would not need. A pack may still declare a hybrid key that does not sign; where its
+    # signature must count, the pack is built with both legs outside this producer (RESTRISIKO_660.md).
     for kid, _sk in paare:
         kv = keys.get(kid)
         if isinstance(kv, dict) and kv.get("alg") == "hybrid-ed25519-mldsa65":

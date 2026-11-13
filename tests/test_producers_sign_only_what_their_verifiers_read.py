@@ -105,7 +105,7 @@ except ImportError:
     _HAT_MLDSA = False
 
 
-def _hybrid_pack(*, mit_ed25519: bool = False) -> tuple:
+def _hybrid_pack(*, mit_ed25519: bool = False, schwelle: int = 0) -> tuple:
     from proofbundle.pqsig import generate_mldsa
     ed, pq = Ed25519PrivateKey.from_private_bytes(b"\x08" * 32), generate_mldsa("mldsa65")
     keys = {"root-hybrid": {"publicKey": base64.b64encode(ed.public_key().public_bytes_raw()).decode("ascii"),
@@ -117,7 +117,7 @@ def _hybrid_pack(*, mit_ed25519: bool = False) -> tuple:
         root.append("root-ed")
     predicate = {"schemaVersion": "0.1.0", "trustPackId": "urn:test:hybrid", "version": 1,
                  "expires": "2099-01-01T00:00:00Z", "prevVersionDigest": None,
-                 "roles": {"root": {"keyIds": root, "threshold": len(root)}}, "keys": keys,
+                 "roles": {"root": {"keyIds": root, "threshold": schwelle or len(root)}}, "keys": keys,
                  "nonClaims": ["Threshold signing only."]}
     return predicate, ed, pq
 
@@ -160,3 +160,18 @@ def test_a_hybrid_pack_with_both_legs_still_verifies():
                                 "sigPq": base64.b64encode(bytes(pq.sign(msg))).decode("ascii")}]}
     r = verify_trust_pack(umschlag, strict=True, now=_JETZT)
     assert r["ok"] is True, r.get("errors")
+
+
+@pytest.mark.skipif(not _HAT_MLDSA, reason="needs cryptography with FIPS 204 (ML-DSA)")
+def test_with_threshold_one_a_redundant_hybrid_signer_is_refused_and_the_ed25519_signer_alone_signs():
+    """Round 2 of the review: with threshold 1, the Ed25519 signer meets the threshold on its own. Passing the hybrid
+    signer beside it returned a pack that verified without the hybrid signature before 6.6.0; that call now fails, as
+    CHANGELOG.md line 84 says. Declaring a hybrid root key that does not sign stays supported."""
+    from proofbundle.trust_pack import TrustPackError, sign_trust_pack, verify_trust_pack
+    predicate, ed, _pq = _hybrid_pack(mit_ed25519=True, schwelle=1)
+    with pytest.raises(TrustPackError, match="hybrid-ed25519-mldsa65 key"):
+        sign_trust_pack(predicate, {"root-hybrid": ed, "root-ed": _SK})
+    umschlag = sign_trust_pack(predicate, {"root-ed": _SK})
+    r = verify_trust_pack(umschlag, strict=True, now=_JETZT)
+    assert r["ok"] is True, r.get("errors")
+    assert r["root_signers"] == ["root-ed"]

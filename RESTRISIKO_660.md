@@ -49,7 +49,7 @@ proofbundle reads a supplied consumption state and never writes it. Marking an a
 
 - The rule that a producer writes only a signer's output of 64 bytes covers the Ed25519 producers. The ML-DSA signatures of `cosign_checkpoint_mldsa` and `pqsig.sign_mldsa` are not part of it (CHANGELOG.md line 66).
 - `emit_bundle` applies the structural budget of `verify_bundle` before it signs. The byte limit of a serialized file is not part of this check (CHANGELOG.md line 64).
-- `sign_trust_pack` does not sign a `hybrid-ed25519-mldsa65` key. It writes one signature per key, and `verify_trust_pack` counts a hybrid key only with both legs, so the producer refuses such a signer before anything is signed. A pack with a hybrid root key is built with both legs outside the producer (CHANGELOG.md line 84).
+- `sign_trust_pack` does not sign with a `hybrid-ed25519-mldsa65` key. It writes one signature per key, and `verify_trust_pack` counts a hybrid key only with both legs, so the producer refuses such a signer before anything is signed, also one the other signers would not need. A pack may still declare a hybrid key that does not sign; where its signature must count, the pack is built with both legs outside the producer (CHANGELOG.md line 84).
 
 ### Pre-tag receipts of earlier releases
 
