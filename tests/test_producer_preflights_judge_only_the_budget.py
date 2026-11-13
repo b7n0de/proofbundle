@@ -146,3 +146,50 @@ def test_GENERATOR_every_axis_of_the_budget_is_refused_by_the_producer_check(ach
             assert isinstance(exc, BudgetExceeded) and achse in str(exc), exc
     # ANTI: the same input under the default budget is within it, so the size and nothing else decided above.
     assert enforce_budget_only(data) is None
+
+
+@pytest.mark.parametrize("achse", sorted(_GROESSE))
+def test_GENERATOR_a_lone_surrogate_beside_an_axis_does_not_hide_the_size(achse):
+    """[COUNTS] Codex, round one of this fix (P1): the first form returned on a lone surrogate before it measured
+    anything, so a string past `string_len` with one surrogate passed. Each axis input of the generator above gets a
+    member holding a lone surrogate; the producer check still refuses it for that axis."""
+    from proofbundle._strict_json import enforce_budget_only
+    data, eng = _GROESSE[achse]
+    if achse == "json_depth":
+        data = b'{"s": "\\ud800", "t": ' + data + b"}"
+    elif achse == "input_bytes":
+        data = b'{"s": "\\ud800", ' + data.lstrip()[1:]
+    else:
+        data = b'{"s": "\\ud800", ' + data[1:]
+    with pytest.raises(ProofBundleError) as pruefung:
+        enforce_budget_only(data, budget=eng)
+    exc = pruefung.value
+    if achse == "json_depth":
+        assert isinstance(exc, BundleFormatError) and "nesting is too deep" in str(exc), exc
+    else:
+        assert isinstance(exc, BudgetExceeded) and achse in str(exc), exc
+
+
+def test_both_issuers_refuse_an_over_budget_string_with_a_lone_surrogate_before_signing():
+    """[COUNTS] The same at the issuers: a `uri` and a `binding` of 1,000,001 characters followed by a lone surrogate
+    were signed by the first form of this fix; nothing may be signed, and the reason is the size."""
+    gerufen = []
+
+    class Zaehler:
+        def sign(self, msg):
+            gerufen.append(1)
+            return _KEY.sign(msg)
+
+    with pytest.raises(BundleFormatError, match="string_len"):
+        issue_status_list_token([0], uri="u" * 1_000_001 + "\ud800", signer=Zaehler(), iat=1)
+    with pytest.raises(BundleFormatError, match="string_len"):
+        issue_enclave_attestation("B" * 1_000_001 + "\ud800", Zaehler(), profile=_PROFILE, tier="hardware", iat=1)
+    assert gerufen == [], "nothing is signed before the refusal"
+
+
+def test_ANTI_a_lone_surrogate_within_the_budget_stays_with_the_verifier():
+    """[COUNTS] The counter direction: a short `uri` with a lone surrogate is signed, and the verifier refuses it, as
+    the DSSE primitive leaves such a body to its verifier."""
+    token = _statusliste(1, uri=_URI + "\ud800")
+    urteil = verify_status_snapshot(token, expected_uri=_URI + "\ud800", index=0, issuer_pubkey=_PUB)
+    assert urteil["ok"] is False, urteil

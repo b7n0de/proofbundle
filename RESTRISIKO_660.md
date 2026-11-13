@@ -36,10 +36,11 @@ A Trust Pack key attests only the `executor.id` values its `executorIds` name; a
 
 proofbundle reads a supplied consumption state and never writes it. Marking an approval consumed durably, and keeping the state, stay with the relying party; a pass says only that the approval identity is not in the state given (docs/NON_CLAIMS.md lines 120 to 122; CHANGELOG.md line 21).
 
-### The Rust verifier differs in two places
+### The Rust verifier differs in three places
 
 - `pb_verify_rs` still reads an abbreviated long option as argparse with `allow_abbrev=True` does. CROSS_IMPLEMENTATION_REPORT.md names this difference R3, and the Rust verifier follows as an item of its own (docs/release_scope/6.6.0.md line 18; CROSS_IMPLEMENTATION_REPORT.md lines 116 to 120).
 - `pb_verify_rs` applies the rule of B22 as the three Python commands do, but does not apply the structure check of its type to an attached receipt. CROSS_IMPLEMENTATION_REPORT.md names this difference R4, and the Rust verifier follows as an item of its own (CHANGELOG.md line 40; CROSS_IMPLEMENTATION_REPORT.md lines 122 to 133).
+- `pb_verify_rs verify-dsse` reads its envelope and the first key and leaves every further word unread: with a valid envelope and key it exits 0 also when a second key, `--with-related` with `--related-pub`, or any other word follows, measured at the head of this release with the binary built from its source. CROSS_IMPLEMENTATION_REPORT.md says the Rust verifier refuses an option it does not read instead of dropping it (lines 103 to 106); this command does not. The pairing check of `--related-pub` holds in both relation commands (CHANGELOG.md line 42). A review of this release named `verify-trust-pack-threshold` and two SCITT commands as the same form, from their source, not measured. Under the rule for this release a difference in the Rust cross-verifier is a register row; it is open for the first cycle after the tag.
 
 ### proofbundle scitt match is experimental
 

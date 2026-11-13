@@ -117,7 +117,7 @@ def _utf8_bytes_only(head: bytes) -> None:
 
 
 def _enforce_structural_budget(obj: Any, json_nodes: int, json_depth: int, string_len: int,
-                               int_bits: int | None = None) -> None:
+                               int_bits: int | None = None, *, einsame_surrogate_ablehnen: bool = True) -> None:
     """Bounded iterative walk (crypto-review 2026-07-15; depth added PB-2026-0718-11b): refuse a PARSED
     structure that is either too WIDE (combined dict-key + list-item count exceeds ``json_nodes`` — a
     wide-but-small-bytes document that slips under the raw ``input_bytes`` cap) or too DEEP (nesting depth
@@ -180,7 +180,9 @@ def _enforce_structural_budget(obj: Any, json_nodes: int, json_depth: int, strin
                       if issubclass(typ, bytearray) else len(cur))
             if laenge > string_len:
                 raise BudgetExceeded("string_len", laenge, string_len)
-            if issubclass(typ, str) and _EINSAMES_SURROGAT.search(cur) is not None:
+            # The lone surrogate is a question of FORM; `enforce_budget_only` turns it off and keeps every size check
+            # (Codex, round one of the fix for Z7B, P1: an early return on a surrogate skipped the size axes).
+            if einsame_surrogate_ablehnen and issubclass(typ, str) and _EINSAMES_SURROGAT.search(cur) is not None:
                 raise BundleFormatError(
                     "JSON string contains a lone surrogate code point (not I-JSON, RFC 7493 section 2.1; "
                     "not canonicalizable under RFC 8785) — rejected fail-closed so both verifiers agree")
@@ -299,13 +301,12 @@ def enforce_budget_only(data: Union[str, bytes], *, budget: Any = None) -> None:
         raise BundleFormatError("JSON nesting is too deep") from exc
     except ValueError:
         return  # not JSON, or not UTF-8: a question of form
-    try:
-        json.dumps(obj, ensure_ascii=False).encode("utf-8")
-    except UnicodeEncodeError:
-        return  # a lone surrogate: a question of form, which the structural walk below would raise as one
-    except RecursionError as exc:
-        raise BundleFormatError("JSON nesting is too deep") from exc
-    _enforce_structural_budget(obj, b.json_nodes, b.json_depth, b.string_len, b.int_bits)
+    # EVERY SIZE AXIS ALSO WHERE A STRING HOLDS A LONE SURROGATE (Codex, round one of this fix, P1): the first form
+    # returned on a surrogate before the walk, so a `uri` of 1,000,001 characters with one lone surrogate was signed,
+    # which the full reader before had refused for `string_len`. The walk now runs with the surrogate check off: the
+    # sizes are judged, the surrogate is left to the verifier.
+    _enforce_structural_budget(obj, b.json_nodes, b.json_depth, b.string_len, b.int_bits,
+                               einsame_surrogate_ablehnen=False)
 
 
 def loads_strict(text: Union[str, bytes], *, budget: Any = None) -> Any:
