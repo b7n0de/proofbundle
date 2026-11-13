@@ -501,11 +501,16 @@ def _resolve_signer(args):
     try:
         if new_key is not None:
             signer = generate_signer()
-            save_signer(signer, new_key)
+            # Never over an existing path (deep gate 6.6.0, save_signer): the check and the write are one step.
+            save_signer(signer, new_key, overwrite=False)
             print(f"wrote new signing key to {new_key} (keep this secret)", file=sys.stderr)
             return signer
         if key is not None:
             return load_signer(key)
+    except FileExistsError:
+        print(f"ERROR: --new-key {new_key} already exists; proofbundle does not replace a key file, "
+              "choose a new path", file=sys.stderr)
+        return None
     except (OSError, ValueError, ProofBundleError) as exc:
         _err(exc)
         return None
@@ -3788,14 +3793,14 @@ def build_parser() -> argparse.ArgumentParser:
     emit.add_argument("--payload-file", required=True, help="file whose bytes become the payload")
     emit.add_argument("--out", required=True, help="path to write the bundle JSON")
     emit.add_argument("--key", help="use an existing 32 byte raw Ed25519 seed file")
-    emit.add_argument("--new-key", help="generate a signing key and save it to this file")
+    emit.add_argument("--new-key", help="generate a signing key and save it to this new file, mode 0600 (an existing path is refused)")
     emit.set_defaults(func=_cmd_emit)
 
     emit_eval = sub.add_parser("emit-eval", help="emit a signed eval receipt from a claim JSON", allow_abbrev=False)
     emit_eval.add_argument("--claim", required=True, help="path to the eval-claim JSON")
     emit_eval.add_argument("--out", required=True, help="path to write the receipt bundle JSON")
     emit_eval.add_argument("--key", help="use an existing 32 byte raw Ed25519 seed file")
-    emit_eval.add_argument("--new-key", help="generate a signing key and save it to this file")
+    emit_eval.add_argument("--new-key", help="generate a signing key and save it to this new file, mode 0600 (an existing path is refused)")
     emit_eval.set_defaults(func=_cmd_emit_eval)
 
     show_eval = sub.add_parser("show-eval", help="verify an eval receipt and print the claim", allow_abbrev=False)
@@ -3976,7 +3981,7 @@ def build_parser() -> argparse.ArgumentParser:
     intoto.add_argument("receipt", help="the eval receipt bundle JSON (export) or the attestation JSON (--verify)")
     intoto.add_argument("--out", help="path to write the DSSE attestation JSON (export)")
     intoto.add_argument("--key", help="issuer's 32 byte raw Ed25519 seed file to sign the attestation")
-    intoto.add_argument("--new-key", help="generate a signing key and save it to this file")
+    intoto.add_argument("--new-key", help="generate a signing key and save it to this new file, mode 0600 (an existing path is refused)")
     intoto.add_argument("--subject-profile", choices=("receipt", "public-model", "release-gate"),
                         default=None,
                         help="what the Statement subject IS (default: receipt — binds without revealing the model)")
@@ -4004,7 +4009,7 @@ def build_parser() -> argparse.ArgumentParser:
     svr.add_argument("receipt", help="the eval receipt bundle JSON (emit) or the SVR JSON (--verify)")
     svr.add_argument("--out", help="path to write the SVR attestation JSON (emit)")
     svr.add_argument("--key", help="the verifier's 32 byte raw Ed25519 seed file to sign the SVR")
-    svr.add_argument("--new-key", help="generate a signing key and save it to this file")
+    svr.add_argument("--new-key", help="generate a signing key and save it to this new file, mode 0600 (an existing path is refused)")
     svr.add_argument("--policy-uri", help="optional verifier.policy URI (SVR v0.1 extension field)")
     svr.add_argument("--policy-sha256", help="optional verifier.policy digest (sha256 hex)")
     svr.add_argument("--verify", action="store_true", help="verify an SVR instead of emitting one (needs --pub)")
@@ -4095,7 +4100,7 @@ def build_parser() -> argparse.ArgumentParser:
     d_emit.add_argument("predicate", help="path to the decision predicate JSON")
     d_emit.add_argument("--out", required=True, help="output path for the signed decision receipt")
     d_emit.add_argument("--key", help="load an existing Ed25519 signing key from file")
-    d_emit.add_argument("--new-key", dest="new_key", help="generate a new signing key and write it to file")
+    d_emit.add_argument("--new-key", dest="new_key", help="generate a new signing key and write it to this new file, mode 0600 (an existing path is refused)")
     d_emit.add_argument("--lenient", action="store_true", help="allow non-strict predicates (skip strict-mode required fields)")
     d_emit.set_defaults(func=_cmd_decision_emit)
 
@@ -4189,7 +4194,7 @@ def build_parser() -> argparse.ArgumentParser:
     o_emit.add_argument("predicate", help="path to the outcome predicate JSON")
     o_emit.add_argument("--out", required=True, help="output path for the signed outcome receipt")
     o_emit.add_argument("--key", help="load an existing Ed25519 signing key from file")
-    o_emit.add_argument("--new-key", dest="new_key", help="generate a new signing key and write it to file")
+    o_emit.add_argument("--new-key", dest="new_key", help="generate a new signing key and write it to this new file, mode 0600 (an existing path is refused)")
     o_emit.add_argument("--lenient", action="store_true", help="allow non-strict predicates")
     o_emit.set_defaults(func=_cmd_outcome_emit)
 
@@ -4268,7 +4273,7 @@ def build_parser() -> argparse.ArgumentParser:
     rs_emit.add_argument("predicate", help="path to the relation-statement predicate JSON")
     rs_emit.add_argument("--out", required=True, help="output path for the signed relation statement")
     rs_emit.add_argument("--key", help="load an existing Ed25519 signing key from file")
-    rs_emit.add_argument("--new-key", dest="new_key", help="generate a new signing key and write it to file")
+    rs_emit.add_argument("--new-key", dest="new_key", help="generate a new signing key and write it to this new file, mode 0600 (an existing path is refused)")
     rs_emit.set_defaults(func=_cmd_relation_statement_emit)
 
     rs_verify = rsub.add_parser(

@@ -71,22 +71,67 @@ def _pfad_boden(path) -> None:
 
 
 @_ein_stand(aussen={"key": "signierer", "path": "pfad"})
-def save_signer(key: Ed25519PrivateKey, path: str) -> None:
+def save_signer(key: Ed25519PrivateKey, path: str, *, overwrite: bool = True) -> None:
     """Write the 32 byte raw Ed25519 private seed to ``path``, mode 0600.
 
-    This is a secret. The file is created owner-read/write only (never
-    world-readable, even briefly), so an accidental commit or a shared directory
-    does not leak the key. Store it out of version control and treat it like a
-    key, not like data.
+    This is a secret. The seed is written into a new file in the directory of ``path``, created owner-read/write
+    only (never world-readable, even briefly), which then takes the place of ``path``. So the file at ``path`` has
+    mode 0600 after every write, whatever stood there before, and a symbolic link at ``path`` is replaced, never
+    followed: the file it pointed to keeps its bytes.
+
+    With ``overwrite=True`` (the default) an existing file at ``path`` is replaced. With ``overwrite=False`` an
+    existing ``path``, a symbolic link included, raises ``FileExistsError`` and keeps its bytes; the check and the
+    write are one step, so no file that appears in between is replaced either. Every ``--new-key`` option of the
+    command line writes with ``overwrite=False``. Store the key out of version control and treat it like a key, not
+    like data.
     """
     # Vor der os-Grenze, wie bei `load_signer` — und aus demselben Grund: was hinter der Grenze
     # scheitert, scheitert bereits am Betriebssystem, und dessen Fehlerform ist nicht unsere.
     _pfad_boden(path)
+    if type(overwrite) is not bool:
+        from .errors import BundleFormatError as _BFE  # noqa: PLC0415
+        raise _BFE(f"overwrite must be True or False, got {type(overwrite).__name__} (fail-closed)")
     raw = key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
-    # Open with 0600 from the start to avoid a world-readable window.
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "wb") as handle:
-        handle.write(raw)
+    _schreibe_geheimnis(os.fsdecode(os.fspath(path)), raw, overwrite)
+
+
+def _schreibe_geheimnis(pfad: str, daten: bytes, ersetzen: bool) -> None:
+    """Schreibt ``daten`` in eine NEUE Datei neben ``pfad`` (O_EXCL, 0600) und setzt sie dann an ``pfad``.
+
+    Gefunden im Deep Gate 6.6.0 an 41959070 (L2 C4, L4 Nebenbefund, dritte Lesung P2): `os.open` mit
+    O_CREAT|O_TRUNC setzte den Modus nur beim Anlegen, eine vorhandene 0644-Datei blieb 0644, ein Link wurde
+    verfolgt, und `--new-key` ersetzte einen vorhandenen Schluessel still. Die neue Datei entsteht mit O_EXCL
+    (folgt keinem Link, faengt keine vorhandene), ihr Modus wird nach dem Anlegen ausdruecklich 0600 gesetzt
+    (die umask kann ihn sonst nur enger machen, nicht genau), und dann ersetzt ``os.replace`` den Eintrag an
+    ``pfad`` (einen Link dort ersetzt es, statt ihm zu folgen). Ohne ``ersetzen`` setzt ``os.link`` sie
+    stattdessen an ``pfad``: das scheitert mit ``FileExistsError``, wenn dort irgendein Eintrag steht, in
+    einem Schritt mit dem Schreiben. Die Zwischendatei wird in jedem Fall entfernt, auch nach einem Fehler.
+    """
+    import tempfile  # noqa: PLC0415
+
+    if not pfad:
+        raise FileNotFoundError(2, "No such file or directory", pfad)
+    verzeichnis = os.path.dirname(pfad) or "."
+    fd, zwischen = tempfile.mkstemp(prefix=".proofbundle-key-", dir=verzeichnis)
+    try:
+        if hasattr(os, "fchmod"):
+            os.fchmod(fd, 0o600)
+        else:  # pragma: no cover - Plattform ohne fchmod
+            os.chmod(zwischen, 0o600)
+        with os.fdopen(fd, "wb") as handle:
+            fd = -1
+            handle.write(daten)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if ersetzen:
+            os.replace(zwischen, pfad)
+        else:
+            os.link(zwischen, pfad)
+    finally:
+        if fd != -1:
+            os.close(fd)
+        if os.path.lexists(zwischen):
+            os.unlink(zwischen)
 
 
 @_ein_stand(aussen={"path": "pfad"})

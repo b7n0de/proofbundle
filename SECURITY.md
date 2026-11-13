@@ -27,9 +27,11 @@ Only the latest released minor version of the current major line receives fixes.
 ## Handling signing keys
 
 `proofbundle emit --new-key` and `save_signer()` write a raw 32-byte Ed25519
-seed. Treat it as a secret: the file is created mode 0600, must stay out of
-version control (see `.gitignore`), and should never be shared. Anyone with the
-seed can forge signatures under your key.
+seed. Treat it as a secret: the file has mode 0600 after every write, a symbolic
+link at the path is replaced and never followed, and every `--new-key` option
+refuses a path that already exists, so a key is not replaced by accident. The
+file must stay out of version control (see `.gitignore`) and should never be
+shared. Anyone with the seed can forge signatures under your key.
 
 ## Release integrity
 
