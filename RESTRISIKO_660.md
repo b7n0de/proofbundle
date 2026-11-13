@@ -62,6 +62,13 @@ The deep gate at c71eeb12 confirmed five counterexamples in its first iteration.
 
 Under the rule that P0 and P1 are reserved for the wheel on PyPI, the lens and the release author read their severity differently, so a third reader, who knew neither reading, staged them: all three P2. None changes a verdict, an exit code, a declared bound or a security property of the shipped verifier.
 
+### Two findings of a reading of the targets at c71eeb12
+
+A separate reading of five targets at c71eeb12, before the next deep gate, measured two findings, both P3 and both with the same result at c3472f6f and at v6.5.0:
+
+- `verify_outcome_receipt` with a Trust Pack anchored by its digest alone trusts an outcome under a second key entry that carries the same public key as an entry with `executorIds` but no `executorIds` of its own: `executor_role_trusted` is true for an `executor.id` the first entry does not name, with the warning `EXECUTOR_ID_NOT_BOUND` (src/proofbundle/outcome.py line 1219). `validate_trust_pack_predicate` refuses such a pack because the two entries share key material (src/proofbundle/trust_pack.py line 280), and the digest anchor does not run it. The limit above, that a key entry without `executorIds` binds no identifier, covers the result; only the holders of the root keys can build such a pack.
+- `outcome verify` without `--expected-decision-ref` and without `--decision` ends with exit 0 and the sentence "This proves who signed what happened, bound to the referenced decision." (src/proofbundle/cli.py line 3225), although no binding to a decision was checked. Its exit code and verdict are right; the sentence says more than was checked, the class of the closing sentence the deep gate at c3472f6f found (CHANGELOG.md line 82). Every closing sentence against what its command checked is an item for the first cycle after the tag.
+
 ### Pre-tag receipts of earlier releases
 
 The receipt library now refuses a member outside the nine signed fields, `signature` and `signer_pubkey`. The receipt of 5.0.0 carries such a member, and the gate of this release, run against the v5.0.0 tree, rejects it; the gate of the v5.0.0 tag still verifies it. Because the gate source changes, a receipt of 5.1.0 or later bound to an earlier gate reads as `other_tree` (CHANGELOG.md line 76).

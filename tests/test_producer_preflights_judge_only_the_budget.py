@@ -187,6 +187,41 @@ def test_both_issuers_refuse_an_over_budget_string_with_a_lone_surrogate_before_
     assert gerufen == [], "nothing is signed before the refusal"
 
 
+@pytest.mark.parametrize("ziffern", [4300, 4301, 5000, 20000])
+def test_GENERATOR_an_integer_literal_longer_than_the_interpreter_converts_is_refused_for_int_bits(ziffern):
+    """[COUNTS] Found in this fix before its pull request: `json.loads` raises a plain ValueError for a literal of more
+    than `sys.get_int_max_str_digits()` digits (4300 by default), and the first form read every ValueError as a
+    question of form. Measured with the default budget: 4300 nines were refused for `int_bits`, 4301 and 20000 nines
+    passed. Each length here is far over `int_bits`; the producer check refuses it for that axis, at both signs, and
+    the oracle refuses it as well."""
+    from proofbundle._strict_json import enforce_budget_only
+    for zahl in ("9" * ziffern, "-" + "9" * ziffern):
+        data = ('{"iat": ' + zahl + "}").encode()
+        with pytest.raises(ProofBundleError):
+            loads_strict(data)
+        with pytest.raises(BudgetExceeded, match="int_bits"):
+            enforce_budget_only(data)
+
+
+def test_the_dsse_primitive_refuses_an_integer_literal_longer_than_the_interpreter_converts():
+    """[COUNTS] The same hole at the DSSE primitive, which takes the raw `+json` body from its caller: 4301 nines are
+    over `int_bits`, and nothing is signed."""
+    with pytest.raises(BundleFormatError, match="int_bits"):
+        sign_envelope(b'{"a": ' + b"9" * 4301 + b"}", _KEY, payload_type="application/vnd.in-toto+json")
+
+
+@pytest.mark.parametrize("vorzeichen", [1, -1])
+def test_a_literal_longer_than_one_piece_is_measured_exactly(vorzeichen):
+    """[COUNTS] A literal of more than 600 digits whose lower bound is within `int_bits` is converted in pieces, and the
+    walk measures its exact bit length: 2**2400 has 723 digits and 2401 bits, so a bound of 2401 admits it and a bound
+    of 2400 refuses it. A wrong piecewise conversion would move the edge."""
+    from proofbundle._strict_json import enforce_budget_only
+    data = ('{"a": %d}' % (vorzeichen * 2**2400)).encode()
+    assert enforce_budget_only(data, budget=VerificationBudget(int_bits=2401)) is None
+    with pytest.raises(BudgetExceeded, match="int_bits"):
+        enforce_budget_only(data, budget=VerificationBudget(int_bits=2400))
+
+
 def test_ANTI_a_lone_surrogate_within_the_budget_stays_with_the_verifier():
     """[COUNTS] The counter direction: a short `uri` with a lone surrogate is signed, and the verifier refuses it, as
     the DSSE primitive leaves such a body to its verifier."""
