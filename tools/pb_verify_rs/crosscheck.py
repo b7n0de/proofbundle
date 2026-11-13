@@ -738,7 +738,8 @@ def main() -> int:
             _code_j = _cli_j(["decision", "init"])
         _dp = _loads_strict(_o.getvalue().encode("utf-8"))
         _dp["decisionMaker"]["version"] = {"proofbundle": "crosscheck"}
-        _d_body = base64.b64decode(_emit_decision(_dp, _sk_j)["payload"])
+        from proofbundle.dsse import load_payload as _nutzlast  # noqa: PLC0415
+        _d_body = _nutzlast(_emit_decision(_dp, _sk_j))
         _z11.append(("decision", "verify-relation", "decision-canonical", _d_body, 0))
         _z11.append(("decision", "verify-relation", "decision-trailing-newline", _d_body + b"\n", 2))
     except Exception as _exc:  # noqa: BLE001 -- the vector names why it could not be built

@@ -2546,22 +2546,28 @@ fn run_verify_relation(
             for req in ["schemaVersion", "statementId"] {
                 if !pred.contains_key(req) {
                     structure_ok = false;
-                    reasons.push(format!("relation-statement: missing required field {req:?}"));
+                    reasons.push(format!(
+                        "relation-statement: missing required field {req:?}"
+                    ));
                 }
             }
             if let Some(sv) = pred.get("schemaVersion") {
-                let passt = sv.as_str().and_then(|s| s.strip_prefix("0.1.")).map_or(false, |rest| {
-                    !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit())
-                });
+                let passt = sv
+                    .as_str()
+                    .and_then(|s| s.strip_prefix("0.1."))
+                    .is_some_and(|rest| {
+                        !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit())
+                    });
                 if !passt {
                     structure_ok = false;
                     reasons.push("relation-statement: schemaVersion must match 0.1.x".into());
                 }
             }
             if let Some(sid) = pred.get("statementId") {
-                if !sid.as_str().map_or(false, |s| !s.is_empty()) {
+                if sid.as_str().is_none_or(|s| s.is_empty()) {
                     structure_ok = false;
-                    reasons.push("relation-statement: statementId must be a non-empty string".into());
+                    reasons
+                        .push("relation-statement: statementId must be a non-empty string".into());
                 }
             }
             match pred.get("relationships").and_then(|v| v.as_array()) {
