@@ -690,7 +690,6 @@ def main() -> int:
     # comparison and checked only the allowed keys, so the same bytes gave exit 0 there and exit 2 here. Each surface
     # has its control: the canonical form passes in both, which lets every mutant below fail.
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey as _Ed  # noqa: PLC0415
-    import rfc8785 as _jcs  # noqa: PLC0415
     from proofbundle.decision import emit_decision_receipt as _emit_decision  # noqa: PLC0415
     from proofbundle.dsse import pae as _pae  # noqa: PLC0415
     from proofbundle.relation_statement import RELATION_STATEMENT_PREDICATE_TYPE as _RS_TYP  # noqa: PLC0415
@@ -709,26 +708,26 @@ def main() -> int:
     def _rs_aussage(praedikat: dict) -> dict:
         return {"_type": "https://in-toto.io/Statement/v1",
                 "subject": [{"name": "relation",
-                             "digest": {"sha256": hashlib.sha256(_jcs.dumps(praedikat)).hexdigest()}}],
+                             "digest": {"sha256": hashlib.sha256(canonical.canonicalize_statement(praedikat)).hexdigest()}}],
                 "predicateType": _RS_TYP, "predicate": praedikat}
 
     _rs_gut = {"schemaVersion": "0.1.0", "statementId": "urn:test:relation",
                "relationships": [{"relation": "supersedes",
                                   "targetReceiptDigest": {"digestAlgorithm": "jcs-sha256-v1", "digest": "0" * 64}}]}
     _ohne = lambda k: {x: y for x, y in _rs_gut.items() if x != k}  # noqa: E731
-    _z11 = [("relation-statement", "verify-relation-statement", "canonical", _jcs.dumps(_rs_aussage(_rs_gut)), 0)]
+    _z11 = [("relation-statement", "verify-relation-statement", "canonical", canonical.canonicalize_statement(_rs_aussage(_rs_gut)), 0)]
     _z11.append(("relation-statement", "verify-relation-statement", "trailing-newline",
-                 _jcs.dumps(_rs_aussage(_rs_gut)) + b"\n", 2))
+                 canonical.canonicalize_statement(_rs_aussage(_rs_gut)) + b"\n", 2))
     for _k in ("schemaVersion", "statementId"):
         _z11.append(("relation-statement", "verify-relation-statement", f"missing-{_k}",
-                     _jcs.dumps(_rs_aussage(_ohne(_k))), 2))
+                     canonical.canonicalize_statement(_rs_aussage(_ohne(_k))), 2))
     for _name_j, _wert_j in (("schemaVersion-0.2.0", {"schemaVersion": "0.2.0"}),
                              ("schemaVersion-0.1.", {"schemaVersion": "0.1."}),
                              ("schemaVersion-number", {"schemaVersion": 1}),
                              ("statementId-empty", {"statementId": ""}),
                              ("statementId-number", {"statementId": 7})):
         _z11.append(("relation-statement", "verify-relation-statement", _name_j,
-                     _jcs.dumps(_rs_aussage({**_rs_gut, **_wert_j})), 2))
+                     canonical.canonicalize_statement(_rs_aussage({**_rs_gut, **_wert_j})), 2))
     _code_j, _text_j = 0, ""
     try:
         import contextlib as _cl  # noqa: PLC0415
@@ -737,7 +736,7 @@ def main() -> int:
         _o = _io.StringIO()
         with _cl.redirect_stdout(_o), _cl.redirect_stderr(_io.StringIO()):
             _code_j = _cli_j(["decision", "init"])
-        _dp = json.loads(_o.getvalue())
+        _dp = _loads_strict(_o.getvalue().encode("utf-8"))
         _dp["decisionMaker"]["version"] = {"proofbundle": "crosscheck"}
         _d_body = base64.b64decode(_emit_decision(_dp, _sk_j)["payload"])
         _z11.append(("decision", "verify-relation", "decision-canonical", _d_body, 0))
