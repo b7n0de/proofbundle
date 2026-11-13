@@ -26,6 +26,7 @@ from cryptography.hazmat.primitives.serialization import (
 )
 
 from . import merkle
+from ._membership import require_switch
 from .bundle import SCHEMA
 from .canonical import _ein_stand
 
@@ -82,15 +83,18 @@ def save_signer(key: Ed25519PrivateKey, path: str, *, overwrite: bool = True) ->
     With ``overwrite=True`` (the default) an existing file at ``path`` is replaced. With ``overwrite=False`` an
     existing ``path``, a symbolic link included, raises ``FileExistsError`` and keeps its bytes; the check and the
     write are one step, so no file that appears in between is replaced either. Every ``--new-key`` option of the
-    command line writes with ``overwrite=False``. Store the key out of version control and treat it like a key, not
-    like data.
+    command line writes with ``overwrite=False``. ``overwrite`` counts only as an exact bool: any other value
+    raises ``SwitchTypeError`` before anything else is read or written. Store the key out of version control and
+    treat it like a key, not like data.
     """
+    # Der Schalter zuerst, vor allem anderen: `overwrite=True` hebt eine Weigerung auf (eine vorhandene Datei
+    # wird ersetzt), er ist damit ein lockernder Schalter und geht wie jeder andere ueber require_switch
+    # (tests/test_a_caller_verdict_counts_only_as_a_bool.py haelt jeden Schalter der oeffentlichen API in
+    # seiner Klasse). Der Kreis an c54f6e9e fand ihn dort unklassifiziert, mit eigener Pruefung nach dem Pfad.
+    require_switch(overwrite, "overwrite")
     # Vor der os-Grenze, wie bei `load_signer` — und aus demselben Grund: was hinter der Grenze
     # scheitert, scheitert bereits am Betriebssystem, und dessen Fehlerform ist nicht unsere.
     _pfad_boden(path)
-    if type(overwrite) is not bool:
-        from .errors import BundleFormatError as _BFE  # noqa: PLC0415
-        raise _BFE(f"overwrite must be True or False, got {type(overwrite).__name__} (fail-closed)")
     raw = key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
     _schreibe_geheimnis(os.fsdecode(os.fspath(path)), raw, overwrite)
 
