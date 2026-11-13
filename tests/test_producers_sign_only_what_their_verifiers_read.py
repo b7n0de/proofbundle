@@ -96,7 +96,8 @@ def test_a_producer_refuses_or_its_verifier_accepts_at_every_size(name):
 
 # ── the hybrid neighbour (review of the fix of Z7, round 1, P1) ─────────────────────────────────────────────────────
 # `sign_trust_pack` signed a declared hybrid-ed25519-mldsa65 key through one `.sign` and wrote only `sig`;
-# `verify_trust_pack` counts such a key only with `sig` AND `sigPq`, so the pack it returned never met its threshold.
+# `verify_trust_pack` counts such a key only with `sig` AND `sigPq`, so the hybrid signature never counted, and the pack
+# failed when the remaining signers could not meet the threshold on their own.
 # The producer now refuses such a signer before anything is signed.
 try:
     from cryptography.hazmat.primitives.asymmetric import mldsa as _mldsa  # noqa: F401

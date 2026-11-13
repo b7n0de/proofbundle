@@ -510,8 +510,8 @@ def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None 
         # THE OUTPUT IS READ BY THE ALGORITHM THE KEY DECLARES (circle of the class fix after 6.5.0): the check of 64
         # Ed25519 bytes refused every ML-DSA-65 root key, whose signature has 3309 bytes, so no such pack could be
         # signed. A key declared `mldsa65` signs through `pqsig.sign_mldsa`, as `renewal` does, and its output must have
-        # the 3309 bytes of FIPS 204; every other key writes the 64 bytes of an Ed25519 signature, the classical leg of
-        # a hybrid key included, as before.
+        # the 3309 bytes of FIPS 204; every other key writes the 64 bytes of an Ed25519 signature. A signer for a
+        # hybrid key does not reach this loop, it is refused above.
         kv = keys.get(kid)
         if isinstance(kv, dict) and kv.get("alg") == "mldsa65":
             from .pqsig import sign_mldsa  # noqa: PLC0415
