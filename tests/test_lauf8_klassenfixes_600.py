@@ -106,13 +106,13 @@ class EinNichtLesbaresPraedikatIstNichtSchweigen(unittest.TestCase):
 
     ENG GEFASST nach der Jury: nur EIGENE Praedikattypen mit einem positiv falschen Wert. Ein
     fehlendes oder ausdruecklich leeres Praedikat bleibt unberuehrt (in-toto v1 erlaubt es), und
-    eine fremde Attestation wird nicht beurteilt.
+    eine fremde Attestation wird nicht beurteilt."""
 
-    GEAENDERT nach dem Deep Gate 6.6.0 an c3472f6f (Linse L6, Z4, P1; Konrads Wahl A auf der Karte zu diesem Lauf): seit
-    6.6.0 legt der Aufloeser an jeden Anhang die Strukturpruefung seines eigenen Typs, die sein Einzelpruefer anlegt
-    (docs/predicates/relation.md, RELATION_TARGET_MALFORMED). Fuer UNSERE Typen verlangt diese Pruefung ein Praedikat,
-    allein geprueft enden fehlend und `null` mit exit 2. Die Jury-Regel gilt deshalb weiter fuer FREMDE Typen, fuer die
-    in-toto ein fehlendes Praedikat erlaubt; fuer unsere Typen ist es ein Formfehler wie eine Liste."""
+    # CHANGED BY THE DEEP GATE OF 6.6.0 AT c3472f6f (lens L6, Z4, P1; the owner chose A on the card of that run): since
+    # 6.6.0 the resolver applies to every attachment the structure check of its own type, the one its standalone
+    # verifier applies (docs/predicates/relation.md, RELATION_TARGET_MALFORMED). For OUR types that check requires a
+    # predicate, and alone a missing one and `null` end with exit 2. The jury rule therefore holds for FOREIGN types,
+    # for which in-toto allows a missing predicate; for our types it is a form error like a list.
 
     def _lauf(self, praedikat, **kw):
         sk = generate_signer()
@@ -137,7 +137,7 @@ class EinNichtLesbaresPraedikatIstNichtSchweigen(unittest.TestCase):
         self.assertFalse(e["verified"])
 
     def test_GEGENRICHTUNG_null_und_fehlend_bleiben_bei_einem_fremden_typ_unberuehrt(self):
-        """Die Jury hat meine erste Fassung hier widerlegt: sie wies auch `null` ab. Bei einem FREMDEN Typ gilt das weiter."""
+        """The jury refuted my first version here, which refused `null` as well. For a FOREIGN type that still holds."""
         for name, kw in (("null", {}), ("fehlt", {"weglassen": True})):
             with self.subTest(fall=name):
                 e = self._lauf(None, predicate_type="https://example.org/fremd/v1", **kw)
@@ -145,7 +145,7 @@ class EinNichtLesbaresPraedikatIstNichtSchweigen(unittest.TestCase):
                 self.assertTrue(e["verified"])
 
     def test_null_und_fehlend_sind_bei_einem_eigenen_typ_ein_formfehler(self):
-        """Deep Gate 6.6.0 an c3472f6f, L6 Z4: dieselben Bytes enden allein geprueft mit exit 2."""
+        """Deep gate 6.6.0 at c3472f6f, L6 Z4: the same bytes alone end with exit 2."""
         for name, kw in (("null", {}), ("fehlt", {"weglassen": True})):
             with self.subTest(fall=name):
                 e = self._lauf(None, **kw)
