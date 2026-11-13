@@ -752,6 +752,39 @@ def main() -> int:
             failures.append(f"Z11 {_sub_j} {_name_j}: python exit {_py_j}, rust exit {_rs_j}, expected {_soll_j} in "
                             f"both: {_rs_out_j[:200]!r}")
 
+    # (4k) A KEY WITHOUT ITS TARGET AT ALL THREE RELATION SURFACES (deep gate 6.6.0 at c71eeb12, lens L6, finding Z11A).
+    # Python refuses a `--related-pub` past the last `--with-related` in `decision verify`, `outcome verify` and
+    # `relation-statement verify` since 6.6.0; `pb_verify_rs` read keys only up to the last target, so the same
+    # arguments gave exit 0 there and exit 2 here. The control pairs one key with each target and passes in both,
+    # which lets the vector fail; one key more must exit 2 in both and name the pairing.
+    _PAAR = "--related-pub given for"
+    for _name_p, _verb_p, _sub_p in (("declared-supersedes-verified", "decision", "verify-relation"),
+                                     ("outcome-declared-supersedes-verified", "outcome", "verify-relation"),
+                                     ("statement-supersedes-verified", "relation-statement",
+                                      "verify-relation-statement")):
+        _fall_p = ROOT / "conformance" / "relation" / _name_p
+        if not (_fall_p / "case.json").is_file():
+            failures.append(f"Z11A vector: {_name_p} is missing from the corpus")
+            continue
+        _case_p = _loads_strict((_fall_p / "case.json").read_bytes())
+        _pub_p = (_fall_p / _case_p["pub"]).read_text(encoding="utf-8").strip()
+        _in_p = str(_fall_p / _case_p["input"])
+        _ziele_p = len(_case_p.get("related", []) or [])
+        _ohne_keys_p = _relation_argv_common({k: v for k, v in _case_p.items() if k != "relatedPubs"}, _fall_p)
+        _gepaart_p = [*_ohne_keys_p, *(["--related-pub", _pub_p] * _ziele_p)]
+        _py_0p, _, _ = _python_relation(_verb_p, _in_p, _pub_p, _gepaart_p)
+        _rs_0p, _rs_out_0p = _run_mit_grund(_sub_p, _in_p, _pub_p, *_gepaart_p)
+        if (_py_0p, _rs_0p) != (0, 0):
+            failures.append(f"Z11A control {_name_p} with {_ziele_p} paired key(s): python exit {_py_0p}, rust exit "
+                            f"{_rs_0p}, expected 0 in both: {_rs_out_0p[:200]!r}")
+            continue
+        _ueber_p = [*_gepaart_p, "--related-pub", _pub_p]
+        _py_p, _, _py_blob_p = _python_relation(_verb_p, _in_p, _pub_p, _ueber_p)
+        _rs_p, _rs_out_p = _run_mit_grund(_sub_p, _in_p, _pub_p, *_ueber_p)
+        if (_py_p, _rs_p) != (2, 2) or _PAAR not in _py_blob_p or _PAAR not in _rs_out_p:
+            failures.append(f"Z11A {_name_p} with a key past the last target: python exit {_py_p}, rust exit {_rs_p}: "
+                            f"{_rs_out_p[:200]!r} -- both must exit 2 and name the pairing")
+
     # Die ZAHLEN selbst, nicht nur ihre Wirkung: `pb_verify_rs budget` gibt aus, was der Binary
     # WIRKLICH benutzt. Ein Kommentar im Quelltext waere hier kein Beleg.
     budget_geteilt: list[str] = []

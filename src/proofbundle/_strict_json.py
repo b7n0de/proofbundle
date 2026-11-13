@@ -46,7 +46,7 @@ from typing import Any, Union
 
 from .errors import BundleFormatError
 
-__all__ = ["loads_strict", "loads_reject_duplicate_keys", "enforce_structural_budget"]
+__all__ = ["loads_strict", "loads_reject_duplicate_keys", "enforce_structural_budget", "enforce_budget_only"]
 
 #: Ein einsames Surrogat (U+D800..U+DFFF ohne Partner). RFC 7493 (I-JSON) §2.1: ein Dokument DARF es
 #: nicht enthalten; RFC 8785 kann es nicht kanonisieren; serde_json weist es beim Parsen ab. Python
@@ -270,6 +270,41 @@ def enforce_structural_budget(obj: Any, *, budget: Any = None) -> None:
     defaults to ``DEFAULT_BUDGET``; pass a tighter one to test the guard."""
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import avoids an import cycle
     b = budget if budget is not None else DEFAULT_BUDGET
+    _enforce_structural_budget(obj, b.json_nodes, b.json_depth, b.string_len, b.int_bits)
+
+
+def enforce_budget_only(data: Union[str, bytes], *, budget: Any = None) -> None:
+    """The budget ``loads_strict`` reads ``data`` under, and nothing else: the check a producer runs before it signs.
+
+    THE CLASS (deep gate 6.6.0 at c71eeb12, lens L6, finding Z7B): a producer that reads its own output before
+    signing asks one question, whether its verifier would refuse it for its SIZE. ``dsse.sign_envelope`` asked only
+    that since the fix at d8881edc; ``issue_status_list_token`` and ``issue_enclave_attestation`` called
+    ``loads_strict`` and so asked every question of the verifier's reader. Measured at c71eeb12: an ``iat`` of
+    ``2**53`` is 54 bits, far inside ``int_bits``, and both producers refused it for the I-JSON integer range, a
+    question of form that their verifiers answer. One function now holds the budget for every such producer.
+
+    Judged here, as ``loads_strict`` judges them: ``input_bytes`` over the bytes, ``json_depth`` (also as the
+    ``RecursionError`` of the parser), and ``json_nodes``, ``string_len`` and ``int_bits`` over the parsed value.
+    Left to the verifier, because none is a question of size: text that is not JSON, ``NaN`` and the infinities, an
+    integer outside the I-JSON range, a duplicate key, a byte order mark, a lone surrogate. Everything this raises is
+    a budget refusal (``BudgetExceeded`` or the ``"JSON nesting is too deep"`` ``BundleFormatError``)."""
+    from .budget import DEFAULT_BUDGET, BudgetExceeded  # noqa: PLC0415 - local import avoids an import cycle
+    b = budget if budget is not None else DEFAULT_BUDGET
+    groesse = len(data.encode("utf-8", "surrogatepass")) if isinstance(data, str) else len(data)
+    if groesse > b.input_bytes:
+        raise BudgetExceeded("input_bytes", groesse, b.input_bytes)
+    try:
+        obj = json.loads(data)
+    except RecursionError as exc:
+        raise BundleFormatError("JSON nesting is too deep") from exc
+    except ValueError:
+        return  # not JSON, or not UTF-8: a question of form
+    try:
+        json.dumps(obj, ensure_ascii=False).encode("utf-8")
+    except UnicodeEncodeError:
+        return  # a lone surrogate: a question of form, which the structural walk below would raise as one
+    except RecursionError as exc:
+        raise BundleFormatError("JSON nesting is too deep") from exc
     _enforce_structural_budget(obj, b.json_nodes, b.json_depth, b.string_len, b.int_bits)
 
 

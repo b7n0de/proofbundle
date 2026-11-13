@@ -27,7 +27,6 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
-import json
 from typing import Any, Optional
 
 from .canonical import _ein_stand, _plain_for_jcs, _puffer_von, _zeichen_von
@@ -185,7 +184,7 @@ def _read_entries_as_the_verifier_reads(payload_type: str, body: bytes, eintraeg
     built its envelope itself and never passed `sign_envelope`, so a pack whose `nonClaims` holds 800,000 characters
     was signed and `verify_trust_pack` refused it (`string_len` over the base64 payload). It reads its envelope here
     now, with the 64 bytes of Ed25519 and the 3309 bytes of ML-DSA-65 per entry."""
-    from ._strict_json import enforce_structural_budget  # noqa: PLC0415 - local import avoids a cycle
+    from ._strict_json import enforce_budget_only  # noqa: PLC0415 - local import avoids a cycle
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415
     from .errors import ProofBundleError  # noqa: PLC0415
     signaturen: list = []
@@ -200,27 +199,14 @@ def _read_entries_as_the_verifier_reads(payload_type: str, body: bytes, eintraeg
         DEFAULT_BUDGET.check("signatures", len(signaturen))
         _payload_of(_read_once(probe))
         if payload_type.endswith("+json"):
-            try:
-                parsed = json.loads(body)
-            except RecursionError as exc:
-                raise BundleFormatError("JSON nesting is too deep") from exc
-            except ValueError:
-                parsed = _NOT_JSON
-            if parsed is not _NOT_JSON:
-                try:
-                    json.dumps(parsed, ensure_ascii=False).encode("utf-8")
-                except UnicodeEncodeError:
-                    parsed = _NOT_JSON  # a lone surrogate: malformed, left to the verifier as a body that is not JSON
-                except RecursionError as exc:
-                    raise BundleFormatError("JSON nesting is too deep") from exc
-            if parsed is not _NOT_JSON:
-                enforce_structural_budget(parsed)
+            # ONE DEFINITION OF THE BUDGET FOR EVERY PRODUCER (deep gate 6.6.0 at c71eeb12, Z7B): the parse, the
+            # depth, the lone surrogate left to the verifier and the structural walk stood here and nowhere else,
+            # so the status list and enclave issuers read their tokens with the full reader instead.
+            # `_strict_json.enforce_budget_only` holds them now, for this primitive and for those issuers alike.
+            enforce_budget_only(body)
     except ProofBundleError as exc:
         raise BundleFormatError(f"DSSE sign_envelope: the envelope would exceed the verification budget of "
                                 f"verify_envelope, so nothing is signed (fail-closed): {exc}") from exc
-
-
-_NOT_JSON = object()
 
 
 def _messkopie(text: str) -> str:

@@ -2242,6 +2242,19 @@ fn load_related(
     main_pub_b64: &str,
     expected_payload_type: &str,
 ) -> Result<std::collections::HashMap<String, TargetInfo>, String> {
+    // ONE READER, ONE PAIRING CHECK, as in Python `cli._load_related` (deep gate 6.6.0 at c71eeb12, lens L6,
+    // finding Z11A). Python refuses a `--related-pub` without its `--with-related` target since 6.6.0, in all three
+    // verify commands, because a key without a target is checked by nothing. This reader paired keys and targets by
+    // position and never looked at a key past the last target, so the same arguments gave exit 0 here and exit 2
+    // there. Both relation commands read their targets through this function, so the check stands here once.
+    if related_pubs.len() > paths.len() {
+        return Err(format!(
+            "{} --related-pub given for {} --with-related: each key is paired with the target at its \
+             position, and a key without a target is checked by nothing",
+            related_pubs.len(),
+            paths.len()
+        ));
+    }
     // Alle gelesenen Kopien je content root; die Zusammenfuehrung passiert NACH der Schleife,
     // damit das Ergebnis nicht von der Lesereihenfolge abhaengt (Fund L4-900-01).
     let mut roh: std::collections::HashMap<String, Vec<TargetInfo>> =

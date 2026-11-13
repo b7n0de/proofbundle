@@ -48,7 +48,7 @@ import hashlib
 import json
 from typing import Optional
 
-from .._strict_json import loads_strict
+from .._strict_json import enforce_budget_only, loads_strict
 from ..errors import BundleFormatError, ProofBundleError
 from ..signature import _reject_jws_crit, verify_ed25519_pinned
 from .._wire_b64 import decode_b64, decode_b64url
@@ -242,15 +242,18 @@ def issue_enclave_attestation(binding: str, signer, *, profile: str, tier: str,
     signing_input = _b64url(json.dumps(header).encode()) + "." + _b64url(claims_json.encode())
     # THE ISSUER SIGNS ONLY WHAT ITS OWN VERIFIER READS (deep gate 6.6.0 at c3472f6f, a neighbour of L6 Z7 that a probe
     # over the producers found): a `binding` of 1,100,000 characters was signed, and `verify_enclave_attestation`
-    # refused the token with `string_len`. Both segments are read here as the verifier reads them, before the
-    # signature exists.
+    # refused the token with `string_len`. Both segments are measured here against the budget the verifier reads them
+    # under, before the signature exists.
+    # ONLY THE BUDGET (deep gate 6.6.0 at c71eeb12, Z7B): this check read both segments with `loads_strict`, the whole
+    # reader of the verifier, and so refused an `iat` of 2**53 for the I-JSON integer range, a question of form the
+    # verifier answers, not one of size. `enforce_budget_only` judges the size alone, as `dsse.sign_envelope` does.
     header_b64, _, payload_b64 = signing_input.partition(".")
     try:
-        loads_strict(_b64url_decode(header_b64))
-        loads_strict(_b64url_decode(payload_b64))
+        enforce_budget_only(_b64url_decode(header_b64))
+        enforce_budget_only(_b64url_decode(payload_b64))
     except (ProofBundleError, ValueError, TypeError) as exc:
-        raise BundleFormatError(f"the attestation is one verify_enclave_attestation cannot read, so it is not "
-                                f"signed: {exc}") from None
+        raise BundleFormatError(f"the attestation is over the budget verify_enclave_attestation reads it under, so it "
+                                f"is not signed: {exc}") from None
     from ..signature import _ed25519_signatur_von  # noqa: PLC0415
     sig = _ed25519_signatur_von(signer.sign(signing_input.encode("ascii")))
     if sig is None:
