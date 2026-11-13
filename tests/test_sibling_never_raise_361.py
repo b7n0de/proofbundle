@@ -26,6 +26,7 @@ from proofbundle.run_ledger import verify_run_ledger
 from proofbundle.trust_pack import verify_trust_pack
 from proofbundle.verification_summary import verify_verification_summary
 from _lastdeckel import KOSTEN_JE_ELEMENT, gedeckelt  # LAUF11-L3: Testlast am Speicher gedeckelt
+from _dsse_ohne_budget import sign_ohne_budget
 
 _INTOTO = "application/vnd.in-toto+json"
 
@@ -36,7 +37,9 @@ def _keys():
 
 
 def _signed(signer, payload: bytes) -> dict:
-    return dsse.sign_envelope(payload, signer, payload_type=_INTOTO)
+    # Past the budget on purpose: since deep gate 6.6.0 (Z7) dsse.sign_envelope refuses such a body before it signs,
+    # so the envelope a verifier must survive is built without the producer (tests/_dsse_ohne_budget.py).
+    return sign_ohne_budget(payload, signer, payload_type=_INTOTO)
 
 
 _WIDE = json.dumps([0] * 200_005).encode("utf-8")        # json_nodes over the 200k cap
@@ -225,7 +228,7 @@ class CliInspectLoneSurrogate(unittest.TestCase):
         import pathlib
         import tempfile
 
-        from proofbundle import cli, dsse
+        from proofbundle import cli
         s = generate_signer()
         body = json.dumps({"predicateType": "x", "predicate": {"s": "\ud800"}},
                           ensure_ascii=False).encode("utf-8", "surrogatepass")

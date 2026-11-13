@@ -2565,6 +2565,21 @@ fn run_verify_relation(
     if lineage_state == LINEAGE_FAIL {
         return (2, lineage_state, reasons);
     }
+    // B22 on this path too (deep gate 6.6.0 at d8881edc; Codex thread on pull request 519, P1). Python fails the
+    // requested lineage check for an attached target that did not verify under its key, also where no edge names it:
+    // `decision verify` since B22, `outcome verify` and `relation-statement verify` since the fix of finding Z4, each
+    // with `relation:target_verification_failed` and exit 2, and the lineage state itself unchanged. This verifier
+    // judged only a target that an edge names, so the same bytes gave exit 0 here and exit 2 there. The structure check
+    // that Python also applies to an attached decision, outcome or relation-statement predicate is not mirrored here;
+    // CROSS_IMPLEMENTATION_REPORT.md names that difference as R4.
+    let unbelegt = related.values().filter(|t| !t.verified).count();
+    if unbelegt > 0 {
+        reasons.push(format!(
+            "relation:target_verification_failed: {unbelegt} attached related target(s) did not verify under \
+             their key (fail-closed)"
+        ));
+        return (2, lineage_state, reasons);
+    }
 
     // Relations policy gate (exit 3 class).
     if let Some(pol) = policy {

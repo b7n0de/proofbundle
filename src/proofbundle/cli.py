@@ -2456,6 +2456,35 @@ def _praedikat_ist_positiv_falsch(stmt: dict) -> bool:
     return wert is not None and not isinstance(wert, dict)
 
 
+def _praedikat_strukturfehler(stmt: dict) -> list[str]:
+    """The errors of the structure check that the standalone verifier of the predicate type applies (in the form
+    `decision verify`, `outcome verify` and `relation-statement verify` check without --strict). For a type that is not
+    in `_EIGENE_PRAEDIKATTYPEN`, an empty list: this place does not judge it."""
+    from .decision import validate_decision_predicate  # noqa: PLC0415
+    from .outcome import validate_outcome_predicate  # noqa: PLC0415
+    from .relation_statement import validate_relation_statement_predicate  # noqa: PLC0415
+    typ = str(stmt.get("predicateType") or "")
+    praedikat = stmt.get("predicate")
+    # THE `relationships` MEMBER OF A DECISION OR OUTCOME ATTACHMENT is judged by the relation profile, not by this
+    # check (docs/predicates/relation.md): `null` counts as absent there, and an unreadable block has codes of its own,
+    # `RELATION_MALFORMED_SUCCESSOR` on an attached neighbour and `relation:malformed_ancestor` in a chain. A copy
+    # without that member is checked; the signed bytes and the content root stay as they are. The first version left
+    # out only `null` (Codex, round 1 of the class fix, P1); a block such as 42 was then refused here, and the
+    # conformance case relation-malformed-relationships-successor ended with exit 2 instead of the code of its profile
+    # (the circle at 07f9ef3a). For a relation-statement, `relationships` is the required content of its type, and its
+    # check keeps the member.
+    if (typ in _EIGENE_PRAEDIKATTYPEN[:2] and isinstance(praedikat, dict) and "relationships" in praedikat) or (
+            isinstance(praedikat, dict) and "relationships" in praedikat and praedikat["relationships"] is None):
+        praedikat = {k: v for k, v in praedikat.items() if k != "relationships"}
+    if typ == _EIGENE_PRAEDIKATTYPEN[0]:
+        return validate_decision_predicate(praedikat, strict=False)
+    if typ == _EIGENE_PRAEDIKATTYPEN[1]:
+        return validate_outcome_predicate(praedikat, strict=False)
+    if typ == _EIGENE_PRAEDIKATTYPEN[2]:
+        return validate_relation_statement_predicate(praedikat)
+    return []
+
+
 def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]]:
     """relation/v0.1 (--with-related): load DSSE envelopes of RELATED receipts, verify each one
     STANDALONE and key it by its computed content root. Same-key is the default v0.1 contract; WP-A
@@ -2478,6 +2507,13 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
     errs: list[str] = []
     paths = paths or []
     related_pubs = related_pubs or []
+    # ONE READER, ONE PAIRING CHECK (deep gate 6.6.0 at d8881edc, iteration 1, finding Z6). B22 put the check in
+    # `decision verify` only; `outcome verify` and `relation-statement verify` read the same options through this
+    # reader and accepted a `--related-pub` without its target, also one that is no base64 (exit 0), while
+    # docs/predicates/relation.md calls it malformed input with exit 2. The reader now checks it itself.
+    if len(related_pubs) > len(paths):
+        return {}, [f"{len(related_pubs)} --related-pub given for {len(paths)} --with-related: each key is paired "
+                    "with the target at its position, and a key without a target is checked by nothing"]
     for i, path in enumerate(paths):
         # position-paired per-target key; empty string or missing = same-key (main pub).
         rp_b64 = related_pubs[i] if i < len(related_pubs) else None
@@ -2543,6 +2579,23 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
                     "statement predicate is "
                     f"{type(stmt['predicate']).__name__}, not an object — an attached target whose "
                     "predicate cannot be read is never silence")
+                verified = False
+                subject_digest_state = "malformed"
+                stmt = None
+        if stmt is not None and isinstance(stmt.get("predicate"), dict):
+            # THE CHECK OF ITS OWN TYPE (deep gate 6.6.0 at d8881edc, iteration 1, finding Z4). The docstring
+            # promises "verify each one STANDALONE", but only the signature, the strict reading and the shape of
+            # the predicate were checked. MEASURED at d8881edc: a correctly signed decision receipt without its
+            # required member `decision` arrived as verified=True; with no edge, `decision verify --with-related`
+            # ended with exit 0 and ok true, while the same bytes alone give structure_ok false and exit 2. A
+            # predicate of one of our types that fails the structure check of its type is now unreadable, as in
+            # the two branches above. Foreign types are not judged here, and a missing predicate stays a
+            # statement without edges.
+            struktur = _praedikat_strukturfehler(stmt)
+            if struktur:
+                payload_malformed = (
+                    f"the predicate does not pass the structure check of its type, which the standalone "
+                    f"verifier applies: {struktur[0]}")
                 verified = False
                 subject_digest_state = "malformed"
                 stmt = None
@@ -2756,14 +2809,9 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
                 merged = dict(pol_trust)
                 merged.update(rp_trust or {})
                 rp_trust = merged
-        # B22, the neighbour of the lens on a1b7d468: `--related-pub` names the key of the `--with-related` target at the
-        # same position, and `_load_related` reads only as many keys as there are targets, so a key without its target
-        # was decoded by nothing and the verify ended as without it. Refused like the anchor trust above, exit 2.
-        _rel_paths = getattr(args, "with_related", None) or []
-        _rel_pubs = getattr(args, "related_pub", None) or []
-        if len(_rel_pubs) > len(_rel_paths):
-            raise ValueError(f"{len(_rel_pubs)} --related-pub given for {len(_rel_paths)} --with-related: each key is "
-                             "paired with the target at its position, and a key without a target is checked by nothing")
+        # B22, the neighbour of the lens on a1b7d468: a `--related-pub` without its `--with-related` target is refused,
+        # exit 2. Since the deep gate of 6.6.0 (finding Z6) the check lives in `_load_related`, the one reader of the
+        # option, so `outcome verify` and `relation-statement verify` refuse it as this command does.
         related, rel_errs = _load_related(getattr(args, "with_related", None), pub,
                                           getattr(args, "related_pub", None))
         if rel_errs:
@@ -3116,7 +3164,7 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
             # None). executor_role_trusted/receiver_* are None unless the caller supplied a trust_pack.
             "automation", "evidence_levels", "executor_role_trusted", "receiver_bound", "receiver_role_trusted",
             # WP-B: the relations trust-policy verdict on the outcome path (mirrors decision --json).
-            "lineage", "policy_ok", "relations_policy_codes", "warnings", "errors",
+            "lineage", "lineage_ok", "policy_ok", "relations_policy_codes", "warnings", "errors",
         ) if k in result}
         # Nachtrag 46g: the per-process origin token never travels in CLI output (also not nested in lineage).
         print(json.dumps(_without_origin_token(report), indent=2, default=str))
@@ -3178,6 +3226,10 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
     # relation/v0.1 (adversarial-review finding, 2026-07-16): mirror of the decision-verify gate —
     # a REQUESTED lineage check (--with-related / edges present) that FAILs must never exit 0.
     if isinstance(result.get("lineage"), dict) and result["lineage"].get("lineage") == "FAIL":
+        return 2
+    # B22 on this command (deep gate 6.6.0, review of the fix of finding Z4): an attached target that did not
+    # verify fails the requested lineage check (lineage_ok False) even where no edge names it; exit 2.
+    if result.get("lineage_ok") is False:
         return 2
     # WP-B: the relations trust-policy gate is exit-3 class, IDENTICAL to the decision path
     # (RELATION_SIGNER_UNAUTHORIZED / RELATION_TARGET_MISMATCH / LINEAGE_REQUIREMENT_FAILED).
@@ -3295,7 +3347,7 @@ def _cmd_relation_statement_verify(args: argparse.Namespace) -> int:
     if args.json:
         report = {k: result[k] for k in (
             "ok", "crypto_ok", "structure_ok", "predicate_type_ok", "subject_binding",
-            "subject_derived_ok", "lineage", "policy_ok", "relations_policy_codes",
+            "subject_derived_ok", "lineage", "lineage_ok", "policy_ok", "relations_policy_codes",
             "warnings", "errors",
         ) if k in result}
         # Nachtrag 46g: the per-process origin token never travels in CLI output (also not nested in lineage).
@@ -3330,6 +3382,9 @@ def _cmd_relation_statement_verify(args: argparse.Namespace) -> int:
     if result["subject_derived_ok"] is False:
         return 2
     if isinstance(result.get("lineage"), dict) and result["lineage"].get("lineage") == "FAIL":
+        return 2
+    # B22 on this command (deep gate 6.6.0, review of the fix of finding Z4), as on decision and outcome verify.
+    if result.get("lineage_ok") is False:
         return 2
     if result["policy_ok"] is False:
         return 3

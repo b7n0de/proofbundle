@@ -1167,6 +1167,15 @@ def verify_outcome_receipt(envelope: dict, public_key: bytes, *, strict: bool = 
             # No-Fake (6-Linsen-Audit L2): mirror of the decision path — a REQUESTED lineage FAIL is
             # visible in `ok`/`automation`, not only at the CLI exit code. FAIL->False, else None.
             r["lineage_ok"] = False if r["lineage"]["lineage"] == "FAIL" else None
+            # B22 on this command too (deep gate 6.6.0 at d8881edc, iteration 1, review of the fix of finding Z4):
+            # an attached target that is not a verified dict fails the requested lineage check, also where no edge
+            # names it, over the same one reading `_related_gelesen`, as `verify_decision_receipt` does.
+            _unbelegt = [lbl for lbl, ziel, _grund in _related_gelesen[1]
+                         if not (type(ziel) is dict and ziel.get("verified") is True)]
+            if _unbelegt and r["lineage"]["lineage"] != "FAIL":
+                r["lineage_ok"] = False
+                r["errors"].append(f"relation:target_verification_failed: {len(_unbelegt)} attached related "
+                                   "target(s) did not verify under their key (fail-closed)")
 
         # execution proof (honesty limit, warning not hard-fail).
         r["execution_proven"] = outcome_execution_proven(predicate)

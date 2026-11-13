@@ -230,8 +230,9 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
         LINEAGE_VERIFIED,
         SUCCESSOR_RELATIONS,
         _abschnitt_urteil,
+        _kanten_urteil,
+        _related_lesen,
         _stamp_lineage_origin,
-        verify_relationship_edges,
     )
     r = _empty_result()
     # A `related` that is neither None nor a dict is handed on as it is: the shared engine refuses it
@@ -310,8 +311,11 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
         # Reuse the SHARED engine — the statement's single edge is resolved exactly like an in-receipt
         # edge (target attached + verified + digest names it -> VERIFIED; absent -> DECLARED_UNRESOLVED;
         # cycle/depth/attached-but-wrong/subject-mismatch -> FAIL).
-        r["lineage"] = verify_relationship_edges(
-            predicate.get("relationships"), related, subject_hex=_subject_hex)
+        # ONE READING of the attached targets (`relation._related_lesen`), as on the decision and outcome paths:
+        # the edges are judged over it, and B22 below reads the same reading. `verify_relationship_edges` is
+        # `_kanten_urteil` over `_related_lesen(related)`, so the lineage verdict is the one it gave before.
+        _related_gelesen = _related_lesen(related)
+        r["lineage"] = _kanten_urteil(predicate.get("relationships"), _related_gelesen, subject_hex=_subject_hex)
         # DER ANGEHAENGTE ARM FEHLTE AUF DIESER FLAECHE (deep gate Lauf 7, Fund L4-600-02, P1).
         #
         # `reject_superseded` traegt zwei disjunkte Bedeutungen (relation.py:604-610): den EIGENEN
@@ -335,6 +339,14 @@ def verify_relation_statement(envelope: dict, public_key: bytes, *, strict: bool
         if r["lineage"]["lineage"] == LINEAGE_FAIL:
             r["errors"].extend(r["lineage"]["errors"] or ["relation: lineage verification FAILED"])
         r["lineage_ok"] = False if r["lineage"]["lineage"] == LINEAGE_FAIL else None
+        # B22 on this command too (deep gate 6.6.0 at d8881edc, iteration 1, review of the fix of finding Z4): an
+        # attached target that is not a verified dict fails the requested lineage check, also where no edge names it.
+        _unbelegt = [lbl for lbl, ziel, _grund in _related_gelesen[1]
+                     if not (type(ziel) is dict and ziel.get("verified") is True)]
+        if _unbelegt and r["lineage"]["lineage"] != LINEAGE_FAIL:
+            r["lineage_ok"] = False
+            r["errors"].append(f"relation:target_verification_failed: {len(_unbelegt)} attached related "
+                               "target(s) did not verify under their key (fail-closed)")
 
         # Subject binding (mirrors decision/outcome): warn on an EXTERNAL_ATTESTED subject; a hard fail
         # only under require_derived_subject.

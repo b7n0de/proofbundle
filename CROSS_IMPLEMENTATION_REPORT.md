@@ -118,6 +118,17 @@ residual of Z381 named in `docs/release_scope/6.4.0.md`, not a contract.
 (`tools/pb_verify_rs/src/main.rs`, Z381), and `tools/pb_verify_rs/tests/py_grammatik.rs` still records the earlier
 Python reading as its expectation. The Rust verifier follows as an item of its own, and R3 is removed with it.
 
+**R4, a difference to be closed, not a contract.** Since 6.6.0 the Python CLI counts an attached `--with-related`
+receipt as verified only when its predicate also passes the structure check of its own type, the check its standalone
+verifier applies (`decision verify`, `outcome verify` and `relation-statement verify`). `pb_verify_rs` judges an
+attachment by its signature under its key, its strict and canonical payload, its in-toto `_type` and a predicate that
+is an object, and does not run the full predicate schema of a decision or outcome receipt (the registry marks that
+surface PARTIAL). A correctly signed attachment whose predicate fails only that structure check therefore makes
+`verify-relation` and `verify-relation-statement` answer as if it had verified, where Python exits 2. The rule of B22,
+that an attachment which did not verify fails the requested lineage check also where no edge names it, holds in both
+since 6.6.0, and `tools/pb_verify_rs/crosscheck.py` holds it at all three surfaces. The Rust verifier follows for the
+structure check as an item of its own, and R4 is removed with it.
+
 ## Pending — NOT yet covered by the Rust verifier (honest scope)
 
 The full O8 `Mindestumfang` from the 3.2.0 implementation prompt grows from this core. The following

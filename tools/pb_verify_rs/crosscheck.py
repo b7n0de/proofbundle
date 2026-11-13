@@ -409,7 +409,6 @@ def main() -> int:
     # gruen, solange irgendeine Schranke greift, auch eine andere.
     from proofbundle.budget import DEFAULT_BUDGET  # noqa: PLC0415
     from proofbundle._wire_b64 import decode_b64  # noqa: PLC0415
-    from proofbundle.dsse import sign_envelope as _sign_env  # noqa: PLC0415
     from proofbundle.dsse import verify_envelope as _verify_env  # noqa: PLC0415
 
     # Das DSSE-Primitiv direkt, nicht ueber ein Predicate: `emit_outcome_receipt` weist ein
@@ -418,7 +417,15 @@ def main() -> int:
     # Genau dieselbe Verwechslung wie beim `canonicalize_refuses`-Zweig weiter unten: eine
     # Erwartung auf den falschen Pruefpfad gelegt.
     gross = {"a": 1, "ueberDerSchranke": "x" * (DEFAULT_BUDGET.string_len + 1)}
-    env_b = _sign_env(json.dumps(gross).encode(), sk, payload_type=INTOTO_PT)
+    # BUILT WITHOUT THE PRODUCER (deep gate 6.6.0, Z7): since 6.6.0 `sign_envelope` reads the envelope as its verifier
+    # does before it signs, and refuses exactly this vector. Both verifiers must still receive it; an attacker does not
+    # build it with our producer. The same PAE, the same base64 and the same keyid as `sign_envelope`.
+    from proofbundle.dsse import _default_keyid as _keyid_von, pae as _pae  # noqa: PLC0415
+    _roh = json.dumps(gross).encode()
+    _sig = base64.b64encode(sk.sign(_pae(INTOTO_PT, _roh))).decode("ascii")
+    _eintrag = {"keyid": _keyid_von(sk), "sig": _sig} if _keyid_von(sk) else {"sig": _sig}
+    env_b = {"payload": base64.b64encode(_roh).decode("ascii"), "payloadType": INTOTO_PT,
+             "signatures": [_eintrag]}
     (tmp / "env_budget.json").write_text(json.dumps(env_b))
     try:
         # LAUF11-L2, MEIN EIGENER RUECKFALL: diese Zeile entstand BEIM Bau des L4-Vektors und
@@ -644,6 +651,38 @@ def main() -> int:
                 if not _gleich:
                     failures.append(f"{_name_k} (attached target): python exit {_py_rc_k} lineage "
                                     f"{_py_label_k.get('lineage')}, rust exit {_rs_rc_k}: {_rs_out_k[:200]!r}")
+
+    # (4i) B22 at all three relation surfaces (deep gate 6.6.0 at d8881edc; Codex thread on pull request 519, P1).
+    # Python fails the requested lineage check for an attached target that did not verify under its key, also where
+    # no edge names it: `decision verify` since B22, `outcome verify` and `relation-statement verify` since the fix of
+    # finding Z4. `pb_verify_rs` judged only a target that an edge names, so the same bytes gave exit 0 there and
+    # exit 2 here. Each base case passes in both without the extra target, the control that lets this vector fail;
+    # with a foreign target that no edge names, both must exit 2 and name the reason.
+    _fremd = ROOT / "conformance" / "relation" / "target-subject-missing" / "related_r0.json"
+    _B22 = "relation:target_verification_failed"
+    for _name_b, _verb_b, _sub_b in (("declared-supersedes-verified", "decision", "verify-relation"),
+                                     ("outcome-declared-supersedes-verified", "outcome", "verify-relation"),
+                                     ("statement-supersedes-verified", "relation-statement",
+                                      "verify-relation-statement")):
+        _fall_b = ROOT / "conformance" / "relation" / _name_b
+        if not ((_fall_b / "case.json").is_file() and _fremd.is_file()):
+            failures.append(f"B22 vector: {_name_b} or the foreign target is missing from the corpus")
+            continue
+        _case_b = _loads_strict((_fall_b / "case.json").read_bytes())
+        _pub_b = (_fall_b / _case_b["pub"]).read_text(encoding="utf-8").strip()
+        _in_b = str(_fall_b / _case_b["input"])
+        _common_b = _relation_argv_common(_case_b, _fall_b)
+        _py_0, _, _ = _python_relation(_verb_b, _in_b, _pub_b, _common_b)
+        _rs_0, _ = _run_mit_grund(_sub_b, _in_b, _pub_b, *_common_b)
+        if (_py_0, _rs_0) != (0, 0):
+            failures.append(f"B22 control {_name_b}: python exit {_py_0}, rust exit {_rs_0}, expected 0 in both")
+            continue
+        _argv_b = [*_common_b, "--with-related", str(_fremd)]
+        _py_b, _, _py_blob_b = _python_relation(_verb_b, _in_b, _pub_b, _argv_b)
+        _rs_b, _rs_out_b = _run_mit_grund(_sub_b, _in_b, _pub_b, *_argv_b)
+        if (_py_b, _rs_b) != (2, 2) or _B22 not in _py_blob_b or _B22 not in _rs_out_b:
+            failures.append(f"B22 {_name_b} with a foreign target that no edge names: python exit {_py_b}, rust "
+                            f"exit {_rs_b}: {_rs_out_b[:200]!r} -- both must exit 2 and name {_B22}")
 
     # Die ZAHLEN selbst, nicht nur ihre Wirkung: `pb_verify_rs budget` gibt aus, was der Binary
     # WIRKLICH benutzt. Ein Kommentar im Quelltext waere hier kein Beleg.
