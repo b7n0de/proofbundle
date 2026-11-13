@@ -87,10 +87,10 @@ def save_signer(key: Ed25519PrivateKey, path: str, *, overwrite: bool = True) ->
     raises ``SwitchTypeError`` before anything else is read or written. Store the key out of version control and
     treat it like a key, not like data.
     """
-    # Der Schalter zuerst, vor allem anderen: `overwrite=True` hebt eine Weigerung auf (eine vorhandene Datei
-    # wird ersetzt), er ist damit ein lockernder Schalter und geht wie jeder andere ueber require_switch
-    # (tests/test_a_caller_verdict_counts_only_as_a_bool.py haelt jeden Schalter der oeffentlichen API in
-    # seiner Klasse). Der Kreis an c54f6e9e fand ihn dort unklassifiziert, mit eigener Pruefung nach dem Pfad.
+    # The switch first, before anything else: `overwrite=True` lifts a refusal (an existing file is replaced),
+    # so it is a relaxing switch and goes through require_switch like every other one
+    # (tests/test_a_caller_verdict_counts_only_as_a_bool.py holds every switch of the public API to its class).
+    # The module circle at c54f6e9e found it unclassified there, checked by a test of its own after the path.
     require_switch(overwrite, "overwrite")
     # Vor der os-Grenze, wie bei `load_signer` — und aus demselben Grund: was hinter der Grenze
     # scheitert, scheitert bereits am Betriebssystem, und dessen Fehlerform ist nicht unsere.
@@ -100,16 +100,16 @@ def save_signer(key: Ed25519PrivateKey, path: str, *, overwrite: bool = True) ->
 
 
 def _schreibe_geheimnis(pfad: str, daten: bytes, ersetzen: bool) -> None:
-    """Schreibt ``daten`` in eine NEUE Datei neben ``pfad`` (O_EXCL, 0600) und setzt sie dann an ``pfad``.
+    """Write ``daten`` into a NEW file beside ``pfad`` (O_EXCL, 0600), then put it in place at ``pfad``.
 
-    Gefunden im Deep Gate 6.6.0 an 41959070 (L2 C4, L4 Nebenbefund, dritte Lesung P2): `os.open` mit
-    O_CREAT|O_TRUNC setzte den Modus nur beim Anlegen, eine vorhandene 0644-Datei blieb 0644, ein Link wurde
-    verfolgt, und `--new-key` ersetzte einen vorhandenen Schluessel still. Die neue Datei entsteht mit O_EXCL
-    (folgt keinem Link, faengt keine vorhandene), ihr Modus wird nach dem Anlegen ausdruecklich 0600 gesetzt
-    (die umask kann ihn sonst nur enger machen, nicht genau), und dann ersetzt ``os.replace`` den Eintrag an
-    ``pfad`` (einen Link dort ersetzt es, statt ihm zu folgen). Ohne ``ersetzen`` setzt ``os.link`` sie
-    stattdessen an ``pfad``: das scheitert mit ``FileExistsError``, wenn dort irgendein Eintrag steht, in
-    einem Schritt mit dem Schreiben. Die Zwischendatei wird in jedem Fall entfernt, auch nach einem Fehler.
+    Found by the deep gate of 6.6.0 at 41959070 (L2 C4, a side finding of L4, P2 by the third reading): `os.open`
+    with O_CREAT|O_TRUNC set the mode only when it created the file, an existing 0644 file stayed 0644, a link was
+    followed, and `--new-key` replaced an existing key without a word. The new file is created with O_EXCL (it
+    follows no link and opens no existing file), its mode is set to 0600 explicitly after creation (the umask could
+    otherwise only narrow it, not make it exact), and then ``os.replace`` replaces the entry at ``pfad`` (a link
+    there is replaced, not followed). Without ``ersetzen``, ``os.link`` puts it at ``pfad`` instead, which fails
+    with ``FileExistsError`` when any entry stands there, in one step with the write. The temporary file is
+    removed in every case, also after an error.
     """
     import tempfile  # noqa: PLC0415
 
