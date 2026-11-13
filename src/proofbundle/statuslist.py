@@ -369,6 +369,20 @@ def issue_status_list_token(statuses: list, *, uri: str, signer, iat: int, bits:
     except (ValueError, TypeError, RecursionError) as exc:
         raise BundleFormatError(f"status list token claims have no JSON form ({type(exc).__name__})") from exc
     signing_input = _b64url(json.dumps(header).encode()) + "." + _b64url(payload_json.encode())
+    # THE ISSUER SIGNS ONLY WHAT ITS OWN VERIFIER READS (deep gate 6.6.0 at c3472f6f, a neighbour of L6 Z7 that a probe
+    # over the producers found): a `uri` of 1,100,000 characters was signed, and `verify_status_snapshot` refused the
+    # token with `string_len`. Both segments are read here as the verifier reads them, and the packed list against the
+    # cap the verifier inflates it under, before the signature exists.
+    header_b64, _, payload_b64 = signing_input.partition(".")
+    try:
+        loads_strict(_b64url_decode(header_b64))
+        loads_strict(_b64url_decode(payload_b64))
+    except (ProofBundleError, ValueError, TypeError) as exc:
+        raise BundleFormatError(f"the status list token is one verify_status_snapshot cannot read, so it is not "
+                                f"signed: {exc}") from None
+    if len(arr) > _MAX_STATUS_LIST_BYTES:
+        raise BundleFormatError(f"the packed status list has {len(arr)} bytes, more than the {_MAX_STATUS_LIST_BYTES} "
+                                "verify_status_snapshot inflates, so it is not signed")
     from .signature import _ed25519_signatur_von  # noqa: PLC0415
     sig = _ed25519_signatur_von(signer.sign(signing_input.encode("ascii")))
     if sig is None:

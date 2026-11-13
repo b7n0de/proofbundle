@@ -684,6 +684,74 @@ def main() -> int:
             failures.append(f"B22 {_name_b} with a foreign target that no edge names: python exit {_py_b}, rust "
                             f"exit {_rs_b}: {_rs_out_b[:200]!r} -- both must exit 2 and name {_B22}")
 
+    # (4j) THE PRIMARY PAYLOAD AT BOTH RELATION SURFACES (deep gate 6.6.0 at c3472f6f, lens L6, finding Z11, P1).
+    # Python refuses a primary statement that is not its own RFC 8785 serialization, and a relation statement without
+    # a required member or with one of the wrong form; `pb_verify_rs` parsed the primary payload without the JCS
+    # comparison and checked only the allowed keys, so the same bytes gave exit 0 there and exit 2 here. Each surface
+    # has its control: the canonical form passes in both, which lets every mutant below fail.
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey as _Ed  # noqa: PLC0415
+    from proofbundle.decision import emit_decision_receipt as _emit_decision  # noqa: PLC0415
+    from proofbundle.dsse import pae as _pae  # noqa: PLC0415
+    from proofbundle.relation_statement import RELATION_STATEMENT_PREDICATE_TYPE as _RS_TYP  # noqa: PLC0415
+    _sk_j = _Ed.from_private_bytes(b"\x06" * 32)
+    _pub_j = base64.b64encode(_sk_j.public_key().public_bytes_raw()).decode("ascii")
+
+    def _umschlag_j(body: bytes, name: str) -> str:
+        # Built by hand, as the block above builds envelopes past a producer: `sign_envelope` would sign a
+        # non-canonical body as well, but the vector must not depend on what a producer accepts.
+        _env = {"payload": base64.b64encode(body).decode("ascii"), "payloadType": INTOTO_PT,
+                "signatures": [{"sig": base64.b64encode(_sk_j.sign(_pae(INTOTO_PT, body))).decode("ascii")}]}
+        _pfad = tmp / f"z11_{name}.json"
+        _pfad.write_text(json.dumps(_env), encoding="utf-8")
+        return str(_pfad)
+
+    def _rs_aussage(praedikat: dict) -> dict:
+        return {"_type": "https://in-toto.io/Statement/v1",
+                "subject": [{"name": "relation",
+                             "digest": {"sha256": hashlib.sha256(canonical.canonicalize_statement(praedikat)).hexdigest()}}],
+                "predicateType": _RS_TYP, "predicate": praedikat}
+
+    _rs_gut = {"schemaVersion": "0.1.0", "statementId": "urn:test:relation",
+               "relationships": [{"relation": "supersedes",
+                                  "targetReceiptDigest": {"digestAlgorithm": "jcs-sha256-v1", "digest": "0" * 64}}]}
+    _ohne = lambda k: {x: y for x, y in _rs_gut.items() if x != k}  # noqa: E731
+    _z11 = [("relation-statement", "verify-relation-statement", "canonical", canonical.canonicalize_statement(_rs_aussage(_rs_gut)), 0)]
+    _z11.append(("relation-statement", "verify-relation-statement", "trailing-newline",
+                 canonical.canonicalize_statement(_rs_aussage(_rs_gut)) + b"\n", 2))
+    for _k in ("schemaVersion", "statementId"):
+        _z11.append(("relation-statement", "verify-relation-statement", f"missing-{_k}",
+                     canonical.canonicalize_statement(_rs_aussage(_ohne(_k))), 2))
+    for _name_j, _wert_j in (("schemaVersion-0.2.0", {"schemaVersion": "0.2.0"}),
+                             ("schemaVersion-0.1.", {"schemaVersion": "0.1."}),
+                             ("schemaVersion-number", {"schemaVersion": 1}),
+                             ("statementId-empty", {"statementId": ""}),
+                             ("statementId-number", {"statementId": 7})):
+        _z11.append(("relation-statement", "verify-relation-statement", _name_j,
+                     canonical.canonicalize_statement(_rs_aussage({**_rs_gut, **_wert_j})), 2))
+    _code_j, _text_j = 0, ""
+    try:
+        import contextlib as _cl  # noqa: PLC0415
+        import io as _io  # noqa: PLC0415
+        from proofbundle.cli import main as _cli_j  # noqa: PLC0415
+        _o = _io.StringIO()
+        with _cl.redirect_stdout(_o), _cl.redirect_stderr(_io.StringIO()):
+            _code_j = _cli_j(["decision", "init"])
+        _dp = _loads_strict(_o.getvalue().encode("utf-8"))
+        _dp["decisionMaker"]["version"] = {"proofbundle": "crosscheck"}
+        from proofbundle.dsse import load_payload as _nutzlast  # noqa: PLC0415
+        _d_body = _nutzlast(_emit_decision(_dp, _sk_j))
+        _z11.append(("decision", "verify-relation", "decision-canonical", _d_body, 0))
+        _z11.append(("decision", "verify-relation", "decision-trailing-newline", _d_body + b"\n", 2))
+    except Exception as _exc:  # noqa: BLE001 -- the vector names why it could not be built
+        failures.append(f"Z11 vector: the decision receipt could not be built ({type(_exc).__name__}: {_exc})")
+    for _verb_j, _sub_j, _name_j, _body_j, _soll_j in _z11:
+        _pfad_j = _umschlag_j(_body_j, _name_j)
+        _py_j, _, _py_blob_j = _python_relation(_verb_j, _pfad_j, _pub_j, [])
+        _rs_j, _rs_out_j = _run_mit_grund(_sub_j, _pfad_j, _pub_j)
+        if (_py_j, _rs_j) != (_soll_j, _soll_j):
+            failures.append(f"Z11 {_sub_j} {_name_j}: python exit {_py_j}, rust exit {_rs_j}, expected {_soll_j} in "
+                            f"both: {_rs_out_j[:200]!r}")
+
     # Die ZAHLEN selbst, nicht nur ihre Wirkung: `pb_verify_rs budget` gibt aus, was der Binary
     # WIRKLICH benutzt. Ein Kommentar im Quelltext waere hier kein Beleg.
     budget_geteilt: list[str] = []

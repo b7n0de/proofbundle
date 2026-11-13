@@ -2507,6 +2507,17 @@ fn run_verify_relation(
     // exactly-one-edge; the decision/outcome path's full predicate-schema validation is Python-only
     // (honestly PARTIAL in the registry) and never the deciding axis of a relation vector.
     let mut structure_ok = true;
+    // THE PRIMARY PAYLOAD IS RFC 8785 CANONICAL OR IT FAILS THE STRUCTURE GATE (deep gate 6.6.0 at c3472f6f, L6 Z11,
+    // P1). Python's decision, outcome and relation-statement verifiers compare the signed bytes with their JCS form
+    // and refuse a payload that is not its own serialization ("payload is not RFC-8785 canonical (hash_binding
+    // fail-closed)", structure_ok False, exit 2); this path parsed the primary payload without that comparison, so a
+    // signed trailing newline exited 0 here and 2 there. An attached target already had the comparison
+    // (`load_related`); the primary statement now has the same one, in both modes. No early return: the lineage is
+    // computed over the exact signed bytes as before, and the exit ladder below decides.
+    if !jcs_bytes(&statement).map(|c| c == body).unwrap_or(false) {
+        structure_ok = false;
+        reasons.push("payload is not RFC-8785 canonical (hash_binding fail-closed)".into());
+    }
     if statement_mode {
         if statement.get("predicateType").and_then(|v| v.as_str())
             != Some(RELATION_STATEMENT_PREDICATE_TYPE)
@@ -2529,6 +2540,35 @@ fn run_verify_relation(
                     "relation-statement: unknown field(s) in predicate: {fremd:?} \
                      (additionalProperties:false, fail-closed)"
                 ));
+            }
+            // THE REQUIRED MEMBERS AND THEIR FORMS, as `validate_relation_statement_predicate` (L6 Z11, P1): a
+            // statement without `schemaVersion` exited 0 here and 2 in Python. `relationships` is judged below.
+            for req in ["schemaVersion", "statementId"] {
+                if !pred.contains_key(req) {
+                    structure_ok = false;
+                    reasons.push(format!(
+                        "relation-statement: missing required field {req:?}"
+                    ));
+                }
+            }
+            if let Some(sv) = pred.get("schemaVersion") {
+                let passt = sv
+                    .as_str()
+                    .and_then(|s| s.strip_prefix("0.1."))
+                    .is_some_and(|rest| {
+                        !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit())
+                    });
+                if !passt {
+                    structure_ok = false;
+                    reasons.push("relation-statement: schemaVersion must match 0.1.x".into());
+                }
+            }
+            if let Some(sid) = pred.get("statementId") {
+                if sid.as_str().is_none_or(|s| s.is_empty()) {
+                    structure_ok = false;
+                    reasons
+                        .push("relation-statement: statementId must be a non-empty string".into());
+                }
             }
             match pred.get("relationships").and_then(|v| v.as_array()) {
                 Some(a) if a.len() == 1 => {}

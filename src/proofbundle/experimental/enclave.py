@@ -240,6 +240,17 @@ def issue_enclave_attestation(binding: str, signer, *, profile: str, tier: str,
     except (ValueError, TypeError, RecursionError) as exc:
         raise BundleFormatError(f"attestation claims have no JSON form ({type(exc).__name__})") from exc
     signing_input = _b64url(json.dumps(header).encode()) + "." + _b64url(claims_json.encode())
+    # THE ISSUER SIGNS ONLY WHAT ITS OWN VERIFIER READS (deep gate 6.6.0 at c3472f6f, a neighbour of L6 Z7 that a probe
+    # over the producers found): a `binding` of 1,100,000 characters was signed, and `verify_enclave_attestation`
+    # refused the token with `string_len`. Both segments are read here as the verifier reads them, before the
+    # signature exists.
+    header_b64, _, payload_b64 = signing_input.partition(".")
+    try:
+        loads_strict(_b64url_decode(header_b64))
+        loads_strict(_b64url_decode(payload_b64))
+    except (ProofBundleError, ValueError, TypeError) as exc:
+        raise BundleFormatError(f"the attestation is one verify_enclave_attestation cannot read, so it is not "
+                                f"signed: {exc}") from None
     from ..signature import _ed25519_signatur_von  # noqa: PLC0415
     sig = _ed25519_signatur_von(signer.sign(signing_input.encode("ascii")))
     if sig is None:

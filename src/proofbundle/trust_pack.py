@@ -438,7 +438,9 @@ def build_trust_pack_statement(predicate: dict, *, subject_name: str | None = No
 def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None = None,
                     subject_sha256: str | None = None, strict: bool = True) -> dict:
     """Threshold-sign a Trust Pack as a MULTI-signature DSSE in-toto Statement. ``signers`` maps keyId ->
-    Ed25519 private key; each produces a ``{keyid, sig}`` entry over the same PAE. Fail-closed: an invalid
+    Ed25519 private key (or ML-DSA-65 key for an ``mldsa65`` key); each produces a ``{keyid, sig}`` entry over the
+    same PAE. A signer for a ``hybrid-ed25519-mldsa65`` key is refused, because its verifier needs a second leg this
+    producer does not write; a pack may declare such a key that does not sign. Fail-closed: an invalid
     predicate raises before signing; a signer keyId not present in the pack's ``keys`` raises (never sign under
     an unknown identity). The predicate is read once (`_read_once`): what is validated is what is
     signed.
@@ -479,13 +481,37 @@ def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None 
     msg = dsse.pae(INTOTO_STATEMENT_PAYLOAD_TYPE, body)
     from .signature import _ed25519_signatur_von, _signaturbytes_von  # noqa: PLC0415
     keys = _as_dict(predicate.get("keys"))
+    # A HYBRID KEY DOES NOT SIGN HERE (deep gate 6.6.0 at c3472f6f, review of the fix of L6 Z7, rounds 1 and 2, P1):
+    # the loop below signs each key with one `.sign` and writes one `sig`, and `verify_trust_pack` counts a
+    # hybrid-ed25519-mldsa65 key only with both legs, `sig` and `sigPq` (no downgrade). The hybrid signature this
+    # function wrote therefore never counted; the pack failed whenever the other signers did not meet the threshold on
+    # their own. Until this producer writes both legs, it refuses a signer for such a key before anything is signed,
+    # also one the other signers would not need. A pack may still declare a hybrid key that does not sign; where its
+    # signature must count, the pack is built with both legs outside this producer (RESTRISIKO_660.md).
+    for kid, _sk in paare:
+        kv = keys.get(kid)
+        if isinstance(kv, dict) and kv.get("alg") == "hybrid-ed25519-mldsa65":
+            raise TrustPackError(f"signer {kid!r} names a hybrid-ed25519-mldsa65 key, which verify_trust_pack counts only "
+                                 "with both legs, `sig` and `sigPq`; sign_trust_pack writes one leg, so nothing is "
+                                 "signed")
+    # THE PACK IS READ AS ITS VERIFIER READS IT, before anything is signed (deep gate 6.6.0 at c3472f6f, L6 Z7, P1):
+    # this producer builds its envelope itself and never passed the preflight of `dsse.sign_envelope`, so a pack whose
+    # `nonClaims` holds 800,000 characters was signed and `verify_trust_pack` refused it. Each entry is measured with
+    # the keyid it writes and the signature length of the algorithm its key declares, as the loop below writes it.
+    try:
+        dsse._read_entries_as_the_verifier_reads(INTOTO_STATEMENT_PAYLOAD_TYPE, body, [
+            (kid, _SIG_RAW_LEN["mldsa65"] if isinstance(keys.get(kid), dict) and keys[kid].get("alg") == "mldsa65"
+             else _SIG_RAW_LEN["ed25519"]) for kid, _sk in paare])
+    except BundleFormatError as exc:
+        raise TrustPackError(f"the trust pack would exceed the verification budget of verify_trust_pack, so nothing "
+                             f"is signed (fail-closed): {exc}") from exc
     signatures = []
     for kid, sk in paare:
         # THE OUTPUT IS READ BY THE ALGORITHM THE KEY DECLARES (circle of the class fix after 6.5.0): the check of 64
         # Ed25519 bytes refused every ML-DSA-65 root key, whose signature has 3309 bytes, so no such pack could be
         # signed. A key declared `mldsa65` signs through `pqsig.sign_mldsa`, as `renewal` does, and its output must have
-        # the 3309 bytes of FIPS 204; every other key writes the 64 bytes of an Ed25519 signature, the classical leg of
-        # a hybrid key included, as before.
+        # the 3309 bytes of FIPS 204; every other key writes the 64 bytes of an Ed25519 signature. A signer for a
+        # hybrid key does not reach this loop, it is refused above.
         kv = keys.get(kid)
         if isinstance(kv, dict) and kv.get("alg") == "mldsa65":
             from .pqsig import sign_mldsa  # noqa: PLC0415

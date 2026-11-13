@@ -191,7 +191,7 @@ def _installed_record_rows(package_dir: Path):
     # Only the interpreter's own cache, `__pycache__`, stays outside; a real directory is walked, not judged.
     genannt = {zeile.split("\0", 1)[0] for zeile in rows}
     try:
-        for p in _eintraege(package_dir, "package", verzeichnislinks_ablehnen=True):
+        for p in _eintraege(package_dir, "package", verzeichnislinks_ablehnen=True, cache_auslassen=True):
             if f"{IMPLEMENTATION}/{'/'.join(p.relative_to(package_dir).parts)}" not in genannt:
                 return None
     except (OSError, ValueError, VerifierBlockError):
@@ -209,17 +209,24 @@ def _innerhalb(p: Path, wurzel: Path) -> bool:
         return False
 
 
-def _eintraege(wurzel: Path, was: str, *, verzeichnislinks_ablehnen: bool):
+def _eintraege(wurzel: Path, was: str, *, verzeichnislinks_ablehnen: bool, cache_auslassen: bool):
     """Every entry below `wurzel` that is not a directory, by one walk that stops at the first directory it cannot
-    list; the interpreter's cache is not walked, and a link to a directory is not followed.
+    list; a link to a directory is not followed, and with `cache_auslassen` the interpreter's cache is not walked.
+
+    THE CACHE IS AN EXCEPTION OF THE PACKAGE, NOT OF EVERY TREE (deep gate 6.6.0 at c3472f6f, L6 Z9, P1). The walk
+    skipped every directory named `__pycache__`, and the vector set reused it: a case directory with `case.json` under
+    `__pycache__/` was neither refused as unnamed nor measured, and a file under `<case>/__pycache__/` did not move the
+    digest. Bytecode is not the build, so the package walk leaves the cache out; a corpus holds data, and no directory
+    of it is outside its measurement.
 
     A WALK THAT DROPS AN ERROR MEASURES PART OF THE TREE (fifth local review, 6e3d4d72, P1): `Path.rglob` swallows the
     `PermissionError` of a directory it cannot list, and a package directory that can be searched but not listed (mode
     0111) still lets the importer take `signature/__init__.py` in place of `signature.py`, while both build
     measurements stayed the same; the vector set read its cases the same way. The third-party verifier of the release
     gate refuses that case since its external review (R2-5); this walk is the same rule here. With
-    `verzeichnislinks_ablehnen`, a link to a directory is refused, as the package needs (see `_source_tree_rows`); the
-    corpus keeps its own rules for links."""
+    `verzeichnislinks_ablehnen`, a link to a directory is refused, as the package needs (see `_source_tree_rows`) and
+    as a case directory needs (see `measure_vector_set`); the walk of the whole corpus for unnamed cases does not follow
+    links and does not refuse them."""
     def _halt(fehler: OSError):
         raise VerifierBlockError(
             f"a directory of the {was} cannot be listed ({fehler.filename}: {fehler.strerror}) -- a measurement over "
@@ -230,9 +237,13 @@ def _eintraege(wurzel: Path, was: str, *, verzeichnislinks_ablehnen: bool):
             for name in verzeichnisse:
                 if (basis / name).is_symlink():
                     raise VerifierBlockError(
-                        f"{(basis / name).relative_to(wurzel).as_posix()} is a link to a directory -- it decides which "
-                        "code a name imports and is no file of the tree, so a tree carrying it has no identity of its own")
-        verzeichnisse[:] = sorted(v for v in verzeichnisse if v != _INTERPRETER_CACHE and not (basis / v).is_symlink())
+                        f"{(basis / name).relative_to(wurzel).as_posix()} is a link to a directory -- " + (
+                            "it decides which code a name imports and is no file of the tree, so a tree carrying it "
+                            "has no identity of its own" if was == "package" else
+                            "a runner reading a case through it reads bytes the digest does not pin, so a case "
+                            "carrying it has no identity of its own"))
+        verzeichnisse[:] = sorted(v for v in verzeichnisse
+                                  if not (cache_auslassen and v == _INTERPRETER_CACHE) and not (basis / v).is_symlink())
         for name in sorted(dateien):
             yield basis / name
 
@@ -248,7 +259,7 @@ def _source_tree_rows(package_dir: Path) -> list[str]:
     # hold, and one inside chooses which code a name imports (`signature -> _bad`) while every file stays the
     # same. A package needs no link to a directory.
     rows: list[str] = []
-    for p in _eintraege(package_dir, "package", verzeichnislinks_ablehnen=True):
+    for p in _eintraege(package_dir, "package", verzeichnislinks_ablehnen=True, cache_auslassen=True):
         if not p.is_file():
             continue
         if not _innerhalb(p, package_dir):
@@ -326,7 +337,7 @@ def measure_vector_set(conformance_dir: "Path | str") -> dict:
     # like the corpus without it. Helper directories without `case.json` stay outside the set.
     benannt = set(aufgeloest)
     fremd = sorted({p.parent.resolve().relative_to(root.resolve()).as_posix()
-                    for p in _eintraege(root, "corpus", verzeichnislinks_ablehnen=False)
+                    for p in _eintraege(root, "corpus", verzeichnislinks_ablehnen=False, cache_auslassen=False)
                     if p.name == "case.json" and p.parent.resolve() not in benannt
                     and _innerhalb(p.parent, root)})
     if fremd:
@@ -339,7 +350,9 @@ def measure_vector_set(conformance_dir: "Path | str") -> dict:
             raise VerifierBlockError(f"conformance manifest names a case directory that is absent or "
                                      f"outside the corpus: {rel}")
         gefunden = False
-        for p in _eintraege(d, "corpus", verzeichnislinks_ablehnen=False):
+        # A LINK TO A DIRECTORY INSIDE A CASE IS REFUSED (the neighbour of Z9 in the same walk): it was skipped, so the
+        # files a runner reads through it moved neither the digest nor a refusal (CONFORMANCE.md rule 1).
+        for p in _eintraege(d, "corpus", verzeichnislinks_ablehnen=True, cache_auslassen=False):
             if not p.is_file():
                 continue
             if not _innerhalb(p, root):

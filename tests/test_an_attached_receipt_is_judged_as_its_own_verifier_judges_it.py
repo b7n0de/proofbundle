@@ -168,10 +168,25 @@ def test_an_attachment_with_null_relationships_is_judged_as_one_without_them(tmp
 
 
 @pytest.mark.parametrize("command", _COMMANDS)
-def test_an_attachment_without_a_predicate_is_judged_as_before(tmp_path, command):
+def test_an_attachment_of_our_type_without_a_predicate_fails_lineage(tmp_path, command):
+    """Changed by the deep gate at c3472f6f (lens L6, Z4): this case was kept "as before", exit 0, while the same bytes
+    alone are refused with exit 2 ("predicate must be a JSON object"). A decision receipt without a predicate fails the
+    structure check of its type like one with a predicate that is no object."""
     statement = {"_type": "https://in-toto.io/Statement/v1",
                  "subject": [{"name": "x", "digest": {"sha256": "0" * 64}}],
                  "predicateType": "https://b7n0de.com/proofbundle/predicates/decision-receipt/v0.1"}
+    target = dsse.sign_envelope(rfc8785.dumps(statement), _KEY, payload_type=_INTOTO)
+    code, report = _verify_with(tmp_path, command, target)
+    assert code == 2 and report.get("lineage_ok") is False and report.get("ok") is False
+
+
+@pytest.mark.parametrize("command", _COMMANDS)
+def test_a_foreign_attachment_without_a_predicate_is_judged_as_before(tmp_path, command):
+    """The counter-case: in-toto lets a statement of a foreign type carry no predicate, and this place does not judge
+    a foreign type."""
+    statement = {"_type": "https://in-toto.io/Statement/v1",
+                 "subject": [{"name": "x", "digest": {"sha256": "0" * 64}}],
+                 "predicateType": "urn:example:foreign-predicate"}
     target = dsse.sign_envelope(rfc8785.dumps(statement), _KEY, payload_type=_INTOTO)
     code, report = _verify_with(tmp_path, command, target)
     assert code == 0 and report["ok"] is True

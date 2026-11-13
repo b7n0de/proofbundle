@@ -2582,15 +2582,20 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
                 verified = False
                 subject_digest_state = "malformed"
                 stmt = None
-        if stmt is not None and isinstance(stmt.get("predicate"), dict):
+        if stmt is not None:
             # THE CHECK OF ITS OWN TYPE (deep gate 6.6.0 at d8881edc, iteration 1, finding Z4). The docstring
             # promises "verify each one STANDALONE", but only the signature, the strict reading and the shape of
             # the predicate were checked. MEASURED at d8881edc: a correctly signed decision receipt without its
             # required member `decision` arrived as verified=True; with no edge, `decision verify --with-related`
             # ended with exit 0 and ok true, while the same bytes alone give structure_ok false and exit 2. A
             # predicate of one of our types that fails the structure check of its type is now unreadable, as in
-            # the two branches above. Foreign types are not judged here, and a missing predicate stays a
-            # statement without edges.
+            # the two branches above. Foreign types are not judged here (`_praedikat_strukturfehler` answers them
+            # with no error).
+            # NOT ONLY FOR A PREDICATE THAT IS AN OBJECT (deep gate 6.6.0 at c3472f6f, L6 Z4, P1): the check ran under
+            # `isinstance(predicate, dict)`, so a signed statement of one of our types WITHOUT a predicate, or with
+            # `predicate: null`, stayed verified=True, and an edge-free `decision verify --with-related` exited 0
+            # while the same bytes alone exit 2 ("predicate must be a JSON object"). In-toto lets a statement of a
+            # foreign type carry no predicate (`_praedikat_ist_positiv_falsch`); our types each require one.
             struktur = _praedikat_strukturfehler(stmt)
             if struktur:
                 payload_malformed = (
@@ -2861,6 +2866,7 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         _vtr = {"mode": "HISTORICAL", "time": args.verification_time, "current_policy_status": _cur,
                 "historical_policy_status": ("PASS" if result["policy_ok"] else
                                              "FAIL" if result["policy_ok"] is False else "NOT_EVALUATED")}
+    code = _decision_verify_exit(result)
     if args.json:
         # Emit an explicit report projection (all check fields; booleans + static/field-derived strings — never
         # key material). Mirrors _cmd_verify/_cmd_verify_enclave: build a fresh dict instead of dumping the
@@ -2920,11 +2926,23 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             print(f"  ! {_safe_line(str(w))}", file=sys.stderr)
         # No-Overclaim (§7.4 / lens 1): only assert integrity when crypto actually held — on a crypto FAIL
         # the CRYPTO: FAIL line already says it, and a positive trailer would itself be an overclaim.
-        if result["crypto_ok"]:
+        # THE CLOSING SENTENCE SPEAKS FOR THE EXIT CODE, NOT FOR THE SIGNATURE ALONE (deep gate 6.6.0 at c3472f6f,
+        # L6 Z6): it was chosen by `crypto_ok`, so a signed foreign predicate refused with exit 2 was told what a
+        # verified receipt proves. The sentence of a verified receipt stands only where the command exits 0.
+        if code == 0:
             print("\nThis proves the signed decision claim has not been altered. It does not prove the decision "
                   "was correct, legal, safe, or that the action was executed.")
+        elif result["crypto_ok"]:
+            print(f"\nThe signature holds, but a check this command was asked to make did not hold (exit {code}); "
+                  "nothing about the decision is attested beyond the CRYPTO line.")
         else:
             print("\nThis receipt did NOT verify (crypto failure); nothing about the decision is attested.")
+    return code
+
+
+def _decision_verify_exit(result: dict) -> int:
+    """The exit code of `decision verify` for its result. The ladder stood at the end of the command; it moved here
+    unchanged so that the command knows its code before it prints its closing sentence (L6 Z6)."""
     # Exit contract (Phase B): 1 crypto fail · 2 malformed/confusion, expiry, or a requested binding, action, case
     # or lineage check that does not hold · 3 crypto OK but policy not satisfied, or the Section 4 refusal.
     if not result["crypto_ok"]:
@@ -3153,6 +3171,7 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
     except (ProofBundleError, OSError, ValueError) as exc:
         _err(exc)
         return 2
+    code = _outcome_verify_exit(result)
     if args.json:
         report = {k: result[k] for k in (
             "ok", "crypto_ok", "structure_ok", "predicate_type_ok", "decision_bound", "role_separation_ok",
@@ -3199,11 +3218,23 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
             print(f"  - {_safe_line(str(e))}", file=sys.stderr)
         for w in result["warnings"]:
             print(f"  ! {_safe_line(str(w))}", file=sys.stderr)
-        if result["crypto_ok"]:
+        # THE CLOSING SENTENCE SPEAKS FOR THE EXIT CODE, NOT FOR THE SIGNATURE ALONE (deep gate 6.6.0 at c3472f6f,
+        # L6 Z6): it was chosen by `crypto_ok`, so a signed foreign predicate refused with exit 2 was told what a
+        # verified receipt proves. The sentence of a verified receipt stands only where the command exits 0.
+        if code == 0:
             print("\nThis proves who signed what happened, bound to the referenced decision. It does not prove "
                   "the effect was good, correct or desired.")
+        elif result["crypto_ok"]:
+            print(f"\nThe signature holds, but a check this command was asked to make did not hold (exit {code}); "
+                  "nothing about the outcome is attested beyond the CRYPTO line.")
         else:
             print("\nThis receipt did NOT verify (crypto failure); nothing about the outcome is attested.")
+    return code
+
+
+def _outcome_verify_exit(result: dict) -> int:
+    """The exit code of `outcome verify` for its result. The ladder stood at the end of the command; it moved here
+    unchanged so that the command knows its code before it prints its closing sentence (L6 Z6)."""
     # Exit contract mirrors decision verify: 1 crypto · 2 malformed/confusion/binding-mismatch, a wrong
     # policyPurpose of the predicate included (a structure finding) · 3 a supplied trust policy not satisfied.
     if not result["crypto_ok"]:
@@ -3344,6 +3375,7 @@ def _cmd_relation_statement_verify(args: argparse.Namespace) -> int:
     except (ProofBundleError, OSError, ValueError) as exc:
         _err(exc)
         return 2
+    code = _relation_statement_verify_exit(result)
     if args.json:
         report = {k: result[k] for k in (
             "ok", "crypto_ok", "structure_ok", "predicate_type_ok", "subject_binding",
@@ -3367,13 +3399,25 @@ def _cmd_relation_statement_verify(args: argparse.Namespace) -> int:
             print(f"  - {_safe_line(str(e))}", file=sys.stderr)
         for w in result["warnings"]:
             print(f"  ! {_safe_line(str(w))}", file=sys.stderr)
-        if result["crypto_ok"]:
+        # THE CLOSING SENTENCE SPEAKS FOR THE EXIT CODE, NOT FOR THE SIGNATURE ALONE (deep gate 6.6.0 at c3472f6f,
+        # L6 Z6): it was chosen by `crypto_ok`, so a signed foreign predicate refused with exit 2 was told what a
+        # verified statement proves. The sentence of a verified statement stands only where the command exits 0.
+        if code == 0:
             print("\nThis proves the issuer DECLARED the relation over exact bytes. It does not "
                   "retract the target's cryptographic validity, and whether the issuer may declare "
                   "it is a relying-party policy decision.")
+        elif result["crypto_ok"]:
+            print(f"\nThe signature holds, but a check this command was asked to make did not hold (exit {code}); "
+                  "nothing about the relation is attested beyond the CRYPTO line.")
         else:
             print("\nThis statement did NOT verify (crypto failure); nothing about the relation is "
                   "attested.")
+    return code
+
+
+def _relation_statement_verify_exit(result: dict) -> int:
+    """The exit code of `relation-statement verify` for its result. The ladder stood at the end of the command; it moved here
+    unchanged so that the command knows its code before it prints its closing sentence (L6 Z6)."""
     # Exit contract mirrors decision/outcome verify: 1 crypto · 2 malformed/confusion/lineage-FAIL · 3 policy.
     if not result["crypto_ok"]:
         return 1
