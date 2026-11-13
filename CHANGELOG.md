@@ -8,7 +8,7 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
-## [6.6.0] - 2026-11-14
+## [6.6.0] - 2026-11-15
 
 6.6.0 is a feature release following 6.5.0. It adds `proofbundle scitt match` (EXPERIMENTAL), which reports the axes of Section 6 of draft-gruszka-scitt-statement-identification-03 for a reference and a candidate, and `decision verify` and `outcome verify` now take the inputs the relying party supplies under draft-gruszka-audit-decision-receipts: the action bytes, the case it chooses, an approval record, a consumption state, the effect bytes, the bound decision and the expected executor. Several producers now sign only what their own verifier reads, and the checks of evidence packs, vector sets, installed builds, pre-tag receipts and the self-receipt folder accept only the members they name.
 
