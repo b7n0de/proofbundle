@@ -51,6 +51,16 @@ proofbundle reads a supplied consumption state and never writes it. Marking an a
 - `emit_bundle` applies the structural budget of `verify_bundle` before it signs. The byte limit of a serialized file is not part of this check (CHANGELOG.md line 64).
 - `sign_trust_pack` does not sign with a `hybrid-ed25519-mldsa65` key. It writes one signature per key, and `verify_trust_pack` counts a hybrid key only with both legs, so the producer refuses such a signer before anything is signed, also one the other signers would not need. A pack may still declare a hybrid key that does not sign; where its signature must count, the pack is built with both legs outside the producer (CHANGELOG.md line 84).
 
+### Three findings of the deep gate at c71eeb12 stay open
+
+The deep gate at c71eeb12 confirmed five counterexamples in its first iteration. Two are fixed before the tag (CHANGELOG.md lines 42 and 84). By the owner's choice on that run, the three below stay open for the first cycle after the tag. Each gives the same result at c71eeb12, at c3472f6f and at v6.5.0, so none came with 6.6.0:
+
+- `present_with_key_binding` signs a KB-JWT presentation with an empty `aud` or an empty `nonce` (src/proofbundle/sdjwt_issue.py line 401), which `verify_key_binding` refuses as "KB-JWT aud missing or not a single string" and "KB-JWT nonce missing" (src/proofbundle/kbjwt.py lines 255 and 258). The producer gives out what its own verifier refuses; the verifier refuses it.
+- `verify_trace_record` reports an unknown JWS header member of 300 characters as a path of 307 characters in `unknown_fields`, past the bound of 257 characters that its other reported paths keep, because this one path is built without that bound (src/proofbundle/adapters/trace_record.py line 923). The token is refused.
+- `measure_vector_set` accepts a manifest whose named case is itself a link to a directory the manifest does not name, and measures the files of that directory (src/proofbundle/verifier_block.py line 349); a link below a named case is refused.
+
+Their severity under the rule that P0 and P1 are reserved for the wheel on PyPI is being read a third time, because the lens and the release author read it differently; a P0 or P1 among them goes to the owner before the tag.
+
 ### Pre-tag receipts of earlier releases
 
 The receipt library now refuses a member outside the nine signed fields, `signature` and `signer_pubkey`. The receipt of 5.0.0 carries such a member, and the gate of this release, run against the v5.0.0 tree, rejects it; the gate of the v5.0.0 tag still verifies it. Because the gate source changes, a receipt of 5.1.0 or later bound to an earlier gate reads as `other_tree` (CHANGELOG.md line 76).
@@ -65,7 +75,7 @@ Expected from the rule the test states, not measured. `tests/test_plugin_pin_is_
 
 ### Not measured at this snapshot
 
-The findings register in this tree is signed for version `6.6.0` (audit_artifacts/findings_register_361.json, field `version`). The deep gate ran at d8881edc, and its four findings are fixed in pull request 519 (CHANGELOG.md lines 40, 42, 54 and 68). It ran again at c3472f6f and ended in its first iteration with seven findings: six are fixed as classes with their neighbours (CHANGELOG.md lines 80 to 90), and the seventh names the new `executorIds` member of a Trust Pack key, the format extension of this release (CHANGELOG.md line 44). The deep gate at the head that carries those fixes, the canonical mutation run and the pre-tag audit have not run when this record was written. Their findings are recorded here before the tag.
+The findings register in this tree is signed for version `6.6.0` (audit_artifacts/findings_register_361.json, field `version`). The deep gate ran at d8881edc, and its four findings are fixed in pull request 519 (CHANGELOG.md lines 40, 42, 54 and 68). It ran again at c3472f6f and ended in its first iteration with seven findings: six are fixed as classes with their neighbours (CHANGELOG.md lines 80 to 90), and the seventh names the new `executorIds` member of a Trust Pack key, the format extension of this release (CHANGELOG.md line 44). It ran a third time at c71eeb12, the head with those fixes, and ended in its first iteration with five findings: two are fixed (CHANGELOG.md lines 42 and 84), and three stay open as named above. The deep gate at the head that carries these two fixes, the canonical mutation run and the pre-tag audit have not run when this record was written. Their findings are recorded here before the tag.
 
 ## What 6.6.0 does not claim
 
