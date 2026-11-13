@@ -438,7 +438,9 @@ def build_trust_pack_statement(predicate: dict, *, subject_name: str | None = No
 def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None = None,
                     subject_sha256: str | None = None, strict: bool = True) -> dict:
     """Threshold-sign a Trust Pack as a MULTI-signature DSSE in-toto Statement. ``signers`` maps keyId ->
-    Ed25519 private key; each produces a ``{keyid, sig}`` entry over the same PAE. Fail-closed: an invalid
+    Ed25519 private key (or ML-DSA-65 key for an ``mldsa65`` key); each produces a ``{keyid, sig}`` entry over the
+    same PAE. A ``hybrid-ed25519-mldsa65`` key is refused, because its verifier needs a second leg this producer does
+    not write. Fail-closed: an invalid
     predicate raises before signing; a signer keyId not present in the pack's ``keys`` raises (never sign under
     an unknown identity). The predicate is read once (`_read_once`): what is validated is what is
     signed.
@@ -479,6 +481,17 @@ def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None 
     msg = dsse.pae(INTOTO_STATEMENT_PAYLOAD_TYPE, body)
     from .signature import _ed25519_signatur_von, _signaturbytes_von  # noqa: PLC0415
     keys = _as_dict(predicate.get("keys"))
+    # A HYBRID KEY IS NOT SIGNED HERE (deep gate 6.6.0 at c3472f6f, review of the fix of L6 Z7, P1): the loop below
+    # signs each key with one `.sign` and writes one `sig`, and `verify_trust_pack` counts a hybrid-ed25519-mldsa65 key
+    # only with both legs, `sig` and `sigPq` (no downgrade). The pack this function returned for such a key therefore
+    # never met the threshold its own verifier counts. Until this producer writes both legs, it refuses such a signer
+    # before anything is signed; a pack with a hybrid root is built with both legs outside it (RESTRISIKO_660.md).
+    for kid, _sk in paare:
+        kv = keys.get(kid)
+        if isinstance(kv, dict) and kv.get("alg") == "hybrid-ed25519-mldsa65":
+            raise TrustPackError(f"signer {kid!r} names a hybrid-ed25519-mldsa65 key, which verify_trust_pack counts only "
+                                 "with both legs, `sig` and `sigPq`; sign_trust_pack writes one leg, so nothing is "
+                                 "signed")
     # THE PACK IS READ AS ITS VERIFIER READS IT, before anything is signed (deep gate 6.6.0 at c3472f6f, L6 Z7, P1):
     # this producer builds its envelope itself and never passed the preflight of `dsse.sign_envelope`, so a pack whose
     # `nonClaims` holds 800,000 characters was signed and `verify_trust_pack` refused it. Each entry is measured with

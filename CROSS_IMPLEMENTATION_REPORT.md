@@ -123,9 +123,11 @@ Python reading as its expectation. The Rust verifier follows as an item of its o
 receipt as verified only when its predicate also passes the structure check of its own type, the check its standalone
 verifier applies (`decision verify`, `outcome verify` and `relation-statement verify`). `pb_verify_rs` judges an
 attachment by its signature under its key, its strict and canonical payload, its in-toto `_type` and a predicate that
-is an object, and does not run the full predicate schema of a decision or outcome receipt (the registry marks that
-surface PARTIAL). A correctly signed attachment whose predicate fails only that structure check therefore makes
-`verify-relation` and `verify-relation-statement` answer as if it had verified, where Python exits 2. The rule of B22,
+is an object when one is present, and it counts an attachment of all three types without a predicate or with
+`predicate: null` as verified. It does not run the predicate schema of a decision, outcome or relation-statement receipt
+(the registry marks that surface PARTIAL). A correctly signed attachment whose predicate fails only that structure
+check, or that carries none, therefore makes `verify-relation` and `verify-relation-statement` answer as if it had
+verified, where Python exits 2. The rule of B22,
 that an attachment which did not verify fails the requested lineage check also where no edge names it, holds in both
 since 6.6.0, and `tools/pb_verify_rs/crosscheck.py` holds it at all three surfaces. The Rust verifier follows for the
 structure check as an item of its own, and R4 is removed with it.

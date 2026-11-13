@@ -92,3 +92,71 @@ def test_a_producer_refuses_or_its_verifier_accepts_at_every_size(name):
     # ANTI-PARITY: the sweep crosses the edge, so both outcomes occur; a sweep that only ever refuses or only ever
     # accepts would hold the property trivially and prove nothing about the edge.
     assert angenommen and abgelehnt, (name, angenommen, abgelehnt)
+
+
+# ── the hybrid neighbour (review of the fix of Z7, round 1, P1) ─────────────────────────────────────────────────────
+# `sign_trust_pack` signed a declared hybrid-ed25519-mldsa65 key through one `.sign` and wrote only `sig`;
+# `verify_trust_pack` counts such a key only with `sig` AND `sigPq`, so the pack it returned never met its threshold.
+# The producer now refuses such a signer before anything is signed.
+try:
+    from cryptography.hazmat.primitives.asymmetric import mldsa as _mldsa  # noqa: F401
+    _HAT_MLDSA = True
+except ImportError:
+    _HAT_MLDSA = False
+
+
+def _hybrid_pack(*, mit_ed25519: bool = False) -> tuple:
+    from proofbundle.pqsig import generate_mldsa
+    ed, pq = Ed25519PrivateKey.from_private_bytes(b"\x08" * 32), generate_mldsa("mldsa65")
+    keys = {"root-hybrid": {"publicKey": base64.b64encode(ed.public_key().public_bytes_raw()).decode("ascii"),
+                            "publicKeyPq": base64.b64encode(pq.public_key().public_bytes_raw()).decode("ascii"),
+                            "alg": "hybrid-ed25519-mldsa65"}}
+    root = ["root-hybrid"]
+    if mit_ed25519:
+        keys["root-ed"] = {"publicKey": base64.b64encode(_PUB).decode("ascii")}
+        root.append("root-ed")
+    predicate = {"schemaVersion": "0.1.0", "trustPackId": "urn:test:hybrid", "version": 1,
+                 "expires": "2099-01-01T00:00:00Z", "prevVersionDigest": None,
+                 "roles": {"root": {"keyIds": root, "threshold": len(root)}}, "keys": keys,
+                 "nonClaims": ["Threshold signing only."]}
+    return predicate, ed, pq
+
+
+@pytest.mark.skipif(not _HAT_MLDSA, reason="needs cryptography with FIPS 204 (ML-DSA)")
+@pytest.mark.parametrize("gemischt", [False, True], ids=["hybrid-alone", "hybrid-and-ed25519"])
+def test_a_hybrid_key_is_refused_before_anything_is_signed(gemischt):
+    from proofbundle.trust_pack import TrustPackError, sign_trust_pack
+    predicate, ed, _pq = _hybrid_pack(mit_ed25519=gemischt)
+    gerufen = []
+
+    class Zaehler:
+        def __init__(self, sk):
+            self.sk = sk
+
+        def sign(self, msg):
+            gerufen.append(1)
+            return self.sk.sign(msg)
+
+    signers = {"root-hybrid": Zaehler(ed)}
+    if gemischt:
+        signers["root-ed"] = Zaehler(_SK)
+    with pytest.raises(TrustPackError, match="hybrid-ed25519-mldsa65 key, which verify_trust_pack counts only"):
+        sign_trust_pack(predicate, signers)
+    assert gerufen == [], "nothing is signed before the refusal"
+
+
+@pytest.mark.skipif(not _HAT_MLDSA, reason="needs cryptography with FIPS 204 (ML-DSA)")
+def test_a_hybrid_pack_with_both_legs_still_verifies():
+    """ANTI-PARITY: the verifier is unchanged; a pack whose hybrid entry carries `sig` and `sigPq`, built outside the
+    producer, verifies as before."""
+    from proofbundle import dsse
+    from proofbundle.trust_pack import INTOTO_STATEMENT_PAYLOAD_TYPE, _rfc8785_bytes, build_trust_pack_statement
+    from proofbundle.trust_pack import verify_trust_pack
+    predicate, ed, pq = _hybrid_pack()
+    body = _rfc8785_bytes(build_trust_pack_statement(predicate))
+    msg = dsse.pae(INTOTO_STATEMENT_PAYLOAD_TYPE, body)
+    umschlag = {"payload": base64.b64encode(body).decode("ascii"), "payloadType": INTOTO_STATEMENT_PAYLOAD_TYPE,
+                "signatures": [{"keyid": "root-hybrid", "sig": base64.b64encode(ed.sign(msg)).decode("ascii"),
+                                "sigPq": base64.b64encode(bytes(pq.sign(msg))).decode("ascii")}]}
+    r = verify_trust_pack(umschlag, strict=True, now=_JETZT)
+    assert r["ok"] is True, r.get("errors")
