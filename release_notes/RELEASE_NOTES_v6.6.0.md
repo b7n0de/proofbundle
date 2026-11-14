@@ -13,19 +13,19 @@ python -m pip install --upgrade proofbundle==6.6.0
 
 ## Verify this release yourself
 
-Use the checksums and build provenance to check the downloaded files. To check the signed pre-tag audit receipt, use a clone at the source commit identified by the build attestation. The commands, prerequisites and limits are in [Verifying a published release](https://github.com/b7n0de/proofbundle/blob/eca7ed9e082937d61615043b4965ec5884331971/RELEASE.md#verifying-a-published-release-anyone).
+Use the checksums and build provenance to check the downloaded files. To check the signed pre-tag audit receipt, use a clone at the source commit identified by the build attestation. The commands, prerequisites and limits are in [Verifying a published release](https://github.com/b7n0de/proofbundle/blob/e1b747e69ba03fab75ec5a4c73661b498b0ce3b8/RELEASE.md#verifying-a-published-release-anyone).
 
 ## What a receipt still does not prove
 
 A valid signature binds the signed content to the signing key. It does not make a reported result true.
 
-`decision verify` and `outcome verify` perform the steps of draft-gruszka-audit-decision-receipts only where their inputs are supplied, and they are not a complete implementation of the draft's procedure. Section 3.1 requires the expected `executor.id` and, for Case 1, the approval record bytes, so a pass without them is not a pass of the draft's procedure. Even with every input supplied, a receipt the draft rejects can pass them, for example with an evaluation time before `decidedAt` outside Case 1. [What proofbundle does not claim](https://github.com/b7n0de/proofbundle/blob/eca7ed9e082937d61615043b4965ec5884331971/docs/NON_CLAIMS.md#steps-of-draft-gruszka-audit-decision-receipts-that-proofbundle-performs-only-with-their-inputs) lists measured examples.
+`decision verify` and `outcome verify` perform the steps of draft-gruszka-audit-decision-receipts only where their inputs are supplied, and they are not a complete implementation of the draft's procedure. Section 3.1 requires the expected `executor.id` and, for Case 1, the approval record bytes, so a pass without them is not a pass of the draft's procedure. Even with every input supplied, a receipt the draft rejects can pass them, for example with an evaluation time before `decidedAt` outside Case 1. [What proofbundle does not claim](https://github.com/b7n0de/proofbundle/blob/e1b747e69ba03fab75ec5a4c73661b498b0ce3b8/docs/NON_CLAIMS.md#steps-of-draft-gruszka-audit-decision-receipts-that-proofbundle-performs-only-with-their-inputs) lists measured examples.
 
 proofbundle reads a supplied consumption state and never writes it. Honouring an approval at most once stays with the relying party. An identifier a Trust Pack names in `executorIds` is a permission the pack grants to the key, not proof that the signer is that executor.
 
 ## Measured on the reference machine
 
-The budget cost axis was measured on the reference machine on 2026-11-14 using the code at 397f5171. The record identifies the run as a reference measurement (`ist_referenzmessung=true`). All 12 expected axes and all 7 expected combinations passed, and no axis was skipped. The recorded calibration factor `maschinenfaktor_schnellstes_ende` is 1.0, and the timing-limit setting is `latte_aus_der_klammer=schnellstes_ende`. These results apply to the listed axes and combinations, not to every reader or input. The [measurement record](https://github.com/b7n0de/proofbundle/blob/eca7ed9e082937d61615043b4965ec5884331971/audit_artifacts/360/budget_axis_latest.json) lists every axis and combination.
+The budget cost axis was measured on the reference machine on 2026-11-14 using the code at 397f5171. The record identifies the run as a reference measurement (`ist_referenzmessung=true`). All 12 expected axes and all 7 expected combinations passed, and no axis was skipped. The recorded calibration factor `maschinenfaktor_schnellstes_ende` is 1.0, and the timing-limit setting is `latte_aus_der_klammer=schnellstes_ende`. These results apply to the listed axes and combinations, not to every reader or input. The [measurement record](https://github.com/b7n0de/proofbundle/blob/e1b747e69ba03fab75ec5a4c73661b498b0ce3b8/audit_artifacts/360/budget_axis_latest.json) lists every axis and combination.
 
 ## Details
 
@@ -80,7 +80,7 @@ The budget cost axis was measured on the reference machine on 2026-11-14 using t
 
 </details>
 
-[Full changelog](https://github.com/b7n0de/proofbundle/blob/eca7ed9e082937d61615043b4965ec5884331971/CHANGELOG.md) · [Known limitations for 6.6.0](https://github.com/b7n0de/proofbundle/blob/eca7ed9e082937d61615043b4965ec5884331971/RESTRISIKO_660.md) · [Earlier risk record](https://github.com/b7n0de/proofbundle/blob/eca7ed9e082937d61615043b4965ec5884331971/RESTRISIKO_650.md) · [Release scope](https://github.com/b7n0de/proofbundle/blob/eca7ed9e082937d61615043b4965ec5884331971/docs/release_scope/6.6.0.md) · [proofbundle.dev](https://proofbundle.dev)
+[Full changelog](https://github.com/b7n0de/proofbundle/blob/e1b747e69ba03fab75ec5a4c73661b498b0ce3b8/CHANGELOG.md) · [Known limitations for 6.6.0](https://github.com/b7n0de/proofbundle/blob/e1b747e69ba03fab75ec5a4c73661b498b0ce3b8/RESTRISIKO_660.md) · [Earlier risk record](https://github.com/b7n0de/proofbundle/blob/e1b747e69ba03fab75ec5a4c73661b498b0ce3b8/RESTRISIKO_650.md) · [Release scope](https://github.com/b7n0de/proofbundle/blob/e1b747e69ba03fab75ec5a4c73661b498b0ce3b8/docs/release_scope/6.6.0.md) · [proofbundle.dev](https://proofbundle.dev)
 
 The plugins under `plugins/` are not part of this package. They are released on their own, with release notes of their own.
 
