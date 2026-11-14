@@ -131,13 +131,49 @@
     {
       "rule": "file",
       "module": "proofbundle.emit",
+      "operation": "import tempfile",
+      "count": 1
+    },
+    {
+      "rule": "file",
+      "module": "proofbundle.emit",
+      "operation": "os.chmod",
+      "count": 1
+    },
+    {
+      "rule": "file",
+      "module": "proofbundle.emit",
       "operation": "os.fdopen",
       "count": 1
     },
     {
       "rule": "file",
       "module": "proofbundle.emit",
-      "operation": "os.open",
+      "operation": "os.link",
+      "count": 1
+    },
+    {
+      "rule": "file",
+      "module": "proofbundle.emit",
+      "operation": "os.path.lexists",
+      "count": 1
+    },
+    {
+      "rule": "file",
+      "module": "proofbundle.emit",
+      "operation": "os.replace",
+      "count": 1
+    },
+    {
+      "rule": "file",
+      "module": "proofbundle.emit",
+      "operation": "os.unlink",
+      "count": 1
+    },
+    {
+      "rule": "file",
+      "module": "proofbundle.emit",
+      "operation": "tempfile.mkstemp",
       "count": 1
     },
     {
