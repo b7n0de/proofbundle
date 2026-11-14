@@ -132,13 +132,15 @@
       "rule": "file",
       "module": "proofbundle.emit",
       "operation": "import tempfile",
-      "count": 1
+      "count": 1,
+      "reason": "fix of L2 C4 of the deep gate at 41959070 (pull request 524): save_signer writes the key to a new file it creates exclusively (tempfile.mkstemp), with mode 0600 and without following a link, and puts it in place in one step with os.replace or os.link; the temporary file is removed in every case"
     },
     {
       "rule": "file",
       "module": "proofbundle.emit",
       "operation": "os.chmod",
-      "count": 1
+      "count": 1,
+      "reason": "fix of L2 C4 of the deep gate at 41959070 (pull request 524): save_signer writes the key to a new file it creates exclusively (tempfile.mkstemp), with mode 0600 and without following a link, and puts it in place in one step with os.replace or os.link; the temporary file is removed in every case; os.chmod is the fallback for a platform without os.fchmod"
     },
     {
       "rule": "file",
@@ -150,31 +152,36 @@
       "rule": "file",
       "module": "proofbundle.emit",
       "operation": "os.link",
-      "count": 1
+      "count": 1,
+      "reason": "fix of L2 C4 of the deep gate at 41959070 (pull request 524): save_signer writes the key to a new file it creates exclusively (tempfile.mkstemp), with mode 0600 and without following a link, and puts it in place in one step with os.replace or os.link; the temporary file is removed in every case"
     },
     {
       "rule": "file",
       "module": "proofbundle.emit",
       "operation": "os.path.lexists",
-      "count": 1
+      "count": 1,
+      "reason": "fix of L2 C4 of the deep gate at 41959070 (pull request 524): save_signer writes the key to a new file it creates exclusively (tempfile.mkstemp), with mode 0600 and without following a link, and puts it in place in one step with os.replace or os.link; the temporary file is removed in every case"
     },
     {
       "rule": "file",
       "module": "proofbundle.emit",
       "operation": "os.replace",
-      "count": 1
+      "count": 1,
+      "reason": "fix of L2 C4 of the deep gate at 41959070 (pull request 524): save_signer writes the key to a new file it creates exclusively (tempfile.mkstemp), with mode 0600 and without following a link, and puts it in place in one step with os.replace or os.link; the temporary file is removed in every case"
     },
     {
       "rule": "file",
       "module": "proofbundle.emit",
       "operation": "os.unlink",
-      "count": 1
+      "count": 1,
+      "reason": "fix of L2 C4 of the deep gate at 41959070 (pull request 524): save_signer writes the key to a new file it creates exclusively (tempfile.mkstemp), with mode 0600 and without following a link, and puts it in place in one step with os.replace or os.link; the temporary file is removed in every case"
     },
     {
       "rule": "file",
       "module": "proofbundle.emit",
       "operation": "tempfile.mkstemp",
-      "count": 1
+      "count": 1,
+      "reason": "fix of L2 C4 of the deep gate at 41959070 (pull request 524): save_signer writes the key to a new file it creates exclusively (tempfile.mkstemp), with mode 0600 and without following a link, and puts it in place in one step with os.replace or os.link; the temporary file is removed in every case"
     },
     {
       "rule": "file",
