@@ -365,11 +365,18 @@ def test_junit_counts_rejects_a_report_that_does_not_carry_the_call_name(tmp_pat
 # --- signed and declared -------------------------------------------------------------------------------
 
 def _sign_and_declare(env: dict, repo: pathlib.Path, statement: pathlib.Path, tmp_path: pathlib.Path) -> None:
-    """Sign with the package's emit command, as the README says, pin the key and declare the bundle."""
+    """Sign with the package's emit command, as the README says, pin the key and declare the bundle.
+
+    Each call mints its key into a file of its own: since 6.6.0 ``--new-key`` refuses a path that exists, and a
+    test that signs twice would otherwise ask it to replace the first key."""
     (repo / ".proofbundle").mkdir(exist_ok=True)
+    key_file, n = tmp_path / "signing.key", 1
+    while os.path.lexists(key_file):
+        n += 1
+        key_file = tmp_path / f"signing-{n}.key"
     subprocess.run([sys.executable, "-c", "import sys; from proofbundle.cli import main; sys.exit(main())", "emit",
                     "--payload-file", str(statement), "--out", str(repo / BUNDLE),
-                    "--new-key", str(tmp_path / "signing.key")], env=env, check=True, capture_output=True)
+                    "--new-key", str(key_file)], env=env, check=True, capture_output=True)
     key = json.loads((repo / BUNDLE).read_text())["signature"]["public_key_b64"]
     digest = json.loads(statement.read_text())["subject"]["digest"]
     _write(repo / POLICY, json.dumps({"schema": "proofbundle/trust-policy/v0.1", "policy_id": "run-test",

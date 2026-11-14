@@ -36,10 +36,11 @@ A Trust Pack key attests only the `executor.id` values its `executorIds` name; a
 
 proofbundle reads a supplied consumption state and never writes it. Marking an approval consumed durably, and keeping the state, stay with the relying party; a pass says only that the approval identity is not in the state given (docs/NON_CLAIMS.md lines 120 to 122; CHANGELOG.md line 21).
 
-### The Rust verifier differs in two places
+### The Rust verifier differs in three places
 
 - `pb_verify_rs` still reads an abbreviated long option as argparse with `allow_abbrev=True` does. CROSS_IMPLEMENTATION_REPORT.md names this difference R3, and the Rust verifier follows as an item of its own (docs/release_scope/6.6.0.md line 18; CROSS_IMPLEMENTATION_REPORT.md lines 116 to 120).
 - `pb_verify_rs` applies the rule of B22 as the three Python commands do, but does not apply the structure check of its type to an attached receipt. CROSS_IMPLEMENTATION_REPORT.md names this difference R4, and the Rust verifier follows as an item of its own (CHANGELOG.md line 40; CROSS_IMPLEMENTATION_REPORT.md lines 122 to 133).
+- `pb_verify_rs verify-dsse` reads its envelope and the first key and leaves every further word unread: with a valid envelope and key it exits 0 also when a second key, `--with-related` with `--related-pub`, or any other word follows, measured at the head of this release with the binary built from its source. CROSS_IMPLEMENTATION_REPORT.md says the Rust verifier refuses an option it does not read instead of dropping it (lines 103 to 106); this command does not. The pairing check of `--related-pub` holds in both relation commands (CHANGELOG.md line 42). A review of this release named `verify-trust-pack-threshold` and two SCITT commands as the same form, from their source, not measured. Under the rule for this release a difference in the Rust cross-verifier is a register row; it is open for the first cycle after the tag.
 
 ### proofbundle scitt match is experimental
 
@@ -50,6 +51,27 @@ proofbundle reads a supplied consumption state and never writes it. Marking an a
 - The rule that a producer writes only a signer's output of 64 bytes covers the Ed25519 producers. The ML-DSA signatures of `cosign_checkpoint_mldsa` and `pqsig.sign_mldsa` are not part of it (CHANGELOG.md line 66).
 - `emit_bundle` applies the structural budget of `verify_bundle` before it signs. The byte limit of a serialized file is not part of this check (CHANGELOG.md line 64).
 - `sign_trust_pack` does not sign with a `hybrid-ed25519-mldsa65` key. It writes one signature per key, and `verify_trust_pack` counts a hybrid key only with both legs, so the producer refuses such a signer before anything is signed, also one the other signers would not need. A pack may still declare a hybrid key that does not sign; where its signature must count, the pack is built with both legs outside the producer (CHANGELOG.md line 84).
+
+### Three findings of the deep gate at c71eeb12 stay open
+
+The deep gate at c71eeb12 confirmed five counterexamples in its first iteration. Two are fixed before the tag (CHANGELOG.md lines 42 and 84). By the owner's choice on that run, the three below stay open for the first cycle after the tag. Each gives the same result at c71eeb12, at c3472f6f and at v6.5.0, so none came with 6.6.0:
+
+- `present_with_key_binding` signs a KB-JWT presentation with an empty `aud` or an empty `nonce` (src/proofbundle/sdjwt_issue.py line 401), which `verify_key_binding` refuses as "KB-JWT aud missing or not a single string" and "KB-JWT nonce missing" (src/proofbundle/kbjwt.py lines 255 and 258). The producer gives out what its own verifier refuses; the verifier refuses it.
+- `verify_trace_record` reports an unknown JWS header member of 300 characters as a path of 307 characters in `unknown_fields`, past the bound of 257 characters that its other reported paths keep, because this one path is built without that bound (src/proofbundle/adapters/trace_record.py line 923). The token is refused. Two readings of it stand: the lens read the bound as one of the shipped verifier for every reported path; the shipped source and CHANGELOG.md line 46 declare 257 characters only for the paths of the structure check (src/proofbundle/adapters/trace_record.py lines 176 to 187), and the header reader documents its entries as `("header.<name>", False)` with the whole name (lines 891 to 892). Beside it, not measured: the message of the same check names those members without shortening them (line 925).
+- `measure_vector_set` accepts a manifest whose named case is itself a link to a directory the manifest does not name, and measures the files of that directory (src/proofbundle/verifier_block.py line 349); a link below a named case is refused.
+
+Under the rule that P0 and P1 are reserved for the wheel on PyPI, the lens and the release author read their severity differently, so a third reader, who knew neither reading, staged them: all three P2. None changes a verdict, an exit code, a declared bound or a security property of the shipped verifier.
+
+### Two findings of a reading of the targets at c71eeb12
+
+A separate reading of five targets at c71eeb12, before the next deep gate, measured two findings, both P3 and both with the same result at c3472f6f and at v6.5.0:
+
+- `verify_outcome_receipt` with a Trust Pack anchored by its digest alone trusts an outcome under a second key entry that carries the same public key as an entry with `executorIds` but no `executorIds` of its own: `executor_role_trusted` is true for an `executor.id` the first entry does not name, with the warning `EXECUTOR_ID_NOT_BOUND` (src/proofbundle/outcome.py line 1219). `validate_trust_pack_predicate` refuses such a pack because the two entries share key material (src/proofbundle/trust_pack.py line 280), and the digest anchor does not run it. The limit above, that a key entry without `executorIds` binds no identifier, covers the result; only the holders of the root keys can build such a pack.
+- `outcome verify` without `--expected-decision-ref` and without `--decision` ends with exit 0 and the sentence "This proves who signed what happened, bound to the referenced decision." (src/proofbundle/cli.py line 3225), although no binding to a decision was checked. Its exit code and verdict are right; the sentence says more than was checked, the class of the closing sentence the deep gate at c3472f6f found (CHANGELOG.md line 82). Every closing sentence against what its command checked is an item for the first cycle after the tag.
+
+### A neighbour of the save_signer fix in the guard plugin
+
+The deep gate at 41959070 measured that `save_signer` set mode 0600 only on a file it created, followed a symbolic link at its path and let `--new-key` replace an existing key file; this release fixes it (CHANGELOG.md line 92). The key tool of the guard plugin's done check runs `save_signer` of the pinned proofbundle 6.5.0 only when `os.path.exists` reports the path absent (plugins/proofbundle-guard/hooks/proofbundle_gate.py lines 23204 to 23214). `os.path.exists` follows a link, so for a dangling link at the key path the 6.5.0 function writes the seed into the link's target. This is read from the source and not run through the tool. The 6.5.0 function opens the path with the same call as the one at 41959070 (src/proofbundle/emit.py line 85 at v6.5.0, line 87 at 41959070), where the new test measures the link followed. It ends with the commit that moves the plugin pins to 6.6.0, as in the pin case below. P3.
 
 ### Pre-tag receipts of earlier releases
 
@@ -65,7 +87,7 @@ Expected from the rule the test states, not measured. `tests/test_plugin_pin_is_
 
 ### Not measured at this snapshot
 
-The findings register in this tree is signed for version `6.6.0` (audit_artifacts/findings_register_361.json, field `version`). The deep gate ran at d8881edc, and its four findings are fixed in pull request 519 (CHANGELOG.md lines 40, 42, 54 and 68). It ran again at c3472f6f and ended in its first iteration with seven findings: six are fixed as classes with their neighbours (CHANGELOG.md lines 80 to 90), and the seventh names the new `executorIds` member of a Trust Pack key, the format extension of this release (CHANGELOG.md line 44). The deep gate at the head that carries those fixes, the canonical mutation run and the pre-tag audit have not run when this record was written. Their findings are recorded here before the tag.
+The findings register in this tree is signed for version `6.6.0` (audit_artifacts/findings_register_361.json, field `version`). The deep gate ran at d8881edc, and its four findings are fixed in pull request 519 (CHANGELOG.md lines 40, 42, 54 and 68). It ran again at c3472f6f and ended in its first iteration with seven findings: six are fixed as classes with their neighbours (CHANGELOG.md lines 80 to 90), and the seventh names the new `executorIds` member of a Trust Pack key, the format extension of this release (CHANGELOG.md line 44). It ran a third time at c71eeb12, the head with those fixes, and ended in its first iteration with five findings: two are fixed (CHANGELOG.md lines 42 and 84), and three stay open as named above. The deep gate at the head that carries these two fixes, the canonical mutation run and the pre-tag audit have not run when this record was written. Their findings are recorded here before the tag.
 
 ## What 6.6.0 does not claim
 
