@@ -920,8 +920,9 @@ def _cap_the_address_space_of_the_child() -> None:
 #: THE BASELINE LIMIT WAS 5400 S UNTIL 6.6.0 (owner card OA-26aee97e98, 2026-11-06). On the 6.5.0
 #: candidate 65bd4b7a the second full mutation run stopped with all 8 baselines past 5400 s, NOT
 #: MEASURABLE, because the suite had grown by about 60 % since 6.4.0. Run 5 of 6.5.0 set 10800 s at run
-#: time and gave its verdict: 117 operators, 0 gaps. The same number now stands here, so the run at a
-#: candidate needs no overlay.
+#: time. Six of its eight shards ended with a verdict; shards 5 and 6 ran again as six groups, and the
+#: twelve logs together ended with 117 operators and no gap. The same limit now stands here, so a
+#: candidate needs no overlay to set it.
 GRENZE_JE_LAUF = 3600
 GRENZE_BASISLINIE = 10800
 FAKTOR_JE_MUTANT = 1.5
