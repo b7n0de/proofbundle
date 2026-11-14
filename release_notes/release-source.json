@@ -5,7 +5,7 @@
   "version": "6.6.0",
   "vorheriger_tag": "v6.5.0",
   "tag": "v6.6.0",
-  "release_commit": "b3777ff6b123c63f7b137df8b8bb3a7c13569967",
+  "release_commit": "8cb12f94e54a83a99fb5809147b8b06570293b30",
   "kopfsatz": "**A feature release following 6.5.0, with the relying party's inputs for decision and outcome receipts and stricter checks across the verifiers and producers.** `decision verify` and `outcome verify` take the inputs of the offline verification of draft-gruszka-audit-decision-receipts-07, a Trust Pack can bind an executor key to the executor ids it attests, and an experimental `proofbundle scitt match` reports the axes of draft-gruszka-scitt-statement-identification-03. The command line no longer reads an abbreviated long option as the option it prefixes, so a caller that used an abbreviation must write the full option. Producers in the package now refuse, before signing, what their own verifiers would refuse over budget or at the wrong signature length; the CHANGELOG names each case and what stays with the verifier.",
   "highlights": [
     {
