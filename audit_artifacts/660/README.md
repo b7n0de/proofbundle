@@ -19,7 +19,7 @@ The pre-tag receipt is to be produced from a fresh checkout of the final release
 | Record | Status in this preparation snapshot |
 |---|---|
 | Final pre-tag audit and signed receipt | Pending |
-| Reference measurement of the budget cost axis | Measured on the reference machine on 2026-11-14 using the code at 397f5171, while the one-minute load average of the machine was between 6.47 and 8.84; all 12 expected axes and all 7 expected combinations passed and no axis was skipped, from [the measurement record](../360/budget_axis_latest.json). Two further runs directly after it gave the same verdict for every axis and combination, see [runs 2 and 3](budget_axis_runs_2_and_3.json) |
+| Reference measurement of the budget cost axis | Measured on the reference machine on 2026-11-14 using the code at 397f5171, while the one-minute load average of the machine was between 6.47 and 8.84; all 12 expected axes and all 7 expected combinations passed and no axis was skipped, from [the measurement record](../360/budget_axis_latest.json). Two further runs directly after it, until 05:37:06Z, gave the same verdict for every axis and combination, with the factor 1.0 at the fastest end in both and 1.0 and 1.0031 at the median |
 | Short soak at the release candidate (C6.2) and Rust differential (C8.2), signed and bound to the candidate | Pending |
 | Full 24-hour soak (C6.3) | Informative since 6.6.0; it runs beside the release and does not withhold readiness |
 | Findings register signed for 6.6.0 | Recorded; its canonical body is signed for version `6.6.0` |
