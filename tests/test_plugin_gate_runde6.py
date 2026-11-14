@@ -316,7 +316,7 @@ def test_r6_1_a_gated_mcp_write_is_not_measured_whatever_the_local_repository(tm
     answer = _mcp(repo, tool, host)
     specific = answer["hookSpecificOutput"]
     assert specific.get("permissionDecision") == expected, answer
-    assert specific["additionalContext"].startswith("NOT MEASURED:"), answer   # D53: the model's long reason
+    assert long_text(answer).startswith("NOT MEASURED:"), answer   # D53, D136: the long reason after the verdict
     assert "Diagnosis only" in long_text(answer), answer
 
 

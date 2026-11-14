@@ -53,7 +53,7 @@ import proofbundle
 from proofbundle.decision import emit_decision_receipt
 from proofbundle.emit import emit_bundle, generate_signer
 from _plugin_env import plugin_env
-from _gate_answer import Silent, long_text, parsed, run_hook, short_text, skip_where_the_gate_is_not_shipped
+from _gate_answer import Silent, long_text, model_text, parsed, run_hook, short_text, skip_where_the_gate_is_not_shipped
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "proofbundle"
@@ -239,7 +239,7 @@ def decision(answer: dict | None) -> str:
     assert got in ("deny", "ask", "pass"), "the gate must never answer allow"
     if got != "pass":
         # D53: the dialog of an ask shows the short line; a deny gives the model the long reason
-        assert specific["permissionDecisionReason"] == (answer["systemMessage"] if got == "ask" else message)
+        assert specific["permissionDecisionReason"] == (answer["systemMessage"] if got == "ask" else model_text(answer))
         for part in ("Evidence: ", ". Failed: ", ". Next step: ", WEAKEN_RULE, " Details: "):
             assert part in message, (part, message)
         return got

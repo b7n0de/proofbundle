@@ -22,6 +22,7 @@ import pytest
 from _owner_state import owner_state_protected  # noqa: F401 - D124: a person's mode and rules are read
 
 import test_claude_code_plugin_gate as cg
+from _gate_answer import model_reason, reason_of
 from _plugin_env import plugin_env
 
 GATE = cg.GATE
@@ -154,7 +155,7 @@ def test_inactive_shows_once_per_session_and_repository(shim, plain, tmp_path):
     _out, first = run(env, plain, event=event)
     assert first is not None and "permissionDecision" not in first["hookSpecificOutput"], first
     assert short(first).startswith("Gate is not active here because the repository declares no evidence (D5)")
-    assert "NOT MEASURED" in first["hookSpecificOutput"]["additionalContext"]
+    assert "NOT MEASURED" in reason_of(first["hookSpecificOutput"]["additionalContext"], "inactive")   # D136
     assert run(env, plain, event=event) == ("", None)
     assert run(env, plain, event={**event, "tool_input": {"command": "git push origin HEAD:other"}}) == ("", None)
     assert run(env, plain, event={**event, "session_id": "s2"})[1] is not None
@@ -182,7 +183,7 @@ def test_an_ask_shows_the_short_line_and_gives_the_model_the_long_reason(shim, r
     assert line == ("Gate asks at git stash because git can start a program from a setting or hook of the clone nobody "
                     "checked (D3)."), line   # D116: what can go wrong, before the D number
     assert specific["permissionDecision"] == "ask" and specific["permissionDecisionReason"] == line
-    assert specific["additionalContext"].startswith("NOT MEASURED: the step `git stash list` of this command asks")
+    assert model_reason(answer).startswith("NOT MEASURED: the step `git stash list` of this command asks")   # D136
     assert "Next step: " in specific["additionalContext"]
 
 
@@ -193,7 +194,7 @@ def test_the_short_line_is_german_where_a_person_set_it(shim, repo, tmp_path):
     german(line)
     assert line == ("Tor fragt bei git stash, weil git ein ungeprüftes Programm aus Einstellung oder Haken des Klons "
                     "starten kann (D3)."), line   # D116
-    assert answer["hookSpecificOutput"]["additionalContext"].startswith("NOT MEASURED: ")   # the model's text stays
+    assert model_reason(answer).startswith("NOT MEASURED: ")   # the model's text stays, after its verdict (D136)
 
 
 @pytest.mark.parametrize("word", ["fr", "", "de de", "x" * 100])
@@ -230,7 +231,7 @@ def test_under_codex_an_ask_is_a_deny_with_the_short_line_and_the_codex_sentence
     specific = answer["hookSpecificOutput"]
     line = short(answer)
     assert specific["permissionDecision"] == "deny" and specific["permissionDecisionReason"] == line
-    assert specific["additionalContext"].endswith("Codex cannot ask, so the gate denies the call.")
+    assert model_reason(answer).endswith("Codex cannot ask, so the gate denies the call.")   # D136: a deny first
     if language == "de":
         german(line)
         # D116: the danger and its D number stay whole, so a German line that cannot hold the long Codex sentence takes
@@ -248,7 +249,7 @@ def test_under_codex_a_plain_push_warns_with_the_short_line(shim, repo, tmp_path
     specific = answer["hookSpecificOutput"]
     line = short(answer)
     assert "permissionDecision" not in specific
-    assert specific["additionalContext"].endswith(gate.CODEX_PUSH_WARNING)
+    assert model_reason(answer).endswith(gate.CODEX_PUSH_WARNING)   # D136: the warning verdict first
     assert line == ("Tor warnt bei git push, weil das Tor unter Codex nicht weiß, in welchem Repository der Aufruf "
                     "wirkt (D12)." if language == "de" else
                     "Gate warns at git push because under Codex the gate cannot tell in which repository the call "
@@ -264,7 +265,7 @@ def test_a_hand_over_shows_the_short_line(language, tmp_path, monkeypatch):
     outcome = gate.Outcome("handover", text, [gate.Verdict("handover", text, "handed_over")])
     answer = gate.pre_tool_answer(outcome, "claude", {}, "git push", environ={"PROOFBUNDLE_GATE_DIR": str(gate_dir)})
     assert "permissionDecision" not in answer["hookSpecificOutput"]
-    assert answer["hookSpecificOutput"]["additionalContext"] == text
+    assert reason_of(answer["hookSpecificOutput"]["additionalContext"], "handover") == text   # D136
     assert short(answer) == ("Tor übergibt git push an die Prüfung beim Push (D35)." if language == "de" else
                              "Gate hands git push over to the pre-push check (D35).")
 

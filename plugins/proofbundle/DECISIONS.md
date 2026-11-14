@@ -6999,3 +6999,68 @@ API no longer lists them (measured above). That gap is older than this rule and 
 decision and counts under M5; a test pins that limit, so that a fix of the observer changes it knowingly.
 
 Tests: tests/test_plugin_guard_trace_context_and_merge_digest_d135.py.
+
+## D136. Every text the model gets about a call the gate judges begins with the verdict (finding GF-E001, owner choice of 2026-11-10)
+
+Finding GF-E001 of echo's guard findings, from a real demonstration session on 2026-11-04 (case 1): the hook answered
+`ask` to `gh pr comment` with the reason id net_unmodeled_git. The user's short line said that the gate asks (D53). The
+model got only additionalContext, which began with `NOT MEASURED: Evidence: a git or gh command, or an unevaluable
+quote, the gate could not resolve.`, and the agent wrote into its transcript that the gate had not escalated. The signed
+receipt of the call recorded `"verdict": "ESCALATE"` with reasonCodes `["net_unmodeled_git"]`. echo measured the same
+text for a plain `gh pr comment 1 --repo … --body "x"`, so it did not come from the quote in the comment. Owner choice
+GF-E001-ZEITPUNKT of 2026-11-10: fixed in a pull request of its own, not with plugin 0.4.1.
+
+The class is the first words, not the one text. Before D136 no text the model got about a call named the decision
+first: an ask and an inactive gate began with NOT MEASURED (Verdict.text, _sh_steps_reason), a deny with
+`proofbundle gate:` and parts marked NOT MEASURED after it, a warning under Codex with NOT MEASURED, and a D81 hint
+beside a pass or an inactive gate already shown stood alone. Only the user's short line named the decision.
+
+The rule:
+- Every text the gate gives the model about a call it judges begins with one verdict sentence. Where the reason has a
+  part marked NOT MEASURED, one sentence on what that mark is follows. Then come `Reason: ` and the reason as before.
+- The verdict sentence is fixed per decision the host enforces (_VERDICT_FIRST): `Verdict: the gate asks (ESCALATE);
+  the host asks a person whether the call runs, and a run without a dialog (claude -p) refuses it.`,
+  `Verdict: the gate blocks the call (DENY); it does not run.`,
+  `Verdict: the gate passes the call (ALLOW) and makes no permission decision; the call runs as the host allows.`, and
+  one each for the warning, the hand-over (D35) and the inactive gate (D5), each saying that the gate makes no
+  permission decision. The word in brackets is the one a receipt of Level 1 records for that decision. It is read from
+  the table the receipt reads (_PILOT_VERDICTS), so the text and a receipt cannot name two verdicts, and a decision
+  without a receipt word has none. Under Codex an ask is a deny before the sentence is chosen (D12), as its receipt
+  says DENY (D55).
+- The sentence on the mark: `A part marked NOT MEASURED names a check the gate could not complete: it is a reason for
+  this verdict, not a verdict of its own.`
+- verdict_sentence and verdict_first write the sentences. answer() applies verdict_first to additionalContext and with
+  it to the long reason of a deny under Claude Code (permissionDecisionReason). pre_tool_answer applies it to the three
+  passes that give the model a text: a rule (D25), a hint (D105), and a GO, a machine check or a release (D92, D111).
+  Where answer() gets no short line, the user's line is that text too.
+- The D81 hints follow the answer's text (hints_after_the_verdict). Where the answer gives the model no text, a pass
+  (D53) or an inactive gate already shown in the session, they follow the outcome's verdict sentence. The person still
+  sees nothing there. Only beside a call the gate does not judge, which has no verdict, does a hint stand alone and
+  name itself `proofbundle hint (D81)`.
+- Nothing else changes. The decision, the reason ids, the log line (D21), the receipt and the signer service's own
+  decision (D58) read the outcome, never the printed text. The user's short line (D53) and the rewrite hint (D85) stay
+  as they were.
+- Outside the rule: the hand-over of open points at SessionStart (D127), which judges no call, and the Stop hook, which
+  judges the end of a session and not a call. A blocked end gives the model a reason that names its check:
+  `proofbundle done check: <open point>. Next: <command>.` for an open point, `proofbundle claim check: <claim>. Next:
+  <command>, ...` for a claim without evidence (_claim_line). Claude Code presents that reason as the feedback of a
+  blocking Stop hook, as this pull request's own sessions show. How Codex presents the reason it inserts as a new turn
+  is NOT MEASURED. Whether the same rule should hold there is a question of its own and not decided here.
+
+Measured on 2026-11-12, with a corpus of 15 calls in a folder outside any repository and in a repository with one commit
+and nothing declared, under Claude Code with and without --autonomous and under Codex: the gate of main ebda917b and
+the gate with this rule give the same decision, the same verdicts with their reason ids, the same receipt verdict and
+the same receipt statement in the process. At the hook as the host runs it they give the same exit code, the same
+permission decision, an answer in the same cases and the same verdict, decision and reason ids in the log line. The
+corpus reaches pass, ask, deny, warn and inactive. A hand-over needs a Level 2 set up and is not in it. The signer
+service was not run; it decides with tool_outcome (D58), whose rows are in the corpus. The statement's policy digest
+hashes the gate's own file (_pilot_policy_digest, D55), so it names the new file, and with it the subject digest and the
+signature change; the recordings hold that digest constant. The corpus is in tests/fixtures/plugin_d136/before.json.
+
+Tests: tests/test_plugin_verdict_first_d136.py checks the sentence for every decision under both hosts, the hints after
+it, the word in brackets against the receipt's verdict for every case of the corpus, the case of GF-E001 at the hook in
+all three starts, the corpus against before.json in the process and at the hook, and a guard over the gate's source.
+The guard finds every place that sets an additionalContext (a dict display, dict(), .update(), .setdefault(), an
+assignment to a subscript) and accepts only verdict_first or one of two places named with their exact expression; five
+planted forms and a changed named place are found. The helpers of tests/_gate_answer.py read the long reason only after
+checking that the verdict comes first, so every plugin test that reads the long reason checks the form too.

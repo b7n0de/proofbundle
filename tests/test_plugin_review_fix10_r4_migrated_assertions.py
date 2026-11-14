@@ -20,6 +20,7 @@ import subprocess
 
 import pytest
 
+import _gate_answer as ga
 import test_claude_code_plugin_gate as cg
 import test_codex_plugin as cx
 import test_plugin_gate_n2c_push_done as n2c
@@ -46,7 +47,9 @@ def _unrelated_ask(*_args, **_kwargs) -> dict:
             f"the call. {cg.WEAKEN_RULE} Details: the gate ran out of time.")
     short = "Gate asks at git push because the gate reached no verdict (D10)."   # D53: the user's short line
     return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "ask",
-                                   "permissionDecisionReason": short, "additionalContext": text},
+                                   "permissionDecisionReason": short,
+                                   "additionalContext": f"{ga.VERDICT_LEADS['ask']} {ga.NOT_MEASURED_SENTENCE} "
+                                                        f"Reason: {text}"},   # D136: the verdict first
             "systemMessage": short}
 
 
