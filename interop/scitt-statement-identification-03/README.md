@@ -28,6 +28,6 @@ Open a pull request that adds a folder use-cases/<name>/ with its own case files
 
 ## Files and licence
 
-Check the files with sha256sum -c MANIFEST.sha256. The draft text is an IETF document, copied in full and without modification; it is subject to BCP 78 and the IETF Trust's Legal Provisions Relating to IETF Documents (https://trustee.ietf.org/license-info) and not to LICENSE. Every other file is under the licence in LICENSE. The byte strings and keys of the case files come from Appendix A of the draft, whose author, the copyright holder named in LICENSE, grants them under LICENSE in addition to the licences the IETF Trust grants for the draft.
+Check the files with sha256sum -c MANIFEST.sha256. The draft text is an IETF document, copied in full and without modification; it is subject to BCP 78 and the IETF Trust's Legal Provisions Relating to IETF Documents (https://trustee.ietf.org/license-info) and not to LICENSE. Every other file outside independent/ is under the licence in LICENSE. The folder independent/oga/ holds a second reader of the 14 cases by Toshikatsu Oga (The HORIZONs Co., Ltd.), kept as received; its files are under the LICENSE in that folder, and its README says how the reader was written and where its limits are. The byte strings and keys of the case files come from Appendix A of the draft, whose author, the copyright holder named in LICENSE, grants them under LICENSE in addition to the licences the IETF Trust grants for the draft.
 
 Assisted by little helpers.
