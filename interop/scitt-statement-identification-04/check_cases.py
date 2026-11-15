@@ -7,8 +7,9 @@ Usage:
 For every file cases/<id>.json, in sorted order, the script checks each byte string against its sha256 and length,
 computes the four axes of Section 6 (ref_usable, match, is_scitt, sig_valid) from the inputs alone, and compares them
 with the expected axes of the case. A case may name variants, each a stated change of one input together with the
-axes Appendix A gives for it; they are computed and compared the same way. The script prints one line per case and
-per variant and exits with 0 only if every one matches. It uses the Python standard library only.
+axes Appendix A gives for it; they are computed and compared the same way. The script prints one result block per
+case and variant, each with the profile under which its sig_valid was computed, and exits with 0 only if every one
+matches. It uses the Python standard library only.
 
 What it implements, all from Section 6 and Section 5.1 of the draft:
 - A reference is one CBOR data item, the array [alg, scheme, digest] with exactly three elements. It is well-formed
@@ -26,7 +27,9 @@ What it implements, all from Section 6 and Section 5.1 of the draft:
   An external_aad or a detached payload that is needed and not supplied (null) gives no ToBeSigned: match is
   INDETERMINATE and sig_valid None, never a success (Section 4.1, A1, and Section 7).
 - sig_valid applies the four rules of Section 6 to the stated Ed25519 key: canonical A and R, A and R of order L,
-  S below L, and the cofactorless equation S*B = R + k*A.
+  S below L, and the cofactorless equation S*B = R + k*A. These rules are the profile sid-ed25519-strict, and each
+  result states it. A variant that leaves a rule out is outside the profile; its result says so and names the rules
+  it applied.
 
 - A named scheme that this script does not implement, any scheme other than ToBeSigned with a hash function of
   RFC 9054, is UNSUPPORTED: the script reports that and gives no axes (Section 6). Its case file states "expected":
@@ -505,6 +508,16 @@ def case_inputs(raw, what):
 
 AXES = ("ref_usable", "match", "is_scitt", "sig_valid")
 RULES = ("section6", "no-rule-2", "no-rule-2-cofactored", "no-rule-3")
+PROFILE = "sid-ed25519-strict"
+#: The profile line of a result: Section 6 names the four rules sid-ed25519-strict, and a result states the profile
+#: under which its sig_valid was computed; a result with a rule left out is not a result under it.
+PROFILE_LINE = {
+    "section6": "profile=" + PROFILE,
+    "no-rule-2": "outside profile " + PROFILE + ": rule 2 left out, cofactorless equation of rule 4",
+    "no-rule-2-cofactored": ("outside profile " + PROFILE + ": rule 2 left out, cofactored equation of "
+                             "RFC 8032 Section 5.1.7"),
+    "no-rule-3": "outside profile " + PROFILE + ": rule 3 left out",
+}
 
 
 def _show(d):
@@ -512,7 +525,7 @@ def _show(d):
 
 
 def check_file(path):
-    """Rows (label, expected, computed, ok) for the case and each of its variants."""
+    """Rows (label, expected, computed, ok, profile line) for the case and each of its variants."""
     with open(path, encoding="utf-8") as fh:
         case = json.load(fh, object_pairs_hook=_no_duplicates, parse_constant=_no_constant)
     cid = case.get("id") if isinstance(case, dict) else None
@@ -535,12 +548,14 @@ def check_file(path):
     for label, inputs, rules, exp in jobs:
         got = axes(inputs, rules)
         if exp == "UNSUPPORTED" or got == "UNSUPPORTED":
-            rows.append((label, str(exp), str(got) if got == "UNSUPPORTED" else _show(got), exp == got))
+            rows.append((label, str(exp), str(got) if got == "UNSUPPORTED" else _show(got), exp == got,
+                         "none: no axes are computed for a scheme this script does not implement"
+                         if got == "UNSUPPORTED" else PROFILE_LINE[rules]))
             continue
         if not isinstance(exp, dict) or not exp or not set(exp) <= set(AXES):
             raise CaseError(label + ": expected names no axis or another member")
         ok = all(got[a] == exp[a] for a in exp)
-        rows.append((label, _show(exp), _show({a: got[a] for a in exp}), ok))
+        rows.append((label, _show(exp), _show({a: got[a] for a in exp}), ok, PROFILE_LINE[rules]))
     return rows
 
 
@@ -561,11 +576,12 @@ def main():
         try:
             rows.extend(check_file(os.path.join(a.cases, f)))
         except (CaseError, ValueError, OSError, BeyondLimits, RecursionError) as e:
-            rows.append((f, "", "(" + str(e) + ")", False))
-    for label, exp, got, ok in rows:
+            rows.append((f, "", "(" + str(e) + ")", False, "none: the case file gives no result"))
+    for label, exp, got, ok, profile in rows:
         print("%-36s %s" % (label, "ok" if ok else "MISMATCH"))
         print("    expected  " + exp)
         print("    computed  " + got)
+        print("    profile   " + profile)
     bad = [r[0] for r in rows if not r[3]]
     print("%d of %d checks match (%d case files)" % (len(rows) - len(bad), len(rows), len(files)))
     if bad:
