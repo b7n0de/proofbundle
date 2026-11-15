@@ -30,4 +30,19 @@ the Python standard library only, with its own CBOR reader and its own Ed25519 a
 run_sid.py holds, as hex, the secret key of TEST 1 of RFC 8032 Section 7.1, for a self-test of its Ed25519
 arithmetic. It is the test key published in the RFC, not a secret. A secret scanner may still report it.
 
+## Two known limits of its CBOR reader
+
+Its author agreed to this note and confirmed both limits on 15 November 2026, each with the smallest case. The six
+files above are unchanged. The automated review on pull request 520 found both places in sid_axes.py:
+
+- Line 81 joins the chunks of an indefinite-length text string before line 88 checks UTF-8, so the reader accepts
+  7f61c361bcff: two chunks, 61 c3 and 61 bc, each invalid alone, that together encode U+00FC. RFC 8949 Section 3.2.3
+  makes such a string invalid, because the bytes of one code point cannot be spread between chunks.
+- Line 149 gives every NaN map key the same comparison value, so the reader rejects a2f97e0000f97e0100, a map with two
+  half-precision NaN keys whose significands differ, as a duplicate key. Under RFC 8949 Section 5.6.1 the two keys are
+  distinct, so the map is valid.
+
+Neither path is taken by the 14 cases or by the 988 mutants, so the results for them above do not depend on these
+limits.
+
 Assisted by little helpers.
