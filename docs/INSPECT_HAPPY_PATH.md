@@ -82,8 +82,10 @@ Merkle root inside the claim. Emission is wrapped so a hook error never fails yo
     [PASS] merkle-inclusion: anchored at stated index 0 of stated tree size 1
     => OK
 
-Without a signed checkpoint the index and the tree size are the receipt's own claim: the same audit path
-verifies under more than one tree size. Pass `--trusted-checkpoint` and `--checkpoint-vkey` to bind them.
+Without a matching `--expected-tree-size` or a size supplied by a verified `--trusted-checkpoint`, the
+output labels the index and tree size as stated. Some audit paths verify under several tree sizes; the
+empty path in this example verifies only under size 1. Pass `--trusted-checkpoint` and `--checkpoint-vkey`
+to check against the checkpoint's size and root.
 
 Exit code: `0` OK · `1` a check failed · `2` malformed bundle. No network, no account, no server.
 

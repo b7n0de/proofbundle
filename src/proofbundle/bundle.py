@@ -558,8 +558,9 @@ def _verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonc
         # 6.6.1 (RFC 9942 tree-size thread): the same path verifies under a whole interval of tree sizes
         # (merkle.verify_inclusion docstring), so `tree_size` is only the bundle's CLAIM unless the relying
         # party bound it (`expected_tree_size`, an explicit flag or the size of a verified checkpoint) and
-        # it matches. Within one tree the path fixes the index, so a bound size binds the index too. An
-        # unbound pair is labelled at the value, not only by the root caveat behind it.
+        # it matches. For distinct entries, fixing the size also fixes the index; inclusion alone does not
+        # identify a unique occurrence when entries repeat (a repeated entry can verify under two indices of
+        # the same tree). An unbound pair is labelled at the value, not only by the root caveat behind it.
         size_bound = type(expected_tree_size) is int and expected_tree_size == tree_size
         anchored = (f"anchored at index {leaf_index} of {tree_size}" if size_bound
                     else f"anchored at stated index {leaf_index} of stated tree size {tree_size}")

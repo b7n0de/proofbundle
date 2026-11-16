@@ -520,11 +520,21 @@ class TestStatedTreeSizeOnly(unittest.TestCase):
 
     def test_json_actual_source_says_whether_the_tree_size_is_bound(self):
         """Owner choice A on OA-cd29c2e33d: `actual` keeps its name and value, `actualSource` says whether it is
-        bound. One bundle, five ways of asking, five answers; the size-only change under a checkpoint stays
-        `stated` because a mismatch binds nothing."""
+        bound. Each way of asking that can bind the size is asked once with a size that matches and once with one
+        that does not; a mismatch binds nothing, an unverified checkpoint binds nothing, and a policy checkpoint
+        counts only when the crypto checks passed, because the policy is evaluated over them."""
         bundle, resized, root = _seven_leaf_bundle()
         bpath, npath, vk = self._files(bundle, root, 7)
         rpath, rnpath, rvk = self._files(resized, root, 7)
+        b8path, n8path, vk8 = self._files(bundle, root, 8)
+        wrong_vk = cp.vkey(ORIGIN, _raw_pub(generate_signer()))
+        broken = copy.deepcopy(bundle)
+        sig = base64.b64decode(broken["signature"]["sig_b64"])
+        broken["signature"]["sig_b64"] = _b64(sig[:-1] + bytes([sig[-1] ^ 1]))
+        xfd, xpath = tempfile.mkstemp(suffix=".json")
+        with os.fdopen(xfd, "w") as f:
+            json.dump(broken, f)
+        self.addCleanup(os.unlink, xpath)
         pfd, ppath = tempfile.mkstemp(suffix=".policy.json")
         with os.fdopen(pfd, "w") as f:
             json.dump({"schema": "proofbundle/trust-policy/v0.2", "policy_id": "cp7",
@@ -547,6 +557,48 @@ class TestStatedTreeSizeOnly(unittest.TestCase):
         rc, t = tse([rpath, "--trusted-checkpoint", rnpath, "--checkpoint-vkey", rvk])
         self.assertEqual((rc, t["status"], t["expected"], t["actual"], t["actualSource"]),
                          (1, "FAIL", 7, 8, "stated"))
+        # The policy is present but its checkpoint does not match: its presence binds nothing, and an
+        # explicit size that matches is reported as `expected`, not as `checkpoint`.
+        rc, t = tse([rpath, "--policy", ppath])
+        self.assertEqual((rc, t["status"], t["expected"], t["actual"], t["actualSource"]),
+                         (3, "NOT_REQUESTED", None, 8, "stated"))
+        rc, t = tse([rpath, "--policy", ppath, "--expected-tree-size", "8"])
+        self.assertEqual((rc, t["status"], t["expected"], t["actual"], t["actualSource"]),
+                         (3, "PASS", 8, 8, "expected"))
+        # Both checkpoint sources: both match, or the command-line checkpoint names another size. Then the
+        # crypto checks fail, the policy is not evaluated, and its matching checkpoint does not count.
+        rc, t = tse([bpath, "--policy", ppath, "--trusted-checkpoint", npath, "--checkpoint-vkey", vk])
+        self.assertEqual((rc, t["status"], t["actual"], t["actualSource"]), (0, "PASS", 7, "checkpoint"))
+        rc, t = tse([b8path, "--policy", ppath, "--trusted-checkpoint", n8path, "--checkpoint-vkey", vk8])
+        self.assertEqual((rc, t["status"], t["expected"], t["actual"], t["actualSource"]),
+                         (1, "FAIL", 8, 7, "stated"))
+        # A checkpoint that does not verify binds nothing; an explicit size beside it still can.
+        rc, t = tse([bpath, "--trusted-checkpoint", npath, "--checkpoint-vkey", wrong_vk])
+        self.assertEqual((rc, t["status"], t["expected"], t["actual"], t["actualSource"]),
+                         (1, "FAIL", None, 7, "stated"))
+        rc, t = tse([bpath, "--trusted-checkpoint", npath, "--checkpoint-vkey", wrong_vk,
+                     "--expected-tree-size", "7"])
+        self.assertEqual((rc, t["status"], t["actual"], t["actualSource"]), (1, "PASS", 7, "expected"))
+        # A failed bundle signature: the field speaks about the size only, the verdict stays the exit code.
+        rc, t = tse([xpath, "--expected-tree-size", "7"])
+        self.assertEqual((rc, t["status"], t["actual"], t["actualSource"]), (1, "PASS", 7, "expected"))
+        rc, t = tse([xpath])
+        self.assertEqual((rc, t["status"], t["actual"], t["actualSource"]), (1, "NOT_REQUESTED", 7, "stated"))
+
+    def test_only_a_true_integer_binds_the_size(self):
+        """The label uses the same rule as the tree-size check: an expected size binds only as a true integer
+        equal to the stated size. 7.0 and True compare equal to 7 and 1, and neither binds."""
+        bundle, _resized, _root = _seven_leaf_bundle()
+        one = emit_bundle(b"6.6.1 one leaf", generate_signer())
+        self.assertEqual((one["merkle"]["leaf_index"], one["merkle"]["tree_size"]), (0, 1))
+        cases = ((bundle, 7, True, "anchored at index 5 of 7"),
+                 (bundle, 7.0, False, "anchored at stated index 5 of stated tree size 7"),
+                 (one, 1, True, "anchored at index 0 of 1"),
+                 (one, True, False, "anchored at stated index 0 of stated tree size 1"))
+        for b, expected, ok, text in cases:
+            r = verify_bundle(b, expected_tree_size=expected)
+            self.assertEqual((r.ok, _inclusion_detail(r)),
+                             (ok, text + " (Merkle-consistent under the STATED root)"), repr(expected))
 
     def test_size_only_change_fails_under_a_policy_checkpoint(self):
         bundle, resized, root = _seven_leaf_bundle()
@@ -558,10 +610,11 @@ class TestStatedTreeSizeOnly(unittest.TestCase):
 
 
 class TestOnePathOneIndexPerTree(unittest.TestCase):
-    def test_within_one_tree_no_path_verifies_under_two_indices_up_to_64_leaves(self):
-        """With the size fixed, the path binds the index: for every tree of 1 to 64 leaves and every leaf, the
-        leaf's own audit path verifies at its own index and at no other index of the same tree. The 31 bit
-        patterns that belong to more than one index (measured 16.11.2026) all lie between DIFFERENT sizes."""
+    def test_within_one_tree_of_distinct_entries_no_path_verifies_under_two_indices_up_to_64_leaves(self):
+        """For the generated trees with distinct entries, fixing the size also fixes the tested index: for every
+        tree of 1 to 64 distinct leaves and every leaf, the leaf's own audit path verifies at its own index and
+        at no other index of the same tree. The 31 bit patterns that belong to more than one index (measured
+        16.11.2026) all lie between DIFFERENT sizes. The test below shows where this stops."""
         geprueft = 0
         for n in range(1, 65):
             leaves = [b"leaf %d of %d" % (i, n) for i in range(n)]
@@ -574,6 +627,20 @@ class TestOnePathOneIndexPerTree(unittest.TestCase):
                         self.assertFalse(merkle.verify_inclusion(leaves[i], j, n, proof, root), (n, i, j))
                         geprueft += 1
         self.assertEqual(geprueft, sum(n * (n - 1) for n in range(1, 65)))
+
+    def test_a_repeated_entry_verifies_under_two_indices_of_the_same_tree(self):
+        """Inclusion alone does not identify a unique occurrence when entries repeat (Codex, round 1 of this
+        change): two equal leaves have the same leaf hash, so the path of one is the path of the other and both
+        indices verify. If this ever stops holding, the scoped claims in bundle.py and CHANGELOG.md are too weak."""
+        leaves = [b"the same entry", b"the same entry"]
+        root = merkle.merkle_tree_hash(leaves)
+        proof = merkle.inclusion_proof(leaves, 0)
+        self.assertEqual(proof, merkle.inclusion_proof(leaves, 1))
+        self.assertTrue(merkle.verify_inclusion(leaves[0], 0, 2, proof, root))
+        self.assertTrue(merkle.verify_inclusion(leaves[0], 1, 2, proof, root))
+        distinct = [b"one entry", b"another entry"]
+        self.assertFalse(merkle.verify_inclusion(distinct[0], 1, 2, merkle.inclusion_proof(distinct, 0),
+                                                 merkle.merkle_tree_hash(distinct)))
 
 
 if __name__ == "__main__":

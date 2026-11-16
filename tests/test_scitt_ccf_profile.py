@@ -881,15 +881,49 @@ def _rfc9942_vds1_receipts(st: Stmt) -> tuple:
     return receipt(7), receipt(8), entries[5], root, path
 
 
+def _rfc9942_vds1_receipt_valid(raw: bytes, entry: bytes, key=SERVICE_KEY) -> bool:
+    """An independent check of ONE serialized receipt, written with cbor2 and cryptography and not with the
+    reader under test: COSE_Sign1 (tag 18) with a detached payload, ES384 and vds 1 in the protected header,
+    exactly one inclusion proof [tree_size, leaf_index, path] under unprotected label 396 / -1, the RFC 9162
+    root rebuilt from that proof and the entry, and the service signature over that root."""
+    import cbor2
+    from cryptography.exceptions import InvalidSignature
+    try:
+        tagged = cbor2.loads(raw)
+        if not isinstance(tagged, cbor2.CBORTag) or tagged.tag != 18 or len(tagged.value) != 4:
+            return False
+        prot_bytes, unprot, payload, sig = tagged.value
+        prot = cbor2.loads(prot_bytes)
+        if payload is not None or prot.get(1) != -35 or prot.get(395) != 1:
+            return False
+        proofs = unprot[396][-1]
+        if len(proofs) != 1:
+            return False
+        size, index, path = cbor2.loads(proofs[0])
+        root = _rfc9162_root_from(index, size, entry, path)
+        if root is None or len(sig) != 96:
+            return False
+        der = utils.encode_dss_signature(int.from_bytes(sig[:48], "big"), int.from_bytes(sig[48:], "big"))
+        key.public_key().verify(der, tbs(prot_bytes, root), ec.ECDSA(hashes.SHA384()))
+        return True
+    except (InvalidSignature, ValueError, TypeError, KeyError, IndexError, cbor2.CBORDecodeError):
+        return False
+
+
 def test_rfc9942_vds1_receipts_of_a_pure_size_change_are_outside_the_profile_and_carry_no_size():
     st = Stmt()
     assert verify(transparent(st, [Rcpt(data_hash=dh_of(st)).build()])).status == "confirmed"   # the control
     f1, f2, entry, root, path = _rfc9942_vds1_receipts(st)
-    # Precondition: both are valid RFC 9942 receipts under RFC 9162. If this ever fails, F2 no longer shows the
-    # property and the refusal below proves nothing about it.
+    # Precondition: both are valid RFC 9942 receipts under RFC 9162, checked independently of the reader:
+    # structure, inclusion proof and the service signature over the rebuilt root. The same check refuses a
+    # receipt whose signature differs in one byte and one checked against another service key, so it can fail.
+    # If this ever fails, F2 no longer shows the property and the refusal below proves nothing about it.
+    assert _rfc9942_vds1_receipt_valid(f1, entry) and _rfc9942_vds1_receipt_valid(f2, entry)
+    assert not _rfc9942_vds1_receipt_valid(f1[:-1] + bytes([f1[-1] ^ 1]), entry)
+    assert not _rfc9942_vds1_receipt_valid(f1, entry, OTHER_SERVICE_KEY)
     assert _rfc9162_root_from(5, 7, entry, path) == root
     assert _rfc9162_root_from(5, 8, entry, path) == root
-    assert _rfc9162_root_from(4, 7, entry, path) != root           # with the size fixed, the index is bound
+    assert _rfc9162_root_from(4, 7, entry, path) != root     # with distinct entries, index 4 of size 7 fails
     assert f1 != f2 and f1.replace(enc([7, 5, path]), enc([8, 5, path]), 1) == f2
     for raw in (f1, f2):
         r = verify(transparent(st, [raw]))
