@@ -550,6 +550,9 @@ class TestStatedTreeSizeOnly(unittest.TestCase):
                          (0, "NOT_REQUESTED", None, 8, "stated"))
         rc, t = tse([bpath, "--expected-tree-size", "7"])
         self.assertEqual((rc, t["status"], t["actual"], t["actualSource"]), (0, "PASS", 7, "expected"))
+        rc, t = tse([rpath, "--expected-tree-size", "7"])
+        self.assertEqual((rc, t["status"], t["expected"], t["actual"], t["actualSource"]),
+                         (1, "FAIL", 7, 8, "stated"))
         rc, t = tse([bpath, "--trusted-checkpoint", npath, "--checkpoint-vkey", vk])
         self.assertEqual((rc, t["status"], t["actual"], t["actualSource"]), (0, "PASS", 7, "checkpoint"))
         rc, t = tse([bpath, "--policy", ppath])
