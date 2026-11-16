@@ -451,5 +451,100 @@ class TestCLITrustedCheckpoint(unittest.TestCase):
         self.assertEqual(rc, 3)   # policy checkpoint check failed → exit 3
 
 
+def _seven_leaf_bundle():
+    """6.6.1, RFC 9942 tree-size thread (case F2 of CLOUD-RFC9942-TREE-SIZE-01): a REAL 7-leaf receipt for the
+    signed payload at index 5, and its copy that changes ONLY the tree size, 7 to 8. Leaf 5 has the path shape
+    left-right-left in both trees, so the same audit path recomputes the same root under both sizes. Unlike
+    `_two_leaf_bundle`, the index does not move: this is the pure size change."""
+    signer = generate_signer()
+    single = emit_bundle(b"6.6.1 stated tree size payload", signer)
+    payload = base64.b64decode(single["payload_b64"])
+    leaves = [b"filler leaf %d" % i for i in range(7)]
+    leaves[5] = payload
+    root = merkle.merkle_tree_hash(leaves)
+    proof = merkle.inclusion_proof(leaves, 5)
+    bundle = copy.deepcopy(single)
+    bundle["merkle"] = {"hash_alg": "sha256-rfc6962", "leaf_index": 5, "tree_size": 7,
+                        "inclusion_proof_b64": [_b64(p) for p in proof], "root_b64": _b64(root)}
+    resized = copy.deepcopy(bundle)
+    resized["merkle"]["tree_size"] = 8
+    return bundle, resized, root
+
+
+def _inclusion_detail(result):
+    return next(c.detail for c in result.checks if c.name == "merkle-inclusion")
+
+
+class TestStatedTreeSizeOnly(unittest.TestCase):
+    """The tree size alone, not the index, changes. Without a bound size the bundle's numbers are claims and
+    the output says so at the value; with a signed checkpoint the changed size fails and the honest one reads
+    as before."""
+
+    _run = TestCLITrustedCheckpoint._run
+    _files = TestCLITrustedCheckpoint._files
+
+    def test_size_only_change_verifies_and_is_labelled_stated_without_checkpoint(self):
+        bundle, resized, root = _seven_leaf_bundle()
+        honest, changed = verify_bundle(bundle), verify_bundle(resized)
+        self.assertIs(honest.ok, True)
+        self.assertIs(changed.ok, True, "precondition: the size-only change is Merkle-consistent, "
+                                        "otherwise this test no longer measures the property")
+        self.assertEqual(root_authenticity_summary(changed)["treeContextAuthenticity"], "NOT_EVALUATED")
+        self.assertEqual(_inclusion_detail(changed), "anchored at stated index 5 of stated tree size 8 "
+                                                     "(Merkle-consistent under the STATED root)")
+        self.assertEqual(_inclusion_detail(honest), "anchored at stated index 5 of stated tree size 7 "
+                                                    "(Merkle-consistent under the STATED root)")
+
+    def test_a_bound_size_keeps_the_plain_wording_and_a_wrong_one_fails(self):
+        bundle, resized, root = _seven_leaf_bundle()
+        bound = verify_bundle(bundle, expected_tree_size=7)
+        self.assertIs(bound.ok, True)
+        self.assertEqual(_inclusion_detail(bound), "anchored at index 5 of 7 "
+                                                   "(Merkle-consistent under the STATED root)")
+        wrong = verify_bundle(resized, expected_tree_size=7)
+        self.assertIs(wrong.ok, False)
+        self.assertEqual(_inclusion_detail(wrong), "anchored at stated index 5 of stated tree size 8 "
+                                                   "(Merkle-consistent under the STATED root)")
+
+    def test_size_only_change_fails_under_a_signed_checkpoint(self):
+        bundle, resized, root = _seven_leaf_bundle()
+        bpath, npath, vk = self._files(bundle, root, 7)
+        rc, out, _ = self._run(["verify", bpath, "--trusted-checkpoint", npath, "--checkpoint-vkey", vk])
+        self.assertEqual(rc, 0, out)
+        self.assertIn("[PASS] merkle-inclusion: anchored at index 5 of 7 (Merkle-consistent under the STATED "
+                      "root)", out)
+        rpath, rnpath, rvk = self._files(resized, root, 7)
+        rc, out, _ = self._run(["verify", rpath, "--trusted-checkpoint", rnpath, "--checkpoint-vkey", rvk])
+        self.assertEqual(rc, 1, out)
+        self.assertIn("tree_size 8 != expected 7", out)
+
+    def test_size_only_change_fails_under_a_policy_checkpoint(self):
+        bundle, resized, root = _seven_leaf_bundle()
+        pol = _cp_policy(_checkpoint_entry(root, 7))
+        self.assertTrue(evaluate_policy(bundle, verify_bundle(bundle), pol)["policy_ok"])
+        bad = evaluate_policy(resized, verify_bundle(resized), pol)
+        self.assertFalse(bad["policy_ok"])
+        self.assertFalse(bad["tree_context_authenticated"])
+
+
+class TestOnePathOneIndexPerTree(unittest.TestCase):
+    def test_within_one_tree_no_path_verifies_under_two_indices_up_to_64_leaves(self):
+        """With the size fixed, the path binds the index: for every tree of 1 to 64 leaves and every leaf, the
+        leaf's own audit path verifies at its own index and at no other index of the same tree. The 31 bit
+        patterns that belong to more than one index (measured 16.11.2026) all lie between DIFFERENT sizes."""
+        geprueft = 0
+        for n in range(1, 65):
+            leaves = [b"leaf %d of %d" % (i, n) for i in range(n)]
+            root = merkle.merkle_tree_hash(leaves)
+            for i in range(n):
+                proof = merkle.inclusion_proof(leaves, i)
+                self.assertTrue(merkle.verify_inclusion(leaves[i], i, n, proof, root), (n, i))
+                for j in range(n):
+                    if j != i:
+                        self.assertFalse(merkle.verify_inclusion(leaves[i], j, n, proof, root), (n, i, j))
+                        geprueft += 1
+        self.assertEqual(geprueft, sum(n * (n - 1) for n in range(1, 65)))
+
+
 if __name__ == "__main__":
     unittest.main()

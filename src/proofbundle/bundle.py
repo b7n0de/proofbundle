@@ -555,10 +555,18 @@ def _verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonc
         proof = [_b64d(p, "merkle.inclusion_proof_b64[]") for p in proof_list]
         root = _b64d(_require(mk, "root_b64", "merkle.root_b64"), "merkle.root_b64")
         incl_ok = merkle.verify_inclusion(payload, leaf_index, tree_size, proof, root)
+        # 6.6.1 (RFC 9942 tree-size thread): the same path verifies under a whole interval of tree sizes
+        # (merkle.verify_inclusion docstring), so `tree_size` is only the bundle's CLAIM unless the relying
+        # party bound it (`expected_tree_size`, an explicit flag or the size of a verified checkpoint) and
+        # it matches. Within one tree the path fixes the index, so a bound size binds the index too. An
+        # unbound pair is labelled at the value, not only by the root caveat behind it.
+        size_bound = type(expected_tree_size) is int and expected_tree_size == tree_size
+        anchored = (f"anchored at index {leaf_index} of {tree_size}" if size_bound
+                    else f"anchored at stated index {leaf_index} of stated tree size {tree_size}")
         result.add(
             "merkle-inclusion",
             incl_ok,
-            f"anchored at index {leaf_index} of {tree_size} (Merkle-consistent under the STATED root)"
+            f"{anchored} (Merkle-consistent under the STATED root)"
             if incl_ok else "inclusion proof failed",
         )
         # Addendum R6a-2 (Z309): record the Merkle root this inclusion check passed under (origin-covered),

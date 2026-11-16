@@ -816,6 +816,91 @@ def test_readable_means_the_receipt_proofs_parsed_under_the_05_cddl():
     assert (none.receipts[0].status, none.receipts[0].readable) == ("malformed", False)   # -1: [] is outside the CDDL
 
 
+# ------------------------------------------------------------------------------------------------
+# RFC 9942 receipts under RFC9162_SHA256 (vds 1): the reader takes neither size nor index from them
+# Cases F1 and F2 of CLOUD-RFC9942-TREE-SIZE-01 (2026-11-15). An RFC 9942 inclusion proof under vds 1
+# is [tree_size, leaf_index, path], and the signature covers only the root, so the same path verifies
+# under tree size 7 and 8 for leaf 5. The tests above build a CCF-shaped proof under vds 1; these
+# build the real vds 1 proof, and the reader must refuse both without reading a size or an index.
+# ------------------------------------------------------------------------------------------------
+def _rfc9162_mth(entries: list) -> bytes:
+    """RFC 9162 section 2.1.1, written here and not taken from proofbundle.merkle, so the receipts below
+    do not depend on the code they help to test."""
+    if len(entries) == 1:
+        return hashlib.sha256(b"\x00" + entries[0]).digest()
+    k = 1
+    while k * 2 < len(entries):
+        k *= 2
+    return hashlib.sha256(b"\x01" + _rfc9162_mth(entries[:k]) + _rfc9162_mth(entries[k:])).digest()
+
+
+def _rfc9162_path(m: int, entries: list) -> list:
+    """RFC 9162 section 2.1.3.1, PATH(m, D[n]), from the leaf up."""
+    if len(entries) == 1:
+        return []
+    k = 1
+    while k * 2 < len(entries):
+        k *= 2
+    if m < k:
+        return _rfc9162_path(m, entries[:k]) + [_rfc9162_mth(entries[k:])]
+    return _rfc9162_path(m - k, entries[k:]) + [_rfc9162_mth(entries[:k])]
+
+
+def _rfc9162_root_from(index: int, size: int, entry: bytes, path: list):
+    """RFC 9162 section 2.1.3.2, the verifier's loop; None where the algorithm fails."""
+    if index >= size:
+        return None
+    fn, sn, r = index, size - 1, hashlib.sha256(b"\x00" + entry).digest()
+    for p in path:
+        if sn == 0:
+            return None
+        if fn % 2 == 1 or fn == sn:
+            r = hashlib.sha256(b"\x01" + p + r).digest()
+            if fn % 2 == 0:
+                while fn % 2 == 0 and fn != 0:
+                    fn, sn = fn >> 1, sn >> 1
+        else:
+            r = hashlib.sha256(b"\x01" + r + p).digest()
+        fn, sn = fn >> 1, sn >> 1
+    return r if sn == 0 else None
+
+
+def _rfc9942_vds1_receipts(st: Stmt) -> tuple:
+    """F1, the honest receipt for leaf 5 of a 7-entry log whose leaf 5 is the registered statement, and F2,
+    the same receipt with the unprotected tree size changed to 8. Protected header and signature are the
+    same bytes in both."""
+    entries = [b"other entry %d" % i for i in range(7)]
+    entries[5] = st.signed_bytes()
+    root = _rfc9162_mth(entries)
+    path = _rfc9162_path(5, entries)
+    prot = enc({1: -35, 4: kid_of(SERVICE_KEY), 395: 1, 15: {1: ISSUER, 2: "rfc9942-tree-size"}})
+    sig = ecdsa(SERVICE_KEY, tbs(prot, root), 48, hashes.SHA384())
+
+    def receipt(size: int) -> bytes:
+        return b"\xd2" + enc([prot, {396: {-1: [enc([size, 5, path])]}}, None, sig])
+    return receipt(7), receipt(8), entries[5], root, path
+
+
+def test_rfc9942_vds1_receipts_of_a_pure_size_change_are_outside_the_profile_and_carry_no_size():
+    st = Stmt()
+    assert verify(transparent(st, [Rcpt(data_hash=dh_of(st)).build()])).status == "confirmed"   # the control
+    f1, f2, entry, root, path = _rfc9942_vds1_receipts(st)
+    # Precondition: both are valid RFC 9942 receipts under RFC 9162. If this ever fails, F2 no longer shows the
+    # property and the refusal below proves nothing about it.
+    assert _rfc9162_root_from(5, 7, entry, path) == root
+    assert _rfc9162_root_from(5, 8, entry, path) == root
+    assert _rfc9162_root_from(4, 7, entry, path) != root           # with the size fixed, the index is bound
+    assert f1 != f2 and f1.replace(enc([7, 5, path]), enc([8, 5, path]), 1) == f2
+    for raw in (f1, f2):
+        r = verify(transparent(st, [raw]))
+        rc = r.receipts[0]
+        assert (rc.status, rc.readable, r.profile_satisfied) == ("outside_profile", False, False)
+        assert "vds is 1" in rc.detail
+        text = json.dumps(r.to_dict()).lower()
+        for name in ("tree_size", "treesize", "tree-size", "leaf_index", "leafindex", "leaf-index"):
+            assert name not in text, name
+
+
 def test_missing_trust_is_never_reported_as_an_unbound_receipt():
     """Codex, PR 278: receipt_not_bound says the receipt signature is valid; without a key it is not known."""
     st = Stmt()

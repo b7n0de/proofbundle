@@ -79,8 +79,11 @@ Merkle root inside the claim. Emission is wrapped so a hook error never fails yo
 
     proofbundle verify proofbundle_receipt_<eval_id>.json
     [PASS] ed25519-signature: payload signed by stated key
-    [PASS] merkle-inclusion: anchored at index 0 of 1
+    [PASS] merkle-inclusion: anchored at stated index 0 of stated tree size 1
     => OK
+
+Without a signed checkpoint the index and the tree size are the receipt's own claim: the same audit path
+verifies under more than one tree size. Pass `--trusted-checkpoint` and `--checkpoint-vkey` to bind them.
 
 Exit code: `0` OK · `1` a check failed · `2` malformed bundle. No network, no account, no server.
 

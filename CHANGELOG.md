@@ -8,6 +8,10 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
+### Changed
+
+- **`verify` labels the leaf index and the tree size of a bundle as stated when nothing binds the tree size.** The same RFC 9162 audit path verifies under a whole interval of tree sizes, the property an RFC 9942 inclusion receipt under RFC9162_SHA256 shares, so a size the relying party did not bind is only the bundle's claim. Without a signed checkpoint and without a matching `--expected-tree-size`, the inclusion line now reads `anchored at stated index 5 of stated tree size 8 (Merkle-consistent under the STATED root)`. With `--trusted-checkpoint`, or with an expected tree size that matches, it reads as before, because within one tree the audit path fixes the index. The verdict and the exit code do not change. New tests cover the size-only change from (7, 5) to (8, 5) with and without a checkpoint, a check that within one tree of 1 to 64 leaves no audit path verifies under a second index, and real RFC 9942 receipts with `vds` 1 that the SCITT reader refuses without reading a size or an index.
+
 ## [6.6.0] - 2026-11-16
 
 6.6.0 is a feature release following 6.5.0. It adds `proofbundle scitt match` (EXPERIMENTAL), which reports the axes of Section 6 of draft-gruszka-scitt-statement-identification-03 for a reference and a candidate, and `decision verify` and `outcome verify` now take the inputs the relying party supplies under draft-gruszka-audit-decision-receipts: the action bytes, the case it chooses, an approval record, a consumption state, the effect bytes, the bound decision and the expected executor. Several producers now sign only what their own verifier reads, and the checks of evidence packs, vector sets, installed builds, pre-tag receipts and the self-receipt folder accept only the members they name.
