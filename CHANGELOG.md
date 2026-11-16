@@ -8,6 +8,10 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
+### Added
+
+- **`verify --json` says whether the tree size it reports is bound.** `treeSizeExpectation` gains `actualSource`: `checkpoint` when a verified signed checkpoint names the same size (`--trusted-checkpoint`, or a policy `merkle.trusted_checkpoints` entry), `expected` when an explicit `--expected-tree-size` matched, and `stated` otherwise, when `actual` is only the bundle's own claim. `status`, `expected` and `actual` keep their names and values, so an existing reader is unaffected (SPEC.md).
+
 ### Changed
 
 - **`verify` labels the leaf index and the tree size of a bundle as stated when nothing binds the tree size.** The same RFC 9162 audit path verifies under a whole interval of tree sizes, the property an RFC 9942 inclusion receipt under RFC9162_SHA256 shares, so a size the relying party did not bind is only the bundle's claim. Without a signed checkpoint and without a matching `--expected-tree-size`, the inclusion line now reads `anchored at stated index 5 of stated tree size 8 (Merkle-consistent under the STATED root)`. With `--trusted-checkpoint`, or with an expected tree size that matches, it reads as before, because within one tree the audit path fixes the index. The verdict and the exit code do not change. New tests cover the size-only change from (7, 5) to (8, 5) with and without a checkpoint, a check that within one tree of 1 to 64 leaves no audit path verifies under a second index, and real RFC 9942 receipts with `vds` 1 that the SCITT reader refuses without reading a size or an index.

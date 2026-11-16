@@ -518,6 +518,36 @@ class TestStatedTreeSizeOnly(unittest.TestCase):
         self.assertEqual(rc, 1, out)
         self.assertIn("tree_size 8 != expected 7", out)
 
+    def test_json_actual_source_says_whether_the_tree_size_is_bound(self):
+        """Owner choice A on OA-cd29c2e33d: `actual` keeps its name and value, `actualSource` says whether it is
+        bound. One bundle, five ways of asking, five answers; the size-only change under a checkpoint stays
+        `stated` because a mismatch binds nothing."""
+        bundle, resized, root = _seven_leaf_bundle()
+        bpath, npath, vk = self._files(bundle, root, 7)
+        rpath, rnpath, rvk = self._files(resized, root, 7)
+        pfd, ppath = tempfile.mkstemp(suffix=".policy.json")
+        with os.fdopen(pfd, "w") as f:
+            json.dump({"schema": "proofbundle/trust-policy/v0.2", "policy_id": "cp7",
+                       "merkle": {"trusted_checkpoints": [_checkpoint_entry(root, 7)]}}, f)
+        self.addCleanup(os.unlink, ppath)
+
+        def tse(argv):
+            rc, out, _ = self._run(["verify", "--json"] + argv)
+            return rc, json.loads(out)["treeSizeExpectation"]
+
+        rc, t = tse([rpath])
+        self.assertEqual((rc, t["status"], t["expected"], t["actual"], t["actualSource"]),
+                         (0, "NOT_REQUESTED", None, 8, "stated"))
+        rc, t = tse([bpath, "--expected-tree-size", "7"])
+        self.assertEqual((rc, t["status"], t["actual"], t["actualSource"]), (0, "PASS", 7, "expected"))
+        rc, t = tse([bpath, "--trusted-checkpoint", npath, "--checkpoint-vkey", vk])
+        self.assertEqual((rc, t["status"], t["actual"], t["actualSource"]), (0, "PASS", 7, "checkpoint"))
+        rc, t = tse([bpath, "--policy", ppath])
+        self.assertEqual((t["status"], t["actual"], t["actualSource"]), ("NOT_REQUESTED", 7, "checkpoint"))
+        rc, t = tse([rpath, "--trusted-checkpoint", rnpath, "--checkpoint-vkey", rvk])
+        self.assertEqual((rc, t["status"], t["expected"], t["actual"], t["actualSource"]),
+                         (1, "FAIL", 7, 8, "stated"))
+
     def test_size_only_change_fails_under_a_policy_checkpoint(self):
         bundle, resized, root = _seven_leaf_bundle()
         pol = _cp_policy(_checkpoint_entry(root, 7))

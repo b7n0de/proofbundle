@@ -495,6 +495,16 @@ the tree-size gate's outcome explicit (`NOT_REQUESTED` when no `expected_tree_si
 tree-size check is evaluated INDEPENDENTLY of the root: a mismatch fails the crypto verdict on its own,
 and without a pinned root the root itself remains unauthenticated.
 
+Since 6.6.1 the object also carries `actualSource: checkpoint|expected|stated`, which says whether `actual`
+is bound. `checkpoint` means a verified signed checkpoint names the same tree size (`--trusted-checkpoint`
+with `--checkpoint-vkey`, or a policy `merkle.trusted_checkpoints` entry at the current time); `expected`
+means an explicit `--expected-tree-size` matched; `stated` means neither, a mismatch included. A `stated`
+size is only the bundle's own claim: the same audit path verifies under an interval of tree sizes, so
+neither the size nor the leaf index is authenticated by inclusion alone. The human `merkle-inclusion` line
+says the same at the value ("stated index … of stated tree size …") when the crypto check had no bound size;
+a policy checkpoint is evaluated after that check and is reported in `treeContextAuthenticity` and here.
+The key is additive: `status`, `expected` and `actual` keep their names and values.
+
 A trust policy MAY carry additive metadata: `deploymentReady` / `requiresIdentityOverlay` (a policy is a
 raw TEMPLATE until instantiated with a signer overlay) and `valid_until` (an ISO-8601 UTC expiry).
 `requiresIdentityOverlay: true` is a HARD gate on the automation verdict — such a policy can never yield
