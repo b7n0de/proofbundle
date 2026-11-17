@@ -263,24 +263,26 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
                 elif "publicKeyPq" in kv:
                     errors.append(f"keys[{kid!r}].publicKeyPq is only allowed for alg 'hybrid-ed25519-mldsa65'")
 
-    # No key aliasing (Sybil, release-review fix): two keyIds mapping to the SAME 32-byte key material dilute
+    # No key aliasing (Sybil, release-review fix): two keyIds mapping to the SAME key material dilute
     # every threshold — one physical key would count as N signers. checkpoint.py::witness_quorum learned this
     # for witnesses; the higher-stakes root-of-trust must not regress it. Fail-closed at validate time.
+    # EVERY LEG OF EVERY KEY (KR-01, quality lens on the crypto foundation at 53d1eafe, 15.11.2026): the check
+    # compared `publicKey` alone. That field is the ML-DSA key of an `mldsa65` key but the Ed25519 leg of a hybrid
+    # key, whose ML-DSA leg sits in `publicKeyPq`. One ML-DSA key named as an `mldsa65` key and as the PQ leg of a
+    # hybrid, or as the PQ leg of two hybrids, passed here and counted twice toward a threshold; once Ed25519 is
+    # broken, the case hybrids exist for, one ML-DSA secret met a threshold of two (measured with the real
+    # backend). Now no leg, classical or post-quantum, may appear in two keys.
     if isinstance(keys, dict):
         _seen_material: dict[str, str] = {}
         for kid, kv in keys.items():
-            if not (isinstance(kv, dict) and isinstance(kv.get("publicKey"), str)):
-                continue
-            try:
-                _mat = decode_b64(kv["publicKey"]).hex()
-            except Exception:  # noqa: BLE001
-                continue
-            if _mat in _seen_material:
-                errors.append(
-                    f"keys[{kid!r}] duplicates the key material of keys[{_seen_material[_mat]!r}] — key "
-                    "aliasing dilutes thresholds (Sybil), fail-closed")
-            else:
-                _seen_material[_mat] = kid
+            for _teil in _key_legs(kv) or ():
+                _mat = _teil.hex()
+                if _mat in _seen_material and _seen_material[_mat] != kid:
+                    errors.append(
+                        f"keys[{kid!r}] duplicates the key material of keys[{_seen_material[_mat]!r}] (a classical "
+                        "or post-quantum leg) — key aliasing dilutes thresholds (Sybil), fail-closed")
+                    break
+                _seen_material.setdefault(_mat, kid)
 
     revoked = predicate.get("revoked", [])
     if "revoked" in predicate and not (isinstance(revoked, list) and all(isinstance(x, str) for x in revoked)):
@@ -585,6 +587,56 @@ def _root_key_identity(value: Any) -> bytes | None:
     return alg.encode("ascii") + b"|" + str(len(pub)).encode("ascii") + b":" + pub + b"|" + pq_part
 
 
+def _key_legs(value: Any) -> tuple[bytes, ...] | None:
+    """KR-01: the raw bytes of every leg of ONE key, in the shapes a pack and a caller use: a bare base64 string
+    (legacy Ed25519) gives its one key, a key object gives ``publicKey`` and, when present, ``publicKeyPq``. Two
+    keys that share any leg are one signer, whatever their algorithm labels say: an `mldsa65` key and a hybrid
+    whose PQ leg is that key, or two hybrids with one PQ leg. ``None`` for a key that cannot be read (it counts
+    nowhere, as before)."""
+    if isinstance(value, str):
+        pub_b64, pq_b64 = value, None
+    elif isinstance(value, dict):
+        pub_b64, pq_b64 = value.get("publicKey"), value.get("publicKeyPq")
+    else:
+        return None
+    if not isinstance(pub_b64, str):
+        return None
+    try:
+        teile = [decode_b64(pub_b64)]
+        if pq_b64 is not None:
+            if not isinstance(pq_b64, str):
+                return None
+            teile.append(decode_b64(pq_b64))
+    except Exception:  # noqa: BLE001 — an unreadable leg is no key
+        return None
+    return tuple(teile)
+
+
+def _root_legs_disjoint(predicate: Any) -> bool:
+    """KR-01: True iff no leg is shared by two non-revoked declared root keys. A pin of the root-key set (anchor 3)
+    counts declared identities against the threshold; two identities with one ML-DSA leg are one signer, so such a
+    pack is no pinned root. Unreadable keys are left out, as ``_declared_root_material`` leaves them out. A key id
+    listed twice in the root role is one key, not two keys that share their legs (Codex round 1 on the KR-01 fix)."""
+    if not isinstance(predicate, dict):
+        return False
+    keys = _as_dict(predicate.get("keys"))
+    revoked = set(_as_list(predicate.get("revoked")))
+    root = _as_dict(_as_dict(predicate.get("roles")).get("root"))
+    gesehen: set[bytes] = set()
+    bearbeitet: set[str] = set()
+    for kid in _as_list(root.get("keyIds")):
+        if not isinstance(kid, str) or kid in revoked or kid in bearbeitet:
+            continue
+        bearbeitet.add(kid)
+        teile = _key_legs(keys.get(kid))
+        if not teile:
+            continue
+        if gesehen & set(teile):
+            return False
+        gesehen.update(teile)
+    return True
+
+
 def _declared_root_material(predicate: Any) -> tuple[set[bytes], Any]:
     """The pack's own DECLARED, non-revoked root role: ``(set of root key IDENTITY tokens, declared threshold)``.
 
@@ -687,8 +739,10 @@ def trust_pack_is_pinned(predicate: Any, *, expected_genesis_digest: str | None 
         anchor_supplied = True
         pinned_keys = _pinned_root_material(expected_root_keys)
         declared, threshold = _declared_root_material(predicate)
+        # KR-01: the declared identities are counted against the threshold, so they must not share a leg.
         if (pinned_keys and declared and declared <= pinned_keys
-                and type(threshold) is int and threshold >= 1 and len(declared) >= threshold):
+                and type(threshold) is int and threshold >= 1 and len(declared) >= threshold
+                and _root_legs_disjoint(predicate)):
             return True
 
     return False if anchor_supplied else None
@@ -908,6 +962,9 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
     # alg label lives INSIDE the signed predicate, so an attacker cannot relabel a key without invalidating
     # every signature over this pack.
     valid_root: dict[bytes, str] = {}
+    # KR-01: every leg of every counted key. A signer whose classical OR post-quantum leg is already counted adds
+    # nothing (defense-in-depth beyond the validator, which now refuses a shared leg).
+    gezaehlte_teile: set[bytes] = set()
     for entry in _as_list(envelope.get("signatures")):
         if not isinstance(entry, dict):
             continue
@@ -924,11 +981,13 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
             pub = decode_b64(pub_b64)
         except Exception:  # noqa: BLE001
             continue
-        if pub in valid_root:  # same key material already counted — aliasing cannot inflate the threshold
+        teile = _key_legs(kv)
+        if not teile or gezaehlte_teile & set(teile):  # a leg already counted — aliasing cannot inflate the threshold
             continue
         alg = kv.get("alg", "ed25519")
         if _verify_signature_for_alg(alg, pub, kv.get("publicKeyPq"), entry, msg):
             valid_root[pub] = kid
+            gezaehlte_teile.update(teile)
     r["root_signers"] = sorted(valid_root.values())
     r["root_threshold_met"] = _is_int(threshold) and len(valid_root) >= threshold
     if not r["root_threshold_met"]:
@@ -986,6 +1045,9 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
         # value vouches for nothing (fail-closed), as a non-dict did.
         old_keys = _richtlinie_von(prev_root_keys) or {}
         old_valid: dict[bytes, str] = {}
+        # KR-01: the previous root comes from the caller, not from a validated pack, so the leg check lives here
+        # alone: an old root of two hybrids with one ML-DSA leg vouched with one ML-DSA secret (measured).
+        gezaehlte_alte_teile: set[bytes] = set()
         for entry in _as_list(envelope.get("signatures")):
             if not isinstance(entry, dict):
                 continue
@@ -1011,10 +1073,12 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
                 pub = decode_b64(pub_b64)
             except Exception:  # noqa: BLE001
                 continue
-            if pub in old_valid:
+            alte_teile = _key_legs(_ok)
+            if not alte_teile or gezaehlte_alte_teile & set(alte_teile):
                 continue
             if _verify_signature_for_alg(old_alg, pub, pq_pub_b64, entry, msg):
                 old_valid[pub] = kid
+                gezaehlte_alte_teile.update(alte_teile)
         r["old_root_signers"] = sorted(old_valid.values())
         # prev_root_threshold MUST be a positive int: 0/None/negative would "authorize" a rotation with zero
         # old-root vouches (self-review fix, fail-closed defense-in-depth — a correct caller passes the old

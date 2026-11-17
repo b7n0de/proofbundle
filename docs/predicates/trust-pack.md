@@ -59,6 +59,14 @@ entry gains a second field for the PQ leg: `{"keyid":, "sig": <classical or sing
 b64, hybrid only>]}`. The `alg` label lives INSIDE the signed predicate, so it cannot be relabeled without
 invalidating every signature over the pack (no separate alg-confusion surface, unlike a bare JWT `alg` header).
 
+**One leg, one key.** A key is the set of its legs: `publicKey`, and `publicKeyPq` for a hybrid key. No leg may
+appear in two keys of a pack, whatever their `alg`. One ML-DSA-65 key named as an `mldsa65` key and as the PQ leg of
+a hybrid, or as the PQ leg of two hybrids, is one signer; until 6.6.1 it counted twice toward a threshold, so once
+Ed25519 is broken a single ML-DSA secret met a threshold of two (KR-01). The validator refuses such a pack, and every
+count (root threshold, rotation vouch) counts a key only if none of its legs was counted. The root-key pin (anchor 3)
+does not pick a disjoint subset: if two keys of the declared, non-revoked root share a leg, the whole root is not
+pinned. A key id listed twice in a role is one key, not two keys that share their legs.
+
 **Executor identifiers (6.6.0).** A `keys[kid]` entry may carry `executorIds`, a list of 1 to 256 distinct
 non-empty strings: the `executor.id` values that key attests in an Action Outcome. `verify_outcome_receipt`
 compares the outcome's `executor.id` with that list for the key named by `executor.keyId` (`executor_id_bound`,
@@ -73,8 +81,9 @@ Each check fail-closed; read the aggregate `ok`, never an individual field:
 
 1. **structure_ok / predicate_type_ok** — valid predicate, vendored `trust-pack/v0.1`.
 2. **root_threshold_met** — `>=` the root role's `threshold` DISTINCT valid non-revoked root signatures over
-   the exact PAE bytes. Signatures are counted as a Set of key ids (no double-count); a key id not in the root
-   set, or revoked, or with an unresolved / malformed public key, does not count.
+   the exact PAE bytes. Signatures are counted by key material, every leg of a key (no double-count: a key whose
+   classical or post-quantum leg is already counted adds nothing); a key id not in the root set, or revoked, or
+   with an unresolved / malformed public key, does not count.
 3. **not_expired** — `expires > now` (fail-closed past expiry).
 4. **version_monotone** — `version > prevVersion` when a previous version is supplied (rollback/freeze catch).
 5. **prevVersionDigest chain** — each version links the previous version's content root; the first is `null`.
