@@ -262,3 +262,104 @@ def test_kontrolle_an_alg_label_in_other_letter_case_is_no_algorithm():
     with mock.patch.object(tp, "validate_trust_pack_predicate", return_value=[]):
         r = tp.verify_trust_pack(_envelope(_pack(keys, list(keys), 2), [("a", None, _P), ("b", None, _P2)]), now=_NOW)
     assert r["root_threshold_met"] is False and r["root_signers"] == ["b"], r["root_signers"]
+
+
+# Deep gate iteration 1 on this fix (17.11.2026): a key's identity (for the pin) and its legs (for every count) came
+# from two readings with different strictness. The identity ignored `publicKeyPq` on a key that is not hybrid and
+# checked no length; the legs read `publicKeyPq` on every key and gave nothing for an unreadable one. Now both come
+# from `_key_reading`: the PQ leg exists for a hybrid key only, and each leg counts only at the length of its
+# algorithm. Each `rot_zuerst` case below fails at the first fix commit; the `kontrolle` cases hold before and after.
+_ED1_B64 = _b64(_E1.public_key().public_bytes_raw())
+_ED2_B64 = _b64(_E2.public_key().public_bytes_raw())
+
+
+@pytest.mark.parametrize("stray", ["!!not-base64", 5, ["x"], {}, True, _P_B64.rstrip("=")],
+                         ids=["kein-base64", "zahl", "liste", "objekt", "wahr", "ohne-padding"])
+def test_rot_zuerst_a_stray_pq_field_does_not_hide_a_shared_ml_dsa_key_from_the_pin(stray):
+    """F1: an `mldsa65` key with a stray `publicKeyPq` is still the ML-DSA key P, which is the PQ leg of the hybrid
+    next to it. The two declared identities are one signer, so the root is not pinned at a threshold of two."""
+    a = {"alg": "mldsa65", "publicKey": _P_B64, "publicKeyPq": stray}
+    pred = _pack({"a": a, "b": _hy(_E1, _P)}, ["a", "b"], 2)
+    assert tp.trust_pack_is_pinned(pred, expected_root_keys={"a": _ml(_P), "b": _hy(_E1, _P)}) is False
+
+
+@pytest.mark.parametrize("stray", ["", "!!", 0, False, []], ids=["leer", "kein-base64", "null", "falsch", "liste"])
+def test_rot_zuerst_a_stray_pq_field_does_not_merge_two_old_root_keys(stray):
+    """F2: two different Ed25519 keys of a caller's old root, each with the same stray `publicKeyPq`, are two keys;
+    the stray field is no leg of an Ed25519 key, so both vouch."""
+    alt = {"a": {"publicKey": _ED1_B64, "publicKeyPq": stray}, "b": {"publicKey": _ED2_B64, "publicKeyPq": stray}}
+    r = _rotation(alt, [("a", _E1, None), ("b", _E2, None)])
+    assert r["rotation_authorized"] is True and r["old_root_signers"] == ["a", "b"], r
+
+
+@pytest.mark.parametrize("pq", ["", _b64(b"\x07" * 100)], ids=["leer", "100-bytes"])
+def test_rot_zuerst_an_incomplete_hybrid_is_no_declared_identity_of_the_pin(pq):
+    """F5: a hybrid whose `publicKeyPq` decodes to 0 or 100 bytes can never sign; it is no declared root identity,
+    so a root of it and one `mldsa65` key is not pinned at a threshold of two."""
+    h = _hy_mit(_E1, pq)
+    pred = _pack({"h": h, "m": _ml(_P)}, ["h", "m"], 2)
+    assert tp.trust_pack_is_pinned(pred, expected_root_keys={"h": h, "m": _ml(_P)}) is False
+
+
+def _schluesselformen() -> dict:
+    """Key shapes the pack, a pin and a caller's old root use, readable and not."""
+    e1, p = _ED1_B64, _P_B64
+    return {
+        "ed25519-roh": e1, "ed25519-objekt": {"publicKey": e1}, "ed25519-mit-alg": {"alg": "ed25519", "publicKey": e1},
+        "mldsa65": _ml(_P), "hybrid": _hy(_E1, _P),
+        "ed25519-fremdes-pq-leer": {"publicKey": e1, "publicKeyPq": ""},
+        "ed25519-fremdes-pq-kaputt": {"publicKey": e1, "publicKeyPq": "!!"},
+        "ed25519-fremdes-pq-echt": {"publicKey": e1, "publicKeyPq": p},
+        "mldsa65-fremdes-pq-kaputt": {"alg": "mldsa65", "publicKey": p, "publicKeyPq": "!!"},
+        "hybrid-pq-leer": _hy_mit(_E1, ""), "hybrid-pq-100": _hy_mit(_E1, _b64(b"\x07" * 100)),
+        "hybrid-pq-fehlt": {"alg": "hybrid-ed25519-mldsa65", "publicKey": e1},
+        "ed25519-31-bytes": {"publicKey": _b64(b"\x01" * 31)}, "roh-31-bytes": _b64(b"\x01" * 31),
+        "mldsa65-32-bytes": {"alg": "mldsa65", "publicKey": e1},
+        "unbekannter-alg": {"alg": "rsa4096", "publicKey": e1}, "alg-liste": {"alg": ["ed25519"], "publicKey": e1},
+        "kein-objekt": 5,
+    }
+
+
+def test_rot_zuerst_identity_and_legs_come_from_one_reading():
+    """The property behind F1, F2 and F5: a key has an identity exactly when it has legs, and keys with the same
+    identity have the same legs."""
+    formen = _schluesselformen()
+    for name, v in formen.items():
+        assert (tp._root_key_identity(v) is None) == (tp._key_legs(v) is None), name
+    beine: dict = {}
+    for name, v in formen.items():
+        ident = tp._root_key_identity(v)
+        if ident is not None:
+            assert beine.setdefault(ident, tp._key_legs(v)) == tp._key_legs(v), name
+
+
+class _AlgText(str):
+    """An `alg` that compares equal to a known algorithm while being the caller's own type."""
+
+
+def test_rot_zuerst_an_alg_of_the_callers_own_type_reads_as_no_key():
+    """`alg` is read as plain text only: a str subclass equal to "ed25519" gave an identity token through its own
+    `encode`; now it is no key, for the identity and for the legs alike."""
+    v = {"alg": _AlgText("ed25519"), "publicKey": _ED1_B64}
+    assert tp._root_key_identity(v) is None and tp._key_legs(v) is None
+
+
+def _anzahl_teile(name: str):
+    teile = tp._key_legs(_schluesselformen()[name])
+    return None if teile is None else len(teile)
+
+
+@pytest.mark.parametrize("name,erwartet", [("ed25519-roh", 1), ("mldsa65", 1), ("hybrid", 2)])
+def test_kontrolle_a_readable_key_keeps_its_legs(name, erwartet):
+    """Held before and after the class fix: a hybrid key has two legs, any other readable key one."""
+    assert _anzahl_teile(name) == erwartet
+
+
+@pytest.mark.parametrize("name,erwartet", [
+    ("ed25519-fremdes-pq-echt", 1), ("hybrid-pq-leer", None), ("ed25519-31-bytes", None),
+    ("mldsa65-32-bytes", None), ("unbekannter-alg", None),
+])
+def test_rot_zuerst_a_leg_exists_only_for_its_algorithm_and_at_its_length(name, erwartet):
+    """New with the class fix: a `publicKeyPq` on an Ed25519 key is no leg, and a key whose leg does not decode to the
+    length of its algorithm, or whose `alg` is unknown, has no legs (as it has no identity)."""
+    assert _anzahl_teile(name) == erwartet

@@ -65,7 +65,10 @@ a hybrid, or as the PQ leg of two hybrids, is one signer; until 6.6.1 it counted
 Ed25519 is broken a single ML-DSA secret met a threshold of two (KR-01). The validator refuses such a pack, and every
 count (root threshold, rotation vouch) counts a key only if none of its legs was counted. The root-key pin (anchor 3)
 does not pick a disjoint subset: if two keys of the declared, non-revoked root share a leg, the whole root is not
-pinned. A key id listed twice in a role is one key, not two keys that share their legs.
+pinned. A key id listed twice in a role is one key, not two keys that share their legs. A leg counts only when it
+decodes to the length of its algorithm (Ed25519 32 bytes, ML-DSA-65 1952 bytes), and a `publicKeyPq` on a key that is
+not hybrid is no leg of that key; a key's identity (for the pin) and its legs (for every count) come from this one
+reading, so a key that has no legs has no identity either.
 
 **Executor identifiers (6.6.0).** A `keys[kid]` entry may carry `executorIds`, a list of 1 to 256 distinct
 non-empty strings: the `executor.id` values that key attests in an Action Outcome. `verify_outcome_receipt`

@@ -543,6 +543,59 @@ def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None 
 # `ok`, which stays the documented self-authentication verdict.
 
 
+def _decoded_leg(b64: Any, length: int) -> bytes | None:
+    """One leg of a key: the bytes its base64 text decodes to, only when they have the length of the leg's
+    algorithm (``_KEY_RAW_LEN``), as the validator demands of a pack's keys. Anything else is no leg."""
+    if not isinstance(b64, str):
+        return None
+    try:
+        raw = decode_b64(b64)
+    except Exception:  # noqa: BLE001 — an unreadable leg is no leg
+        return None
+    return raw if len(raw) == length else None
+
+
+def _key_reading(value: Any) -> tuple[bytes, tuple[bytes, ...]] | None:
+    """ONE READING of one root key, from which both its identity token and its legs come.
+
+    WHY ONE (deep gate iteration 1 on the KR-01 fix at 83fc4355, 17.11.2026, findings F1, F2 and F5): the identity
+    (``_root_key_identity``) and the legs (``_key_legs``) were read from different fields with different strictness.
+    The identity ignored ``publicKeyPq`` on a key that is not hybrid and checked no length; the legs read
+    ``publicKeyPq`` on every key and gave nothing for an unreadable one. So an ``mldsa65`` root key with a stray,
+    unreadable ``publicKeyPq`` had an identity but no legs, and the pin did not see that its ML-DSA key was the PQ
+    leg of a hybrid next to it (F1); two different Ed25519 keys of a caller's old root with the same stray value
+    shared a "leg" and vouched once instead of twice (F2); and a hybrid whose ``publicKeyPq`` decoded to 0 or 100
+    bytes was a declared identity of the pin that can never sign (F5).
+
+    The rule, the same at every place that reads a key (alias check, root count, rotation, pin): a key's legs are
+    ``publicKey`` and, for a ``hybrid-ed25519-mldsa65`` key only, ``publicKeyPq``; each leg counts only when it
+    decodes to the length of its algorithm (Ed25519 32 bytes, ML-DSA-65 1952 bytes). A ``publicKeyPq`` on a key
+    that is not hybrid is no leg, as it was never part of that key's identity. ``alg`` absent is ``ed25519``; an
+    ``alg`` that is not one of ``_KEY_ALGS`` (and not plain text) reads as no key. A bare base64 string is a legacy
+    Ed25519 key. ``None``: the key counts nowhere."""
+    if isinstance(value, str):
+        alg, pub_b64, pq_b64 = "ed25519", value, None
+    elif isinstance(value, dict):
+        alg = value.get("alg", "ed25519")
+        if type(alg) is not str or alg not in _KEY_ALGS:
+            return None   # R6a-3: an unknown algorithm is rejected closed, never read as its classical leg
+        pub_b64 = value.get("publicKey")
+        pq_b64 = value.get("publicKeyPq") if alg == "hybrid-ed25519-mldsa65" else None
+    else:
+        return None
+    pub = _decoded_leg(pub_b64, _KEY_RAW_LEN["mldsa65"] if alg == "mldsa65" else _KEY_RAW_LEN["ed25519"])
+    if pub is None:
+        return None
+    if alg != "hybrid-ed25519-mldsa65":
+        return alg.encode("ascii") + b"|" + str(len(pub)).encode("ascii") + b":" + pub + b"|", (pub,)
+    pq = _decoded_leg(pq_b64, _KEY_RAW_LEN["mldsa65"])
+    if pq is None:
+        return None   # R6a-3: a hybrid key WITHOUT a readable PQ leg is incomplete — rejected closed, no downgrade
+    token = (alg.encode("ascii") + b"|" + str(len(pub)).encode("ascii") + b":" + pub + b"|"
+             + str(len(pq)).encode("ascii") + b":" + pq)
+    return token, (pub, pq)
+
+
 def _root_key_identity(value: Any) -> bytes | None:
     """Addendum R6a-3 (`KRAXO-CLOUD-R6A-SIEBEN-P1-VOR-CRIT-JSON-01`): the canonical IDENTITY token of ONE root
     key, covering the ALGORITHM and BOTH legs, not the classical ``publicKey`` alone. So a hybrid key and an
@@ -551,65 +604,23 @@ def _root_key_identity(value: Any) -> bytes | None:
     downgrade, docs/predicates/trust-pack.md §roles/keys). Accepts the same shapes as ``prev_root_keys``: a
     bare base64 string (legacy Ed25519-only) or a key object ``{"publicKey", "alg"?, "publicKeyPq"?}``.
 
-    Fail-closed (``None``, counted nowhere, so it can neither be a declared root key nor a pin):
-      - an unknown ``alg`` (never silently reduced to its classical leg);
-      - an unreadable / missing ``publicKey``;
-      - a hybrid key whose ``publicKeyPq`` leg is absent or not decodable (an INCOMPLETE hybrid key).
-    ``alg`` absent defaults to ``ed25519`` (backward compatible with every pre-agility pack and bare-string
-    pin). The token is length-prefixed, so no two distinct ``(alg, publicKey, publicKeyPq)`` triples collide."""
-    alg: str
-    pub_b64: Any
-    pq_b64: Any
-    if isinstance(value, str):
-        alg, pub_b64, pq_b64 = "ed25519", value, None
-    elif isinstance(value, dict):
-        alg = value.get("alg", "ed25519")
-        if alg not in _KEY_ALGS:
-            return None   # R6a-3: an unknown algorithm is rejected closed, never read as its classical leg
-        pub_b64, pq_b64 = value.get("publicKey"), value.get("publicKeyPq")
-    else:
-        return None
-    if not isinstance(pub_b64, str):
-        return None
-    try:
-        pub = decode_b64(pub_b64)
-    except Exception:  # noqa: BLE001 — an unreadable public key is no identity
-        return None
-    pq: bytes | None = None
-    if alg == "hybrid-ed25519-mldsa65":
-        if not isinstance(pq_b64, str):
-            return None   # R6a-3: a hybrid key WITHOUT its PQ leg is incomplete — rejected closed, no downgrade
-        try:
-            pq = decode_b64(pq_b64)
-        except Exception:  # noqa: BLE001 — an undecodable PQ leg is an incomplete hybrid key
-            return None
-    pq_part = b"" if pq is None else str(len(pq)).encode("ascii") + b":" + pq
-    return alg.encode("ascii") + b"|" + str(len(pub)).encode("ascii") + b":" + pub + b"|" + pq_part
+    Read through ``_key_reading``, the one reading that also gives the key's legs. Fail-closed (``None``, counted
+    nowhere, so it can neither be a declared root key nor a pin): an unknown ``alg``; a ``publicKey`` that does not
+    decode to the length of its algorithm; a hybrid key whose ``publicKeyPq`` is absent or does not decode to 1952
+    bytes (an INCOMPLETE hybrid key). The token is length-prefixed, so no two distinct ``(alg, publicKey,
+    publicKeyPq)`` triples collide."""
+    gelesen = _key_reading(value)
+    return None if gelesen is None else gelesen[0]
 
 
 def _key_legs(value: Any) -> tuple[bytes, ...] | None:
-    """KR-01: the raw bytes of every leg of ONE key, in the shapes a pack and a caller use: a bare base64 string
-    (legacy Ed25519) gives its one key, a key object gives ``publicKey`` and, when present, ``publicKeyPq``. Two
-    keys that share any leg are one signer, whatever their algorithm labels say: an `mldsa65` key and a hybrid
+    """KR-01: the raw bytes of every leg of ONE key, read through ``_key_reading``, the same reading that gives the
+    key's identity: ``publicKey``, and ``publicKeyPq`` for a hybrid key only, each at the length of its algorithm.
+    Two keys that share any leg are one signer, whatever their algorithm labels say: an `mldsa65` key and a hybrid
     whose PQ leg is that key, or two hybrids with one PQ leg. ``None`` for a key that cannot be read (it counts
-    nowhere, as before)."""
-    if isinstance(value, str):
-        pub_b64, pq_b64 = value, None
-    elif isinstance(value, dict):
-        pub_b64, pq_b64 = value.get("publicKey"), value.get("publicKeyPq")
-    else:
-        return None
-    if not isinstance(pub_b64, str):
-        return None
-    try:
-        teile = [decode_b64(pub_b64)]
-        if pq_b64 is not None:
-            if not isinstance(pq_b64, str):
-                return None
-            teile.append(decode_b64(pq_b64))
-    except Exception:  # noqa: BLE001 — an unreadable leg is no key
-        return None
-    return tuple(teile)
+    nowhere, and it has no identity either)."""
+    gelesen = _key_reading(value)
+    return None if gelesen is None else gelesen[1]
 
 
 def _root_legs_disjoint(predicate: Any) -> bool:
