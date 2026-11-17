@@ -363,3 +363,75 @@ def test_rot_zuerst_a_leg_exists_only_for_its_algorithm_and_at_its_length(name, 
     """New with the class fix: a `publicKeyPq` on an Ed25519 key is no leg, and a key whose leg does not decode to the
     length of its algorithm, or whose `alg` is unknown, has no legs (as it has no identity)."""
     assert _anzahl_teile(name) == erwartet
+
+
+# Deep gate iteration 2 on this fix (17.11.2026), F4, owner choice A on the card of that iteration: the class fix left
+# an unreadable declared root key out of the pin. A root of a pinned key `a` and a key `b` that is no key was pinned at a
+# threshold of one by a pin of `a` alone. Now any declared, non-revoked root key that cannot be read refuses the root-key
+# pin. Each `rot_zuerst` case below is True at 50ff9201. In 6.6.0 the three cases of a wrong leg length answered False,
+# and the others were True there as well (measured on 17.11.2026).
+_A_PIN = {"a": _ed(_E2)}
+_UNLESBAR = {
+    "ed25519-31-bytes": {"publicKey": _b64(b"\x01" * 31)},
+    "hybrid-pq-100": _hy_mit(_E1, _b64(b"\x07" * 100)),
+    "hybrid-pq-fehlt": {"alg": "hybrid-ed25519-mldsa65", "publicKey": _ED1_B64},
+    "mldsa65-32-bytes": {"alg": "mldsa65", "publicKey": _ED1_B64},
+    "unbekannter-alg": {"alg": "rsa4096", "publicKey": _ED1_B64},
+    "alg-liste": {"alg": ["ed25519"], "publicKey": _ED1_B64},
+    "kein-base64": {"publicKey": "!!kein-base64!!"},
+    "kein-objekt": 5,
+    "roher-text": _ED1_B64,
+}
+
+
+def _wurzel_mit(b) -> dict:
+    keys = {"a": _ed(_E2)}
+    if b is not _FEHLT:
+        keys["b"] = b
+    return _pack(keys, ["a", "b"], 1)
+
+
+_FEHLT = object()
+
+
+@pytest.mark.parametrize("b", list(_UNLESBAR.values()) + [_FEHLT], ids=list(_UNLESBAR) + ["kein-eintrag-in-keys"])
+def test_rot_zuerst_an_unreadable_declared_root_key_refuses_the_pin(b):
+    pred = _wurzel_mit(b)
+    assert tp.trust_pack_is_pinned(pred, expected_root_keys=_A_PIN) is False
+    assert tp._declared_root_material(pred) == (set(), None)
+    assert tp._root_legs_disjoint(pred) is False
+
+
+def test_rot_zuerst_a_root_key_id_that_is_not_text_refuses_the_pin():
+    pred = _pack({"a": _ed(_E2)}, ["a", ["b"]], 1)
+    assert tp.trust_pack_is_pinned(pred, expected_root_keys=_A_PIN) is False
+    assert tp._declared_root_material(pred) == (set(), None)
+    assert tp._root_legs_disjoint(pred) is False
+
+
+@pytest.mark.parametrize("name", [n for n, v in _schluesselformen().items()
+                                  if isinstance(v, dict) and tp._root_key_identity(v) is not None])
+def test_kontrolle_a_readable_second_root_key_that_is_not_pinned_refuses_the_pin(name):
+    """Held before and after: a readable second root key that the relying party did not pin refuses the pin. With
+    the cases above, a second declared root key refuses a pin of `a` alone whether it can be read or not."""
+    assert tp.trust_pack_is_pinned(_wurzel_mit(_schluesselformen()[name]), expected_root_keys=_A_PIN) is False
+
+
+def test_kontrolle_an_unreadable_root_key_that_is_revoked_is_not_read():
+    """Held before and after: a revoked key is not read, so a pin of the live root holds."""
+    pred = _wurzel_mit({"publicKey": _b64(b"\x01" * 31)})
+    pred["revoked"] = ["b"]
+    assert tp.trust_pack_is_pinned(pred, expected_root_keys=_A_PIN) is True
+
+
+# F3 of the same iteration (found before the fix and kept by it): `set(revoked)` raised TypeError out of the pin for an
+# entry that is a list or an object. Key ids are text; an entry that is not text revokes nothing, and a text entry next
+# to it still revokes its key. Each `rot_zuerst` case raises at 50ff9201.
+@pytest.mark.parametrize("revoked,erwartet", [
+    ([["x"]], False), ([{"k": 1}], False), ([["x"], "b"], True),
+], ids=["liste", "objekt", "liste-und-text"])
+def test_rot_zuerst_a_revoked_entry_that_is_not_text_does_not_raise_from_the_pin(revoked, erwartet):
+    pred = _wurzel_mit({"publicKey": _b64(b"\x01" * 31)})
+    pred["revoked"] = revoked
+    assert tp.trust_pack_is_pinned(pred, expected_root_keys=_A_PIN) is erwartet
+    assert tp._root_legs_disjoint(pred) is erwartet

@@ -573,6 +573,8 @@ def _key_reading(value: Any) -> tuple[bytes, tuple[bytes, ...]] | None:
     that is not hybrid is no leg, as it was never part of that key's identity. ``alg`` absent is ``ed25519``; an
     ``alg`` that is not one of ``_KEY_ALGS`` (and not plain text) reads as no key. A bare base64 string is a legacy
     Ed25519 key. ``None``: the key counts nowhere."""
+    pub_b64: Any
+    pq_b64: Any
     if isinstance(value, str):
         alg, pub_b64, pq_b64 = "ed25519", value, None
     elif isinstance(value, dict):
@@ -623,25 +625,43 @@ def _key_legs(value: Any) -> tuple[bytes, ...] | None:
     return None if gelesen is None else gelesen[1]
 
 
+def _revoked_ids(predicate: dict) -> set[str]:
+    """The key ids ``revoked`` names, read as text only (deep gate iteration 2 on the KR-01 fix, 17.11.2026, F3).
+
+    ``set(revoked)`` raised ``TypeError`` out of ``trust_pack_is_pinned`` for an entry that is a list or an object
+    (``revoked=[["x"]]``), before and after the fix. Key ids are text, so an entry that is not text names no key and
+    revokes nothing. The validator still refuses such a list; this reading only keeps a direct call from raising."""
+    return {x for x in _as_list(predicate.get("revoked")) if type(x) is str}
+
+
 def _root_legs_disjoint(predicate: Any) -> bool:
     """KR-01: True iff no leg is shared by two non-revoked declared root keys. A pin of the root-key set (anchor 3)
     counts declared identities against the threshold; two identities with one ML-DSA leg are one signer, so such a
-    pack is no pinned root. Unreadable keys are left out, as ``_declared_root_material`` leaves them out. A key id
-    listed twice in the root role is one key, not two keys that share their legs (Codex round 1 on the KR-01 fix)."""
+    pack is no pinned root. A key id listed twice in the root role is one key, not two keys that share their legs
+    (Codex round 1 on the KR-01 fix).
+
+    A non-revoked root key that cannot be read makes the answer False (deep gate iteration 2 on the fix, F4): its legs
+    are unknown, so nobody can say they are disjoint from the others. ``_declared_root_material`` refuses the same key
+    the same way."""
     if not isinstance(predicate, dict):
         return False
     keys = _as_dict(predicate.get("keys"))
-    revoked = set(_as_list(predicate.get("revoked")))
+    revoked = _revoked_ids(predicate)
     root = _as_dict(_as_dict(predicate.get("roles")).get("root"))
     gesehen: set[bytes] = set()
     bearbeitet: set[str] = set()
     for kid in _as_list(root.get("keyIds")):
-        if not isinstance(kid, str) or kid in revoked or kid in bearbeitet:
+        if not isinstance(kid, str):
+            return False
+        if kid in revoked or kid in bearbeitet:
             continue
         bearbeitet.add(kid)
-        teile = _key_legs(keys.get(kid))
+        # A key of a pack is an object; a bare text is read as a key only where a caller hands one in (a pin, an old
+        # root). Read here as `_declared_root_material` reads it, so the two never disagree on which key exists.
+        kv = keys.get(kid)
+        teile = _key_legs(kv) if isinstance(kv, dict) else None
         if not teile:
-            continue
+            return False
         if gesehen & set(teile):
             return False
         gesehen.update(teile)
@@ -653,26 +673,36 @@ def _declared_root_material(predicate: Any) -> tuple[set[bytes], Any]:
 
     Mirrors ``verify_trust_pack``'s own root extraction (count distinct KEY MATERIAL, not keyId labels): for
     each non-revoked root keyId, the full normalized identity of ``keys[kid]`` (R6a-3: algorithm + both legs,
-    via ``_root_key_identity``, not ``publicKey`` alone). Fail-closed — an unreadable key, an unknown or
-    incomplete algorithm, a malformed role or a non-int threshold contributes nothing (empty set / ``None``
-    threshold), never a raise. The threshold is returned only as an exact int (``_is_int``), so an int subclass
+    via ``_root_key_identity``, not ``publicKey`` alone). Fail-closed, never a raise: a malformed role or a non-int
+    threshold gives no pin. The threshold is returned only as an exact int (``_is_int``), so an int subclass
     cannot later decide a comparison; a non-int threshold comes back ``None`` and no pin via the root-key anchor
-    can pass."""
+    can pass.
+
+    A DECLARED ROOT KEY THAT CANNOT BE READ REFUSES THE PIN (deep gate iteration 2 on the KR-01 fix, 17.11.2026, F4;
+    owner choice A on the card of that iteration). At the class fix 50ff9201 every such key was left out, so a root of
+    a pinned key ``a`` and a key ``b`` that is no key was pinned at a threshold of one by a pin of ``a`` alone. In the
+    release 6.6.0 that held for a hybrid without its PQ leg, an unknown ``alg``, a ``publicKey`` that is no base64, a
+    key that is not an object and a key id with no entry in ``keys``; a key whose leg had the wrong length (an Ed25519
+    key of 31 bytes, a PQ leg of 100 bytes, an ``mldsa65`` key of 32 bytes) refused the pin there (measured on
+    17.11.2026). A relying party cannot pin what it cannot read, so any non-revoked root key without an identity, or a
+    root key id that is not text, gives the empty set and ``None``, and no pin via the root-key anchor can pass. A
+    revoked key is not read at all."""
     if not isinstance(predicate, dict):
         return set(), None
     keys = _as_dict(predicate.get("keys"))
-    revoked = set(_as_list(predicate.get("revoked")))
+    revoked = _revoked_ids(predicate)
     root = _as_dict(_as_dict(predicate.get("roles")).get("root"))
     material: set[bytes] = set()
     for kid in _as_list(root.get("keyIds")):
-        if not isinstance(kid, str) or kid in revoked:
+        if not isinstance(kid, str):
+            return set(), None
+        if kid in revoked:
             continue
         kv = keys.get(kid)
-        if not isinstance(kv, dict):
-            continue
-        token = _root_key_identity(kv)   # R6a-3: full normalized identity, never the classical leg alone
-        if token is not None:
-            material.add(token)
+        token = _root_key_identity(kv) if isinstance(kv, dict) else None   # R6a-3: full identity, both legs
+        if token is None:
+            return set(), None
+        material.add(token)
     threshold = root.get("threshold")
     return material, (threshold if _is_int(threshold) else None)
 
@@ -718,7 +748,8 @@ def trust_pack_is_pinned(predicate: Any, *, expected_genesis_digest: str | None 
          and the exact value ``build_trust_pack_statement`` writes as the subject digest;
       3. a pinned root-key set — every DECLARED non-revoked root key is in ``expected_root_keys`` AND the
          declared root threshold is a positive int reachable within it, so the pack's root IDENTITY is exactly
-         what the RP pinned (the threshold that authenticated it is then pinned too).
+         what the RP pinned (the threshold that authenticated it is then pinned too). A declared non-revoked root
+         key that cannot be read refuses this anchor (``_declared_root_material``).
 
     One-reading and fail-closed throughout: the digest is read by its characters (``_zeichen_von``), the
     pinned keys through ``_richtlinie_von``; a computation that cannot run (no RFC-8785 canonicaliser) is a
@@ -962,7 +993,7 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
 
     # Threshold-of-root over the EXACT signed bytes.
     keys = _as_dict(predicate.get("keys"))
-    revoked = set(_as_list(predicate.get("revoked")))
+    revoked = _revoked_ids(predicate)   # the validator passed, so this is the list of key ids it checked
     root = _as_dict(_as_dict(predicate.get("roles")).get("root"))
     root_ids = [k for k in _as_list(root.get("keyIds")) if k not in revoked]
     threshold = root.get("threshold")

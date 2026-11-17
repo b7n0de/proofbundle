@@ -107,7 +107,12 @@ anchor was supplied but none matched), `None` (no anchor supplied) — and takes
 - `expected_genesis_digest` — the pack's content-root digest `sha256(JCS(predicate))` (the value a successor
   carries as its `prevVersionDigest`, and what `build_trust_pack_statement` writes as the subject digest);
 - `expected_root_keys` — a `{keyId: publicKey_b64}` / key-object map that must COVER the pack's declared,
-  non-revoked root role (every declared root key pinned, the declared threshold reachable within it);
+  non-revoked root role (every declared root key pinned, the declared threshold reachable within it). A declared,
+  non-revoked root key that cannot be read (an unknown `alg`, a leg of the wrong length, an incomplete hybrid, a
+  root key id with no key object) refuses this anchor, because a relying party cannot pin what it cannot read. In
+  6.6.0 a key whose leg had the wrong length already refused it, while a hybrid without its PQ leg, an unknown
+  `alg`, a `publicKey` that is no base64, a key that is not an object or a key id with no key was left out of the
+  comparison. Only the text entries of `revoked` name a key;
 - a rotation anchor — `prev_root_keys` + `prev_root_threshold`: the relying party pins the PREDECESSOR's root,
   and `rotation_authorized` being True binds this pack.
 
