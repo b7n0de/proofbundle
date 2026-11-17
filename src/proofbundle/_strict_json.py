@@ -46,7 +46,7 @@ from typing import Any, Union
 
 from .errors import BundleFormatError
 
-__all__ = ["loads_strict", "loads_reject_duplicate_keys", "enforce_structural_budget"]
+__all__ = ["loads_strict", "loads_reject_duplicate_keys", "enforce_structural_budget", "enforce_budget_only"]
 
 #: Ein einsames Surrogat (U+D800..U+DFFF ohne Partner). RFC 7493 (I-JSON) §2.1: ein Dokument DARF es
 #: nicht enthalten; RFC 8785 kann es nicht kanonisieren; serde_json weist es beim Parsen ab. Python
@@ -117,7 +117,7 @@ def _utf8_bytes_only(head: bytes) -> None:
 
 
 def _enforce_structural_budget(obj: Any, json_nodes: int, json_depth: int, string_len: int,
-                               int_bits: int | None = None) -> None:
+                               int_bits: int | None = None, *, einsame_surrogate_ablehnen: bool = True) -> None:
     """Bounded iterative walk (crypto-review 2026-07-15; depth added PB-2026-0718-11b): refuse a PARSED
     structure that is either too WIDE (combined dict-key + list-item count exceeds ``json_nodes`` — a
     wide-but-small-bytes document that slips under the raw ``input_bytes`` cap) or too DEEP (nesting depth
@@ -180,7 +180,9 @@ def _enforce_structural_budget(obj: Any, json_nodes: int, json_depth: int, strin
                       if issubclass(typ, bytearray) else len(cur))
             if laenge > string_len:
                 raise BudgetExceeded("string_len", laenge, string_len)
-            if issubclass(typ, str) and _EINSAMES_SURROGAT.search(cur) is not None:
+            # The lone surrogate is a question of FORM; `enforce_budget_only` turns it off and keeps every size check
+            # (Codex, round one of the fix for Z7B, P1: an early return on a surrogate skipped the size axes).
+            if einsame_surrogate_ablehnen and issubclass(typ, str) and _EINSAMES_SURROGAT.search(cur) is not None:
                 raise BundleFormatError(
                     "JSON string contains a lone surrogate code point (not I-JSON, RFC 7493 section 2.1; "
                     "not canonicalizable under RFC 8785) — rejected fail-closed so both verifiers agree")
@@ -271,6 +273,79 @@ def enforce_structural_budget(obj: Any, *, budget: Any = None) -> None:
     from .budget import DEFAULT_BUDGET  # noqa: PLC0415 - local import avoids an import cycle
     b = budget if budget is not None else DEFAULT_BUDGET
     _enforce_structural_budget(obj, b.json_nodes, b.json_depth, b.string_len, b.int_bits)
+
+
+#: Digits that `int()` converts under every limit CPython lets a host set (`sys.int_info.str_digits_check_threshold`
+#: is 640; a limit is either 0, meaning none, or at least that).
+_ZIFFERN_JE_STUECK = 600
+#: log2(10) rounded down, so that `int((n - 1) * _LOG2_10_ABGERUNDET) + 1` stays a lower bound of the bit length of an
+#: integer of n decimal digits (it is at least 10**(n - 1)) also with the rounding of a float product.
+_LOG2_10_ABGERUNDET = 3.3219280948
+
+
+def _ganzzahl_im_budget(int_bits: Any):
+    """``parse_int`` hook of :func:`enforce_budget_only`: an integer literal is judged against ``int_bits`` from its
+    digit count before any conversion, so the size axis also holds where the interpreter cannot convert the literal.
+
+    THE HOLE IT CLOSES (found in the fix of Z7B, before the pull request, by delta): `json.loads` raises a plain
+    ValueError for a literal of more than `sys.get_int_max_str_digits()` digits (4300 by default), and the first form of
+    `enforce_budget_only` read every ValueError as a question of form. Measured on Python 3.10.12 with the default
+    budget (int_bits 8192): 4300 nines were refused for int_bits, 4301 and 20000 nines were signed. A literal whose lower
+    bound is over the budget is refused here; a shorter one is converted in pieces of `_ZIFFERN_JE_STUECK` digits, which
+    every limit allows, and the walk measures its exact bit length as before."""
+    from .budget import BudgetExceeded  # noqa: PLC0415 - local import avoids an import cycle
+
+    def lies(text: str) -> int:
+        ziffern = len(text) - text.startswith("-")
+        if ziffern > _ZIFFERN_JE_STUECK:
+            untere = int((ziffern - 1) * _LOG2_10_ABGERUNDET) + 1
+            if int_bits is not None and untere > int_bits:
+                raise BudgetExceeded("int_bits", untere, int_bits)
+            betrag = text.lstrip("-")
+            wert = 0
+            for i in range(0, len(betrag), _ZIFFERN_JE_STUECK):
+                stueck = betrag[i:i + _ZIFFERN_JE_STUECK]
+                wert = wert * 10 ** len(stueck) + int(stueck)
+            return -wert if text.startswith("-") else wert
+        return int(text)
+
+    return lies
+
+
+def enforce_budget_only(data: Union[str, bytes], *, budget: Any = None) -> None:
+    """The budget ``loads_strict`` reads ``data`` under, and nothing else: the check a producer runs before it signs.
+
+    THE CLASS (deep gate 6.6.0 at c71eeb12, lens L6, finding Z7B): a producer that reads its own output before
+    signing asks one question, whether its verifier would refuse it for its SIZE. ``dsse.sign_envelope`` asked only
+    that since the fix at d8881edc; ``issue_status_list_token`` and ``issue_enclave_attestation`` called
+    ``loads_strict`` and so asked every question of the verifier's reader. Measured at c71eeb12: an ``iat`` of
+    ``2**53`` is 54 bits, far inside ``int_bits``, and both producers refused it for the I-JSON integer range, a
+    question of form that their verifiers answer. One function now holds the budget for every such producer.
+
+    Judged here, as ``loads_strict`` judges them: ``input_bytes`` over the bytes, ``json_depth`` (also as the
+    ``RecursionError`` of the parser), and ``json_nodes``, ``string_len`` and ``int_bits`` over the parsed value;
+    ``int_bits`` also from the digit count of an integer literal too long for the interpreter to convert
+    (:func:`_ganzzahl_im_budget`).
+    Left to the verifier, because none is a question of size: text that is not JSON, ``NaN`` and the infinities, an
+    integer outside the I-JSON range, a duplicate key, a byte order mark, a lone surrogate. Everything this raises is
+    a budget refusal (``BudgetExceeded`` or the ``"JSON nesting is too deep"`` ``BundleFormatError``)."""
+    from .budget import DEFAULT_BUDGET, BudgetExceeded  # noqa: PLC0415 - local import avoids an import cycle
+    b = budget if budget is not None else DEFAULT_BUDGET
+    groesse = len(data.encode("utf-8", "surrogatepass")) if isinstance(data, str) else len(data)
+    if groesse > b.input_bytes:
+        raise BudgetExceeded("input_bytes", groesse, b.input_bytes)
+    try:
+        obj = json.loads(data, parse_int=_ganzzahl_im_budget(b.int_bits))
+    except RecursionError as exc:
+        raise BundleFormatError("JSON nesting is too deep") from exc
+    except ValueError:
+        return  # not JSON, or not UTF-8: a question of form
+    # EVERY SIZE AXIS ALSO WHERE A STRING HOLDS A LONE SURROGATE (Codex, round one of this fix, P1): the first form
+    # returned on a surrogate before the walk, so a `uri` of 1,000,001 characters with one lone surrogate was signed,
+    # which the full reader before had refused for `string_len`. The walk now runs with the surrogate check off: the
+    # sizes are judged, the surrogate is left to the verifier.
+    _enforce_structural_budget(obj, b.json_nodes, b.json_depth, b.string_len, b.int_bits,
+                               einsame_surrogate_ablehnen=False)
 
 
 def loads_strict(text: Union[str, bytes], *, budget: Any = None) -> Any:

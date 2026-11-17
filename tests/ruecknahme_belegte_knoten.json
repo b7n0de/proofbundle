@@ -14,7 +14,6 @@
   "tests/test_lauf8_klassenfixes_600.py::DieGrenzeMisstBytesNichtZeichen::test_GEGENRICHTUNG_kleine_dokumente_mit_umlauten_und_emoji_kommen_durch": "gruen",
   "tests/test_lauf8_klassenfixes_600.py::EinNichtLesbaresPraedikatIstNichtSchweigen::test_eine_liste_als_praedikat_ist_ein_formfehler": "rot",
   "tests/test_lauf8_klassenfixes_600.py::EinNichtLesbaresPraedikatIstNichtSchweigen::test_eine_zeichenkette_als_praedikat_ist_ein_formfehler": "rot",
-  "tests/test_lauf8_klassenfixes_600.py::EinNichtLesbaresPraedikatIstNichtSchweigen::test_GEGENRICHTUNG_null_und_fehlend_bleiben_unberuehrt": "gruen",
   "tests/test_lauf8_klassenfixes_600.py::EinNichtLesbaresPraedikatIstNichtSchweigen::test_GEGENRICHTUNG_eine_fremde_attestation_wird_nicht_beurteilt": "gruen",
   "tests/test_lauf8_klassenfixes_600.py::EinNichtLesbaresPraedikatIstNichtSchweigen::test_GEGENRICHTUNG_ein_objekt_als_praedikat_wird_gelesen": "gruen",
   "tests/test_lauf8_klassenfixes_600.py::EinUnlesbarerNachbarMaskiertKeineRuecknahme::test_ein_unlesbarer_payload_meldet_sich": "rot",
@@ -24,9 +23,11 @@
   "tests/test_lauf8_klassenfixes_600.py::EinArtefaktEineSchreibweise::test_ueberzaehliges_padding_faellt": "rot",
   "tests/test_lauf8_klassenfixes_600.py::EinArtefaktEineSchreibweise::test_GEGENRICHTUNG_die_kanonische_form_kommt_durch": "gruen",
   "tests/test_lauf8_klassenfixes_600.py::EinArtefaktEineSchreibweise::test_GEGENRICHTUNG_die_dokumentierte_pad_bit_duldung_bleibt": "gruen",
-  "tests/test_lauf8_klassenfixes_600.py::EinNichtLesbaresPraedikatIstNichtSchweigen::test_ein_skelett_als_eigenes_praedikat_ist_ein_formfehler": "rot"
+  "tests/test_lauf8_klassenfixes_600.py::EinNichtLesbaresPraedikatIstNichtSchweigen::test_ein_skelett_als_eigenes_praedikat_ist_ein_formfehler": "rot",
+  "tests/test_lauf8_klassenfixes_600.py::EinNichtLesbaresPraedikatIstNichtSchweigen::test_GEGENRICHTUNG_null_und_fehlend_bleiben_bei_einem_fremden_typ_unberuehrt": "gruen",
+  "tests/test_lauf8_klassenfixes_600.py::EinNichtLesbaresPraedikatIstNichtSchweigen::test_null_und_fehlend_sind_bei_einem_eigenen_typ_ein_formfehler": "rot"
  },
- "gemessen_rot_in_dieser_datei": 9,
+ "gemessen_rot_in_dieser_datei": 10,
  "hinweis_zur_gesamtzahl": "angesagt_rot/gemessen_rot 10 gelten fuer den GESAMTEN Nachweisbestand aus drei Dateien; in DIESER Datei sind es 8, die zwei anderen liegen in test_c2sp_freiheitsachse_ergaenzung.py und test_wire_bytes_strict.py.",
  "nachgemessen": [
   {
@@ -35,6 +36,13 @@
    "gegen": "d8881edc3d5a61c23461ce7895b0853b84ea38a7",
    "utc": "2026-11-12T20:05:06Z",
    "anlass": "deep gate 6.6.0 at d8881edc, finding Z4: the knoten came with the fix and was run against the head without it, the whole file: 1 failed (this knoten), 18 passed"
+  },
+  {
+   "knoten": "tests/test_lauf8_klassenfixes_600.py::EinNichtLesbaresPraedikatIstNichtSchweigen::test_null_und_fehlend_sind_bei_einem_eigenen_typ_ein_formfehler",
+   "ergebnis": "rot",
+   "gegen": "6b2df0286fc42498e2cc41be50598c81427a46ff with the condition of cli.py before the fix of Z4",
+   "utc": "2026-11-13T04:00:02Z",
+   "anlass": "deep gate 6.6.0 at c3472f6f, lens L6, finding Z4: the knoten came with the fix and was run against the head with the old condition, the whole file: 2 failed (its subtests null and fehlt), 20 passed; at the head 20 passed. The knoten test_GEGENRICHTUNG_null_und_fehlend_bleiben_unberuehrt is renamed test_GEGENRICHTUNG_null_und_fehlend_bleiben_bei_einem_fremden_typ_unberuehrt and judges a foreign type now; it passed in both runs"
   }
  ]
 }

@@ -26,6 +26,7 @@ from cryptography.hazmat.primitives.serialization import (
 )
 
 from . import merkle
+from ._membership import require_switch
 from .bundle import SCHEMA
 from .canonical import _ein_stand
 
@@ -71,22 +72,70 @@ def _pfad_boden(path) -> None:
 
 
 @_ein_stand(aussen={"key": "signierer", "path": "pfad"})
-def save_signer(key: Ed25519PrivateKey, path: str) -> None:
+def save_signer(key: Ed25519PrivateKey, path: str, *, overwrite: bool = True) -> None:
     """Write the 32 byte raw Ed25519 private seed to ``path``, mode 0600.
 
-    This is a secret. The file is created owner-read/write only (never
-    world-readable, even briefly), so an accidental commit or a shared directory
-    does not leak the key. Store it out of version control and treat it like a
-    key, not like data.
+    This is a secret. The seed is written into a new file in the directory of ``path``, created owner-read/write
+    only (never world-readable, even briefly), which then takes the place of ``path``. So the file at ``path`` has
+    mode 0600 after every write, whatever stood there before, and a symbolic link at ``path`` is replaced, never
+    followed: the file it pointed to keeps its bytes.
+
+    With ``overwrite=True`` (the default) an existing file at ``path`` is replaced. With ``overwrite=False`` an
+    existing ``path``, a symbolic link included, raises ``FileExistsError`` and keeps its bytes; the check and the
+    write are one step, so no file that appears in between is replaced either. Every ``--new-key`` option of the
+    command line writes with ``overwrite=False``. ``overwrite`` counts only as an exact bool: any other value
+    raises ``SwitchTypeError`` before anything else is read or written. Store the key out of version control and
+    treat it like a key, not like data.
     """
+    # The switch first, before anything else: `overwrite=True` lifts a refusal (an existing file is replaced),
+    # so it is a relaxing switch and goes through require_switch like every other one
+    # (tests/test_a_caller_verdict_counts_only_as_a_bool.py holds every switch of the public API to its class).
+    # The module circle at c54f6e9e found it unclassified there, checked by a test of its own after the path.
+    require_switch(overwrite, "overwrite")
     # Vor der os-Grenze, wie bei `load_signer` — und aus demselben Grund: was hinter der Grenze
     # scheitert, scheitert bereits am Betriebssystem, und dessen Fehlerform ist nicht unsere.
     _pfad_boden(path)
     raw = key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
-    # Open with 0600 from the start to avoid a world-readable window.
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "wb") as handle:
-        handle.write(raw)
+    _schreibe_geheimnis(os.fsdecode(os.fspath(path)), raw, overwrite)
+
+
+def _schreibe_geheimnis(pfad: str, daten: bytes, ersetzen: bool) -> None:
+    """Write ``daten`` into a NEW file beside ``pfad`` (O_EXCL, 0600), then put it in place at ``pfad``.
+
+    Found by the deep gate of 6.6.0 at 41959070 (L2 C4, a side finding of L4, P2 by the third reading): `os.open`
+    with O_CREAT|O_TRUNC set the mode only when it created the file, an existing 0644 file stayed 0644, a link was
+    followed, and `--new-key` replaced an existing key without a word. The new file is created with O_EXCL (it
+    follows no link and opens no existing file), its mode is set to 0600 explicitly after creation (the umask could
+    otherwise only narrow it, not make it exact), and then ``os.replace`` replaces the entry at ``pfad`` (a link
+    there is replaced, not followed). Without ``ersetzen``, ``os.link`` puts it at ``pfad`` instead, which fails
+    with ``FileExistsError`` when any entry stands there, in one step with the write. The temporary file is
+    removed in every case, also after an error.
+    """
+    import tempfile  # noqa: PLC0415
+
+    if not pfad:
+        raise FileNotFoundError(2, "No such file or directory", pfad)
+    verzeichnis = os.path.dirname(pfad) or "."
+    fd, zwischen = tempfile.mkstemp(prefix=".proofbundle-key-", dir=verzeichnis)
+    try:
+        if hasattr(os, "fchmod"):
+            os.fchmod(fd, 0o600)
+        else:  # pragma: no cover - Plattform ohne fchmod
+            os.chmod(zwischen, 0o600)
+        with os.fdopen(fd, "wb") as handle:
+            fd = -1
+            handle.write(daten)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if ersetzen:
+            os.replace(zwischen, pfad)
+        else:
+            os.link(zwischen, pfad)
+    finally:
+        if fd != -1:
+            os.close(fd)
+        if os.path.lexists(zwischen):
+            os.unlink(zwischen)
 
 
 @_ein_stand(aussen={"path": "pfad"})

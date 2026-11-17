@@ -36,3 +36,8 @@ conformance/cap1/draft-hillier-coverage-attestation-00.txt -text
 conformance/cap1/LICENSE-SPEC -text
 conformance/cap1/NOTICE -text
 conformance/cap1/CAP-1.schema.json -text
+
+# drafts/draft-gruszka-audit-decision-receipts/ (2026-11-13): Appendix A.5 of each revision of
+# draft-gruszka-audit-decision-receipts names its test package archive by its SHA-256 and gives its address at a fixed
+# commit of this repository, so a checkout that rewrote bytes would no longer hold the archives the drafts name.
+drafts/draft-gruszka-audit-decision-receipts/*.tar.gz -text

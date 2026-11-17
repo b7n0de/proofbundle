@@ -209,10 +209,13 @@ NOT_DECODING = {
 #: scitt_ccf the reason it may stand on one)
 EXCEPTIONS = {
     "src/proofbundle/adapters/eee.py": (1, "reads the JSON schema file this package ships, not input"),
-    "src/proofbundle/dsse.py": (
-        1, "sign_envelope measures the caller's own +json body against the verification budget before it signs "
-           "(deep gate 6.6.0, finding Z7); it reads no evidence and decides no verdict, and a body this parse "
-           "refuses is left to the verifier, whose strict reader judges it"),
+    # Moved here from dsse.py with the fix of finding Z7B of the deep gate 6.6.0 at c71eeb12: one function now holds
+    # the budget check of every producer, the DSSE primitive and the status list and enclave issuers.
+    "src/proofbundle/_strict_json.py": (
+        1, "enforce_budget_only measures a producer's own output against the verification budget before it signs "
+           "(deep gate 6.6.0, findings Z7 and Z7B); it reads no evidence and decides no verdict, it judges sizes only, "
+           "and a question of form this parse leaves open, a duplicate key among them, is the verifier's, whose "
+           "strict reader judges it"),
     "src/proofbundle/_scitt_second_reader.py": (
         2, "the second reader of scitt_ccf (ADR 0009, Decision 13): cbor2 reads only bytes the strict pre-scan of "
            "_cbor_prescan has already accepted, and must read the same values; a refusal of cbor2 or another value "

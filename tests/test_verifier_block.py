@@ -321,6 +321,47 @@ class TestMeasureVectorSet:
         with pytest.raises(VB.VerifierBlockError, match="outside the corpus"):
             VB.measure_vector_set(root)
 
+    def test_an_unnamed_case_under_an_interpreter_cache_is_refused(self, tmp_path):
+        """DEEP GATE 6.6.0 at c3472f6f, L6 Z9, P1: the walk skipped every `__pycache__`, so an unnamed case directory
+        under that name was accepted and left the digest unchanged. Only the package leaves its cache out."""
+        root = _mini_corpus(tmp_path / "c")
+        VB.measure_vector_set(root)
+        for ort in (root / "__pycache__" / "unlisted", root / "a" / "__pycache__" / "x"):
+            ort.mkdir(parents=True)
+            (ort / "case.json").write_text("{}")
+            with pytest.raises(VB.VerifierBlockError, match="does not name"):
+                VB.measure_vector_set(root)
+            shutil.rmtree(ort.parent)
+        # anti-parity: the same corpus without the unnamed case measures, and the package walk still leaves its cache
+        assert VB.measure_vector_set(root)["cases"] == 2
+
+    def test_a_file_under_a_cache_directory_of_a_case_moves_the_digest(self, tmp_path):
+        """The neighbour of Z9 in the same walk: the case's own files under `__pycache__/` were not hashed."""
+        root = _mini_corpus(tmp_path / "c")
+        vorher = VB.measure_vector_set(root)
+        (root / "a" / "__pycache__").mkdir()
+        (root / "a" / "__pycache__" / "vector.json").write_text("{}")
+        nachher = VB.measure_vector_set(root)
+        assert nachher["digest"] != vorher["digest"]
+        (root / "a" / "__pycache__" / "vector.json").write_text('{"x": 1}')
+        assert VB.measure_vector_set(root)["digest"] != nachher["digest"]
+
+    def test_a_link_to_a_directory_inside_a_case_is_refused(self, tmp_path):
+        """The neighbour of Z9: a link to a directory inside a case was skipped, so a runner could read through it bytes
+        that moved neither the digest nor a refusal. Refused whether it leaves the corpus or stays in it."""
+        root = _mini_corpus(tmp_path / "c")
+        (tmp_path / "anderswo").mkdir()
+        (tmp_path / "anderswo" / "vector.json").write_text("{}")
+        for ziel in (tmp_path / "anderswo", root / "b"):
+            (root / "a" / "sub").symlink_to(ziel, target_is_directory=True)
+            with pytest.raises(VB.VerifierBlockError, match="link to a directory"):
+                VB.measure_vector_set(root)
+            (root / "a" / "sub").unlink()
+        # anti-parity: the same case with a real directory measures
+        (root / "a" / "sub").mkdir()
+        (root / "a" / "sub" / "vector.json").write_text("{}")
+        assert VB.measure_vector_set(root)["cases"] == 2
+
     def test_a_manifest_without_cases_is_refused(self, tmp_path):
         root = tmp_path / "c"
         root.mkdir()

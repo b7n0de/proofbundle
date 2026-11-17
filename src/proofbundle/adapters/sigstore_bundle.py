@@ -236,6 +236,22 @@ class _Fail(Exception):
         self.check = check
 
 
+def _x509_lesefehler() -> Tuple[type[BaseException], ...]:
+    """Every exception cryptography's X.509 reader raises for bytes it cannot read, at the load or at the first
+    access of a field it decodes lazily. ONE SET FOR EVERY READER OF A CERTIFICATE (deep gate 6.6.0 at c3472f6f, L6
+    Z8, P1): the leaf reader caught `InvalidVersion` and the reader of the trusted root's CA and TSA chains did not,
+    so a CA certificate with version value 3 raised a bare `InvalidVersion` out of `verify_sigstore_bundle`. Each
+    reader had its own list; a list per reader is a list that one reader forgets.
+
+    The set is measured, not recalled: a generator that replaces every byte of a CA and of a leaf certificate by four
+    values found two more forms already present before 6.6.0, a `KeyError` from the name decoder for a string tag it
+    maps to no type, and a `TypeError` from `NameAttribute` for a BitString under another attribute type. Every
+    reader's `try` holds only cryptography's accessors, so neither can stand for an error of this module."""
+    from cryptography import x509  # noqa: PLC0415
+    return (ValueError, TypeError, KeyError, UnsupportedAlgorithm, x509.InvalidVersion, x509.DuplicateExtension,
+            x509.UnsupportedGeneralNameType)
+
+
 def _camel(name: str) -> str:
     head, *rest = name.split("_")
     return head + "".join(part[:1].upper() + part[1:] for part in rest)
@@ -505,7 +521,7 @@ def _read_leaf(der: bytes) -> _Leaf:
         subject_attributes = len(cert.subject)
         len(cert.issuer)
         not_before, not_after = _not_before(cert), _not_after(cert)
-    except (ValueError, x509.DuplicateExtension, x509.InvalidVersion, x509.UnsupportedGeneralNameType) as exc:
+    except _x509_lesefehler() as exc:
         raise _Fail("certificate", f"the leaf certificate is not a well-formed X.509 certificate: {exc}") from None
     if version is not x509.Version.v3:
         raise _Fail("certificate", "the leaf certificate is not X.509 v3")
@@ -730,14 +746,18 @@ def _read_authorities(entries: Any, path: str) -> Tuple[_Authority, ...]:
         # year 0000 raised a bare ValueError ("year 0 is out of range") out of verify_sigstore_bundle. The dates,
         # the subject and the issuer name of every certificate of a CA or TSA chain are now read with the
         # certificate, and such a chain is a trusted root that cannot be read.
+        # The version and the extensions are read here too (L6 Z8 at c3472f6f): `_chain_problem` reads them, and the
+        # version raised at the load, outside the list this reader caught.
         try:
             chain = tuple(x509.load_der_x509_certificate(d) for d in ders)
             for cert in chain:
+                cert.version
                 cert.public_key()
                 len(cert.subject)
                 len(cert.issuer)
                 _not_before(cert), _not_after(cert)
-        except (ValueError, UnsupportedAlgorithm, x509.UnsupportedGeneralNameType) as exc:
+                list(cert.extensions)
+        except _x509_lesefehler() as exc:
             raise _Unreadable(f"{p}.certChain holds a certificate that does not parse: {exc}") from None
         start, end = _valid_for(obj["validFor"], p + ".validFor")
         out.append(_Authority(uri=uri, chain=chain, start=start, end=end))
@@ -1154,14 +1174,14 @@ def _chain_problem(leaf: Any, ca: _Authority, at: int) -> Optional[str]:
     for depth, (child, parent) in enumerate(zip(path, path[1:])):
         try:
             child.verify_directly_issued_by(parent)
-        except (ValueError, TypeError, InvalidSignature) as exc:
+        except (InvalidSignature,) + _x509_lesefehler() as exc:
             return f"certificate {depth} is not issued by certificate {depth + 1}: {exc}"
         from cryptography.x509.oid import ExtendedKeyUsageOID, ExtensionOID  # noqa: PLC0415
         processed = {ExtensionOID.BASIC_CONSTRAINTS, ExtensionOID.KEY_USAGE, ExtensionOID.EXTENDED_KEY_USAGE}
         metadata = {ExtensionOID.SUBJECT_KEY_IDENTIFIER, ExtensionOID.AUTHORITY_KEY_IDENTIFIER}
         try:
             extensions = parent.extensions
-        except (ValueError, x509.DuplicateExtension, x509.UnsupportedGeneralNameType) as exc:
+        except _x509_lesefehler() as exc:
             raise _Fail("verifier-config", f"CA certificate {depth + 1} has unreadable extensions: {exc}") from None
         for extension in extensions:
             if extension.oid in processed:

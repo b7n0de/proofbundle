@@ -115,3 +115,75 @@ def test_a_ca_date_of_year_0000_is_unreadable_trust_material_not_an_exception(de
     verdict = _verify(bad)  # must not raise
     assert verdict.ok is False
     assert exit_code(verdict) == 2
+
+
+# ── deep gate 6.6.0 at c3472f6f, L6 Z8: one set of read errors for every certificate reader ───────────────────────
+def _version_3(der: bytes) -> bytes:
+    """The certificate with its explicit version value 2 (v3) replaced by 3, which no X.509 version names; the DER
+    lengths stay the same."""
+    marker = b"\xa0\x03\x02\x01\x02"
+    at = der.find(marker)
+    assert 0 <= at <= 16, "the fixture names its version where RFC 5280 puts it"
+    return der[:at + 4] + b"\x03" + der[at + 5:]
+
+
+def _root_with(kind: str, chain: list) -> bytes:
+    root = json.loads(_root(_CA.public_bytes(Encoding.DER)))
+    entry = {"uri": "https://authority.example", "certChain": {"certificates": [{"rawBytes": _b64(c)} for c in chain]},
+             "validFor": {"start": "2000-01-01T00:00:00Z"}}
+    root[kind] = [entry]
+    return _wire(root)
+
+
+@pytest.mark.parametrize("kind", ["certificateAuthorities", "timestampAuthorities"])
+@pytest.mark.parametrize("where", [0, 1], ids=["only", "second"])
+def test_a_certificate_version_no_x509_version_names_is_unreadable_trust_material(kind, where):
+    """L6 Z8: the leaf reader caught `InvalidVersion`, the reader of the trusted root's chains did not."""
+    good = _CA.public_bytes(Encoding.DER)
+    bad = _version_3(good)
+    with pytest.raises(x509.InvalidVersion):
+        x509.load_der_x509_certificate(bad)
+    verdict = verify_sigstore_bundle(_BUNDLE, trusted_root=_root_with(kind, [good] * where + [bad]),
+                                     artifact_digest="sha256:" + "0" * 64, profile="github-artifact-attestation",
+                                     identity={"san": _SAN})  # must not raise
+    assert verdict.ok is False
+    assert exit_code(verdict) == 2
+    assert any(c.name == "verifier-config" and c.ok is False for c in verdict.result.checks)
+
+
+def _bundle_with_leaf(der: bytes) -> bytes:
+    doc = json.loads(_BUNDLE)
+    doc["verificationMaterial"]["x509CertificateChain"]["certificates"][0]["rawBytes"] = _b64(der)
+    return _wire(doc)
+
+
+def _every_byte(der: bytes):
+    """GENERATOR, NOT A POINT FIXTURE: every byte of the certificate replaced by four values, the version byte and a
+    length byte among them. Each mutant must come back as a verdict; which check refuses it is not this property."""
+    for at in range(len(der)):
+        for value in {0x00, 0x03, 0xFF, der[at] ^ 0x01}:
+            if value != der[at]:
+                yield der[:at] + bytes([value]) + der[at + 1:]
+
+
+def test_no_byte_of_a_trusted_ca_certificate_raises_out_of_the_verifier():
+    good = _CA.public_bytes(Encoding.DER)
+    raised = []
+    for mutant in _every_byte(good):
+        try:
+            _verify(mutant)
+        except Exception as exc:  # noqa: BLE001 -- the property under test is that nothing leaves
+            raised.append((type(exc).__name__, str(exc)[:80]))
+    assert not raised, raised[:5]
+
+
+def test_no_byte_of_the_leaf_certificate_raises_out_of_the_verifier():
+    root = _root(_CA.public_bytes(Encoding.DER))
+    raised = []
+    for mutant in _every_byte(_LEAF.public_bytes(Encoding.DER)):
+        try:
+            verify_sigstore_bundle(_bundle_with_leaf(mutant), trusted_root=root, artifact_digest="sha256:" + "0" * 64,
+                                   profile="github-artifact-attestation", identity={"san": _SAN})
+        except Exception as exc:  # noqa: BLE001
+            raised.append((type(exc).__name__, str(exc)[:80]))
+    assert not raised, raised[:5]

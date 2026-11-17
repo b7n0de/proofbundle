@@ -646,6 +646,9 @@ _HAND_SEEDS = {
     "proofbundle._approval_record.read_received_copies": lambda tmp: [((b'[{"approvalId": "a"}]',), {})],
     "proofbundle._verdict.require_eval_claim": lambda tmp: [((_claim_of_the_test_key(),), {"wo": "sweep"})],
     "proofbundle._wire_b64.wire_value": lambda tmp: [(("AAAA",), {})],
+    # The budget check every producer runs before it signs (deep gate 6.6.0 at c71eeb12, finding Z7B), called by the
+    # suite only through its producers; the smallest call that returns.
+    "proofbundle._strict_json.enforce_budget_only": lambda tmp: [(('{"a": [1, "x"]}',), {})],
     "proofbundle.sdjwt.issuer_key_fingerprint": lambda tmp: [(
         ("EdDSA", _test_key().public_key().public_bytes_raw()), {})],
     "proofbundle.sdjwt_issue.issue_sd_jwt": lambda tmp: [(
@@ -986,6 +989,11 @@ _WRONG_TYPE_GAPS: dict = {
         "_strict_cbor.py:load_item_strict TypeError",
     },
     "_strict_json.enforce_structural_budget": {"_strict_json.py:enforce_structural_budget AttributeError"},
+    # Measured with its seed on 13.11.2026 (14 calls, no class escape): a budget without the budget's attributes and
+    # data that is neither text nor bytes, the two kinds its siblings above are pinned for.
+    "_strict_json.enforce_budget_only": {
+        "_strict_json.py:enforce_budget_only AttributeError", "_strict_json.py:enforce_budget_only TypeError",
+    },
     "_strict_json.loads_reject_duplicate_keys": {
         "_strict_json.py:loads_reject_duplicate_keys JSONDecodeError",
         "_strict_json.py:loads_reject_duplicate_keys TypeError",
