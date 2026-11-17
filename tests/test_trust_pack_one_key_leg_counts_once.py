@@ -424,6 +424,21 @@ def test_kontrolle_an_unreadable_root_key_that_is_revoked_is_not_read():
     assert tp.trust_pack_is_pinned(pred, expected_root_keys=_A_PIN) is True
 
 
+# Deep gate iteration 3 (17.11.2026), F4 (reasons only): with the one reading of a key, an unreadable key gave no legs
+# and the validator stopped naming the key material it shares with another key; the pack stays invalid through the
+# unreadable key's own error, but the reason "duplicates the key material", given in 6.6.0, was lost. The alias check now
+# falls back to the decoded `publicKey` of an unreadable key, as 6.6.0 read it. Each case is missing the reason at
+# 1515db1c.
+@pytest.mark.parametrize("keys", [
+    {"a": {"publicKey": ""}, "b": {"publicKey": ""}, "c": _ed(_E3)},
+    {"a": _ed(_E1), "b": {"alg": "rsa4096", "publicKey": _ED1_B64}, "c": _ed(_E3)},
+    {"a": {"alg": "hybrid-ed25519-mldsa65", "publicKey": _ED1_B64}, "b": _ed(_E1), "c": _ed(_E3)},
+    {"a": {"publicKey": _b64(b"\x01" * 31)}, "b": {"publicKey": _b64(b"\x01" * 31)}, "c": _ed(_E3)},
+], ids=["leerer-text", "unbekannter-alg", "hybrid-ohne-pq", "31-bytes"])
+def test_rot_zuerst_an_unreadable_key_still_names_the_key_material_it_shares(keys):
+    assert _aliasfehler(tp.validate_trust_pack_predicate(_pack(keys, list(keys), 2)))
+
+
 # F3 of the same iteration (found before the fix and kept by it): `set(revoked)` raised TypeError out of the pin for an
 # entry that is a list or an object. Key ids are text; an entry that is not text revokes nothing, and a text entry next
 # to it still revokes its key. Each `rot_zuerst` case raises at 50ff9201.

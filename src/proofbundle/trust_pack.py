@@ -272,10 +272,25 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
     # hybrid, or as the PQ leg of two hybrids, passed here and counted twice toward a threshold; once Ed25519 is
     # broken, the case hybrids exist for, one ML-DSA secret met a threshold of two (measured with the real
     # backend). Now no leg, classical or post-quantum, may appear in two keys.
+    # AN UNREADABLE KEY STILL NAMES WHAT IT SHARES (deep gate iteration 3 on the KR-01 fix, 17.11.2026, F4): a key that
+    # `_key_reading` cannot read has no legs, so this check no longer named the key material it shares with another key,
+    # which 6.6.0 did by comparing the decoded `publicKey`. Such a key is read here as 6.6.0 read it. This only adds an
+    # error to a pack that is already invalid through the unreadable key's own error; no count and no pin reads it.
+    def _alias_teile(kv: Any) -> tuple[bytes, ...]:
+        teile = _key_legs(kv)
+        if teile is not None:
+            return teile
+        if not (isinstance(kv, dict) and isinstance(kv.get("publicKey"), str)):
+            return ()
+        try:
+            return (decode_b64(kv["publicKey"]),)
+        except Exception:  # noqa: BLE001 — undecodable, as 6.6.0 skipped it
+            return ()
+
     if isinstance(keys, dict):
         _seen_material: dict[str, str] = {}
         for kid, kv in keys.items():
-            for _teil in _key_legs(kv) or ():
+            for _teil in _alias_teile(kv):
                 _mat = _teil.hex()
                 if _mat in _seen_material and _seen_material[_mat] != kid:
                     errors.append(
@@ -683,8 +698,8 @@ def _declared_root_material(predicate: Any) -> tuple[set[bytes], Any]:
     a pinned key ``a`` and a key ``b`` that is no key was pinned at a threshold of one by a pin of ``a`` alone. In the
     release 6.6.0 that held for a hybrid without its PQ leg, an unknown ``alg``, a ``publicKey`` that is no base64, a
     key that is not an object and a key id with no entry in ``keys``; a key whose leg had the wrong length (an Ed25519
-    key of 31 bytes, a PQ leg of 100 bytes, an ``mldsa65`` key of 32 bytes) refused the pin there (measured on
-    17.11.2026). A relying party cannot pin what it cannot read, so any non-revoked root key without an identity, or a
+    key of 31 bytes, a PQ leg of 100 bytes, an ``mldsa65`` key of 32 bytes) took part in the comparison there like a
+    readable key, so it refused the pin unless the relying party pinned the same bytes (measured on 17.11.2026). A relying party cannot pin what it cannot read, so any non-revoked root key without an identity, or a
     root key id that is not text, gives the empty set and ``None``, and no pin via the root-key anchor can pass. A
     revoked key is not read at all."""
     if not isinstance(predicate, dict):
