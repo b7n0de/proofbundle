@@ -287,16 +287,20 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
         except Exception:  # noqa: BLE001 — undecodable, as 6.6.0 skipped it
             return ()
 
+    # EVERY LEG IS REGISTERED, EACH KEY IS NAMED ONCE (deep gate iteration 3 over the fallback, 17.11.2026, F4): the
+    # loop stopped at a key's first shared leg, so that key's other legs were never registered and a third key sharing
+    # one of them was named nowhere. Now a key registers all its legs and gives at most one error.
     if isinstance(keys, dict):
         _seen_material: dict[str, str] = {}
         for kid, kv in keys.items():
+            _gemeldet = False
             for _teil in _alias_teile(kv):
                 _mat = _teil.hex()
-                if _mat in _seen_material and _seen_material[_mat] != kid:
+                if not _gemeldet and _mat in _seen_material and _seen_material[_mat] != kid:
                     errors.append(
                         f"keys[{kid!r}] duplicates the key material of keys[{_seen_material[_mat]!r}] (a classical "
                         "or post-quantum leg) — key aliasing dilutes thresholds (Sybil), fail-closed")
-                    break
+                    _gemeldet = True
                 _seen_material.setdefault(_mat, kid)
 
     revoked = predicate.get("revoked", [])

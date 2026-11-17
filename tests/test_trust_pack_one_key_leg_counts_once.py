@@ -439,6 +439,17 @@ def test_rot_zuerst_an_unreadable_key_still_names_the_key_material_it_shares(key
     assert _aliasfehler(tp.validate_trust_pack_predicate(_pack(keys, list(keys), 2)))
 
 
+def test_rot_zuerst_a_key_that_shares_one_leg_still_registers_its_other_legs():
+    """Deep gate iteration 3 over the fallback (17.11.2026), F4: the check stopped at a key's first shared leg, so its
+    other legs were never registered. With an unreadable key u holding E1, the hybrid k2 = (E1, P) was named as a
+    duplicate of u and stopped there, and k3 = (E2, P), which shares P with k2, was named nowhere. Every key now
+    registers all its legs and is named once. Fails at a4a5d564."""
+    keys = {"u": {"alg": "rsa4096", "publicKey": _ED1_B64}, "k2": _hy(_E1, _P), "k3": _hy(_E2, _P), "x": _ed(_E3)}
+    fehler = [e for e in tp.validate_trust_pack_predicate(_pack(keys, list(keys), 2)) if "duplicates the key material" in e]
+    assert any(e.startswith("keys['k2']") for e in fehler) and any(e.startswith("keys['k3']") for e in fehler), fehler
+    assert sum(e.startswith("keys['k2']") for e in fehler) == 1, fehler
+
+
 # F3 of the same iteration (found before the fix and kept by it): `set(revoked)` raised TypeError out of the pin for an
 # entry that is a list or an object. Key ids are text; an entry that is not text revokes nothing, and a text entry next
 # to it still revokes its key. Each `rot_zuerst` case raises at 50ff9201.
