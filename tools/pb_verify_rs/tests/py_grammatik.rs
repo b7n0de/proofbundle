@@ -289,6 +289,27 @@ fn f4_relation_values_are_read_before_the_signature() {
                 ],
                 2,
             ),
+            // Deep gate 6.6.0 at c71eeb12, Z11A: a key without its target is refused before the signature, as
+            // Python's `_load_related` refuses it; this verifier answered 0 and 1 for these two.
+            (
+                "--related-pub without --with-related, valid",
+                vec![s("r.json"), pubk.clone(), s("--related-pub"), rp.clone()],
+                2,
+            ),
+            (
+                "--related-pub past the last --with-related, bad signature",
+                vec![
+                    s("rbad.json"),
+                    pubk.clone(),
+                    s("--with-related"),
+                    s("b.json"),
+                    s("--related-pub"),
+                    rp.clone(),
+                    s("--related-pub"),
+                    rp.clone(),
+                ],
+                2,
+            ),
             (
                 "bad signature",
                 vec![

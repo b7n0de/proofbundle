@@ -1362,6 +1362,8 @@ _SWITCHES = {
     ("proofbundle.assurance", "classify_digest_evidence", "applicable"): _RELAXING,
     ("proofbundle.assurance", "classify_receiver_corroboration", "applicable"): _RELAXING,
     ("proofbundle.decision", "emit_decision_receipt", "strict"): _RELAXING,
+    # 6.6.0: True (the default) replaces an existing key file, False refuses it; every --new-key passes False.
+    ("proofbundle.emit", "save_signer", "overwrite"): _RELAXING,
     ("proofbundle.hashalg", "compute_digest", "allow_deprecated"): _RELAXING,
     ("proofbundle.hashalg", "resolve_hash_alg", "allow_deprecated"): _RELAXING,
     ("proofbundle.hf_evals", "to_eval_results_entry", "allow_value_mismatch"): _RELAXING,
@@ -1580,6 +1582,7 @@ def _probes(not_swept=()):
             "anchors_chia_add", "assurance", "decision", "hashalg", "hf_evals", "outcome", "run_ledger",
             "trust_pack", "verification_summary"))
     _provenance, eee = load("proofbundle.adapters._provenance"), load("proofbundle.adapters.eee")
+    emit = load("proofbundle.emit")
     signer = generate_signer()
     v01 = _v01_predicate()
     v02 = _v02_predicate()
@@ -1624,6 +1627,9 @@ def _probes(not_swept=()):
                 executor_key_id="kid-exec", receiver_key_id="kid-recv"),
         ("proofbundle.decision", "emit_decision_receipt", "strict"):
             lambda v: decision.emit_decision_receipt(copy.deepcopy(deny), signer, strict=v),
+        # The empty path: an exact bool passes the switch check and stops at the empty path, before any file.
+        ("proofbundle.emit", "save_signer", "overwrite"):
+            lambda v: emit.save_signer(signer, "", overwrite=v),
         ("proofbundle.hashalg", "compute_digest", "allow_deprecated"):
             lambda v: hashalg.compute_digest(b"x", "sha1", allow_deprecated=v),
         ("proofbundle.hashalg", "resolve_hash_alg", "allow_deprecated"):

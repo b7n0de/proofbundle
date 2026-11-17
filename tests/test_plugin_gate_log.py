@@ -67,8 +67,17 @@ ENTRY_KEYS = {"ts", "host", "gate_version", "session_id", "tool", "actions", "de
 
 
 def _git(repo: pathlib.Path, *args: str) -> None:
+    """git for the repositories a test builds, without git's automatic maintenance.
+
+    git 2.47 and later start that maintenance in the background after `commit`, and it holds
+    `objects/maintenance.lock` while it runs. A test that compares the files of such a repository
+    before and after a step then saw the lock in one listing and not in the other: measured
+    2026-11-06 with git 2.55.0, 2 of 80 parallel runs of
+    test_plugin_review_fix8_r1_selftest_environment.py red, and one red baseline of mutation run 4.
+    The same switches as in test_pre_tag_receipt_git_answers_for_the_named_tree.py."""
     subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.org",
-                    "-c", "commit.gpgsign=false", *args], check=True, capture_output=True)
+                    "-c", "commit.gpgsign=false", "-c", "maintenance.auto=false", "-c", "gc.auto=0", *args],
+                   check=True, capture_output=True)
 
 
 @pytest.fixture
