@@ -8,6 +8,10 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
+### Changed
+
+- **An SVR v0.1 statement verifies only with `verifier.id` a URI with a lower-case scheme and `timeCreated` in UTC with `Z`, as in-toto writes TypeURI and Timestamp.** in-toto `spec/v1/field_types.md` writes a TypeURI with a lower-case scheme and a Timestamp in UTC with the designator `Z`, and svr v0.1 types `verifier.id` and `timeCreated` so. A validly signed SVR whose `verifier.id` began `HTTPS:` or whose `timeCreated` carried a numeric offset such as `+01:00` verified, and `proofbundle svr --verify` answered PASS; both are now refused, the command answering malformed with exit 2, and `export_svr_dsse` refuses such a `time_created`. Every SVR a released version wrote carries the lower-case `https` of its verifier id and a time with `Z`, so it keeps verifying.
+
 ## [6.6.0] - 2026-11-16
 
 6.6.0 is a feature release following 6.5.0. It adds `proofbundle scitt match` (EXPERIMENTAL), which reports the axes of Section 6 of draft-gruszka-scitt-statement-identification-03 for a reference and a candidate, and `decision verify` and `outcome verify` now take the inputs the relying party supplies under draft-gruszka-audit-decision-receipts: the action bytes, the case it chooses, an approval record, a consumption state, the effect bytes, the bound decision and the expected executor. Several producers now sign only what their own verifier reads, and the checks of evidence packs, vector sets, installed builds, pre-tag receipts and the self-receipt folder accept only the members they name.
