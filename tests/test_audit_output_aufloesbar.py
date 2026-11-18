@@ -191,7 +191,7 @@ def _quittung(repo: Path, rel: str, digest: str) -> None:
 
 
 def test_version_findet_die_verfolgte_ausgabe_ueber_ihre_rohen_bytes(release, monkeypatch, capsys):
-    """GRUENE KONTROLLE. Die Quittung nennt die Summe der rohen Bytes einer verfolgten Datei."""
+    """GREEN CONTROL. The receipt names the digest of the raw bytes of a tracked file."""
     _quittung(release, QUITTUNG, _bytes(release / AUSGABE))
     monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(QUITTUNG)))
     r = A.fuer_version(release, "6.6.1")
@@ -201,7 +201,7 @@ def test_version_findet_die_verfolgte_ausgabe_ueber_ihre_rohen_bytes(release, mo
 
 
 def test_version_eine_nicht_verfolgte_ausgabe_haelt_den_release_an(release, monkeypatch):
-    """DER FALL 6.6.0: die Ausgabe gibt es, aber nicht im Baum."""
+    """THE CASE OF 6.6.0. The output exists, but not in the tree."""
     fluechtig = release / "audit_output_ausserhalb.txt"
     fluechtig.write_bytes(b"nur im Arbeitsbaum\n")
     _quittung(release, QUITTUNG, _bytes(fluechtig))
@@ -212,9 +212,9 @@ def test_version_eine_nicht_verfolgte_ausgabe_haelt_den_release_an(release, monk
 
 
 def test_version_rechnet_ueber_die_bytes_nicht_ueber_den_text(release, monkeypatch):
-    """Wer von aussen prueft, hasht die Bytes (sha256sum), und so rechnet auch der Erzeuger. Eine
-    Quittung mit der Text-Summe einer CRLF-Datei loest fuer den Release NICHT auf, fuer `--receipt`
-    (die alte Lesart) schon. Ohne diesen Fall bliebe unbemerkt, wenn `--version` den Text nimmt."""
+    """A reader outside hashes the bytes (sha256sum), and so does the producer. A receipt with the
+    text digest of a CRLF file does NOT resolve for the release, while `--receipt` (the older reading)
+    resolves it. Without this case a `--version` that takes the text would go unnoticed."""
     text = A.sha256_text((release / AUSGABE).read_text(encoding="utf-8", errors="ignore"))
     assert text != _bytes(release / AUSGABE), "die Fixture trennt Text und Bytes nicht"
     _quittung(release, QUITTUNG, text)
@@ -237,7 +237,7 @@ def test_version_ein_tor_das_nicht_urteilen_kann_ist_NICHT_MESSBAR(release, monk
 
 
 def test_version_eine_von_zwei_quittungen_loest_nicht_auf(release, monkeypatch):
-    """Ein Befund an einer Quittung haelt an, was auch neben ihr liegt; beide werden benannt."""
+    """A finding at one receipt stops the release, whatever lies beside it; both are named."""
     zweite = "audit_artifacts/661/pre_tag_receipt_v6.6.1_b.json"
     _quittung(release, QUITTUNG, _bytes(release / AUSGABE))
     _quittung(release, zweite, "b" * 64)
@@ -255,7 +255,7 @@ def test_version_eine_unlesbare_quittung_ist_NICHT_MESSBAR(release, monkeypatch)
 
 
 def test_version_gegen_das_echte_tor_ohne_quittung(release):
-    """Das echte Tor, ohne Ersatz: ohne Quittung urteilt es `absent`, und der Schritt misst nichts."""
+    """The real gate, without a stand-in. Without a receipt it rules `absent`, and the step measures nothing."""
     r = A.fuer_version(release, "6.6.1")
     assert r["zustand"] == "NICHT_MESSBAR", r
     assert r["gate_state"] == "absent", r
@@ -273,8 +273,8 @@ def test_receipt_und_version_schliessen_einander_aus(release, tmp_path):
 
 
 def test_version_ein_tor_das_ablehnt_gibt_keine_quittung_frei_auch_mit_verifizierter_daneben(release, monkeypatch):
-    """Das echte Tor meldet `ok=False`, wenn neben einer verifizierten Quittung eine abgelehnte liegt
-    (DELTA2 N1). Der Schritt darf dann nicht ueber die verifizierte urteilen, als waere nichts."""
+    """The real gate reports `ok=False` when a rejected receipt lies beside a verified one (DELTA2 N1).
+    The step must not then judge the verified receipt as if nothing were wrong."""
     _quittung(release, QUITTUNG, _bytes(release / AUSGABE))
     urteil = {"ok": False, "state": "rejected", "verified_receipts": [{"path": QUITTUNG, "reason": "x"}]}
     monkeypatch.setattr(A, "_gate", lambda: _Tor(urteil))
