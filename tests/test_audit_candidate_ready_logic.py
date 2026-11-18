@@ -33,8 +33,17 @@ class TestReadyLogic:
         assert "C7.3" in r["unmet_deciding"]
 
     def test_P7_internal_data_blocked_is_not_ready(self, monkeypatch):
-        r = _run(monkeypatch, [("C2.1", PASS), ("C6.3", DATA_BLOCKED), ("EXT.1", EXTERNAL)])
+        # C6.2 is a release-deciding evidence cell; C6.3 became informative (card OA-69770dad93 C).
+        r = _run(monkeypatch, [("C2.1", PASS), ("C6.2", DATA_BLOCKED), ("EXT.1", EXTERNAL)])
         assert r["audit_candidate_ready"] is False
+
+    def test_the_24h_soak_alone_does_not_withhold_readiness(self, monkeypatch):
+        """Owner decision 2026-09-08 (RESTRISIKO_600 S21), card OA-69770dad93 C: the full 24-hour soak
+        is a named residual risk that does not hold the tag. Without it, C6.3 is reported but does not
+        decide; the same DATA_BLOCKED in a deciding cell still withholds readiness (test above)."""
+        r = _run(monkeypatch, [("C2.1", PASS), ("C6.3", DATA_BLOCKED), ("EXT.1", EXTERNAL)])
+        assert r["audit_candidate_ready"] is True
+        assert "C6.3" not in r["unmet_deciding"]
 
     def test_unknown_verdict_is_not_ready(self, monkeypatch):
         r = _run(monkeypatch, [("C2.1", PASS), ("C3.1", "WEIRD_STATE"), ("EXT.1", EXTERNAL)])
@@ -47,7 +56,7 @@ class TestReadyLogic:
 
     def test_P8_lexical_decoys_are_informative_not_deciding(self, monkeypatch):
         # every lexical check PASSes on a decoy, but a single DATA_BLOCKED deciding check still withholds.
-        checks = [(cid, PASS) for cid in acm._INFORMATIVE_CHECKS] + [("C6.3", DATA_BLOCKED), ("EXT.1", EXTERNAL)]
+        checks = [(cid, PASS) for cid in acm._INFORMATIVE_CHECKS] + [("C6.2", DATA_BLOCKED), ("EXT.1", EXTERNAL)]
         r = _run(monkeypatch, checks)
         assert r["audit_candidate_ready"] is False
         assert r["informative_count"] == len(acm._INFORMATIVE_CHECKS)

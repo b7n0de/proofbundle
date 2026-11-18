@@ -441,6 +441,31 @@ class TheGateReportsATypedState(unittest.TestCase):
         r = self.pta.evaluate(d, "6.0.0")
         self.assertEqual(r["state"], "rejected", r)
 
+    def test_a_rejected_candidate_outranks_a_verified_one(self):
+        """DELTA2 N1 (2026-11-06): the same sentence holds beside a VERIFIED receipt. `ok` was
+        `bool(verified)`, so a genuine receipt for this tree carried a broken one beside it to
+        ok=True and state=verified. A container check names its members and refuses foreign ones."""
+        import hashlib
+
+        from pre_tag_receipt_lib import subject_tree_digest
+        priv, pub = _keypaar()
+        d = _tree(anker=pub)
+        gate_src = hashlib.sha256((REPO / "scripts" / "pre_tag_audit_gate.py").read_bytes()).hexdigest()
+        _plant(d, "600", "good.json", _signed_receipt(priv, subject_tree_digest=subject_tree_digest(d),
+                                                      gate_source_digest=gate_src))
+        r = self.pta.evaluate(d, "6.0.0")
+        self.assertEqual((r["state"], r["ok"]), ("verified", True), "positive control")
+        for name, inhalt in (("bad.json", "{ this is not json"),
+                             ("untrusted.json", _signed_receipt(None))):
+            with self.subTest(neighbour=name):
+                _plant(d, "600", name, inhalt)
+                r = self.pta.evaluate(d, "6.0.0")
+                self.assertIs(r["ok"], False, r)
+                self.assertEqual(r["state"], "rejected", r)
+                self.assertEqual(len(r["verified_receipts"]), 1)
+                self.assertIn(f"audit_artifacts/600/{name}", r["reason"] or "")
+                (d / "audit_artifacts" / "600" / name).unlink()
+
     def test_an_unreadable_version_is_its_own_state(self):
         """Three states, and the third is not a pass: without a version the gate does not know what it
         is judging, and `not_determinable` must never inherit the absence leniency."""

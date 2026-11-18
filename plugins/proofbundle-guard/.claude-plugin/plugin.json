@@ -1,0 +1,17 @@
+{
+  "name": "proofbundle-guard",
+  "version": "0.4.0",
+  "description": "Guard Preview of proofbundle, the house profile of b7n0de: hooks that check declared repository evidence before supported push, pull request or release actions, with the house's autonomous answer under Claude Code. Install it beside proofbundle; it adds no skill and no MCP server. Level 1 is not a security boundary.",
+  "author": {
+    "name": "Konrad Gruszka"
+  },
+  "homepage": "https://github.com/b7n0de/proofbundle",
+  "repository": "https://github.com/b7n0de/proofbundle",
+  "license": "MIT",
+  "keywords": [
+    "proofbundle",
+    "guard",
+    "hooks",
+    "evidence"
+  ]
+}

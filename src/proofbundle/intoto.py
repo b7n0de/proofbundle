@@ -49,9 +49,9 @@ EVAL_RESULT_PREDICATE_TYPE = "https://b7n0de.com/attestation/eval-result/v0.1"
 # The revised #575 draft (2026-09-28: `evaluator` in place of `verifier`, one identification each for model
 # and dataset, `evidence[]` in place of `receipt`) under ITS OWN type version. v0.1 above was emitted and
 # signed by released versions; a consumer that keys on the type must never read those bytes under the
-# revised rules, nor revised bytes under the old ones. So v0.1 keeps its predicate contract unchanged
-# (signature, content root, type, no shape check) and v0.2 adds the shape of the revised draft to the
-# verdict (gate G2). The in-toto Statement v1 layer under either predicate (`_type`, a subject whose every
+# revised rules, nor revised bytes under the old ones. So v0.1 keeps its predicate contract (signature,
+# content root, type, and the members v0.1 requires, `_eval_result_v01_statement_claim_fields`) and v0.2 adds
+# the shape of the revised draft to the verdict (gate G2). The in-toto Statement v1 layer under either predicate (`_type`, a subject whose every
 # entry carries a digest) is part of every verdict since 2026-10-17 (`_statement_layer_problem`).
 EVAL_RESULT_V02_PREDICATE_TYPE = "https://b7n0de.com/attestation/eval-result/v0.2"
 EVAL_RESULT_PREDICATE_TYPES = (EVAL_RESULT_PREDICATE_TYPE, EVAL_RESULT_V02_PREDICATE_TYPE)
@@ -402,6 +402,9 @@ def to_test_result_statement(claim: dict, *, subject_digest: dict, root_b64: Opt
     root_b64 = _eigener_text(root_b64, wo, "root_b64")
     harness = _eigen(harness, wo, "harness")
     url = _eigener_text(url, wo, "url")
+    if url and not _URI_RE.match(url):
+        # the form `verify_intoto_dsse` asks of `url` (`_test_result_member_types`); an empty one writes none
+        raise BundleFormatError(f"{wo}: url must be a URI, got {render_safe(url)}")
     content_root_alg = _eigener_pflichttext(content_root_alg, wo, "content_root_alg")
     model_desc: dict[str, Any] = {
         "name": "model-id-commitment",
@@ -752,7 +755,178 @@ def _eval_result_v02_statement_claim_fields(statement: dict, predicate: dict) ->
     return _eval_result_statement_claim_fields(statement, predicate) + [(f"predicate {b}", f) for b, f in teile]
 
 
+#: The members an eval-result v0.1 predicate carries (docs/IN_TOTO_PROFILE.md, the v0.1 table: every member
+#: but `preRegistration`, `receipt` and `harness`), and the two parts of `commitments` ("both required" in the
+#: migration table there). The 14 statements of tests/fixtures/eval_result_v0_1/corpus.json carry them, five from
+#: the published 6.1.0 wheel and nine rebuilt from the source of nine tags between v2.0.0 and v6.0.0; a predicate a
+#: caller built is not covered.
+_V01_REQUIRED_MEMBERS = ("verifier", "evaluatedAt", "suite", "claims", "sampleSize", "commitments",
+                         "assuranceLevel", "subjectProfile")
+_V01_REQUIRED_COMMITMENTS = ("model", "dataset")
+#: The two parts of `suite` (docs/IN_TOTO_PROFILE.md, the v0.1 table: `{name, version}`).
+_V01_REQUIRED_SUITE = ("name", "version")
+#: The members of each claim entry (docs/IN_TOTO_PROFILE.md, the v0.1 table: `{metric, comparator, threshold,
+#: passed}`, with `passed` optional in v0.1).
+_V01_REQUIRED_CLAIM = ("metric", "comparator", "threshold")
+
+
+def _eval_result_v01_member_forms(predicate: dict) -> list:
+    """(label, reason) for each member of a v0.1 predicate whose form the claim rule does not judge: `verifier` an
+    object carrying `verifier.id` as a URI, `evaluatedAt` an RFC 3339 date-time with an offset, `suite` carrying
+    both `name` and `version`, `subjectProfile` one of `SUBJECT_PROFILES` (docs/IN_TOTO_PROFILE.md, the v0.1
+    table), and `claims` carrying at least one claim. The URI and the date-time are read as eval-result v0.2 reads
+    them (`_URI_RE`, `_is_rfc3339`), by the owner's choice of 2026-10-31; on main b55d736d "not a uri" and
+    "yesterday" verified.
+    An absent member is the reason of `_eval_result_v01_statement_claim_fields`, and a `suite` or `claims` that is
+    no object or array stays the claim rule's reason.
+
+    Measured on main b55d736d: a signed v0.1 statement verified ok=True and `proofbundle intoto --verify` printed
+    PASS with `verifier` {} or a string, with `verifier.id` 5, with `suite` lacking `name` or `version`, and with
+    `subjectProfile` 7 or "bogus_profile". The same held for `claims` [], by the owner's choice of 2026-10-31 an
+    eval-result v0.1 statement claims something, as v0.2 requires one or more claims."""
+    gruende: list = []
+    claims = predicate.get("claims")
+    if isinstance(claims, list) and not claims:
+        gruende.append(("predicate claims", "must carry at least one claim, got an empty array"))
+    if "verifier" in predicate:
+        verifier = predicate["verifier"]
+        if not isinstance(verifier, dict):
+            gruende.append(("predicate verifier", f"must be an object {{id}}, got {type(verifier).__name__}"))
+        elif "id" not in verifier:
+            gruende.append(("predicate verifier.id", "is required by eval-result v0.1 and absent"))
+        elif not isinstance(verifier["id"], str):
+            gruende.append(("predicate verifier.id", f"must be a string, got {type(verifier['id']).__name__}"))
+        elif not _URI_RE.match(verifier["id"]):
+            gruende.append(("predicate verifier.id", f"must be a URI (TypeURI), got {render_safe(verifier['id'])}"))
+    # `evaluatedAt` is the claim rule's `timestamp`, which judges its type and not its form.
+    if isinstance(predicate.get("evaluatedAt"), str) and not _is_rfc3339(predicate["evaluatedAt"]):
+        gruende.append(("predicate evaluatedAt", "must be an RFC 3339 date-time with an offset, "
+                                                 f"got {render_safe(predicate['evaluatedAt'])}"))
+    suite = predicate.get("suite")
+    if isinstance(suite, dict):
+        gruende += [(f"predicate suite.{t}", "is required by eval-result v0.1 and absent")
+                    for t in _V01_REQUIRED_SUITE if t not in suite]
+    if "subjectProfile" in predicate:
+        profil = predicate["subjectProfile"]
+        if not (isinstance(profil, str) and profil in SUBJECT_PROFILES):
+            gruende.append(("predicate subjectProfile",
+                            f"must be one of {', '.join(SUBJECT_PROFILES)}, got {render_safe(profil)}"))
+    return gruende
+
+
+def _eval_result_v01_statement_claim_fields(statement: dict, predicate: dict) -> list:
+    """`_eval_result_statement_claim_fields`, after a reason for each member eval-result v0.1 requires that the
+    predicate lacks. The Monotonic Principle of docs/IN_TOTO_PROFILE.md: a verifier denies unless a valid
+    attestation exists. Measured on main 647ed0a2: a signed v0.1 statement whose predicate carried none of these
+    members verified ok=True and `proofbundle intoto --verify` printed PASS. The value of a present member is
+    judged by the claim rule and, where the claim rule does not read it, by `_eval_result_v01_member_forms`; an
+    unknown member stays unread. The members a claim object lacks are judged after all of these
+    (`_judge_v01_claim_members`), so every earlier reason keeps its place in the verdict."""
+    gruende = [(f"predicate {m}", "is required by eval-result v0.1 and absent")
+               for m in _V01_REQUIRED_MEMBERS if m not in predicate]
+    commitments = predicate.get("commitments")
+    if isinstance(commitments, dict):
+        gruende += [(f"predicate commitments.{t}", "is required by eval-result v0.1 and absent")
+                    for t in _V01_REQUIRED_COMMITMENTS if t not in commitments]
+    gruende += _eval_result_v01_member_forms(predicate)
+    return gruende + _eval_result_statement_claim_fields(statement, predicate)
+
+
+def _eval_result_v01_claim_members(predicate: dict) -> list:
+    """(label, reason) for each member a v0.1 claim object lacks. Each claim object must carry `metric`,
+    `comparator` and `threshold`; `passed` remains optional and must be boolean when present
+    (docs/IN_TOTO_PROFILE.md, the v0.1 table: "one or more {metric, comparator, threshold, passed}").
+
+    The claim rule judges the fields an entry carries, so `claims` [{}] verified (deep gate 6.5.0, iteration
+    1, measured again at ac4129f7). An entry that is no object stays the claim rule's reason.
+
+    JUDGED LAST, ON PURPOSE (review of the class fix, rounds 1 and 2): the verdict names the first reason, and
+    these reasons stood before the member forms and the claim fields, so a statement that was already
+    refused changed its reason. Measured at e1a684f8: `claims` [5, {}] gave `claims[1].metric` where
+    ac4129f7 gave `claims[0]: must be an object`, and a claim with comparator "==" and no threshold gave the
+    missing threshold where ac4129f7 gave the comparator. Existing rejection reasons keep their precedence;
+    these apply when the previous checks found no violation (`_judge_v01_claim_members`)."""
+    claims = predicate.get("claims")
+    if not isinstance(claims, list):
+        return []
+    return [(f"predicate claims[{i}].{t}", "is required by eval-result v0.1 and absent")
+            for i, eintrag in enumerate(claims) if isinstance(eintrag, dict)
+            for t in _V01_REQUIRED_CLAIM if t not in eintrag]
+
+
+def _judge_v01_claim_members(res: dict) -> dict:
+    """After `_judge_claim_fields` of a v0.1 statement: the first member a claim object lacks, only where no
+    earlier claim reason was found, as ``predicate_member_detail`` and appended to ``content_root_detail``.
+
+    A FIELD OF ITS OWN (review of the class fix, round 2): `proofbundle intoto --verify` prints
+    ``content_root_detail`` before the signature line, so a statement with a broken signature and a claim
+    without `metric` printed the new reason first, where ac4129f7 printed the signature reason first. The CLI
+    prints this one reason after the signature line; every reason it printed before keeps its place."""
+    res["predicate_member_detail"] = ""
+    statement = res.get("statement")
+    if res.get("predicate_claim_ok") is not True or not (
+            isinstance(statement, dict) and statement.get("predicateType") == EVAL_RESULT_PREDICATE_TYPE):
+        return res
+    predicate = statement.get("predicate", {})
+    teile = _eval_result_v01_claim_members(predicate) if isinstance(predicate, dict) else []
+    if teile:
+        grund = f"{teile[0][0]}: {teile[0][1]}"
+        res["predicate_claim_ok"] = False
+        res["ok"] = False
+        res["predicate_member_detail"] = grund
+        res["content_root_detail"] = (res["content_root_detail"] + "; " if res["content_root_detail"] else "") + grund
+    return res
+
+
 _CASE_LISTS = ("passedTests", "warnedTests", "failedTests")
+#: The members the in-toto test-result v0.1 predicate marks required (spec/predicates/test-result.md, and SPEC.md
+#: section 7b for `configuration`); `url` and the three case lists are the optional ones. Every statement
+#: `to_test_result_statement` writes carries both.
+_TEST_RESULT_REQUIRED_MEMBERS = ("result", "configuration")
+#: The values of the enum `result` (spec/predicates/test-result.md).
+_TEST_RESULT_VALUES = ("PASSED", "WARNED", "FAILED")
+#: One of these a ResourceDescriptor MUST specify (spec/v1/resource_descriptor.md).
+_DESCRIPTOR_LOCATORS = ("uri", "digest", "content")
+
+
+def _test_result_member_types(predicate: dict) -> list:
+    """(label, reason) for each member of a test-result predicate that is present in another type than the one the
+    predicate gives it, for every statement of the type, generic or ours: `result` one of PASSED, WARNED, FAILED;
+    `url` a string in URI form (ResourceURI, `_URI_RE`, the form only and never a fetch, by the owner's choice of
+    2026-10-31; "not a uri" verified on main b55d736d); each case list an array of strings; each `configuration` entry that is an object specifying
+    one of `uri`, `digest` or `content` (SPEC.md section 7b: a bare `name`-only descriptor is invalid). An entry
+    that is no object and a `configuration` that is no array stay the reasons of `_descriptor_list_claim_fields`.
+
+    Measured on main b55d736d: a signed generic statement verified ok=True with `result` 1, "BOGUS" or "passed",
+    with a configuration entry {} or {"name": "only-a-name"}, with `url` 5 and with a case list that was no array
+    of strings, because these types were judged only beside a descriptor of ours that annotates a verdict."""
+    teile: list = []
+    if "result" in predicate:
+        wert = predicate["result"]
+        if not (isinstance(wert, str) and wert in _TEST_RESULT_VALUES):
+            teile.append(("result", f"must be one of PASSED, WARNED, FAILED, got {render_safe(wert)}"))
+    if "url" in predicate and not isinstance(predicate["url"], str):
+        teile.append(("url", f"must be a string, got {type(predicate['url']).__name__}"))
+    elif "url" in predicate and not _URI_RE.match(predicate["url"]):
+        # ResourceURI: the URI form only, never a fetch (the owner's choice of 2026-10-31).
+        teile.append(("url", f"must be a URI (ResourceURI), got {render_safe(predicate['url'])}"))
+    for name in _CASE_LISTS:
+        if name in predicate:
+            liste = predicate[name]
+            if not (isinstance(liste, list) and all(isinstance(x, str) for x in liste)):
+                teile.append((name, f"must be an array of strings, got {render_safe(liste)}"))
+    konfig = predicate.get("configuration")
+    if isinstance(konfig, list):
+        for i, eintrag in enumerate(konfig):
+            if isinstance(eintrag, dict) and not any(k in eintrag for k in _DESCRIPTOR_LOCATORS):
+                teile.append((f"configuration[{i}]", "must specify one of uri, digest or content, the rule of a "
+                                                     "ResourceDescriptor"))
+            # A locator that is present has its type: `uri` a ResourceURI and `content` base64 bytes, both strings in
+            # JSON. The digest stays the reason of `_descriptor_list_claim_fields` (first reading of 452, P2).
+            for name in ("uri", "content"):
+                if isinstance(eintrag, dict) and name in eintrag and not isinstance(eintrag[name], str):
+                    teile.append((f"configuration[{i}].{name}", f"must be a string, got {type(eintrag[name]).__name__}"))
+    return teile
 
 
 def _verdict_agreement(predicate: dict, urteile: list) -> list:
@@ -817,17 +991,23 @@ def _test_result_claim_fields(statement: dict, predicate: dict) -> list:
     (`_descriptor_claim_fields`), every container on the way to one that has the wrong shape, and
     the agreement of the generic fields with the signed verdict (`_verdict_agreement`).
 
-    The inverse of `to_test_result_statement`. An ABSENT `configuration` or `digest` makes no
-    claim. A PRESENT container of the wrong shape is a reason of its own, the rule
+    The inverse of `to_test_result_statement`. A predicate without `result` or without
+    `configuration` is a reason, because the predicate marks both required; measured on main
+    647ed0a2, a signed test-result statement carrying neither verified ok=True. An ABSENT `digest`
+    makes no claim. A PRESENT container of the wrong shape is a reason of its own, the rule
     `_eval_result_claim_fields` states. Measured at 835df85b: with `configuration` an object, the
     single entry in place of the list, or a digest written as a list of pairs, the walk found no
-    entry, judged nothing and reported predicate_claim_ok=True over a placeholder commitment.
+    entry, judged nothing and reported predicate_claim_ok=True over a placeholder commitment. A member
+    present in another type than the predicate gives it is a reason too (`_test_result_member_types`).
     """
+    fehlend = [(m, "is required by test-result v0.1 and absent")
+               for m in _TEST_RESULT_REQUIRED_MEMBERS if m not in predicate]
     subjekt_teile, urteile = _subject_claim_fields(statement)
-    teile: list = []
+    teile: list = list(fehlend) + _test_result_member_types(predicate)
     if "configuration" in predicate:
-        teile, konfig_urteile = _descriptor_list_claim_fields("configuration",
-                                                              predicate["configuration"])
+        konfig_teile, konfig_urteile = _descriptor_list_claim_fields("configuration",
+                                                                     predicate["configuration"])
+        teile += konfig_teile
         urteile = konfig_urteile + urteile
     teile.extend(_verdict_agreement(predicate, urteile))
     return [(f"predicate {b}", f) for b, f in teile] + subjekt_teile
@@ -897,9 +1077,10 @@ def verify_intoto_dsse(envelope: dict, public_key: bytes, *,
     swapped-predicate confusion attack — an SVR or eval-result envelope accepted as a test-result).
     Pass ``expected_predicate_type=None`` to opt out of the type check (returns it as before).
 
-    ``ok`` also requires that every eval-claim field a configuration or subject entry carrying a
-    proofbundle commitment digest holds passes the claim rule, and that `result` and the case lists
-    agree with the `passed` such an entry annotates (``predicate_claim_ok``, see
+    ``ok`` also requires that the predicate carries `result` and `configuration`, the two members the
+    test-result predicate marks required, that every eval-claim field a configuration or subject entry
+    carrying a proofbundle commitment digest holds passes the claim rule, and that `result` and the case
+    lists agree with the `passed` such an entry annotates (``predicate_claim_ok``, see
     `_judge_claim_fields`). A generic test-result entry without such a digest is not judged.
 
     ``expected_predicate_type`` is the caller's configuration, not untrusted input: it is read as
@@ -1082,6 +1263,10 @@ def to_eval_result_predicate(claim: dict, *, root_b64: Optional[str] = None,
     _forbid_plaintext_in_export(claim)
     claim = require_eval_claim(claim, wo=wo)
     verdikt = _require_export_fields(claim)
+    if not _is_rfc3339(claim["timestamp"]):
+        # `evaluatedAt` in the form `verify_eval_result_dsse` asks of it (`_eval_result_v01_member_forms`)
+        raise BundleFormatError(f"{wo}: the claim's timestamp must be an RFC 3339 date-time with an offset, "
+                                f"got {render_safe(claim['timestamp'])}")
     root_b64 = _eigener_text(root_b64, wo, "root_b64")
     harness = _eigen(harness, wo, "harness")
     anchors = _eigen(anchors, wo, "anchors")
@@ -1200,7 +1385,9 @@ def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
                             expected_predicate_type: Optional[str] = EVAL_RESULT_PREDICATE_TYPE) -> dict:
     """Verify a DSSE-signed eval-result attestation. Returns {ok, statement, predicate_type, signature_ok,
     predicate_type_ok, statement_ok, statement_detail, content_root_alg, content_root_ok,
-    content_root_detail, predicate_claim_ok, predicate_shape_ok, predicate_shape_detail}. `ok` is True
+    content_root_detail, predicate_claim_ok, predicate_shape_ok, predicate_shape_detail,
+    predicate_member_detail}; `predicate_member_detail` names the first member a v0.1 claim object lacks,
+    judged after every other claim reason, or is empty (`_judge_v01_claim_members`). `ok` is True
     iff the Ed25519 signature over the DSSE PAE verifies, payloadType is the pinned in-toto Statement
     media type, the payload is canonical for its DECLARED contentRootAlg (absent ⇒ legacy; ADR 0002),
     the statement has the in-toto Statement v1 layer (`_type`, and a subject whose every entry carries
@@ -1216,8 +1403,9 @@ def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
     does every subject entry carrying a proofbundle commitment digest (`predicate_claim_ok`, see
     `_judge_claim_fields`). An absent field is not judged.
 
-    The default still expects v0.1, and a v0.1 predicate is judged as before (no shape check,
-    `predicate_shape_ok` None); the Statement layer above applies to both versions. To verify v0.2, pass `expected_predicate_type=EVAL_RESULT_V02_PREDICATE_TYPE`.
+    The default still expects v0.1, and a v0.1 predicate is judged under its own contract: every member
+    v0.1 requires must be present (`predicate_claim_ok`), and no v0.2 shape applies (`predicate_shape_ok`
+    None); the Statement layer above applies to both versions. To verify v0.2, pass `expected_predicate_type=EVAL_RESULT_V02_PREDICATE_TYPE`.
     Pass `expected_predicate_type=None` to opt out of the type check; the shape of a v0.2 statement is
     checked all the same. ``expected_predicate_type`` must be a string or None, and the envelope is read
     once, as for `verify_intoto_dsse`."""
@@ -1237,6 +1425,7 @@ def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
                                                         erwartet),
                                   EVAL_RESULT_PREDICATE_TYPE, _eval_result_statement_claim_fields)
         res["predicate_shape_ok"], res["predicate_shape_detail"] = None, ""
+        res["predicate_member_detail"] = ""
         return res
     binding_ok, alg, detail = _content_root_binding(statement, body)
     # The claim rule judges both versions: v0.2 carries claims[], sampleSize, commitments, suite, evaluatedAt,
@@ -1247,11 +1436,16 @@ def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
     res = _judge_claim_fields(
         _intoto_verify_result(ok, binding_ok, statement, alg, detail, erwartet),
         eigener_typ, (_eval_result_v02_statement_claim_fields if eigener_typ == EVAL_RESULT_V02_PREDICATE_TYPE
-                      else _eval_result_statement_claim_fields))
+                      else _eval_result_v01_statement_claim_fields))
+    if eigener_typ == EVAL_RESULT_PREDICATE_TYPE:
+        _judge_v01_claim_members(res)
+    else:
+        res["predicate_member_detail"] = ""
     # THE CONTRACT FOLLOWS THE TYPE THE SIGNED STATEMENT DECLARES, not the type the caller expected: a
     # v0.2 statement is judged under v0.2 even when the caller opted out of the type check, and a v0.1
-    # statement is never judged under v0.2. v0.1 has no shape contract and gets none now (G2: old
-    # evidence stays verifiable under its old contract); `None` says that no shape was checked.
+    # statement is never judged under v0.2. v0.1 gets no v0.2 shape (G2: old evidence stays verifiable
+    # under its old contract); the members v0.1 requires are judged with its claim fields above, and
+    # `None` here says that no v0.2 shape was checked.
     if res["predicate_type"] == EVAL_RESULT_V02_PREDICATE_TYPE:
         shape_ok, shape_detail = classify_eval_result_v02_predicate(statement)
         res["predicate_shape_ok"], res["predicate_shape_detail"] = shape_ok, shape_detail
@@ -1305,6 +1499,26 @@ def _is_rfc3339(value: Any) -> bool:
     if m.group(8) is not None and (int(m.group(8)) > 23 or int(m.group(9)) > 59):
         return False
     return True
+
+
+def _is_utc_timestamp(value: Any) -> bool:
+    """An in-toto Timestamp: an RFC 3339 date-time in UTC written with the designator Z (spec/v1/field_types.md).
+
+    A numeric offset, `+00:00` included, is refused: svr v0.1 types `timeCreated` as Timestamp, and in-toto writes
+    that type in UTC with Z. Owner choice of 2026-11-02 on finding M07 of the second verifier built from the text:
+    before it, a signed SVR with `+01:00` verified."""
+    return _is_rfc3339(value) and value[-1] in "Zz"
+
+
+def _is_type_uri(value: Any) -> bool:
+    """An in-toto TypeURI: a URI (`_URI_RE`) whose scheme is written in lower case (spec/v1/field_types.md).
+
+    Owner choice of 2026-11-02 on finding M06 of the second verifier built from the text: before it, a signed SVR
+    whose `verifier.id` began with `HTTPS:` verified. The scheme is ASCII by `_URI_RE`, so lower() is exact."""
+    if not (isinstance(value, str) and _URI_RE.match(value)):
+        return False
+    scheme = value.split(":", 1)[0]
+    return scheme == scheme.lower()
 
 
 def _descriptor_problem(value: Any, where: str) -> str:
@@ -1834,6 +2048,11 @@ def export_svr_dsse(bundle: dict, signer, *, time_created: Optional[str] = None,
     # written by the legacy serializer through a dict subclass's own `items()`.
     wo = "export_svr_dsse"
     time_created = _eigener_text(time_created, wo, "time_created")
+    # The form its own verifier asks of `timeCreated` (`classify_svr_predicate_shape`): a signed SVR that verify
+    # refuses is not written. An empty value keeps meaning "now", as before.
+    if time_created and not _is_utc_timestamp(time_created):
+        raise BundleFormatError(f"{wo}: time_created must be an RFC 3339 date-time in UTC with Z, "
+                                f"got {render_safe(time_created)}")
     policy = _eigen(policy, wo, "policy")
     prereg_verified = _eigene_flagge(prereg_verified, "prereg_verified")
     anchor_verified = _eigene_flagge(anchor_verified, "anchor_verified")
@@ -1881,8 +2100,17 @@ def classify_svr_predicate_shape(statement: Any) -> tuple[bool, str]:
     crash on the dereference. The signature proves who signed the bytes; it says nothing about whether
     the bytes have the shape the consumer is about to walk. So the shape is checked HERE, as part of the
     library verdict, and a consumer never has to guess. Returns ``(ok, detail)``; ``detail`` is empty
-    when ok. Deliberately narrow: only what svr/v0.1 declares (predicate object, ``properties`` a list of
-    strings, ``verifier`` an object when present, ``timeCreated`` a string when present).
+    when ok. Deliberately narrow: only what svr/v0.1 declares, and all of it (spec/predicates/svr.md at
+    in-toto/attestation 1fa33327): a predicate object whose four required members are present and of their
+    type, ``verifier`` an object, ``verifier.id`` a string, ``timeCreated`` a string and ``properties`` a list
+    of strings. Measured on main b55d736d: a signed SVR without ``verifier``, without ``verifier.id`` or
+    without ``timeCreated``, or with a number for ``verifier.id``, verified ok=True and ``proofbundle svr
+    --verify`` printed PASS, because ``verifier`` and ``timeCreated`` were judged only when present and
+    ``verifier.id`` not at all. The extension field ``verifier.policy`` and every unknown member stay unread.
+    The form follows the type the spec gives each string, by the owner's choice of 2026-10-31: ``verifier.id``
+    a URI (TypeURI, `_URI_RE`) and ``timeCreated`` an RFC 3339 date-time with an offset (Timestamp,
+    `_is_rfc3339`), the readers eval-result v0.2 uses. Measured on main b55d736d: "not a uri" and "yesterday"
+    verified ok=True.
 
     NAMED ``classify_`` ON PURPOSE (2026-09-05, after the never-raise family property reported it): this
     function takes UNTRUSTED input (a statement out of a signed envelope) and must JUDGE rather than crash,
@@ -1906,10 +2134,22 @@ def classify_svr_predicate_shape(statement: Any) -> tuple[bool, str]:
         return False, f"SVR predicate.properties must be a list of strings, got {type(props).__name__}"
     if not all(isinstance(p, str) for p in props):
         return False, "SVR predicate.properties must contain strings only"
-    if "verifier" in predicate and not isinstance(predicate["verifier"], dict):
+    if "verifier" not in predicate:
+        return False, "SVR predicate.verifier is required by svr v0.1 and absent"
+    if not isinstance(predicate["verifier"], dict):
         return False, "SVR predicate.verifier must be an object"
-    if "timeCreated" in predicate and not isinstance(predicate["timeCreated"], str):
+    if "id" not in predicate["verifier"]:
+        return False, "SVR predicate.verifier.id is required by svr v0.1 and absent"
+    if not isinstance(predicate["verifier"]["id"], str):
+        return False, "SVR predicate.verifier.id must be a string"
+    if not _is_type_uri(predicate["verifier"]["id"]):
+        return False, "SVR predicate.verifier.id must be a URI with a lower-case scheme (TypeURI)"
+    if "timeCreated" not in predicate:
+        return False, "SVR predicate.timeCreated is required by svr v0.1 and absent"
+    if not isinstance(predicate["timeCreated"], str):
         return False, "SVR predicate.timeCreated must be a string"
+    if not _is_utc_timestamp(predicate["timeCreated"]):
+        return False, "SVR predicate.timeCreated must be an RFC 3339 date-time in UTC with Z (Timestamp)"
     return True, ""
 
 

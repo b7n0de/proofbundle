@@ -61,10 +61,11 @@ jobs:
       || ( ( github.event.action == 'synchronize' || github.event.action == 'reopened' )
            && contains(github.event.pull_request.labels.*.name, 'landung') )
     runs-on: ubuntu-latest
-    # The longest job it waits for may take 300 minutes (coverage in ci.yml), and it may start after this job
-    # did. So this job may take as long as a hosted job may, 360 minutes; at 120 it ended before coverage and
-    # skipped the layer (Codex on pull request 310, round four, P1). tests/test_ein_label_startet_keine_ci.py
-    # holds it at least 30 minutes above every job it waits for.
+    # The longest chain it waits for may take 200 minutes (coverage in ci.yml, 20 after the 180 of its parts
+    # coverage-part since 2026-11-02; 300 for the whole run before), and it may start after this job did. So
+    # this job may take as long as a hosted job may, 360 minutes; at 120 it ended before coverage and skipped
+    # the layer (Codex on pull request 310, round four, P1). tests/test_ein_label_startet_keine_ci.py holds it
+    # at least 30 minutes above every job it waits for, counted with the jobs that job needs.
     timeout-minutes: 360
     permissions:
       actions: read

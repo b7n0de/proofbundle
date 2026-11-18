@@ -1,5 +1,7 @@
 # Compatibility and deprecation
 
+**What a version step of proofbundle may change, and what it may not.** This page is for anyone who builds on the Python API, the command line or the receipt format. It names the interface these rules cover, what counts as breaking, how long a deprecated element stays and which parts are experimental. The release gate that applies it is in [RELEASE.md](RELEASE.md).
+
 What SemVer means here concretely, what counts as a breaking change, how long a deprecated thing
 stays, and which parts are exempt because they are labelled EXPERIMENTAL.
 
@@ -36,7 +38,9 @@ recorded in [`docs/release_scope/3.7.1.md`](docs/release_scope/3.7.1.md), and ke
 neither signed nor part of a documented return shape, documentation, tests, build tooling, and
 performance. Tightening a check that only ever accepted input the spec already called invalid is a
 fix, not a break — and the CHANGELOG entry has to say so explicitly, because from the outside a
-stricter check and a break look identical.
+stricter check and a break look identical. Correcting a time verdict to what the spec already states
+is a fix in the same sense, also where the corrected verdict differs at the edge of a validity
+window in either direction, as in 6.2.1; its CHANGELOG entry says so explicitly as well.
 
 **5.0.0, worked example.** Both MAJOR triggers of 5.0.0 (recorded in [`docs/release_scope/5.0.0.md`](docs/release_scope/5.0.0.md)) are the two rules above made concrete: an input class that used to exit **2** (malformed/usage) now exits **1** (a crypto failure / verdict) — the meaning of an exit code changed, and exit codes are surface 2; and the Inspect lifecycle hook and the pytest plugin now **require** `PROOFBUNDLE_THRESHOLD` instead of silently defaulting it to `0` — an optional obligation made required. Neither flips a verdict: nothing that verified before stops, nothing that failed starts. Migration is one line: `export PROOFBUNDLE_THRESHOLD=0`.
 

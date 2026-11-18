@@ -1,5 +1,18 @@
 # FAQ for skeptics
 
+**Short answers to the hard questions about proofbundle.**
+
+This page is for skeptics. It answers why a signed receipt and not just a hash, Sigstore or in-toto, why you should not simply trust the issuer, and where the limits are. Each answer says what proofbundle does and what it does not.
+
+## Good to know
+
+- A receipt shows which key signed the recorded bytes and that they have not changed since, not that the result is true. Whether you should trust that key depends on a public key you obtained from a source you trust.
+- If an answer feels dodged, open an issue.
+
+The [questions and answers](#technical-details) follow below.
+
+## Technical details
+
 Honest answers to the hard questions. If one of these feels dodged, open an issue.
 
 ### Why not just publish a SHA-256 of the eval log?

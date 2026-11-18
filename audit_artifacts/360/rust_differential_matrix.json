@@ -1045,32 +1045,32 @@
       "rust_reproduces_expectation": true
     }
   ],
-  "version": "6.4.0",
+  "version": "6.6.0",
   "candidate": {
-    "commit": "e636b5da1b615f2ca1596229193fdc6b97cc3acf",
-    "tree_digest": "292409c9dd9f250527593a7241d4ac2d59655a68b0744f3af41917f755216760",
-    "sdist_sha256": "9b074c7ed9dec106b45ae541b9194087f7238230953a7c784df7c4a08c386699",
-    "wheel_sha256": "72153d160c2f78647095f029c0946dbfd64a15e006a233a5abc78a3071eebf94"
+    "commit": "53d1eafe8eaf7c558ed394e01d1b29d132c2fd47",
+    "tree_digest": "1e8d4a61d67117287a6be2eb1e52e8eafca580cb0a28bed6b787b45c14384bfd",
+    "sdist_sha256": "d742b2a07ba8cd109de44879bb64134a4921c3f7d90ea9c5d1fa1fe8603757e0",
+    "wheel_sha256": "c679b72e438089384dda1d4412dacc3ce3bd4a55e4d8a3c693cd4a9979dfd2ee"
   },
   "trust_anchor_digest": "f664369e599e0797784578611a885c90fee6f209cd5526bcfcfa1b1f9f100fd3",
   "gate_zeile": {
     "gate_version": "v4",
-    "workflow_datei": "kraxo/02_proofbundle_berichte/LAUFBESCHREIBUNG_deep_gate_640_weg_a_20261027.md",
-    "workflow_sha256": "3e62bb6f6dd6eb883b670881765b50b76f0b7d56a2b28d2011a13817476c1917",
-    "modus": "DEEP throttled D2/D3 (owner A on OA-6c9077580d): at most 2 iterations, each 1 read-only Claude lens + foreign family; ran: iteration 1, one Claude lens on 8608cb0f; not run: foreign family, iteration 2; head e636b5da carries the lensed src/ unchanged",
-    "head": "e636b5da1b615f2ca1596229193fdc6b97cc3acf",
-    "verdict": "REFUTED_IN_ITERATION_1"
+    "workflow_datei": "kraxo/02_proofbundle_berichte/deep_gate_660_endregel_k0_41959070/LAUFBESCHREIBUNG_660_K0_41959070.md",
+    "workflow_sha256": "82dc8a750c86fffbf1c9a7ccf3cb96c4c620ccbd389a213ace850a47134442d7",
+    "modus": "DEEP one round (owner end rule DEEP-GATE-660-ENDREGEL-20261113, only a confirmed P0/P1 stops): lenses ran L1, L2, L3, L4, L5, L6, not ran none; targets read fully none, partly Z1, Z2, Z3, Z4, Z5, Z6, Z7, Z8, Z9, Z10, Z11; first lensed head 41959070, fix re-read on 0c67aa6b; tree of C' not measured yet (after landing); carried from lensed head K0 41959070 to C 53d1eafe (merge of PR 528) under the owner's answer A on OA-9ee7dcf4bf and D on OA-4e54c9225b and the owner's choice of 2026-11-16 for the tag: src changes K0..C only src/proofbundle/cli.py, src/proofbundle/emit.py (PR 523, fixes of the deep-gate findings), src unchanged from the fix re-read on 0c67aa6b to C and from the former C e2998298 to C; the verdict is not a pass",
+    "head": "53d1eafe8eaf7c558ed394e01d1b29d132c2fd47",
+    "verdict": "OPEN_COVERAGE_GAP"
   },
   "producer": {
     "tool": "tools/pb_verify_rs/crosscheck.py",
-    "tool_version": "6.4.0"
+    "tool_version": "6.6.0"
   },
-  "input_digest": "126d497437bbe340a8cde060692f21cd5c7c2df1c78f239ff48da519a87af0af",
+  "input_digest": "11bb2a4c207ad5743844d10253fd5638d8dd4debcdbe97fdc641c2c628ff671a",
   "signer_role": "readiness_und_register_signierer_600",
-  "produced_at": "2026-10-27T18:05:19Z",
+  "produced_at": "2026-11-14T15:52:57Z",
   "signature": {
     "alg": "ed25519",
     "public_key_b64": "iJipntJA8N//h+ln9CgLzeC9n/M5OdCZNeBhbfagom8=",
-    "sig_b64": "6ONpB/25telRfs2F5+n7kMq7w2xIMqDeQCVfT+jx0jMaz6wEmn8VCwYLlgTCRf2rvmxQO4eRJqiYBRH064A3BQ=="
+    "sig_b64": "LUgL3AI4rP+N+5wpYmQW3j/KNy1K8t6CEjwVjGjS0j87dINIn+4NnS4jmTL5uI0FZ6j3twQI+HNETy7IZL0HDA=="
   }
 }

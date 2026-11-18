@@ -45,6 +45,9 @@ SURFACES = ("github.conversationComment", "github.reviewThreadReply", "github.pu
 #: The verdicts the contract reads as a refusal. ESCALATE and DEFER are no approval and no refusal: an effect of such
 #: an action counts under M5, never under M6.
 REFUSED = ("DENY", "REFUSE")
+#: D135: the surfaces whose stored bytes the events API does not show. The receipt of a merge hashes what the merge names
+#: (its head commit, its method, the text of its commit), and the event names neither the method nor that text.
+BYTELESS = ("github.merge",)
 _INSTANT = re.compile(r"\A(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?Z\Z", re.ASCII)
 _SLUG = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}\Z", re.ASCII)
 _OID = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z", re.ASCII)
@@ -107,6 +110,32 @@ def read_json(path: pathlib.Path) -> object:
 def write_json(path: pathlib.Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=1, sort_keys=True, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def file_in(folder: pathlib.Path, name: object) -> pathlib.Path:
+    """The regular file a name read from data names inside folder, or RecordsError. The name is relative, no part of it
+    is empty, . or .., and no part below folder is a symbolic link, so a name in index.json, run.json or
+    pilot_start.json, or an entry of decisions/ or outcomes/, never reads a file outside the folder it names one in: the
+    reconciliation reads the records and nothing else (contract, section 8), and a recorded folder hands the records no
+    file from elsewhere. A name with a backslash, a colon or a NUL is refused on every platform: under Windows the first
+    separates and the second starts a drive, so one folder gives one reading everywhere. So is a part that ends in a
+    space or a period, which the path normalization of Windows trims. A name whose file is not there raises
+    FileNotFoundError, as reading it did before."""
+    if not isinstance(name, str) or any(c in name for c in "\\:\x00"):
+        raise RecordsError(f"{name!r} names no file inside {folder}")
+    parts = name.split("/")
+    if any(part in ("", ".", "..") or part.endswith((" ", ".")) for part in parts):
+        raise RecordsError(f"{name!r} names no file inside {folder}")
+    path = pathlib.Path(folder)
+    for part in parts:
+        path = path / part
+        if path.is_symlink():
+            raise RecordsError(f"{name!r} passes a symbolic link inside {folder}")
+    if not path.is_file():
+        if not path.exists():
+            raise FileNotFoundError(f"{name!r} names no file inside {folder}")
+        raise RecordsError(f"{name!r} names no regular file inside {folder}")
+    return path
 
 
 # --- the records kept before the first decision ------------------------------------------------------------------
@@ -177,16 +206,18 @@ class Records:
         self._profile = None
 
     def kept_path(self, name: str) -> pathlib.Path:
-        return self.folder / self.files[name]["file"]
+        return file_in(self.folder, self.files[name]["file"])
 
     def kept(self, name: str) -> bytes:
         entry = self.files.get(name)
         if not isinstance(entry, dict):
             raise RecordsError(f"pilot_start.json keeps no {name}")
-        path = self.folder / entry["file"]
-        data = path.read_bytes() if path.is_file() else None
-        if data is None or sha256_hex(data) != entry["sha256"]:
-            raise RecordsError(f"the kept {name} ({entry['file']}) is missing or differs from its digest")
+        try:
+            data = file_in(self.folder, entry.get("file")).read_bytes()
+        except (RecordsError, FileNotFoundError):
+            data = None
+        if data is None or sha256_hex(data) != entry.get("sha256"):
+            raise RecordsError(f"the kept {name} ({entry.get('file')}) is missing or differs from its digest")
         return data
 
     def profile(self):
@@ -207,7 +238,7 @@ class Records:
         """Every decision envelope the gate wrote, with its file name and content root, in file order."""
         found = []
         for path in sorted((self.folder / "decisions").glob("*.json")):
-            envelope = read_json(path)
+            envelope = read_json(file_in(self.folder, f"decisions/{path.name}"))
             found.append({"file": f"decisions/{path.name}", "envelope": envelope,
                           "root": self.profile().content_root(envelope)})
         return found
@@ -216,7 +247,8 @@ class Records:
         """The observer's runs in the order they ran (D121): by the time of a run's first request, its name breaking a
         tie. The order of the names is not the order of the runs (run-10 sorts before run-2), and the match reads the
         effects of the runs in this order. A run whose window or first request names no instant is refused."""
-        found = [dict(read_json(p), folder=p.parent) for p in sorted((self.folder / "api").glob("*/run.json"))]
+        found = [dict(read_json(file_in(self.folder, f"api/{p.parent.name}/run.json")), folder=p.parent)
+                 for p in sorted((self.folder / "api").glob("*/run.json"))]
         for run in found:
             window = run.get("window") if isinstance(run.get("window"), dict) else {}
             requests = run.get("requests") if isinstance(run.get("requests"), list) else []
@@ -260,8 +292,10 @@ class Records:
             if path.name.endswith(".scope.json"):
                 continue
             scope = path.with_name(path.name[:-len(".json")] + ".scope.json")
-            found.append({"file": f"outcomes/{path.name}", "envelope": read_json(path),
-                          "scope": read_json(scope) if scope.is_file() else None})
+            kept_scope = scope.is_file() or scope.is_symlink()
+            found.append({"file": f"outcomes/{path.name}",
+                          "envelope": read_json(file_in(self.folder, f"outcomes/{path.name}")),
+                          "scope": read_json(file_in(self.folder, f"outcomes/{scope.name}")) if kept_scope else None})
         return found
 
 
@@ -333,7 +367,10 @@ def _event_effect(event: dict) -> dict | None:
             effect.update(surface="github.pullRequestBody", target=f"{base}/pull/{number}", objectId=f"pull-{number}",
                           stored=_text(pull.get("body")))
         elif action == "closed" and pull.get("merged") is True:
-            effect.update(surface="github.merge", target=f"{base}/pull/{number}", stored=b"",
+            # D135: a merge's receipt hashes the merge it names (the head commit, the method, the text of the merge
+            # commit), and the event names neither the method nor that text, so no stored bytes are read from it. The
+            # empty bytes of D55 matched every merge of the pull request.
+            effect.update(surface="github.merge", target=f"{base}/pull/{number}", stored=None,
                           objectId=str(pull.get("merge_commit_sha")))
     return effect
 
@@ -354,7 +391,7 @@ def effects_of_run(run: dict, agent_of: dict) -> list[dict]:
     for request in run["requests"]:
         if request.get("kind") != "events" or request.get("status") != 200:
             continue
-        body = json.loads((pathlib.Path(run["folder"]) / request["file"]).read_bytes(),
+        body = json.loads(file_in(pathlib.Path(run["folder"]), request.get("file")).read_bytes(),
                           object_pairs_hook=_reject_duplicate_keys)
         for event in body if isinstance(body, list) else []:
             effect = _event_effect(event) if isinstance(event, dict) else None
@@ -402,6 +439,9 @@ def match(effects: list[dict], decisions: list[dict], agent_of: dict, window: di
     """Effects to the proposed actions of the window, by the rule of the contract, section 5, decided by the records
     alone. An effect takes one action of the window with its target and its agent identity that no earlier effect took:
     the one whose surface and bytes it equals when exactly one does, otherwise the earliest decided, ties by decisionId.
+    An effect of a surface whose stored bytes the API does not show (BYTELESS, D135) equals an action in its surface
+    alone, and where several do with one verdict it takes the earliest decided of them; where they hold different
+    verdicts it is `ambiguous`, as below.
     An effect that equals actions of different verdicts is `ambiguous`; it counts under M6 when one of them was refused
     and takes the earliest decided. An effect with no action left, or whose action holds no approval decided not later
     than the effect, counts under M5; one that takes a refused action counts under both."""
@@ -415,10 +455,16 @@ def match(effects: list[dict], decisions: list[dict], agent_of: dict, window: di
                       and agent is not None and d["agent"] == agent]
         candidates.sort(key=lambda d: (instant_key(d["decidedAt"]), d["decisionId"]))
         stored = sha256_hex(effect["stored"]) if effect["stored"] is not None else None
-        equal = [d for d in candidates if d["surface"] == effect["surface"] and d["bytes_sha256"] == stored]
+        # D135: a merge shows no stored bytes, so it equals an action by its surface alone, and of several such
+        # actions it takes the earliest. Compared with None it equalled only the actions that name no bytes and fell
+        # back to the earliest decided action of the target, which can be one of another surface (the reading and the
+        # pre-run of 2026-11-03). Any other surface is matched as before.
+        byteless = effect["surface"] in BYTELESS and effect["stored"] is None
+        equal = [d for d in candidates if d["surface"] == effect["surface"]
+                 and (byteless or d["bytes_sha256"] == stored)]
         ambiguous = len({d["verdict"] for d in equal}) > 1
-        if len(equal) == 1 or ambiguous:
-            chosen = equal[0]           # the one it equals, or the earliest decided of the ambiguous ones
+        if len(equal) == 1 or ambiguous or (byteless and equal):
+            chosen = equal[0]           # the one it equals, or the earliest decided of the ones it equals
         else:
             chosen = candidates[0] if candidates else None   # otherwise the earliest decided
         approved = chosen is not None and chosen["verdict"] == "ALLOW" and \

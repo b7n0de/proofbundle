@@ -30,10 +30,14 @@ import base64
 import collections
 import copy
 import dataclasses
+import dis
 import gc
 import hashlib
 import json
+import os
+import subprocess
 import sys
+import tempfile
 import threading
 import unittest
 from pathlib import Path
@@ -395,15 +399,20 @@ class _Registriert(unittest.TestCase):
 
 def _mit_gc(cb: Callable[[str, dict], None], aufruf: Callable[[], Any]) -> Any:
     """``aufruf()`` with the caller's gc callback ``cb`` armed and a collection at nearly every allocation; every object
-    that exists before the call is frozen for its length, as the sweep of the class test does (`_run`)."""
-    alt = gc.get_threshold()
+    that exists before the call is frozen for its length, as the sweep of the class test does (`_run`). The collector
+    is switched on for the call and left as it was found: a collector that is off starts no collection, and the ABA
+    case then reports that no step found its moment (CI at 4f267e9d, `TheMeasuringFrameArmsTheCollectorItself`)."""
+    alt, an = gc.get_threshold(), gc.isenabled()
     gc.freeze()
     try:
         gc.callbacks.append(cb)
         gc.set_threshold(1, 1, 1)
+        gc.enable()
         try:
             return aufruf()
         finally:
+            if not an:
+                gc.disable()
             gc.set_threshold(*alt)
             gc.callbacks.remove(cb)
     finally:
@@ -817,59 +826,153 @@ class CorrelatedChangesGiveTheVerdictOfOneState(_Registriert):
 
 # ── 4. ABA, targeted, up to the public verdict ─────────────────────────────────────────────────────────────────────
 
+#: The code of the reading's two collects and of the read of one container, taken at import, before `_aba_messen`
+#: puts an observer in the place of `canonical._gleich_gelesen`.
+_SAMMELN_1, _SAMMELN_2, _LIES = (canonical._lesen_einmal.__code__, canonical._gleich_gelesen.__code__,
+                                 canonical._lies.__code__)
+
+
+def _im_fenster(rahmen: Any, i: int, x: Any, y: Any, liste: Any) -> bool:
+    """Whether a collection that starts in ``rahmen`` lies in the window of step ``i`` of the ABA case over ``liste``
+    with the entries ``x`` and ``y`` (`_aba_messen`). Judged by what the frames hold (the record of the first collect,
+    the value being read, whether its pairs are taken), never by an offset of the bytecode, so a step finds its moment
+    wherever in its window a collection starts. A point where that cannot be told is outside every window: the
+    collect's own frame while it reads the entry of the step itself, before or after `_lies` returned its record (until
+    that record is bound, ``satz`` still holds the one read before), and every frame of `canonical._lies` that reads
+    that entry, where the reading may have begun to take its pairs (inside the call that takes them, or after it and
+    before they are bound, `NoWindowIsOpenWhereTheReadingHasTakenItsEntry`). A frame of `_lies` counts only where it
+    reads the entry before, with its pairs bound."""
+    sammeln = _SAMMELN_1 if i == 0 else _SAMMELN_2
+    lokal = rahmen.f_locals
+    if rahmen.f_code is _LIES:
+        if rahmen.f_back is None or rahmen.f_back.f_code is not sammeln:
+            return False
+        wert = lokal.get("wert")
+        if i == 1:
+            return wert is liste
+        return wert is y and "paare" in lokal
+    gelesen = lokal.get("gelesen")
+    if rahmen.f_code is not sammeln or type(gelesen) is not dict or id(liste) not in gelesen:
+        return False
+    wert = lokal.get("wert")
+    if i == 0:
+        return id(y) in gelesen and id(x) not in gelesen and wert is not x
+    if i == 1:
+        reihe = list(gelesen)
+        return "wert" not in lokal or (id(wert) in gelesen and reihe.index(id(wert)) < reihe.index(id(y)))
+    # Y's own "dict" record in satz shows that its pairs are taken; the "list" record before it shows nothing, since it
+    # is still there after `_lies` returned Y's record and before it is bound
+    satz = lokal.get("satz")
+    return wert is y and type(satz) is tuple and satz[:1] == ("dict",)
+
+
+def _aba_messen(versatz: int = 0) -> dict:
+    """The ABA measurement of `ABAIsMeasuredUpToThePublicVerdict` in the interpreter that calls it: the verdict of the
+    never-held state, the verdicts of the held states, how many steps found their moment, what each pair of collects
+    over the list read (the root the first collect recorded for X and for Y, and whether the second found the same
+    objects), whether one pair read the never-held state as one, and the verdict. With ``versatz`` the callback
+    allocates that many lists and one list holding them after each collection, which moves every later collection
+    start (`TheABACaseFindsItsMomentsWhereverTheCollectorStarts`)."""
+    gut_text = base64.b64encode(_WURZEL).decode()
+    schlecht_text = base64.b64encode(b"\x00" * 32).decode()
+    anchors.register_anchor_type(_ANKERTYP, lambda proof, root, *, frozen, now: {"ok": True, "warn": False})
+    x = {"type": _ANKERTYP, "target": "statement", "canonicalRoot": schlecht_text,
+         "proof": base64.b64encode(b"p").decode()}
+    y = dict(x, canonicalRoot=gut_text)
+    liste = [x, y]
+    ziele = {"statement": _WURZEL}
+
+    def urteil(eintraege) -> Any:
+        return _verdikt(lambda: anchors.verify_anchors(eintraege, target_roots=ziele), lambda r: r["status"])
+    gehalten = {urteil([dict(x, canonicalRoot=a), dict(y, canonicalRoot=b)])
+                for a, b in ((schlecht_text, gut_text), (schlecht_text, schlecht_text), (gut_text, schlecht_text))}
+    nie_gehalten = urteil([dict(x, canonicalRoot=gut_text), y])
+
+    schritte = [[(y, schlecht_text), (x, gut_text)],   # first collect, after the pairs of Y, before those of X
+                [(x, schlecht_text), (y, gut_text)],   # second collect, before the pairs of Y
+                [(y, schlecht_text), (x, gut_text)]]   # second collect, after the pairs of Y, before those of X
+    stand = {"i": 0}
+    halde: list = []
+    gleich_gelesen = canonical._gleich_gelesen
+    lesungen: list = []
+
+    def wurzel_von(satz: Any) -> Any:
+        if type(satz) is not tuple or satz[:1] != ("dict",):
+            return None
+        wurzel = dict(satz[2]).get("canonicalRoot")
+        return "good" if wurzel == gut_text else ("bad" if wurzel == schlecht_text else None)
+
+    def beobachtet(gelesen: dict) -> bool:
+        """`canonical._gleich_gelesen` as it is; for a pair of collects over the list it also notes what the first collect
+        recorded for X and Y and what the second answered."""
+        gleich = gleich_gelesen(gelesen)
+        if id(liste) in gelesen:
+            lesungen.append([wurzel_von(gelesen.get(id(x))), wurzel_von(gelesen.get(id(y))), gleich])
+        return gleich
+
+    def cb(phase, info):
+        if phase == "stop" and versatz:
+            halde.append([[] for _ in range(versatz)])
+        if phase != "start" or stand["i"] >= len(schritte):
+            return
+        if _im_fenster(sys._getframe(1), stand["i"], x, y, liste):
+            for eintrag, text in schritte[stand["i"]]:
+                eintrag["canonicalRoot"] = text
+            stand["i"] += 1
+    canonical._gleich_gelesen = beobachtet
+    try:
+        aus = _mit_gc(cb, lambda: urteil(liste))
+    finally:
+        canonical._gleich_gelesen = gleich_gelesen
+    return {"nie_gehalten": str(nie_gehalten), "gehalten": sorted(map(str, gehalten)), "schritte": stand["i"],
+            "von": len(schritte), "lesungen": lesungen, "gemessen": ["good", "good", True] in lesungen,
+            "aus": str(aus)}
+
+
+def _in_frischem_interpreter(funktion: str, *argumente: int) -> dict:
+    """``funktion(*argumente)`` of this module in an interpreter of its own, nothing of the suite run before it; its dict
+    read back as JSON. ``-I`` ignores the environment, so the interpreter's own handling of bytecode is handed on as
+    switches: a caller that compiles every module afresh has a child that does too."""
+    code = (f"import json, sys; sys.path[:0] = [{str(REPO / 'tests')!r}]; import {Path(__file__).stem} as m; "
+            f"print(json.dumps(m.{funktion}(*{argumente!r})))")
+    schalter = ["-B"] if sys.dont_write_bytecode else []
+    if sys.pycache_prefix:
+        schalter += ["-X", f"pycache_prefix={sys.pycache_prefix}"]
+    lauf = subprocess.run([sys.executable, "-I", *schalter, "-c", code], cwd=REPO, capture_output=True, text=True,
+                          timeout=300, check=False)
+    if lauf.returncode != 0:
+        raise AssertionError((lauf.stdout + lauf.stderr)[-3000:])
+    return json.loads(lauf.stdout.strip().splitlines()[-1])
+
+
 class ABAIsMeasuredUpToThePublicVerdict(_Registriert):
     """Two entries X and Y of one anchor list. Good is an entry over the statement's root, bad one over another root;
     the list PASSes only when both are good. The held states are (bad, good), (bad, bad) and (good, bad), each a FAIL;
     the copy (good, good) is never held.
 
     The reading at the call reads Y before X in each collect (`canonical._lesen_einmal` takes them from a stack, and
-    `_gleich_gelesen` reads in the same order). The caller's gc callback looks at the frame the collector started in:
-    when `canonical._lies` is about to read X in the first collect (its pairs not yet taken), it makes Y bad and then X
-    good; when `_lies` is about to read Y in the second collect, X bad and then Y good; when it is about to read X in
-    the second collect, Y bad and then X good. Each value is the same object each time, so each collect reads the same
-    objects, the first one Y good and X good, which the list never held together. A step that never found its moment
-    is reported as not measured, never as held."""
+    `_gleich_gelesen` reads in the same order). The caller's gc callback looks at the frames the collector started in:
+    when a collection starts in the first collect after it took the pairs of Y and before it took those of X, it makes
+    Y bad and then X good; when one starts in the second collect before it took the pairs of Y, X bad and then Y good;
+    when one starts in the second collect after the pairs of Y and before those of X, Y bad and then X good. Each value
+    is the same object each time, so each collect reads the same objects, the first one Y good and X good, which the
+    list never held together. Each window is judged by what the frames hold, so a step finds its moment wherever in
+    its window a collection starts (`TheABACaseFindsItsMomentsWhereverTheCollectorStarts`; until then a step waited for
+    a collection at the one call that takes the pairs). The case counts as measured only where it observed what it
+    claims, at `canonical._gleich_gelesen`: a first collect recorded X and Y both good and the second found the same
+    objects. Otherwise it is reported as not measured, never as held. The measurement runs in an interpreter of its
+    own: what ran before it in the process moved the collection starts (pull request 473, under CPython 3.14,
+    `TheABACaseIsMeasuredWhateverRanBeforeIt`)."""
 
     def test_aba_reaches_the_public_verdict_only_where_the_limit_is_named(self) -> None:
-        gut_text = base64.b64encode(_WURZEL).decode()
-        schlecht_text = base64.b64encode(b"\x00" * 32).decode()
-        anchors.register_anchor_type(_ANKERTYP, lambda proof, root, *, frozen, now: {"ok": True, "warn": False})
-        x = {"type": _ANKERTYP, "target": "statement", "canonicalRoot": schlecht_text,
-             "proof": base64.b64encode(b"p").decode()}
-        y = dict(x, canonicalRoot=gut_text)
-        liste = [x, y]
-        ziele = {"statement": _WURZEL}
-
-        def urteil(eintraege) -> Any:
-            return _verdikt(lambda: anchors.verify_anchors(eintraege, target_roots=ziele), lambda r: r["status"])
-        gehalten = {urteil([dict(x, canonicalRoot=a), dict(y, canonicalRoot=b)])
-                    for a, b in ((schlecht_text, gut_text), (schlecht_text, schlecht_text), (gut_text, schlecht_text))}
-        self.assertEqual(urteil([dict(x, canonicalRoot=gut_text), y]), "PASS", "the never-held state must pass")
-        self.assertNotIn("PASS", gehalten)
-
-        sammeln_1, sammeln_2, lies = (canonical._lesen_einmal.__code__, canonical._gleich_gelesen.__code__,
-                                      canonical._lies.__code__)
-        schritte = [(sammeln_1, x, [(y, schlecht_text), (x, gut_text)]),
-                    (sammeln_2, y, [(x, schlecht_text), (y, gut_text)]),
-                    (sammeln_2, x, [(y, schlecht_text), (x, gut_text)])]
-        stand = {"i": 0}
-
-        def cb(phase, info):
-            if phase != "start" or stand["i"] >= len(schritte):
-                return
-            rahmen = sys._getframe(1)
-            if rahmen.f_code is not lies or rahmen.f_back is None:
-                return
-            sammeln, ziel, aenderungen = schritte[stand["i"]]
-            lokal = rahmen.f_locals
-            if rahmen.f_back.f_code is sammeln and lokal.get("wert") is ziel and "paare" not in lokal:
-                for eintrag, text in aenderungen:
-                    eintrag["canonicalRoot"] = text
-                stand["i"] += 1
-        aus = _mit_gc(cb, lambda: urteil(liste))
-        if stand["i"] < len(schritte):
-            self.fail(f"NOT MEASURED: {stand['i']} of {len(schritte)} steps found their moment; verdict {aus}")
-        print(f"\nABA: verdict {aus} over a list whose held states give {sorted(gehalten)}")
+        m = _in_frischem_interpreter("_aba_messen")
+        self.assertEqual(m["nie_gehalten"], "PASS", "the never-held state must pass")
+        self.assertNotIn("PASS", m["gehalten"])
+        if m["schritte"] < m["von"] or not m["gemessen"]:
+            self.fail(f"NOT MEASURED: {m['schritte']} of {m['von']} steps found their moment, and the pairs of "
+                      f"collects over the list read {m['lesungen']}; verdict {m['aus']}")
+        aus = m["aus"]
+        print(f"\nABA: verdict {aus} over a list whose held states give {m['gehalten']}")
         if aus == "PASS":
             ohne = [str(p.relative_to(REPO)) for p in (REPO / "src" / "proofbundle" / "canonical.py",
                                                       REPO / "RESTRISIKO_620.md")
@@ -919,3 +1022,191 @@ class AThreadThatMovesTheInputsGivesTheVerdictOfAHeldState(_Registriert):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TheMeasuringFrameArmsTheCollectorItself(unittest.TestCase):
+    """CI at 4f267e9d, test (3.14, 1), twice: the ABA case above reported "0 of 3 steps found their moment".
+    Measured on 3.10 and 3.14.8, that is what it reports when the collector is off before it runs: `_mit_gc` set the
+    threshold and the callback and left the collector as it found it, so no collection started. A frame that counts
+    on collections at nearly every allocation switches the collector on for its call and leaves the caller's state
+    as it was, on and off."""
+
+    def test_the_frame_collects_whatever_the_callers_state_and_restores_it(self) -> None:
+        war = gc.isenabled()
+        try:
+            for vorher in (False, True):
+                (gc.enable if vorher else gc.disable)()
+                gestartet: list = []
+                _mit_gc(lambda phase, info: gestartet.append(phase), lambda: [[] for _ in range(5000)])
+                self.assertIn("start", gestartet, f"no collection started in the frame (collector on before: {vorher})")
+                self.assertEqual(gc.isenabled(), vorher, "the frame changed the caller's state of the collector")
+        finally:
+            (gc.enable if war else gc.disable)()
+
+
+#: A module that, run before the ABA case in one process, kept it from finding its moments (CPython 3.14.8, a checkout
+#: without bytecode, 2 November 2026); it tests nothing of the anchor reading.
+_DAVOR = "tests/test_register_610_carries_what_the_sheets_promise.py"
+
+
+class TheABACaseIsMeasuredWhateverRanBeforeIt(unittest.TestCase):
+    """CI of pull request 473, test (3.14, 1), twice: the ABA case of section 4 reported "0 of 3 steps found their
+    moment" after the parts of the suite moved other files into its worker. Measured with CPython 3.14.8 at main
+    a466f4d6, in a checkout without bytecode: the case alone passes, and after `_DAVOR` in the same process it fails,
+    because whether a collection starts in the frame of `canonical._lies` depends on what ran before it. Here that order
+    runs in a pytest of its own that compiles every module afresh, as a fresh checkout in CI does, and the case must
+    pass. Under CPython 3.10.12 the order did not change the result (measured), so this case can fall only where the
+    collector works as in 3.14."""
+
+    def test_the_aba_case_after_a_module_that_moved_it(self) -> None:
+        knoten = f"{Path(__file__).relative_to(REPO)}::ABAIsMeasuredUpToThePublicVerdict"
+        with tempfile.TemporaryDirectory() as leer:
+            env = {k: v for k, v in os.environ.items() if not k.startswith("PYTEST_")}
+            env.update(PYTHONDONTWRITEBYTECODE="1", PYTHONPYCACHEPREFIX=leer, PYTHONPATH=str(REPO / "src"))
+            lauf = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-p", "no:randomly",
+                                   _DAVOR, knoten], cwd=REPO, env=env, capture_output=True, text=True, timeout=300,
+                                  check=False)
+        self.assertEqual(lauf.returncode, 0, (lauf.stdout + lauf.stderr)[-3000:])
+
+
+class TheABACaseFindsItsMomentsWhereverTheCollectorStarts(unittest.TestCase):
+    """CI of pull request 474 at ad42ad9b, test (3.13, 1) and test (3.14, 1): the ABA case, measured in an interpreter of
+    its own, reported "1 of 3 steps found their moment". Where a collection starts depends on how many objects were
+    allocated since the last one, and that moves with the version, with modules compiled afresh and with what the
+    callback itself allocates. Here the callback allocates 0 to 7 lists, and one list holding them, after each
+    collection, which moves every later collection start, and for each shift every step must find its moment and a pair
+    of collects must read the never-held state as one."""
+
+    def test_every_step_finds_its_moment_for_each_shift_of_the_collection_starts(self) -> None:
+        ohne = []
+        for versatz in range(8):
+            m = _in_frischem_interpreter("_aba_messen", versatz)
+            if m["schritte"] < m["von"] or not m["gemessen"]:
+                ohne.append(f"shift {versatz}: {m['schritte']} of {m['von']}, read {m['lesungen']}")
+        self.assertEqual(ohne, [], "shifts of the collection starts at which the never-held state was not measured")
+
+
+def _an_befehlen(stellen: dict, rueckruf: Callable[[Any], None], lauf: Callable[[], Any]) -> None:
+    """``lauf()`` with ``rueckruf(rahmen)`` called before each instruction at ``stellen`` (code object -> offsets) runs.
+    From CPython 3.12 through `sys.monitoring`, since there `sys.settrace` gives a frame no opcode events when the trace
+    function sets its ``f_trace_opcodes`` (measured under 3.12.15: call, line and return only; CI of pull request 474 at
+    c1cafbb5, test (3.12, 1)); before 3.12 through `sys.settrace`. It runs only in an interpreter of its own
+    (`_fenster_an_den_bindungen`), so what it leaves of either ends with that process: three pre-runs (on 7e30036b,
+    f7c0ef13 and a892fe4b) each found another part of the state of `sys.monitoring` that putting it back in the test
+    process missed (`TheWindowCaseLeavesTheToolsOfTheTestProcessAsItFoundThem`)."""
+    mon = getattr(sys, "monitoring", None)
+    if mon is None:
+        def spur(rahmen, ereignis, arg):
+            if rahmen.f_code in stellen:
+                rahmen.f_trace_opcodes = True
+                if ereignis == "opcode" and rahmen.f_lasti in stellen[rahmen.f_code]:
+                    rueckruf(rahmen)
+            return spur
+        sys.settrace(spur)
+        try:
+            lauf()
+        finally:
+            sys.settrace(None)
+        return
+    frei = [w for w in range(6) if mon.get_tool(w) is None]
+    if not frei:
+        raise AssertionError("no free tool id of sys.monitoring")
+    mon.use_tool_id(frei[0], "aba window case")
+    mon.register_callback(frei[0], mon.events.INSTRUCTION,
+                          lambda code, stelle: rueckruf(sys._getframe(1)) if stelle in stellen.get(code, ()) else None)
+    for code in stellen:
+        mon.set_local_events(frei[0], code, mon.events.INSTRUCTION)
+    lauf()
+
+
+def _fenster_an_den_bindungen() -> dict:
+    """The measurement of `NoWindowIsOpenWhereTheReadingHasTakenItsEntry`, meant for an interpreter of its own: the two
+    collects run over a list, stopped before every instruction that binds ``paare`` in `canonical._lies` or ``satz`` in
+    a collect; at each stop the windows of the steps whose entry is being read are asked. Its process id, whether every
+    binding instruction was found, where it stopped, and the windows found open."""
+    def binden(code: Any, name: str) -> set:
+        return {b.offset for b in dis.get_instructions(code) if b.opname.startswith("STORE_FAST")
+                and name in (b.argval if isinstance(b.argval, tuple) else (b.argval,))}
+    stellen = {_LIES: binden(_LIES, "paare"), _SAMMELN_1: binden(_SAMMELN_1, "satz"),
+               _SAMMELN_2: binden(_SAMMELN_2, "satz")}
+    x, y = {"canonicalRoot": "a", "proof": "p"}, {"canonicalRoot": "b", "proof": "p"}
+    liste = [x, y]
+    getroffen, offen = set(), []
+
+    def halt(rahmen: Any) -> None:
+        wert = rahmen.f_locals.get("wert")
+        sammeln = rahmen.f_back if rahmen.f_code is _LIES else rahmen
+        ort = f"{rahmen.f_code.co_name} in {sammeln.f_code.co_name}"
+        getroffen.add((ort, "x" if wert is x else "y" if wert is y else "-"))
+        for i, ziel in ((0, x), (1, y), (2, x)):
+            if wert is ziel and _im_fenster(rahmen, i, x, y, liste):
+                offen.append(f"step {i} at {ort}")
+
+    _an_befehlen(stellen, halt, lambda: canonical._gleich_gelesen(canonical._lesen_einmal(liste)))
+    return {"pid": os.getpid(), "stellen": all(stellen.values()), "getroffen": sorted(map(list, getroffen)),
+            "offen": offen}
+
+class NoWindowIsOpenWhereTheReadingHasTakenItsEntry(unittest.TestCase):
+    """Codex pre-runs on 66b33218 and c1cafbb5 (P2 each): a step counted its moment where a local that is bound only after
+    an entry was read still held what it held before. In `canonical._lies` that is ``paare``: while
+    ``list(dict.items(wert))`` takes the pairs, and, under CPython 3.12 and later, after it took them and before it binds
+    them. In the collects that is ``satz``: after `_lies` returned the record of the entry and before it is bound, when
+    ``satz`` still holds the record read before. A change made at such a point comes after the reading took the entry.
+    Here the two collects run over a list, stopped before every instruction that binds ``paare`` in `_lies` or ``satz``
+    in a collect, and there the window of each step whose entry is being read must be closed. The measurement runs in an
+    interpreter of its own (`_fenster_an_den_bindungen`), so the stops touch no tool of the test process."""
+
+    def test_the_window_is_closed_wherever_a_read_entry_is_not_yet_bound(self) -> None:
+        m = _in_frischem_interpreter("_fenster_an_den_bindungen")
+        self.assertNotEqual(m["pid"], os.getpid(), "the stops ran in the test process")
+        self.assertTrue(m["stellen"], "an instruction that binds paare or satz was not found")
+        getroffen = {tuple(g) for g in m["getroffen"]}
+        erwartet = {(f"{a} in {b}", e) for a, b in (("_lies", "_lesen_einmal"), ("_lies", "_gleich_gelesen"),
+                                                     ("_lesen_einmal", "_lesen_einmal"),
+                                                     ("_gleich_gelesen", "_gleich_gelesen")) for e in ("x", "y")}
+        self.assertEqual(sorted(erwartet - getroffen), [], "the tracer did not stop where X or Y is bound")
+        self.assertEqual(m["offen"], [], "windows open where the reading has taken the entry of their step")
+
+
+#: Single events of `sys.monitoring` the case below plants callbacks for; BRANCH is left out, since under CPython 3.14
+#: a callback for it is also one for BRANCH_LEFT and BRANCH_RIGHT (foxtrot's pre-run on a892fe4b).
+_EINZELNE_EREIGNISSE = ("INSTRUCTION", "PY_START", "PY_RETURN", "LINE", "CALL", "JUMP")
+
+
+class TheWindowCaseLeavesTheToolsOfTheTestProcessAsItFoundThem(unittest.TestCase):
+    """Codex pre-runs on 7e30036b, f7c0ef13 and a892fe4b (P2 each): the stop helper took a free tool id of
+    `sys.monitoring` in the test process and put back only the part of its state each fix named (the INSTRUCTION
+    callback, the local events), while under CPython 3.14 ``free_tool_id`` drops every callback of the id; each pre-run
+    found the next part (measured by foxtrot under 3.14.8: 17 of 18 callbacks changed). Here callbacks of several single
+    events are planted at the free tool id the helper would take, at that free id itself as a tool can leave them, and
+    the window case runs as the suite runs it; after it every planted callback must be there. Before 3.12 a trace
+    function is planted instead. The fixture changes only callbacks, which can be set and read back at a free id, and
+    puts back what it found when it reads them."""
+
+    def test_the_planted_callbacks_are_there_after_the_window_case(self) -> None:
+        fall = NoWindowIsOpenWhereTheReadingHasTakenItsEntry(
+            "test_the_window_is_closed_wherever_a_read_entry_is_not_yet_bound")
+        mon = getattr(sys, "monitoring", None)
+        if mon is None:
+            def gepflanzt_spur(rahmen, ereignis, arg):
+                return None
+            alt = sys.gettrace()
+            sys.settrace(gepflanzt_spur)
+            try:
+                fall.test_the_window_is_closed_wherever_a_read_entry_is_not_yet_bound()
+                danach = sys.gettrace()
+            finally:
+                sys.settrace(alt)
+            self.assertIs(danach, gepflanzt_spur, "the window case left another trace function than it found")
+            return
+        w = next(w for w in range(6) if mon.get_tool(w) is None)   # the id the helper would take
+        ereignisse = {name: getattr(mon.events, name) for name in _EINZELNE_EREIGNISSE}
+        gepflanzt = {name: (lambda *a: None) for name in ereignisse}
+        vorgefunden = {name: mon.register_callback(w, e, gepflanzt[name]) for name, e in ereignisse.items()}
+        try:
+            fall.test_the_window_is_closed_wherever_a_read_entry_is_not_yet_bound()
+        finally:
+            # reads what is there and puts back what was found, in one step per event
+            danach = {name: mon.register_callback(w, e, vorgefunden[name]) for name, e in ereignisse.items()}
+        verloren = sorted(name for name in ereignisse if danach[name] is not gepflanzt[name])
+        self.assertEqual(verloren, [], "callbacks planted at the free tool id that the window case did not leave")

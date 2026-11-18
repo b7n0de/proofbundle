@@ -48,6 +48,11 @@ ruff check .
 > defect only when a second, documented runner exists.
 
 
+The plugin tests start every process without your environment, apart from the names in `FIXED` of
+`tests/_plugin_env.py`, and two of those are uv's. `UV_CACHE_DIR` names the uv cache from which the plugin tests
+start the verifier pinned in the plugin server's header, so a cache filled once serves every later run.
+`UV_OFFLINE` set to `1` keeps uv off the network, so that verifier must already be in that cache; CI sets both.
+
 ## Branch base (fork from `main`, never from a release tag)
 
 Fork every feature/fix branch from the current `main` HEAD:

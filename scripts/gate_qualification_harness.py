@@ -219,7 +219,8 @@ def cc11_pending_justified_internal():
 
 
 def cc12_data_blocked_internal():
-    return not _acm_ready([("C2.1", acm.PASS), ("C6.3", acm.DATA_BLOCKED), ("EXT.1", acm.EXTERNAL)]), \
+    # C6.2, not C6.3: C6.3 is informative since card OA-69770dad93 C, and this case needs a deciding obligation.
+    return not _acm_ready([("C2.1", acm.PASS), ("C6.2", acm.DATA_BLOCKED), ("EXT.1", acm.EXTERNAL)]), \
         "internal DATA_BLOCKED withholds readiness"
 
 
@@ -231,7 +232,7 @@ def cc13_unknown_verdict():
 def cc14_negated_keyword_decoy():
     # the lexical checks are INFORMATIVE: a decoy PASS on them (incl. a negated-keyword sentence) plus a
     # single DATA_BLOCKED deciding check must still withhold readiness.
-    rows = [(cid, acm.PASS) for cid in acm._INFORMATIVE_CHECKS] + [("C6.3", acm.DATA_BLOCKED), ("EXT.1", acm.EXTERNAL)]
+    rows = [(cid, acm.PASS) for cid in acm._INFORMATIVE_CHECKS] + [("C6.2", acm.DATA_BLOCKED), ("EXT.1", acm.EXTERNAL)]
     return not _acm_ready(rows), "lexical decoys are informative -> cannot grant readiness"
 
 
@@ -783,7 +784,7 @@ def cc32_pretag_check_coverage():
     # rule, lens A, A3-01): a TRUSTED key the rule refuses. With the identity point standing in the anchor,
     # R = identity and S = 0 verifies for every message, so this receipt was signed by nobody. Valid in
     # every other field, it must still be rejected, and the pin in
-    # tests/test_gate_qualification_harness.py counts this as the thirteenth rejection path.
+    # tests/test_gate_qualification_harness.py counts it among the rejection paths.
     #
     # THE VERDICT DOES NOT BIND THIS CHECK, THE REASON DOES (gate run 1 on this fix, lens B, 231-1B-01,
     # measured in a fresh interpreter with no bytecode). `verify_ed25519_pinned` asks the same question
@@ -811,6 +812,20 @@ def cc32_pretag_check_coverage():
         accepted.append("no_signature")
     elif grund_s != "receipt carries no signature":
         misnamed.append("no_signature")
+
+    # 2026-11-11 (DELTA2 N2, the receipt is a closed set): a member beside the signed ones. `canonical_bytes`
+    # signs `_SIGNED_FIELDS` only, so a receipt valid in every field and signed by the trusted key still
+    # verifies with an extra member added after signing. Measured in the circle of the closed-set change:
+    # its new rejection path left the pin at 13 and the strip table without its condition, and both went
+    # red. With `if fremd:` stripped this receipt is accepted, so the verdict binds it; the reason is
+    # checked as for the cases above.
+    mit_fremdem = _receipt(priv, pub)
+    mit_fremdem["note"] = "carried beside the signed fields"
+    ok_f, grund_f = _vr(mit_fremdem, [pub])
+    if ok_f:
+        accepted.append("foreign_member")
+    elif not grund_f.startswith("receipt carries member(s) outside the signed set"):
+        misnamed.append("foreign_member")
 
     fehler = []
     if accepted:

@@ -40,8 +40,10 @@ def _lauf(event: str | None) -> subprocess.CompletedProcess:
     from _private_build_tree import private_build_tree  # noqa: PLC0415 - tests/ is on sys.path
     # Built in a private tree of the checkout, never in the checkout other workers read (tests/_private_build_tree.py).
     baum = private_build_tree()
+    # One run takes about 200 to 220 s alone (scripts/ci_test_part_weights.json); under the load of a CI part on
+    # CPython 3.10 two runs passed 300 s at b21eaaf9. The limit guards against a hang, not against a busy runner.
     return subprocess.run([sys.executable, str(baum / "scripts" / "audit_candidate_matrix.py")], capture_output=True,
-                          text=True, cwd=str(baum), env=env, timeout=300)
+                          text=True, cwd=str(baum), env=env, timeout=900)
 
 
 def _quittungslage() -> str:

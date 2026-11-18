@@ -1,5 +1,7 @@
 # Release checklist
 
+**What happens before and after a proofbundle release, and how anyone can check one.** This page is for maintainers who cut a release and for anyone who wants to verify one. The artifact on PyPI is the exact artifact the release workflow attested. The last section says what the verification commands establish and what they do not.
+
 proofbundle ships supply-chain provenance for itself (the same idea the tool verifies). The one
 non-negotiable invariant: **the artifact published to PyPI is the exact artifact that was
 attested** — the release workflow builds once, attests those bytes, and gates the PyPI upload on
@@ -15,12 +17,20 @@ Every line is checkable by someone else. "I think so" is not an answer.
 
 - [ ] **A written scope list exists** for this version: what is in, and what is explicitly out, with
       one reason per line. For a PATCH the reason must survive the SemVer question: no semantic
-      change, no new obligation, no changed behaviour at a public interface. In doubt, leave it out
-      and say so in the list. Scope lists live in `docs/release_scope/<version>.md`.
-- [ ] **`scripts/check_version_and_changelog.py --external --require-external` is green.** Source
-      (`pyproject.toml`), the two derived files, the tracked prose places, PyPI and the project page
-      all state the same version. `--require-external` is deliberate here: at release time,
-      "we could not reach it" must block, because that is exactly when the number matters.
+      change, no new obligation, no changed behaviour at a public interface. The public interface is
+      the four surfaces named in [COMPATIBILITY.md](COMPATIBILITY.md#what-counts-as-the-public-interface):
+      the Python API, the CLI with the meaning of its exit codes, the emitted bytes, and the
+      verification verdict. A fix that rejects input the specification already called invalid is a
+      fix and not a break, and so is a fix that corrects a time verdict to what the specification
+      already states, as COMPATIBILITY.md says for both; both may ship in a PATCH. Their scope line and their
+      CHANGELOG entry say so explicitly, because from the outside a stricter check and a break look
+      identical. In doubt, leave it out and say so in the list. Scope lists live in
+      `docs/release_scope/<version>.md`.
+- [ ] **`scripts/check_version_and_changelog.py --repo .` is green.** Source (`pyproject.toml`),
+      the two derived files and the tracked prose places state the version being released. PyPI and
+      the project page cannot state it before the upload, so `--external --require-external` is
+      answered after the publish (see *Per release*), not here. Measured on a local probe of 6.5.0
+      on 2026-10-31: with PyPI at 6.4.0 the external check reports `ABWEICHUNG` and fails.
 - [ ] **No security-relevant work exists only locally**, in a stash or under `/tmp`. Measure it, do
       not remember it: `git stash list` plus `git branch -r --contains <sha>` per entry.
       `git rev-list --all --not --remotes` alone is NOT sufficient — it only sees `refs/stash`, i.e.
@@ -98,7 +108,7 @@ The order below is the convention, not a suggestion. A release is a fact about `
 
 Historical note: the 2.0.0b1–b3 line shipped this way until **2.0.0 final** (2026-07-09).
 The `[experimental]` extra now ships with normal final releases.
-This checklist tracks the version currently being prepared (current: 6.4.0).
+This checklist tracks the version currently being prepared (current: 6.6.0).
 The checklist below is the convention for any FUTURE pre-release: `pip install proofbundle` never
 pulls a PEP 440 pre-release, so the current stable stays the default while a preview stabilizes.
 
@@ -142,6 +152,11 @@ after the merge (see *Release ordering* above).
 - [ ] After publish: verify the PyPI page shows the **PEP 740 attestation**, and that the wheel's
       sha256 on PyPI equals the attested subject digest and the `SHA256SUMS` on the GitHub Release.
 - [ ] `pip install proofbundle==X.Y.Z && proofbundle demo` from a clean environment → exit 0.
+- [ ] After publish, once the project page follows,
+      `scripts/check_version_and_changelog.py --external --require-external` is green. Source, the
+      two derived files, the tracked prose places, PyPI and the project page all state the same
+      version. `--require-external` is deliberate: "we could not reach it" must block, because
+      this is the moment the number is read from outside.
 
 ## Verifying a published release (anyone)
 

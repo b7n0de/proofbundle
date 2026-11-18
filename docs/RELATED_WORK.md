@@ -2,8 +2,10 @@
 
 The canonical related-work write-up for proofbundle, kept in one place so the README, the next
 Technical Note version, and the JOSS paper draft all draw from the same honest text instead of three
-drifting copies. Every citation here was checked against its arXiv full text on 2026-07-17 (dates and
-authors below are the verified submission facts, not a secondary summary).
+drifting copies. Every arXiv citation here was checked against its full text on 2026-07-17 (dates and
+authors below are the verified submission facts, not a secondary summary). The two projects under
+*Execution-level enforcement and telemetry* were checked against their READMEs and repository metadata
+on 2026-11-10.
 
 proofbundle sits in an active and growing field: verifiable, tamper-evident evidence for AI work. The
 message is complementarity, not superiority. Neighbouring work validates that the problem is real; a
@@ -53,6 +55,24 @@ One line each, only where the work substantively touches the same problem:
 The pattern across these is convergence: verifiable, tamper-evident evidence for AI is an active area,
 and proofbundle's place in it is the released, offline, eval-shaped receipt with an external anchor
 and typed lineage, complementary to each.
+
+## Execution-level enforcement and telemetry
+
+Neighbouring endpoint-security tools decide at the moment a binary is executed whether it may run,
+and log the execution:
+
+- **pedro** ([github.com/wowsignal-io/pedro](https://github.com/wowsignal-io/pedro), Apache-2.0,
+  retrieved 2026-11-10): a lightweight security sensor and access control tool for Linux, built on
+  BPF LSM and implemented almost entirely in eBPF. It can block executions by hash, logs execution
+  events to Parquet files, supports the Santa sync protocol (beta quality, as its README states) and
+  models its telemetry schema after Santa's.
+- **Santa** ([github.com/northpolesec/santa](https://github.com/northpolesec/santa), Apache-2.0,
+  retrieved 2026-11-10): a binary and file access authorization system for macOS. When its system
+  extension is loaded, every binary launch is logged.
+
+Both are complementary to proofbundle. They control and record what runs on an endpoint; a receipt
+binds evaluation evidence to what was declared and verified. An execution log of this kind could be
+one input to a receipt; proofbundle does not read such logs today.
 
 ## Already covered in the README neighbour table
 

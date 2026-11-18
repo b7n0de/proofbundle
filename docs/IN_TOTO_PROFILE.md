@@ -55,6 +55,15 @@ PASSED|FAILED verdict would be a VSA, which we deliberately do not implement). S
 The two compose: emit the `eval-result` Statement for the detail, and an SVR for the one-line
 "a verifier confirmed this passed" summary. Both are derived from the same verified receipt.
 
+`verify_svr_dsse` and `proofbundle svr --verify` refuse an SVR statement whose predicate lacks one of the
+four members svr/v0.1 marks required (`verifier`, `verifier.id`, `timeCreated`, `properties`) or carries
+one of them in another JSON type, and one whose `verifier.id` is no URI with a lower-case scheme (TypeURI)
+or whose `timeCreated` is no RFC 3339 date-time in UTC with `Z` (Timestamp), the two forms in-toto
+`spec/v1/field_types.md` gives these types; the command answers such a statement as malformed, exit 2. Before
+6.6.0 a `verifier.id` beginning `HTTPS:` and a `timeCreated` with a numeric offset such as `+01:00` verified.
+`export_svr_dsse` refuses a `time_created` in another form. The v0.1 extension field
+`verifier.policy` stays optional, and unknown members stay unread.
+
 ## The `eval-result/v0.2` predicate
 
 `predicateType`: `https://b7n0de.com/attestation/eval-result/v0.2` (vendor namespace; the revised #575
@@ -107,15 +116,30 @@ its own digest.
 ## The `eval-result/v0.1` predicate (released, still verified)
 
 `predicateType`: `https://b7n0de.com/attestation/eval-result/v0.1`. Emitted and signed by released
-versions and still the CLI default. Its predicate is verified under its own contract, unchanged: signature,
-content root, type; no shape check (`predicate_shape_ok` is `None`). Since 2026-10-17 the three in-toto
+versions and still the CLI default. Its predicate is verified under its own contract: signature, content
+root, type, and every member the table below does not mark optional, with both parts of `commitments` and
+of `suite`; a statement that lacks one does not verify (`predicate_claim_ok` is `False`), and neither does
+one whose `verifier` is no object carrying `verifier.id` as a URI, whose `evaluatedAt` is no RFC 3339
+date-time with an offset, whose `subjectProfile` is not one of the profiles below, or whose `claims` is an
+empty array. The URI and the date-time are read as v0.2 reads them, and `to_eval_result_predicate` refuses
+a claim whose timestamp is in another form. No v0.2 shape applies to it
+(`predicate_shape_ok` is `None`). Since 2026-10-17 the three in-toto
 verifiers (eval-result, test-result, SVR) also require the Statement v1 layer under every predicate:
 `_type` is `https://in-toto.io/Statement/v1`, and `subject` is a non-empty list whose every entry carries a
 `digest`, because in-toto matches subject artifacts by digest alone. A digest under a hash function the
 package knows must have that function's length in lowercase hex; under any other algorithm name it must be
 a non-empty string. A statement without that layer names no artifact and does not verify (`statement_ok`
-is `False`); every export function writes it, and verifying an eval-result, test-result or SVR attestation
-that released versions wrote gives the same verdict as before. The same rule judges the Statement of a
+is `False`). Every export function writes it, so this rule alone does not change the verdict on an
+eval-result, test-result or SVR attestation one of them wrote; other checks of 6.5.0 can, for a
+`time_created`, a claim timestamp or a test-result `url` a caller passed to an earlier exporter in another
+form (the CHANGELOG of 6.5.0). The public builders `to_eval_result_statement` and
+`to_test_result_statement` write the subject a caller hands them: a statement a caller built with them from a
+digest that does not have that form, and signed itself, verified before 6.3.1 and does not verify since
+(measured with the builders of 6.3.0: a sha256 digest in capitals, of 63 characters or with a `sha256:` prefix).
+The three verifiers read the DSSE `payload` in
+either base64 alphabet the in-toto envelope allows, standard (RFC 4648 §4) or URL-safe (§5), padded and
+canonical in both; a payload without its padding does not verify, and the exports write the standard
+alphabet. The same rule judges the Statement of a
 decision, outcome, relation statement, verification summary, run ledger and trust pack in the Python
 verifier, and the Rust verifier applies it on its relation, relation-statement and trust-pack-threshold
 paths, since it stands in the one Statement oracle (`_statement_payload`). One verdict changes there: the
@@ -128,7 +152,7 @@ verifies, and the emitters now refuse such an override. Fields:
 | `verifier.id` | the emitter/verifier TypeURI (replaced by `evaluator.id` in v0.2) |
 | `evaluatedAt` | when the eval ran (from the signed receipt) |
 | `suite` | `{name, version}` |
-| `claims[]` | `{metric, comparator, threshold, passed}`. `passed` is the producer's **signed threshold verdict**, not a recomputable relation: proofbundle discards the exact score after the comparison, so without a disclosed value a generic consumer can authenticate the verdict but cannot recompute it |
+| `claims[]` | one or more `{metric, comparator, threshold, passed}`. `passed` is the producer's **signed threshold verdict**, not a recomputable relation: proofbundle discards the exact score after the comparison, so without a disclosed value a generic consumer can authenticate the verdict but cannot recompute it. In v0.1 `passed` is optional: a claim without it verifies and carries no verdict, and a present `passed` must be a boolean. A consumer that needs a verdict reads v0.2, where every claim carries `passed` as a boolean |
 | `sampleSize` | `n` |
 | `commitments` | `{model, dataset}`, each `{alg, value, salted:true}` — a **salted commitment**, NOT an artifact hash |
 | `assuranceLevel` | an **issuer-declared** assurance claim: `self_attested` \| `third_party` \| `reproduced` \| `enclave_attested`. The predicate does not corroborate it; external corroboration belongs in separately referenced evidence |
@@ -270,8 +294,8 @@ type, `https://b7n0de.com/attestation/eval-result/v0.2`.
   byte; since the DSSE keyid default the envelope also names its signing key in an unsigned `keyid`,
   the signer's OpenSSH SHA256 fingerprint, and without that field each envelope equals the wheel's;
 - the verifier dispatches on `predicateType`: the same predicate relabelled as v0.2 is refused by the
-  revised rules, and a revised predicate labelled v0.1 is judged by the old rules, which never checked
-  the predicate's shape;
+  revised rules, and a revised predicate labelled v0.1 is judged by the old rules, which ask for the
+  members v0.1 requires and for no shape of v0.2;
 - `verify_eval_result_dsse` still expects v0.1 by default, so a v0.2 statement under the default call is
   refused for its type and a caller that reads v0.1 fields never receives a v0.2 predicate;
 - `proofbundle intoto` still writes v0.1 unless `--predicate-version v0.2` is given, because an existing

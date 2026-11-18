@@ -37,7 +37,8 @@ from .errors import BundleFormatError, ProofBundleError
 from ._wire_b64 import decode_b64url
 from ._membership import as_dict, is_member
 from ._verdict import require_bool_verdict, require_eval_claim
-from .signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness, plain_bytes
+from .signature import (TRUST_ANCHOR_REFUSAL, _ed25519_signatur_von, ed25519_trust_anchor_weakness,
+                        plain_bytes)
 
 SD_ALG = "sha-256"
 # sd_hash / disclosure digests use the SD-JWT's declared _sd_alg — the kbjwt verifier reads _sd_alg from the
@@ -101,9 +102,10 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
 
     The two withheld numbers are judged as well: ``ci95`` by the claim rule's own ``ci95`` check, and
     ``exact_score`` as a plain decimal string, the form ``build_eval_claim`` requires of ``score``.
-    Measured at 835df85b: disclosures ``["inf", "nan"]`` and ``"1e400"`` were signed. The openings
-    are not judged: no verifier in this package reads them; a relying party checks a presented pair
-    against the commitment with ``evalclaim.verify_commitment``.
+    Measured at 835df85b: disclosures ``["inf", "nan"]`` and ``"1e400"`` were signed. Opening
+    disclosures are checked against the same segment and strict-JSON resource limits as
+    ``verify_sd_jwt``. This function does not validate the disclosed identifier and salt against the
+    commitment; a relying party performs that check with ``evalclaim.verify_commitment``.
 
     Each argument that is checked is read ONCE, into a plain value, and that value is judged and
     signed. Measured at 6893586f: ``ci95`` was judged on one iteration of the caller's object and
@@ -268,6 +270,16 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
 
     def _add(name: str, value):
         d, dig = _make_disclosure(name, value, _b64url(os.urandom(_SALT_BYTES)))
+        # Each disclosure is read as verify_sd_jwt reads it (`sdjwt._b64url_decode`, then the strict reader
+        # under DEFAULT_BUDGET), before anything is signed: an opening of 1,000,001 characters was signed and
+        # verify_sd_jwt refused its disclosure (string_len), measured at ac4129f7, the neighbour of the
+        # payload finding of the 6.5.0 deep gate.
+        try:
+            from .sdjwt import _b64url_decode as _segment_of_verify_sd_jwt  # noqa: PLC0415
+            loads_strict(_segment_of_verify_sd_jwt(d))
+        except (ProofBundleError, ValueError) as exc:
+            raise ValueError(f"issue_sd_jwt: the {name} disclosure is one verify_sd_jwt cannot read, so it is "
+                             f"not signed: {exc}") from None
         disclosures.append(d)
         sd_digests.append(dig)
 
@@ -279,8 +291,9 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
                            ("dataset_id_opening", dataset_id_opening)):
         if oeffnung is None:
             continue
-        # The opening is not judged (see above), but it is read once, as a JSON value, and written
-        # as that copy. `list()` then runs on the copy, so a list, a tuple, a string and a JSON object
+        # The opening is copied once and checked against the disclosure reader's resource limits
+        # (`_add`); commitment validation remains the relying party's (see above). It is read once, as a
+        # JSON value, and written as that copy. `list()` then runs on the copy, so a list, a tuple, a string and a JSON object
         # give the list they gave before. `list()` of the caller's object ran its own `__iter__` and
         # accepted any iterable (bytes, a set, a generator); those are refused as not JSON values.
         kopie = _plain_for_jcs(oeffnung, _fehler(ValueError), name)
@@ -313,8 +326,27 @@ def issue_sd_jwt(claim: dict, signer: Ed25519PrivateKey, *, root_b64: str,
         # meant to hold nested values; the claim values are the read-back claim, which the verifier's
         # reader bounds at 64 levels.
         raise ValueError("the SD-JWT payload nests too deep to serialize") from exc
-    signing_input = _b64url(json.dumps(header).encode("utf-8")) + "." + _b64url(nutzlast.encode("utf-8"))
-    signature = signer.sign(signing_input.encode("ascii"))
+    # THE ISSUER SIGNS ONLY WHAT ITS OWN VERIFIERS READ (deep gate 6.5.0, iteration 1). check_binds_bundle reads
+    # this payload with `_read_payload_text`, the strict reader under DEFAULT_BUDGET: 1,000,000 characters per
+    # string, 8 MiB per document, the node and depth bounds; verify_sd_jwt first refuses a base64url segment
+    # longer than the same 8 MiB (`sdjwt._b64url_decode`). Measured at ac4129f7: a `vct` of 1,000,001
+    # characters, one of 900,000 characters outside the BMP (12 bytes each in the payload text) and a
+    # `root_b64` of 1,000,001 characters were signed, and check_binds_bundle refused each result. The payload
+    # segment is now read here as both verifiers read it, before the signature exists.
+    nutzlast_b64 = _b64url(nutzlast.encode("utf-8"))
+    try:
+        from .sdjwt import _b64url_decode as _segment_of_verify_sd_jwt  # noqa: PLC0415
+        _read_payload_text(_segment_of_verify_sd_jwt(nutzlast_b64).decode("utf-8"))
+    except (ProofBundleError, ValueError) as exc:
+        raise ValueError(f"issue_sd_jwt: the SD-JWT payload is one check_binds_bundle or verify_sd_jwt cannot "
+                         f"read, so it is not signed: {exc}") from None
+    signing_input = _b64url(json.dumps(header).encode("utf-8")) + "." + nutzlast_b64
+    # The signature segment is the signer's output, and verify_sd_jwt reads it too. The header names EdDSA, so the
+    # signature is read once as the bytes it holds and must have the 64 bytes of Ed25519; a signer of another kind
+    # that returns another length gets no SD-JWT (the neighbour of the emit_bundle finding of Codex pre-review 5).
+    signature = _ed25519_signatur_von(signer.sign(signing_input.encode("ascii")))
+    if signature is None:
+        raise ValueError("issue_sd_jwt: the signer returned no 64-byte Ed25519 signature, so no SD-JWT is returned")
     jwt = signing_input + "." + _b64url(signature)
 
     # compact: JWT ~ disclosure1 ~ ... ~ (trailing tilde, no key-binding JWT in v0.5)
@@ -367,8 +399,23 @@ def present_with_key_binding(compact: str, holder_signer: Ed25519PrivateKey, *,
     sd_hash = _b64url(_HASH_BY_SD_ALG[sd_alg](compact.encode("ascii")).digest())
     header = {"alg": "EdDSA", "typ": "kb+jwt"}
     payload = {"iat": iat, "aud": aud, "nonce": nonce, "sd_hash": sd_hash}
-    signing_input = _b64url(json.dumps(header).encode("utf-8")) + "." + _b64url(json.dumps(payload).encode("utf-8"))
-    signature = holder_signer.sign(signing_input.encode("ascii"))
+    kb_payload_b64 = _b64url(json.dumps(payload).encode("utf-8"))
+    # THE HOLDER SIGNS ONLY WHAT verify_key_binding READS (the neighbour of the 6.5.0 SD-JWT finding): the
+    # verifier reads this segment with `kbjwt._b64url_decode` and the strict reader under DEFAULT_BUDGET.
+    # Measured at ac4129f7: an `aud` or a `nonce` of 1,000,001 characters was signed, and verify_key_binding
+    # answered ok False with the reason string_len.
+    try:
+        from .kbjwt import _b64url_decode as _segment_of_verify_key_binding  # noqa: PLC0415
+        loads_strict(_segment_of_verify_key_binding(kb_payload_b64))
+    except (ProofBundleError, ValueError) as exc:
+        raise ValueError(f"the KB-JWT payload is one verify_key_binding cannot read, so it is not signed: "
+                         f"{exc}") from None
+    signing_input = _b64url(json.dumps(header).encode("utf-8")) + "." + kb_payload_b64
+    # The same rule as at the issuer: the header names EdDSA, so the holder's signature must have 64 bytes.
+    signature = _ed25519_signatur_von(holder_signer.sign(signing_input.encode("ascii")))
+    if signature is None:
+        raise ValueError("present_with_key_binding: the holder signer returned no 64-byte Ed25519 signature, so no "
+                         "KB-JWT is returned")
     return compact + signing_input + "." + _b64url(signature)
 
 
@@ -391,7 +438,14 @@ def _jwt_payload(compact: str) -> dict:
     jwt = compact.split("~", 1)[0]
     payload_b64 = jwt.split(".")[1]
     # JWS segments are unpadded base64url; decode_b64url refuses a padded spelling (one wire form).
-    entschluesselt = loads_strict(decode_b64url(payload_b64).decode("utf-8"))
+    return _read_payload_text(decode_b64url(payload_b64).decode("utf-8"))
+
+
+def _read_payload_text(text: str) -> dict:
+    """The always-open JWT payload from its text: the one reader of `_jwt_payload` and therefore of
+    check_binds_bundle, which `issue_sd_jwt` also applies to the text it is about to sign. Raises
+    ProofBundleError (BundleFormatError, BudgetExceeded) or ValueError for a text it does not take."""
+    entschluesselt = loads_strict(text)
     if not isinstance(entschluesselt, dict):
         # A-16 neighbour (2026-09-19): THE SAME CLASS the `as_dict` at check_binds_bundle patches at the
         # ACCESS site — but `present_with_key_binding` reads `_issuer_payload.get("_sd_alg", ...)` WITHOUT

@@ -38,15 +38,16 @@ against the root role's threshold.
 | `version` | yes | monotone integer; a new pack MUST have `version > prev` (rollback/freeze protection) |
 | `expires` | yes | RFC-3339 UTC validity bound (`not_expired` fails closed past it) |
 | `prevVersionDigest` | yes | content-root digest of the previous version, or `null` for the first |
-| `roles` | yes | object including a `root` role; each role = `{keyIds: [...], threshold: int}` |
-| `keys` | yes | non-empty `keyId -> {publicKey[, alg, publicKeyPq]}` map resolving every referenced key id |
+| `roles` | yes | object including a `root` role; each role = `{keyIds: [...], threshold: int}`, 1 to 256 key ids |
+| `keys` | yes | `keyId -> {publicKey[, alg, publicKeyPq, executorIds]}` map of 1 to 256 entries resolving every referenced key id |
 | `nonClaims` | yes | the explicit "this proves only threshold-signing, not honesty" record |
 | `revoked` | optional | offline revocation list of key ids (must be known key ids) |
 
 Validation is fail-closed and **dead-on-arrival aware**: a role whose threshold can no longer be met once
 revoked keys are removed is rejected at validate time (a pack whose root can never meet threshold is invalid,
 not merely un-verifiable). `threshold` must be in `1..len(keyIds)`; every role key id must be present in `keys`;
-`revoked` entries must be known key ids.
+`revoked` entries must be known key ids. `keys`, each role's `keyIds` and each `executorIds` hold at most 256
+entries (`budget.witnesses`); the schema states the same bounds.
 
 **Crypto agility (ADR 0006).** Each `keys[kid]` declares which signature algorithm it holds via `alg`: `ed25519`
 (default — absent `alg` means `ed25519`, so every pre-agility pack keeps working unchanged), `mldsa65`
@@ -57,6 +58,14 @@ only the Ed25519 `sig` leg does not satisfy a policy-declared hybrid key — no 
 entry gains a second field for the PQ leg: `{"keyid":, "sig": <classical or single-alg b64>[, "sigPq": <ML-DSA-65
 b64, hybrid only>]}`. The `alg` label lives INSIDE the signed predicate, so it cannot be relabeled without
 invalidating every signature over the pack (no separate alg-confusion surface, unlike a bare JWT `alg` header).
+
+**Executor identifiers (6.6.0).** A `keys[kid]` entry may carry `executorIds`, a list of 1 to 256 distinct
+non-empty strings: the `executor.id` values that key attests in an Action Outcome. `verify_outcome_receipt`
+compares the outcome's `executor.id` with that list for the key named by `executor.keyId` (`executor_id_bound`,
+see `action-outcome.md` §5, check 8). One key may attest several identifiers, because an outcome signer may be an
+observer of more than one executor (draft-gruszka-audit-decision-receipts-05, section 3.1). A key entry without
+`executorIds` binds no identifier, and `executor.id` then stays the signer's own statement. A named identifier
+is a permission the pack grants to the key, not proof that the signer is that executor.
 
 ## 4. Verify path (`verify_trust_pack`)
 

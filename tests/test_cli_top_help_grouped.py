@@ -87,6 +87,7 @@ EXPECTED_GROUP = {
     "decision": "Statements over a receipt",
     "outcome": "Statements over a receipt",
     "relation-statement": "Statements over a receipt",
+    "scitt": "SCITT statements",
     "anchor": "Time anchors",
     "intoto": "Export to other formats",
     "svr": "Export to other formats",
@@ -103,12 +104,13 @@ EXPECTED_ORDER_PER_GROUP = {
     "Emit and commit": ["emit", "emit-eval", "show-eval", "prereg", "evalcard", "hf-token",
                         "audit-challenge"],
     "Statements over a receipt": ["decision", "outcome", "relation-statement"],
+    "SCITT statements": ["scitt"],
     "Time anchors": ["anchor"],
     "Export to other formats": ["intoto", "svr"],
     "Try it": ["demo"],
 }
 #: The order of the headings, also as a literal.
-EXPECTED_HEADING_ORDER = ["Verify", "Emit and commit", "Statements over a receipt", "Time anchors",
+EXPECTED_HEADING_ORDER = ["Verify", "Emit and commit", "Statements over a receipt", "SCITT statements", "Time anchors",
                          "Export to other formats", "Try it"]
 
 

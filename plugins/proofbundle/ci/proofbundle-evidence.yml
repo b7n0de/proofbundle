@@ -9,7 +9,8 @@ name: proofbundle-evidence
 # required check that is NOT MEASURED. With require-declaration false and no declaration it returns
 # not_required, not verified. Whether the repository must declare evidence is the input
 # require-declaration of this workflow, not anything in the declaration, so deleting the declaration
-# cannot switch the check off. The gate code is taken from a released tag of b7n0de/proofbundle.
+# cannot switch the check off. The gate code is taken from a released tag of b7n0de/proofbundle, from
+# the Guard's folder plugins/proofbundle-guard, where D134 moved it out of the verifier.
 #
 # Exit 0: every declared item verified and names the tree of the commit, or nothing is declared and
 # require-declaration is false. Exit 1: everything else. Exit 2: the gate was called wrongly.
@@ -124,7 +125,7 @@ jobs:
         env:
           REQUIRE_DECLARATION: ${{ inputs.require-declaration }}
         run: |
-          python -I gate/plugins/proofbundle/hooks/proofbundle_gate.py ci-check \
+          python -I gate/plugins/proofbundle-guard/hooks/proofbundle_gate.py ci-check \
             --repo checked --require-declaration "$REQUIRE_DECLARATION"
 
   done:
@@ -222,6 +223,6 @@ jobs:
           for receipt in "$RUNNER_TEMP"/done/*.json; do
             if [ -f "$receipt" ]; then sha256sum "$receipt"; fi
           done
-          python -I gate/plugins/proofbundle/hooks/proofbundle_gate.py done-check --repo checked \
+          python -I gate/plugins/proofbundle-guard/hooks/proofbundle_gate.py done-check --repo checked \
             --at-commit "$COMMIT" --receipt-dir "$RUNNER_TEMP/done"
 

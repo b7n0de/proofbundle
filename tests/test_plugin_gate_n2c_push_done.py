@@ -32,7 +32,7 @@ from _gate_answer import Silent, long_text, skip_where_the_gate_is_not_shipped
 from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-GATE = ROOT / "plugins" / "proofbundle" / "hooks" / "proofbundle_gate.py"
+GATE = ROOT / "plugins" / "proofbundle-guard" / "hooks" / "proofbundle_gate.py"
 
 skip_where_the_gate_is_not_shipped(GATE, ROOT)
 _bytecode, sys.dont_write_bytecode = sys.dont_write_bytecode, True

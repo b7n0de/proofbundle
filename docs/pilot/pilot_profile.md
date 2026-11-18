@@ -44,6 +44,12 @@ condition attached: an answer that needs a condition is not `accepted`.
 Surfaces the profile knows: `github.conversationComment`, `github.reviewThreadReply`,
 `github.pullRequestBody`, `git.push`, `github.merge`. Any other `actionType` is `unknown`.
 
+The gate also writes `traceContext`, the session and the tool call of the hook event
+(`plugins/proofbundle/DECISIONS.md`, D135); the profile does not read it. Since D135 the approved bytes of
+`github.merge` are the RFC 8785 form of the merge the call names: the repository, the pull request, the head
+commit, the merge method, and the text of the merge commit where the call writes one. A decision written before
+names the empty bytes there. The profile reads both alike, since it compares digests and builds no bytes.
+
 The other values the builder writes into the decision (`policyBoundary.policyId` and `decisionPath`, the
 `inputSnapshot`, `notChecked`, `decisionChangeConditions` and `privacy`) are recorded, not read: no rule of the
 profile depends on what they hold. Strict mode requires `notChecked`, `decisionChangeConditions` and `privacy`

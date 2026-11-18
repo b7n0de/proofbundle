@@ -1,0 +1,17 @@
+{
+  "note": "TEST KEYS ONLY. Each seed is SHA-256 over the label; never use them for real records.",
+  "gate-1": {
+    "label": "draft-gruszka-audit-decision-receipts test key gate-1",
+    "public_b64": "TWfs75IN1In3CNI8TnyIOUHgtwilOPGcRFQLJ670CJc="
+  },
+  "vcon-recorder-1": {
+    "label": "vcon ai_agent decision receipt example test key vcon-recorder-1",
+    "public_b64": "GK23I4TNdHAfyeyYwPkeqWNeHp7qeB7IX93scVZn6sU=",
+    "certificate_der_sha256": "87c4bb91013e1f4bd9428aa5e471ea3649d0ad80f41f96cd91d91e1fc6e188b5"
+  },
+  "vcon-recorder-rs256-1": {
+    "label": "vcon ai_agent decision receipt example test key vcon-recorder-rs256-1",
+    "derivation": "vcon_profile.rsa_from_label",
+    "certificate_der_sha256": "051a828a0c51395652ba6d81c6fb2b5443f8d878bf6f4772e63f7a9830351236"
+  }
+}

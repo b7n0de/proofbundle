@@ -1,0 +1,263 @@
+"""D134: the Guard is a plugin of its own, proofbundle-guard; proofbundle is the verifier everyone gets (owner choice F2 A).
+
+The owner, 2026-10-31, on the release plan of plugin 0.4.0: separate them, the Guard only at the house. The reason in
+the choice: the Guard runs before every Bash call and blocks every call when its program cannot run (`|| exit 2` in
+the hook command), and --autonomous carries house rules (D85, D87, D93, D111) that say nothing to anyone else.
+
+Measured with Claude Code 2.1.314 in a throwaway CLAUDE_CONFIG_DIR, from a local marketplace (2026-10-31): a hooks
+field in plugin.json merges with hooks/hooks.json, and an entry with empty inline hooks still installs the six hook
+events of the file. Only a plugin folder without hooks/hooks.json installs no hook. So the house's hooks live in a
+second plugin folder, plugins/proofbundle-guard, listed as a second entry of the marketplace. Its programs and its
+server are byte-equal copies of those of plugins/proofbundle, never links: Codex drops a link on install
+(core-plugins/src/store.rs, as tests/test_codex_plugin.py records it), so a linked gate would be missing there and
+every hook would block its call.
+
+The properties held here, read from the marketplace and the two plugin folders:
+- `claude plugin install proofbundle@proofbundle` and `codex plugin add proofbundle@proofbundle` register no hook: the
+  entry's folder has no hooks/hooks.json, neither host manifest of it carries "hooks", and the entry adds none;
+- the entry proofbundle-guard registers the house profile: a PreToolUse hook on Bash under Claude Code that starts
+  the gate with --autonomous, and one under Codex that starts it with --host codex;
+- every program a hook of the Guard starts is there in its folder as a regular file, and so is the server the gate
+  starts, byte-equal to the server of plugins/proofbundle;
+- the Guard folder adds no skill and no MCP server, so the house, which installs both, gets each once;
+- each entry's name is its manifest's name, and both plugins carry one version.
+Red at the base of this cut, where plugins/proofbundle registers the hooks and the marketplace has one entry.
+
+Owner choice N2 B on delivery -2 of the release plan (2026-10-31): the Guard is in no public catalog. The public
+marketplace lists proofbundle alone; the owner's machines add a house marketplace from a checkout, at the Guard's folder,
+whose one entry has the source "./" (measured valid by delivery -2 with Claude Code 2.1.316). The source stays public.
+Red at the commit before its fix for that case, where the public marketplace lists the Guard as a second entry.
+
+Owner answer C on 2026-10-31 (card OA-10af190ede): a bundle after the split moves the gate programs out of
+plugins/proofbundle into the Guard's folder before the GO for plugin 0.4.0. The release generator of delivery -2 checks
+the public verifier's profile (check_public_profile): no hooks/ folder at all, no "hooks" field in its two host
+manifests or its marketplace entry, no dependency on the Guard. Red at the commit before the move for that case, where plugins/proofbundle
+keeps the four programs under hooks/ unregistered.
+"""
+from __future__ import annotations
+
+import importlib.util
+import json
+import os
+import pathlib
+import re
+
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+MARKETPLACE = ROOT / ".claude-plugin" / "marketplace.json"
+#: The house marketplace of the Guard (owner choice N2 B): the Guard's folder is its own marketplace root.
+HOUSE = ROOT / "plugins" / "proofbundle-guard" / ".claude-plugin" / "marketplace.json"
+VERIFY, GUARD = "proofbundle", "proofbundle-guard"
+#: The programs a hook command starts, as both hosts write the plugin root.
+_PROGRAM = re.compile(r"\$\{(?:CLAUDE_)?PLUGIN_ROOT\}/(hooks/[\w.-]+\.py)")
+
+
+def _entries() -> dict[str, dict]:
+    """Each plugin's entry and the folder its source names, the source read against the root of the marketplace that
+    lists it: the public one at the repository root, and the house marketplace in the Guard's folder."""
+    found = {}
+    for market in (MARKETPLACE, HOUSE):
+        if market.is_file():
+            for entry in json.loads(market.read_text(encoding="utf-8"))["plugins"]:
+                found[entry["name"]] = dict(entry, folder=(market.parent.parent / entry["source"]).resolve())
+    return found
+
+
+def _folder(name: str) -> pathlib.Path:
+    return _entries()[name]["folder"]
+
+
+def _json(path: pathlib.Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _hooks(name: str) -> dict[str, dict]:
+    """The hook configuration each host registers for an installed plugin of this marketplace: Claude Code reads
+    hooks/hooks.json (merged with a manifest field), Codex the manifest field."""
+    folder = _folder(name)
+    claude = _json(folder / "hooks" / "hooks.json")["hooks"] if (folder / "hooks" / "hooks.json").is_file() else {}
+    return {"claude": claude | _json(folder / ".claude-plugin" / "plugin.json").get("hooks", {}),
+            "codex": _json(folder / ".codex-plugin" / "plugin.json").get("hooks", {}).get("hooks", {})}
+
+
+def _commands(groups: list, matcher: str | None) -> list[str]:
+    return [h["command"] for g in groups if g.get("matcher") == matcher for h in g["hooks"]]
+
+
+def test_the_public_marketplace_lists_only_the_verifier_and_the_house_marketplace_only_the_guard():
+    """N2 B: no public catalog offers the house's hooks; the house adds its marketplace from a checkout."""
+    public = _json(MARKETPLACE)
+    assert [e["name"] for e in public["plugins"]] == [VERIFY], public["plugins"]
+    house = _json(HOUSE)
+    assert [(e["name"], e["source"]) for e in house["plugins"]] == [(GUARD, "./")], house["plugins"]
+    assert house["name"] != public["name"]
+    assert _folder(GUARD) == HOUSE.parent.parent.resolve()
+
+
+def test_the_public_catalog_lists_the_verifier_alone():
+    """Owner answer A on card OA-08eb65e9e2 (2026-11-01) reads N2 B word for word, "the public catalog lists only
+    proofbundle": the plugin catalog plugins/README.md has no row of the Guard, and the house finds the Guard's install
+    in the Guard's own README. Red at the commit before its fix, where the catalog listed the Guard with one row per host (reading of
+    F2, sol-pro)."""
+    rows = [line for line in (ROOT / "plugins" / "README.md").read_text(encoding="utf-8").split("\n")
+            if line.startswith("| ")]
+    assert [r for r in rows if f"]({GUARD}/" in r] == [], "the public catalog lists the Guard"
+    assert any(f"]({VERIFY}/" in r for r in rows), "control: the catalog lists the verifier"
+
+
+def test_the_plugin_everyone_installs_registers_no_hook():
+    entry = _entries()[VERIFY]
+    assert "hooks" not in entry, entry
+    assert not (_folder(VERIFY) / "hooks" / "hooks.json").exists()
+    assert _hooks(VERIFY) == {"claude": {}, "codex": {}}
+
+
+def test_the_guard_registers_the_house_profile_under_both_hosts():
+    hooks = _hooks(GUARD)
+    (claude,) = _commands(hooks["claude"]["PreToolUse"], "Bash")
+    (codex,) = _commands(hooks["codex"]["PreToolUse"], "Bash")
+    assert "/hooks/proofbundle_gate.py" in claude and "--autonomous" in claude, claude
+    assert "/hooks/proofbundle_gate.py" in codex and "--host codex" in codex and "--autonomous" not in codex, codex
+
+
+def test_the_public_verifier_holds_no_hooks_folder_and_no_tie_to_the_guard():
+    """Owner answer C: the profile the release generator of delivery -2 checks before it builds the split release."""
+    folder = _folder(VERIFY)
+    assert not (folder / "hooks").exists(), sorted(p.name for p in (folder / "hooks").iterdir())
+    for manifest in (".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
+        data = _json(folder / manifest)
+        assert "hooks" not in data and GUARD not in json.dumps(data.get("dependencies", [])), (manifest, sorted(data))
+    entry = _entries()[VERIFY]
+    assert "hooks" not in entry and GUARD not in json.dumps(entry.get("dependencies", [])), entry
+
+
+def test_every_program_of_the_guard_is_in_its_folder_and_its_server_is_the_verifiers():
+    folder, programs = _folder(GUARD), set()
+    for host in _hooks(GUARD).values():
+        for groups in host.values():
+            for group in groups:
+                for hook in group["hooks"]:
+                    programs.update(_PROGRAM.findall(hook["command"]))
+    assert {"hooks/proofbundle_gate.py", "hooks/proofbundle_secrets.py", "hooks/proofbundle_answered.py"} <= programs
+    for program in sorted(programs) + ["hooks/pin_state_schleuse.py", "server/proofbundle_mcp.py"]:
+        assert (folder / program).is_file() and not (folder / program).is_symlink(), program
+    server = "server/proofbundle_mcp.py"
+    assert (folder / server).read_bytes() == (_folder(VERIFY) / server).read_bytes()
+
+
+def test_the_guard_adds_no_skill_and_no_server():
+    folder = _folder(GUARD)
+    assert not (folder / "skills").exists() and not (folder / ".mcp.json").exists()
+    for manifest in (".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
+        data = _json(folder / manifest)
+        assert not {"skills", "mcpServers", "commands", "agents"} & set(data), (manifest, sorted(data))
+
+
+def test_each_entry_is_its_manifest_and_both_carry_one_version():
+    versions = set()
+    for name in (VERIFY, GUARD):
+        for manifest in (".claude-plugin/plugin.json", ".codex-plugin/plugin.json"):
+            data = _json(_folder(name) / manifest)
+            assert data["name"] == name, (name, manifest)
+            versions.add(data["version"])
+    assert len(versions) == 1, versions
+
+
+def _server():
+    spec = importlib.util.spec_from_file_location("proofbundle_mcp_d134", _folder(VERIFY) / "server" / "proofbundle_mcp.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _data_id(identifier: str) -> str:
+    """The data directory Claude Code names for the plugin identifier name@marketplace."""
+    return re.sub(r"[^A-Za-z0-9_-]", "-", identifier)
+
+
+def test_the_verifier_reads_the_gates_log_in_the_guards_data_directory(tmp_path, monkeypatch):
+    """Claude Code gives each plugin ~/.claude/plugins/data/<id>/, <id> the plugin identifier with every character other
+    than a letter, digit, _ or - as "-" (plugin manifest reference, read 2026-10-31). The gate runs in the Guard, which
+    the house installs from its house marketplace (N2 B), and logs into the directory of
+    proofbundle-guard@proofbundle-house; gate_status and the self-test of proofbundle read from that directory beside
+    their own, whichever marketplace proofbundle came from. Red at the split commit, where they read their own and in the house
+    said the hook did not run, and at the next fix, where they read proofbundle-guard-<the verifier's marketplace>, a
+    directory no house install has since the Guard left the public marketplace. Red at the catalog fix for a marketplace whose
+    name begins with guard-: proofbundle from it has the directory proofbundle-guard-<rest>, which the server took for
+    the Guard's and read its own (second reading of F2, sol-pro). The Guard brings no MCP server, so the server runs in
+    the verifier alone, and every directory proofbundle-<anything> but the Guard's house directory reads the log there."""
+    server = _server()
+    guard_id = _data_id(f"{GUARD}@{_json(HOUSE)['name']}")
+    data = tmp_path / "plugins" / "data"
+    monkeypatch.delenv("PLUGIN_DATA", raising=False)
+    # guard-inline: proofbundle from it has the directory proofbundle-guard-inline, the name of a Guard loaded with
+    # --plugin-dir; the server still takes it for its own and reads the Guard beside it (a pre-run of the split, P2)
+    for market in (_json(MARKETPLACE)["name"], "a-fork", "guard-internal", "guard-inline"):
+        monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(data / _data_id(f"{VERIFY}@{market}")))
+        path, source = server._log_path()
+        assert path == str(data / guard_id / server.LOG_NAME) and "D134" in source, (market, path, source)
+    assert server.GUARD_DATA_DIR == guard_id, (server.GUARD_DATA_DIR, guard_id)
+    for own in ("data", guard_id, "proofbundle", "elsewhere-proofbundle"):   # controls: read as before
+        monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(tmp_path / own))
+        assert server._log_path()[0] == str(tmp_path / own / server.LOG_NAME), own
+
+
+def test_the_verifier_reads_the_log_of_a_guard_loaded_with_plugin_dir(tmp_path, monkeypatch):
+    """Cloud run M1 -4 of 2 November 2026, with Claude Code 2.1.316 and both plugins loaded with --plugin-dir: a plugin
+    loaded so has the identifier <name>@inline, so the Guard logged into proofbundle-guard-inline, while gate_status and
+    the self-test read proofbundle-guard-proofbundle-house, which does not exist there, and the self-test said NOT
+    MEASURABLE for a deny the gate had logged. The server reads beside its own directory the Guard's directories it
+    knows (the house marketplace's, the inline one, the one of the verifier's own marketplace) and, of those that hold a
+    log, the one written last; where none holds one, the house's as before. Red at the commit before its fix."""
+    server = _server()
+    data = tmp_path / "plugins" / "data"
+    monkeypatch.delenv("PLUGIN_DATA", raising=False)
+    inline, house = data / _data_id(f"{GUARD}@inline"), data / server.GUARD_DATA_DIR
+    verifiers = (_data_id(f"{VERIFY}@inline"), _data_id(f"{VERIFY}@{_json(MARKETPLACE)['name']}"))
+    for verifier in verifiers:   # control: no log anywhere, the house's directory as before
+        monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(data / verifier))
+        assert server._log_path()[0] == str(house / server.LOG_NAME), verifier
+    inline.mkdir(parents=True)
+    (inline / server.LOG_NAME).write_text("{}\n", encoding="utf-8")
+    for verifier in verifiers:
+        monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(data / verifier))
+        path, source = server._log_path()
+        assert path == str(inline / server.LOG_NAME) and "D134" in source, (verifier, path, source)
+    house.mkdir(parents=True)
+    (house / server.LOG_NAME).write_text("{}\n", encoding="utf-8")
+    for first, last in ((inline, house), (house, inline)):
+        os.utime(first / server.LOG_NAME, ns=(1_000_000_000, 1_000_000_000))
+        os.utime(last / server.LOG_NAME, ns=(2_000_000_000, 2_000_000_000))
+        assert server._log_path()[0] == str(last / server.LOG_NAME), (first, last)
+    # a rotated log counts with its time where the current one is older (a pre-run of the split, P2)
+    (inline / (server.LOG_NAME + ".1")).write_text("{}\n", encoding="utf-8")
+    os.utime(inline / server.LOG_NAME, ns=(1_000_000_000, 1_000_000_000))
+    os.utime(house / server.LOG_NAME, ns=(2_000_000_000, 2_000_000_000))
+    os.utime(inline / (server.LOG_NAME + ".1"), ns=(3_000_000_000, 3_000_000_000))
+    assert server._log_path()[0] == str(inline / server.LOG_NAME)
+
+
+def test_the_verifier_does_not_guess_which_of_two_logs_of_one_time_was_written_last(tmp_path, monkeypatch):
+    """A reading of the split (line 3, 2 November 2026): where two Guard logs carry the same newest modification time,
+    the server took the one whose directory name sorts last and said it was written last. A file system with a coarse
+    clock gives two writes close together one time. The server then reads no log and says why (NOT MEASURED in
+    gate_status), the current log or a rotated one alike; a nanosecond apart, the later one is read. Red at the commit
+    before its fix."""
+    server = _server()
+    data = tmp_path / "plugins" / "data"
+    monkeypatch.delenv("PLUGIN_DATA", raising=False)
+    monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(data / _data_id(f"{VERIFY}@inline")))
+    inline, house = data / _data_id(f"{GUARD}@inline"), data / server.GUARD_DATA_DIR
+    for folder in (inline, house):
+        folder.mkdir(parents=True)
+        (folder / server.LOG_NAME).write_text("{}\n", encoding="utf-8")
+    for tied in (inline / server.LOG_NAME, inline / (server.LOG_NAME + ".1")):
+        tied.write_text("{}\n", encoding="utf-8")
+        os.utime(inline / server.LOG_NAME, ns=(1_000_000_000, 1_000_000_000))
+        os.utime(tied, ns=(2_000_000_000, 2_000_000_000))
+        os.utime(house / server.LOG_NAME, ns=(2_000_000_000, 2_000_000_000))
+        path, source = server._log_path()
+        assert path is None and "same" in source and "D134" in source, (tied.name, path, source)
+        result, _ok = server.tool_gate_status({})
+        assert result["log_path"] is None and result["note"].startswith("NOT MEASURED"), result
+        os.utime(tied, ns=(2_000_000_001, 2_000_000_001))   # control: a nanosecond later
+        assert server._log_path()[0] == str(inline / server.LOG_NAME), tied.name

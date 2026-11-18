@@ -417,6 +417,9 @@ _COMMAND_GROUPS = (
         ("outcome", "action-outcome/v0.1: an action outcome  (experimental)"),
         ("relation-statement", "relation-statement/v0.1: retract or supersede  (experimental)"),
     )),
+    ("SCITT statements", (
+        ("scitt", "match a reference to a SCITT Signed Statement  (experimental)"),
+    )),
     ("Time anchors", (
         ("anchor", "package, verify and inspect external time anchors  (experimental)"),
     )),
@@ -498,11 +501,16 @@ def _resolve_signer(args):
     try:
         if new_key is not None:
             signer = generate_signer()
-            save_signer(signer, new_key)
+            # Never over an existing path (deep gate 6.6.0, save_signer): the check and the write are one step.
+            save_signer(signer, new_key, overwrite=False)
             print(f"wrote new signing key to {new_key} (keep this secret)", file=sys.stderr)
             return signer
         if key is not None:
             return load_signer(key)
+    except FileExistsError:
+        print(f"ERROR: --new-key {new_key} already exists; proofbundle does not replace a key file, "
+              "choose a new path", file=sys.stderr)
+        return None
     except (OSError, ValueError, ProofBundleError) as exc:
         _err(exc)
         return None
@@ -1276,9 +1284,8 @@ def _cmd_emit(args: argparse.Namespace) -> int:
 
     try:
         with open(args.payload_file, "rb") as handle:
-            # NOT capped (adversarial re-audit 3.6.2): this is `emit` — the operator signs their OWN payload, which
-            # may legitimately exceed the input_bytes verify budget; capping it would silently block a valid
-            # large-payload emit. The verify surfaces (untrusted third-party input) are the ones that are bounded.
+            # The payload is read here. Before signing, `emit_bundle` enforces the native bundle verifier's
+            # structural budget; an over-budget bundle is reported by `main` as malformed input with exit 2.
             payload = handle.read()
     except OSError as exc:   # `--payload-file ''` or a missing file: exit 2, not a raw traceback (verify lane V3)
         _err(f"cannot read --payload-file: {exc}")
@@ -2165,6 +2172,49 @@ def _options_the_mode_does_not_read(args: argparse.Namespace, command: str, opti
     return bool(given)
 
 
+def _dsse_verify_reasons(res: dict, envelope: object, shown: tuple) -> list:
+    """The reasons of a failed `intoto --verify` or `svr --verify` that the command has not printed yet.
+
+    Measured on main f79d6c8e: both printed a reason only for the Statement layer and the v0.2 shape, so an
+    envelope with empty `signatures` (HCTP vector OP17), a payload in base64 without its padding (OP20), a
+    signature under another key, a non-canonical payload or a refused claim field printed `[FAIL]` and
+    `=> FAILED` and nothing between. `content_root_detail` is the verifier's merged reason of every check
+    but the signature, its parts joined by "; ", and the parts `shown` printed are taken out of it as whole
+    parts, so no reason is printed twice. The signature gets its own line wherever the DSSE check ran, which
+    is every case but a payload rejected before it: then the verifier read no statement and no content-root
+    algorithm.
+
+    A missing v0.1 claim member (`predicate_member_detail`) is printed after the signature line, not with
+    the other parts of `content_root_detail` (review of the class fix, round 2): it is the reason added after
+    v6.5.0, and with a broken signature it came first, where ac4129f7 printed the signature reason first.
+    Every reason the command printed before keeps its place."""
+    from .intoto import INTOTO_STATEMENT_PAYLOAD_TYPE  # noqa: PLC0415
+    reasons = []
+    rest = res.get("content_root_detail") or ""
+    nachher = res.get("predicate_member_detail") or ""
+    for part in (p for p in shown + (nachher,) if p):
+        if rest == part:
+            rest = ""
+        elif rest.startswith(part + "; "):
+            rest = rest[len(part) + 2:]
+        elif rest.endswith("; " + part):
+            rest = rest[:-len(part) - 2]
+        elif "; " + part + "; " in rest:
+            rest = rest.replace("; " + part + "; ", "; ", 1)
+    if rest:
+        reasons.append(rest)
+    rejected = res.get("statement") is None and res.get("content_root_alg") is None
+    if not res.get("signature_ok") and not rejected:
+        ptype = envelope.get("payloadType") if isinstance(envelope, dict) else None
+        if ptype != INTOTO_STATEMENT_PAYLOAD_TYPE:
+            reasons.append(f"payloadType {ptype!r} is not {INTOTO_STATEMENT_PAYLOAD_TYPE}")
+        else:
+            reasons.append("no signature verifies under the key given with --pub")
+    if nachher:
+        reasons.append(nachher)
+    return reasons
+
+
 def _cmd_intoto(args: argparse.Namespace) -> int:
 
     from .bundle import load_bundle  # noqa: PLC0415
@@ -2189,8 +2239,9 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
                 envelope = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
             pub = decode_b64(args.pub)
             # BOTH eval-result versions, each under its own contract: the library judges the type the
-            # statement declares (v0.1 as released, v0.2 with its shape), and the type check happens here,
-            # against the two types, so a signed v0.2 envelope is not refused for being v0.2.
+            # statement declares (v0.1 with the members it requires, v0.2 with its shape), and the type
+            # check happens here, against the two types, so a signed v0.2 envelope is not refused for
+            # being v0.2.
             res = verify_eval_result_dsse(envelope, pub, expected_predicate_type=None)
         except (OSError, ValueError, ProofBundleError, TypeError) as exc:
             _err(exc)
@@ -2203,6 +2254,15 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
             print(f"    {_safe_line(res['statement_detail'])}")
         if res.get("predicate_shape_ok") is False:
             print(f"    {_safe_line(res['predicate_shape_detail'])}")
+        if not ok:
+            shown = tuple(res[detail] for key, detail in (("statement_ok", "statement_detail"),
+                                                          ("predicate_shape_ok", "predicate_shape_detail"))
+                          if res.get(key) is False)
+            for reason in _dsse_verify_reasons(res, envelope, shown):
+                print(f"    {_safe_line(reason)}")
+            if res.get("statement") is not None and not (isinstance(pt, str) and pt in EVAL_RESULT_PREDICATE_TYPES):
+                types = ", ".join(EVAL_RESULT_PREDICATE_TYPES)
+                print(f"    {_safe_line(f'predicateType {pt!r} is neither of {types}')}")
         print("=> OK" if ok else "=> FAILED")
         return 0 if ok else 1
 
@@ -2308,6 +2368,10 @@ def _cmd_svr(args: argparse.Namespace) -> int:
         print(f"[{'PASS' if res['ok'] else 'FAIL'}] SVR attestation{note}")
         if res.get("statement_ok") is False:
             print(f"    {_safe_line(res['statement_detail'])}")
+        if not res["ok"]:
+            shown = (res["statement_detail"],) if res.get("statement_ok") is False else ()
+            for reason in _dsse_verify_reasons(res, envelope, shown):
+                print(f"    {_safe_line(reason)}")
         if res["ok"]:
             props = res["statement"].get("predicate", {}).get("properties", [])
             for p in (props if isinstance(props, list) else []):
@@ -2397,6 +2461,35 @@ def _praedikat_ist_positiv_falsch(stmt: dict) -> bool:
     return wert is not None and not isinstance(wert, dict)
 
 
+def _praedikat_strukturfehler(stmt: dict) -> list[str]:
+    """The errors of the structure check that the standalone verifier of the predicate type applies (in the form
+    `decision verify`, `outcome verify` and `relation-statement verify` check without --strict). For a type that is not
+    in `_EIGENE_PRAEDIKATTYPEN`, an empty list: this place does not judge it."""
+    from .decision import validate_decision_predicate  # noqa: PLC0415
+    from .outcome import validate_outcome_predicate  # noqa: PLC0415
+    from .relation_statement import validate_relation_statement_predicate  # noqa: PLC0415
+    typ = str(stmt.get("predicateType") or "")
+    praedikat = stmt.get("predicate")
+    # THE `relationships` MEMBER OF A DECISION OR OUTCOME ATTACHMENT is judged by the relation profile, not by this
+    # check (docs/predicates/relation.md): `null` counts as absent there, and an unreadable block has codes of its own,
+    # `RELATION_MALFORMED_SUCCESSOR` on an attached neighbour and `relation:malformed_ancestor` in a chain. A copy
+    # without that member is checked; the signed bytes and the content root stay as they are. The first version left
+    # out only `null` (Codex, round 1 of the class fix, P1); a block such as 42 was then refused here, and the
+    # conformance case relation-malformed-relationships-successor ended with exit 2 instead of the code of its profile
+    # (the circle at 07f9ef3a). For a relation-statement, `relationships` is the required content of its type, and its
+    # check keeps the member.
+    if (typ in _EIGENE_PRAEDIKATTYPEN[:2] and isinstance(praedikat, dict) and "relationships" in praedikat) or (
+            isinstance(praedikat, dict) and "relationships" in praedikat and praedikat["relationships"] is None):
+        praedikat = {k: v for k, v in praedikat.items() if k != "relationships"}
+    if typ == _EIGENE_PRAEDIKATTYPEN[0]:
+        return validate_decision_predicate(praedikat, strict=False)
+    if typ == _EIGENE_PRAEDIKATTYPEN[1]:
+        return validate_outcome_predicate(praedikat, strict=False)
+    if typ == _EIGENE_PRAEDIKATTYPEN[2]:
+        return validate_relation_statement_predicate(praedikat)
+    return []
+
+
 def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]]:
     """relation/v0.1 (--with-related): load DSSE envelopes of RELATED receipts, verify each one
     STANDALONE and key it by its computed content root. Same-key is the default v0.1 contract; WP-A
@@ -2419,6 +2512,13 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
     errs: list[str] = []
     paths = paths or []
     related_pubs = related_pubs or []
+    # ONE READER, ONE PAIRING CHECK (deep gate 6.6.0 at d8881edc, iteration 1, finding Z6). B22 put the check in
+    # `decision verify` only; `outcome verify` and `relation-statement verify` read the same options through this
+    # reader and accepted a `--related-pub` without its target, also one that is no base64 (exit 0), while
+    # docs/predicates/relation.md calls it malformed input with exit 2. The reader now checks it itself.
+    if len(related_pubs) > len(paths):
+        return {}, [f"{len(related_pubs)} --related-pub given for {len(paths)} --with-related: each key is paired "
+                    "with the target at its position, and a key without a target is checked by nothing"]
     for i, path in enumerate(paths):
         # position-paired per-target key; empty string or missing = same-key (main pub).
         rp_b64 = related_pubs[i] if i < len(related_pubs) else None
@@ -2484,6 +2584,28 @@ def _load_related(paths, pub: bytes, related_pubs=None) -> tuple[dict, list[str]
                     "statement predicate is "
                     f"{type(stmt['predicate']).__name__}, not an object — an attached target whose "
                     "predicate cannot be read is never silence")
+                verified = False
+                subject_digest_state = "malformed"
+                stmt = None
+        if stmt is not None:
+            # THE CHECK OF ITS OWN TYPE (deep gate 6.6.0 at d8881edc, iteration 1, finding Z4). The docstring
+            # promises "verify each one STANDALONE", but only the signature, the strict reading and the shape of
+            # the predicate were checked. MEASURED at d8881edc: a correctly signed decision receipt without its
+            # required member `decision` arrived as verified=True; with no edge, `decision verify --with-related`
+            # ended with exit 0 and ok true, while the same bytes alone give structure_ok false and exit 2. A
+            # predicate of one of our types that fails the structure check of its type is now unreadable, as in
+            # the two branches above. Foreign types are not judged here (`_praedikat_strukturfehler` answers them
+            # with no error).
+            # NOT ONLY FOR A PREDICATE THAT IS AN OBJECT (deep gate 6.6.0 at c3472f6f, L6 Z4, P1): the check ran under
+            # `isinstance(predicate, dict)`, so a signed statement of one of our types WITHOUT a predicate, or with
+            # `predicate: null`, stayed verified=True, and an edge-free `decision verify --with-related` exited 0
+            # while the same bytes alone exit 2 ("predicate must be a JSON object"). In-toto lets a statement of a
+            # foreign type carry no predicate (`_praedikat_ist_positiv_falsch`); our types each require one.
+            struktur = _praedikat_strukturfehler(stmt)
+            if struktur:
+                payload_malformed = (
+                    f"the predicate does not pass the structure check of its type, which the standalone "
+                    f"verifier applies: {struktur[0]}")
                 verified = False
                 subject_digest_state = "malformed"
                 stmt = None
@@ -2619,6 +2741,46 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             _err("cannot use --anchors: the file holds no anchor (JSON null or an empty list); a file named "
                  "with --anchors must hold the anchors to check, and a verify without anchors omits the option")
             return 2
+    # Step 10 of Section 3.2 of draft-gruszka-audit-decision-receipts-05 (finding B1, vector F5): the action bytes
+    # the relying party holds, read as bytes from a regular file. `--action ''` names a file that cannot be read,
+    # never no action; an empty FILE is an action whose bytes are empty and is checked like any other.
+    # Section 3.3 (finding B3): the case the relying party chooses and, for the approval case, the approval record bytes
+    # (a file, read as bytes). `--approval ''` names a file that cannot be read, never no record.
+    approval_record = None
+    if getattr(args, "approval", None) is not None:
+        try:
+            with _open_input(args.approval, binary=True) as handle:
+                approval_record = _read_capped_bytes(handle)
+        except (ProofBundleError, OSError, ValueError) as exc:
+            _err(f"cannot read --approval: {exc}")
+            return 2
+    # Section 4 (finding B4, Owner choice A on OA-616feb8f26): the relying party's consumption state and the copies of
+    # the approval it received, read as bytes and never written. `--consumed ''` names a file that cannot be read.
+    # Each option is read by its own name, so that the file-option guard (tests/
+    # test_an_option_given_an_empty_value_is_not_dropped.py) and a reader see which option reaches which reader.
+    consumed_state = received_copies = None
+    if getattr(args, "consumed", None) is not None:
+        try:
+            with _open_input(args.consumed, binary=True) as handle:
+                consumed_state = _read_capped_bytes(handle)
+        except (ProofBundleError, OSError, ValueError) as exc:
+            _err(f"cannot read --consumed: {exc}")
+            return 2
+    if getattr(args, "received", None) is not None:
+        try:
+            with _open_input(args.received, binary=True) as handle:
+                received_copies = _read_capped_bytes(handle)
+        except (ProofBundleError, OSError, ValueError) as exc:
+            _err(f"cannot read --received: {exc}")
+            return 2
+    action_bytes = None
+    if getattr(args, "action", None) is not None:
+        try:
+            with _open_input(args.action, binary=True) as handle:
+                action_bytes = _read_capped_bytes(handle)
+        except (ProofBundleError, OSError, ValueError) as exc:
+            _err(f"cannot read --action: {exc}")
+            return 2
     # Every rule the policy sets is one this command applies (T16, `policy._regelfehler`): the decision section, the
     # relations rules but `reject_retracted`, the shared fields, and beside `--anchors` the anchor trust material.
     if policy is not None:
@@ -2657,6 +2819,9 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
                 merged = dict(pol_trust)
                 merged.update(rp_trust or {})
                 rp_trust = merged
+        # B22, the neighbour of the lens on a1b7d468: a `--related-pub` without its `--with-related` target is refused,
+        # exit 2. Since the deep gate of 6.6.0 (finding Z6) the check lives in `_load_related`, the one reader of the
+        # option, so `outcome verify` and `relation-statement verify` refuse it as this command does.
         related, rel_errs = _load_related(getattr(args, "with_related", None), pub,
                                           getattr(args, "related_pub", None))
         if rel_errs:
@@ -2673,7 +2838,9 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
                                          expected_nonce=args.nonce, policy=_politik, anchors=anchors,
                                          rp_trust=rp_trust,
                                          require_derived_subject=args.require_derived_subject,
-                                         related=related or None, now=_eval_now)
+                                         related=related or None, now=_eval_now, action_bytes=action_bytes,
+                                         case=getattr(args, "case", None), approval_record=approval_record,
+                                         consumed_state=consumed_state, received_copies=received_copies)
     except (ProofBundleError, OSError, ValueError) as exc:
         _err(exc)
         return 2
@@ -2704,6 +2871,7 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         _vtr = {"mode": "HISTORICAL", "time": args.verification_time, "current_policy_status": _cur,
                 "historical_policy_status": ("PASS" if result["policy_ok"] else
                                              "FAIL" if result["policy_ok"] is False else "NOT_EVALUATED")}
+    code = _decision_verify_exit(result)
     if args.json:
         # Emit an explicit report projection (all check fields; booleans + static/field-derived strings — never
         # key material). Mirrors _cmd_verify/_cmd_verify_enclave: build a fresh dict instead of dumping the
@@ -2712,7 +2880,9 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         report = {k: result[k] for k in (
             "ok", "crypto_ok", "structure_ok", "predicate_type_ok", "signer_trusted", "policy_ok",
             "evidence_bound", "audience_ok", "nonce_ok", "freshness_ok", "anchors_ok",
-            "action_outcome_proven", "subject_binding", "subject_derived_ok",
+            "action_outcome_proven", "subject_binding", "subject_derived_ok", "action_bytes_ok", "case_ok",
+            "consumption_ok",
+            "lineage_ok",   # B22: the outcome of --with-related/--related-pub, named beside the other bindings
             # Findings 01/03 (crypto-review X2): the uniform automation verdict + EvidenceLevel ladder are
             # part of the library result; a pipeline doing `... --json | jq .automation.safeForAutomation`
             # must not get null (indistinguishable from a real "not evaluated"). Emit them here too.
@@ -2733,6 +2903,14 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             print(f"AUDIENCE: {'OK' if result['audience_ok'] else 'MISMATCH'}")
         if result["nonce_ok"] is not None:
             print(f"NONCE: {'OK' if result['nonce_ok'] else 'MISMATCH'}")
+        if result.get("action_bytes_ok") is not None:
+            print(f"ACTION: {'OK' if result['action_bytes_ok'] else 'MISMATCH'}")
+        if result.get("case_ok") is not None:
+            print(f"CASE: {'OK' if result['case_ok'] else 'FAIL'} ({_safe_line(str(args.case))})")
+        if result.get("consumption_ok") is not None:
+            _verbrauch_zeile = ("NOT CONSUMED (in the state given)" if result["consumption_ok"]
+                                else "REFUSE (Section 4, relying party)")
+            print(f"CONSUMPTION: {_verbrauch_zeile}")
         if result["anchors_ok"] is not None:
             print(f"ANCHORS: {'OK' if result['anchors_ok'] else 'FAIL'}")
         if result["action_outcome_proven"] is False:
@@ -2753,12 +2931,25 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             print(f"  ! {_safe_line(str(w))}", file=sys.stderr)
         # No-Overclaim (§7.4 / lens 1): only assert integrity when crypto actually held — on a crypto FAIL
         # the CRYPTO: FAIL line already says it, and a positive trailer would itself be an overclaim.
-        if result["crypto_ok"]:
+        # THE CLOSING SENTENCE SPEAKS FOR THE EXIT CODE, NOT FOR THE SIGNATURE ALONE (deep gate 6.6.0 at c3472f6f,
+        # L6 Z6): it was chosen by `crypto_ok`, so a signed foreign predicate refused with exit 2 was told what a
+        # verified receipt proves. The sentence of a verified receipt stands only where the command exits 0.
+        if code == 0:
             print("\nThis proves the signed decision claim has not been altered. It does not prove the decision "
                   "was correct, legal, safe, or that the action was executed.")
+        elif result["crypto_ok"]:
+            print(f"\nThe signature holds, but a check this command was asked to make did not hold (exit {code}); "
+                  "nothing about the decision is attested beyond the CRYPTO line.")
         else:
             print("\nThis receipt did NOT verify (crypto failure); nothing about the decision is attested.")
-    # Exit contract (Phase B): 1 crypto fail · 2 malformed/confusion · 3 crypto OK but policy not satisfied.
+    return code
+
+
+def _decision_verify_exit(result: dict) -> int:
+    """The exit code of `decision verify` for its result. The ladder stood at the end of the command; it moved here
+    unchanged so that the command knows its code before it prints its closing sentence (L6 Z6)."""
+    # Exit contract (Phase B): 1 crypto fail · 2 malformed/confusion, expiry, or a requested binding, action, case
+    # or lineage check that does not hold · 3 crypto OK but policy not satisfied, or the Section 4 refusal.
     if not result["crypto_ok"]:
         return 1
     if not result["structure_ok"]:
@@ -2775,12 +2966,28 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
     # signal — fail-closed, never a silent exit 0 (fix-review Finding 3). None = no anchor supplied.
     if result["anchors_ok"] is False:
         return 1
+    # Step 10 of Section 3.2 (finding B1, vector F5): supplied action bytes that do not hash to
+    # proposedAction.parametersDigest are a requested binding that does not hold — exit 2 like --aud/--nonce here
+    # and the decision binding of outcome verify, never exit 0.
+    if result.get("action_bytes_ok") is False:
+        return 2
+    # Section 3.3 (finding B3): the chosen case does not hold — a requested check that fails, exit 2.
+    if result.get("case_ok") is False:
+        return 2
     # relation/v0.1: a REQUESTED lineage check (edges present or --with-related supplied) that FAILs
     # (cycle, depth, malformed ancestor, attached-but-unverified target) is a tamper/structure signal —
     # fail-closed exit 2, never a silent exit 0. DECLARED_UNRESOLVED stays exit 0 (declared-only is honest).
     if isinstance(result.get("lineage"), dict) and result["lineage"].get("lineage") == "FAIL":
         return 2
+    # B22: an attached target that did not verify fails the requested lineage check (lineage_ok False) even
+    # when no edge names it and the lineage label is not FAIL; exit 2 like the FAIL above.
+    if result.get("lineage_ok") is False:
+        return 2
     if result["policy_ok"] is False:
+        return 3
+    # Section 4 (finding B4, Owner choice A): the relying party refuses an approval its consumption state shows as
+    # consumed, a state that is no complete view, or a T past the earliest validUntil of the copies — exit 3.
+    if result.get("consumption_ok") is False:
         return 3
     # Nachtrag 49b CX-02: a declared validity.expiresAt that is expired or unreadable is a validity failure —
     # fail-closed, never a silent exit 0 (the Codex finding: an expired but otherwise-valid receipt exited 0).
@@ -2918,6 +3125,34 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
             _err("cannot use --policy: the policy holds no relations rule, the only part of a policy an outcome "
                  "receipt is judged by; a verify without a policy omits the option")
             return 2
+    # Section 3.4 of draft-gruszka-audit-decision-receipts-05 (finding B2, vectors F6, F7, F8): the effect bytes (a
+    # file, read as bytes; every content, the empty file included, is an effect), and the decision receipt the outcome
+    # is bound to with its key. `--effect ''` and `--decision ''` name files that cannot be read, never no option;
+    # --decision and --decision-pub come together or not at all.
+    effect_bytes = None
+    if getattr(args, "effect", None) is not None:
+        try:
+            with _open_input(args.effect, binary=True) as handle:
+                effect_bytes = _read_capped_bytes(handle)
+        except (ProofBundleError, OSError, ValueError) as exc:
+            _err(f"cannot read --effect: {exc}")
+            return 2
+    decision_env = None
+    decision_pub = None
+    if (getattr(args, "decision", None) is None) != (getattr(args, "decision_pub", None) is None):
+        _err("--decision and --decision-pub go together: the decision receipt is verified under its own key")
+        return 2
+    if getattr(args, "decision", None) is not None:
+        try:
+            with _open_input(args.decision) as handle:
+                decision_env = loads_strict(_read_capped(handle))
+            decision_pub = decode_b64(args.decision_pub)
+        except (ProofBundleError, OSError, ValueError) as exc:
+            _err(f"cannot read --decision or --decision-pub: {exc}")
+            return 2
+        if not isinstance(decision_env, dict):
+            _err("cannot use --decision: the file holds no DSSE envelope (a JSON object)")
+            return 2
     try:
         with _open_input(args.envelope) as handle:
             env = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
@@ -2933,21 +3168,27 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
             expected_decision_ref=args.expected_decision_ref, decision_maker_id=args.decision_maker_id,
             expected_audience=args.aud, expected_nonce=args.nonce,
             require_derived_subject=args.require_derived_subject, related=related or None,
-            policy=policy)
+            policy=policy, expected_executor_id=getattr(args, "executor_id", None), effect_bytes=effect_bytes,
+            decision_envelope=decision_env, decision_public_key=decision_pub, case=getattr(args, "case", None),
+            # The evaluation time T of Section 3.1 for the bound decision's Section 3.2 (review 1 of the B1 to B4
+            # series, finding 1), the one helper of decision verify: a whole past second in the 'Z' form, else exit 2.
+            now=_historical_now_posix(getattr(args, "verification_time", None)))
     except (ProofBundleError, OSError, ValueError) as exc:
         _err(exc)
         return 2
+    code = _outcome_verify_exit(result)
     if args.json:
         report = {k: result[k] for k in (
             "ok", "crypto_ok", "structure_ok", "predicate_type_ok", "decision_bound", "role_separation_ok",
             "execution_proven", "audience_ok", "nonce_ok", "subject_binding", "subject_derived_ok",
+            "executor_id_ok", "effect_bytes_ok", "bound_decision_ok", "case_ok",
             # Findings 01/03/16 (crypto-review X2): uniform automation verdict + EvidenceLevel ladder +
             # receiver-corroboration fields are part of the library result — emit them so a --json consumer
             # is not silently blind to them (a jq filter on an absent key is indistinguishable from a real
             # None). executor_role_trusted/receiver_* are None unless the caller supplied a trust_pack.
             "automation", "evidence_levels", "executor_role_trusted", "receiver_bound", "receiver_role_trusted",
             # WP-B: the relations trust-policy verdict on the outcome path (mirrors decision --json).
-            "lineage", "policy_ok", "relations_policy_codes", "warnings", "errors",
+            "lineage", "lineage_ok", "policy_ok", "relations_policy_codes", "warnings", "errors",
         ) if k in result}
         # Nachtrag 46g: the per-process origin token never travels in CLI output (also not nested in lineage).
         print(json.dumps(_without_origin_token(report), indent=2, default=str))
@@ -2960,6 +3201,14 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
             print(f"DECISION_BINDING: {'OK' if result['decision_bound'] else 'MISMATCH'}")
         if result["role_separation_ok"] is not None:
             print(f"ROLE_SEPARATION: {'OK' if result['role_separation_ok'] else 'VIOLATED'}")
+        if result.get("executor_id_ok") is not None:
+            print(f"EXECUTOR_ID: {'OK' if result['executor_id_ok'] else 'MISMATCH'}")
+        if result.get("effect_bytes_ok") is not None:
+            print(f"EFFECT: {'OK' if result['effect_bytes_ok'] else 'MISMATCH'}")
+        if result.get("bound_decision_ok") is not None:
+            print(f"BOUND_DECISION: {'OK' if result['bound_decision_ok'] else 'FAIL'}")
+        if result.get("case_ok") is not None:
+            print(f"CASE: {'OK' if result['case_ok'] else 'FAIL'} ({_safe_line(str(args.case))})")
         if result["audience_ok"] is not None:
             print(f"AUDIENCE: {'OK' if result['audience_ok'] else 'MISMATCH'}")
         if result["nonce_ok"] is not None:
@@ -2974,17 +3223,35 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
             print(f"  - {_safe_line(str(e))}", file=sys.stderr)
         for w in result["warnings"]:
             print(f"  ! {_safe_line(str(w))}", file=sys.stderr)
-        if result["crypto_ok"]:
+        # THE CLOSING SENTENCE SPEAKS FOR THE EXIT CODE, NOT FOR THE SIGNATURE ALONE (deep gate 6.6.0 at c3472f6f,
+        # L6 Z6): it was chosen by `crypto_ok`, so a signed foreign predicate refused with exit 2 was told what a
+        # verified receipt proves. The sentence of a verified receipt stands only where the command exits 0.
+        if code == 0:
             print("\nThis proves who signed what happened, bound to the referenced decision. It does not prove "
                   "the effect was good, correct or desired.")
+        elif result["crypto_ok"]:
+            print(f"\nThe signature holds, but a check this command was asked to make did not hold (exit {code}); "
+                  "nothing about the outcome is attested beyond the CRYPTO line.")
         else:
             print("\nThis receipt did NOT verify (crypto failure); nothing about the outcome is attested.")
-    # Exit contract mirrors decision verify: 1 crypto · 2 malformed/confusion/binding-mismatch · 3 policyPurpose.
+    return code
+
+
+def _outcome_verify_exit(result: dict) -> int:
+    """The exit code of `outcome verify` for its result. The ladder stood at the end of the command; it moved here
+    unchanged so that the command knows its code before it prints its closing sentence (L6 Z6)."""
+    # Exit contract mirrors decision verify: 1 crypto · 2 malformed/confusion/binding-mismatch, a wrong
+    # policyPurpose of the predicate included (a structure finding) · 3 a supplied trust policy not satisfied.
     if not result["crypto_ok"]:
         return 1
     if not result["structure_ok"]:
         return 2
     if result["decision_bound"] is False or result["role_separation_ok"] is False:
+        return 2
+    # Section 3.4 (finding B2): a requested executor, effect or decision binding that does not hold is the same
+    # class as the decision binding above, exit 2.
+    if (result.get("executor_id_ok") is False or result.get("effect_bytes_ok") is False
+            or result.get("bound_decision_ok") is False or result.get("case_ok") is False):
         return 2
     if result["audience_ok"] is False or result["nonce_ok"] is False:
         return 2
@@ -2995,6 +3262,10 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
     # relation/v0.1 (adversarial-review finding, 2026-07-16): mirror of the decision-verify gate —
     # a REQUESTED lineage check (--with-related / edges present) that FAILs must never exit 0.
     if isinstance(result.get("lineage"), dict) and result["lineage"].get("lineage") == "FAIL":
+        return 2
+    # B22 on this command (deep gate 6.6.0, review of the fix of finding Z4): an attached target that did not
+    # verify fails the requested lineage check (lineage_ok False) even where no edge names it; exit 2.
+    if result.get("lineage_ok") is False:
         return 2
     # WP-B: the relations trust-policy gate is exit-3 class, IDENTICAL to the decision path
     # (RELATION_SIGNER_UNAUTHORIZED / RELATION_TARGET_MISMATCH / LINEAGE_REQUIREMENT_FAILED).
@@ -3109,10 +3380,11 @@ def _cmd_relation_statement_verify(args: argparse.Namespace) -> int:
     except (ProofBundleError, OSError, ValueError) as exc:
         _err(exc)
         return 2
+    code = _relation_statement_verify_exit(result)
     if args.json:
         report = {k: result[k] for k in (
             "ok", "crypto_ok", "structure_ok", "predicate_type_ok", "subject_binding",
-            "subject_derived_ok", "lineage", "policy_ok", "relations_policy_codes",
+            "subject_derived_ok", "lineage", "lineage_ok", "policy_ok", "relations_policy_codes",
             "warnings", "errors",
         ) if k in result}
         # Nachtrag 46g: the per-process origin token never travels in CLI output (also not nested in lineage).
@@ -3132,13 +3404,25 @@ def _cmd_relation_statement_verify(args: argparse.Namespace) -> int:
             print(f"  - {_safe_line(str(e))}", file=sys.stderr)
         for w in result["warnings"]:
             print(f"  ! {_safe_line(str(w))}", file=sys.stderr)
-        if result["crypto_ok"]:
+        # THE CLOSING SENTENCE SPEAKS FOR THE EXIT CODE, NOT FOR THE SIGNATURE ALONE (deep gate 6.6.0 at c3472f6f,
+        # L6 Z6): it was chosen by `crypto_ok`, so a signed foreign predicate refused with exit 2 was told what a
+        # verified statement proves. The sentence of a verified statement stands only where the command exits 0.
+        if code == 0:
             print("\nThis proves the issuer DECLARED the relation over exact bytes. It does not "
                   "retract the target's cryptographic validity, and whether the issuer may declare "
                   "it is a relying-party policy decision.")
+        elif result["crypto_ok"]:
+            print(f"\nThe signature holds, but a check this command was asked to make did not hold (exit {code}); "
+                  "nothing about the relation is attested beyond the CRYPTO line.")
         else:
             print("\nThis statement did NOT verify (crypto failure); nothing about the relation is "
                   "attested.")
+    return code
+
+
+def _relation_statement_verify_exit(result: dict) -> int:
+    """The exit code of `relation-statement verify` for its result. The ladder stood at the end of the command; it moved here
+    unchanged so that the command knows its code before it prints its closing sentence (L6 Z6)."""
     # Exit contract mirrors decision/outcome verify: 1 crypto · 2 malformed/confusion/lineage-FAIL · 3 policy.
     if not result["crypto_ok"]:
         return 1
@@ -3147,6 +3431,9 @@ def _cmd_relation_statement_verify(args: argparse.Namespace) -> int:
     if result["subject_derived_ok"] is False:
         return 2
     if isinstance(result.get("lineage"), dict) and result["lineage"].get("lineage") == "FAIL":
+        return 2
+    # B22 on this command (deep gate 6.6.0, review of the fix of finding Z4), as on decision and outcome verify.
+    if result.get("lineage_ok") is False:
         return 2
     if result["policy_ok"] is False:
         return 3
@@ -3175,6 +3462,75 @@ def _cmd_relation_statement_inspect(args: argparse.Namespace) -> int:
         print(json.dumps(predicate, indent=2, ensure_ascii=True))
         return 2
     return 0
+
+
+# ── scitt match (6.6.0, draft-gruszka-scitt-statement-identification-03, EXPERIMENTAL) ──────────
+#: The schemes `scitt match` offers, the same as `scitt_statement_id.SCHEMES` (a test holds both equal). Written out
+#: here so that building the parser does not import the reader: only the command itself does.
+_SCITT_SCHEMES = ("ToBeSigned", "WholeBytes")
+#: The exit code of each match result. 0 is MATCH and nothing else: it says the digest of the scheme's bytes equals the
+#: reference, not that the signature verifies, the issuer is trusted or the statement is registered.
+_SCITT_MATCH_EXIT = {"MATCH": 0, "NO_MATCH": 1, "INDETERMINATE": 3}
+
+
+def _scitt_read(path, what: str) -> bytes:
+    """One input file of `scitt match`, read once as bytes under the input budget; `''` names a file that cannot be
+    read, never an input that is not supplied."""
+    try:
+        with _open_input(path, binary=True) as handle:
+            return _read_capped_bytes(handle)
+    except (ProofBundleError, OSError, ValueError) as exc:
+        raise ValueError(f"cannot read {what}: {exc}") from exc
+
+
+def _cmd_scitt_match(args: argparse.Namespace) -> int:
+    from .scitt_statement_id import HASHES, NoVerdict, match_statement  # noqa: PLC0415
+    try:
+        reference = _scitt_read(args.reference, "--reference")
+        candidate = _scitt_read(args.candidate, "the candidate")
+        aad = None if args.external_aad is None else _scitt_read(args.external_aad, "--external-aad")
+        detached = None if args.detached_payload is None else _scitt_read(args.detached_payload, "--detached-payload")
+        pub = None
+        if args.pub is not None:
+            pub = decode_b64(args.pub)
+            if len(pub) != 32:
+                raise ValueError("--pub must decode to the 32 bytes of an Ed25519 public key")
+        res = match_statement(reference, candidate, scheme=args.scheme, alg=args.alg, external_aad=aad,
+                              detached_payload=detached, public_key=pub)
+    except NoVerdict as exc:
+        if args.json:
+            print(json.dumps({"verdict": None, "error": str(exc)}))
+        else:
+            _err(exc)
+            print("=> NO VERDICT (exit 2): this reader does not read the input; it is not judged as matching or not")
+        return 2
+    except (ProofBundleError, OSError, ValueError, TypeError) as exc:
+        if args.json:
+            print(json.dumps({"verdict": None, "error": str(exc)}))
+        else:
+            _err(exc)
+        return 2
+    code = _SCITT_MATCH_EXIT[res["match"]]
+    if args.json:
+        print(json.dumps(res, indent=2))
+        return code
+
+    def _ja(v) -> str:
+        return {True: "yes", False: "no", None: "not evaluated"}[v]
+
+    print(f"SCHEME: {res['scheme']} (alg {res['alg']}, {HASHES[res['alg']][0]})")
+    print(f"REF_USABLE: {_ja(res['ref_usable'])}")
+    print(f"MATCH: {res['match']}")
+    print(f"IS_SCITT: {_ja(res['is_scitt'])}")
+    print(f"SIG_VALID: NOT_EVALUATED ({res['sig_valid_reason']})")
+    print(f"SIGNATURE: {_ja(res['signature'])}")
+    if res["digest"] is not None:
+        print(f"DIGEST: {res['digest']}")
+    for reason in res["reasons"]:
+        print(f"  - {_safe_line(str(reason))}")
+    print(f"=> {res['match']} (exit {code}). A match says the digest of the scheme's bytes equals the reference; it is "
+          "not a signature check, not issuer trust and not registration.")
+    return code
 
 
 def _cmd_policy_explain(args: argparse.Namespace) -> int:
@@ -3324,7 +3680,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="proofbundle",
         description="Emit and verify portable cryptographic evidence bundles, offline.",
         formatter_class=_TopHelpFormatter,
-        epilog=_grouped_epilog(),
+        epilog=_grouped_epilog(), allow_abbrev=False,
     )
     parser.add_argument("--version", action=_VersionAction)
     sub = parser.add_subparsers(dest="command", required=True, metavar="<command>")
@@ -3340,7 +3696,7 @@ def build_parser() -> argparse.ArgumentParser:
                "  3  CRYPTO OK but a supplied --policy was NOT satisfied, or a --require-anchor\n"
                "     requirement was NOT met\n"
                "Without --policy the output shows 'POLICY: NOT_EVALUATED' and without --require-anchor\n"
-               "the receipt's anchors are not evaluated at all — verify makes NO trust decision on its own.")
+               "the receipt's anchors are not evaluated at all — verify makes NO trust decision on its own.", allow_abbrev=False)
     verify.add_argument("bundle", help="path to the bundle JSON file")
     verify.add_argument("--json", action="store_true", help="machine readable output")
     verify.add_argument("--matrix", action="store_true",
@@ -3433,21 +3789,21 @@ def build_parser() -> argparse.ArgumentParser:
                              "header is never trusted. Without it a required OTS anchor is unmet (exit 3)")
     verify.set_defaults(func=_cmd_verify)
 
-    emit = sub.add_parser("emit", help="sign and anchor a payload into a bundle")
+    emit = sub.add_parser("emit", help="sign and anchor a payload into a bundle", allow_abbrev=False)
     emit.add_argument("--payload-file", required=True, help="file whose bytes become the payload")
     emit.add_argument("--out", required=True, help="path to write the bundle JSON")
     emit.add_argument("--key", help="use an existing 32 byte raw Ed25519 seed file")
-    emit.add_argument("--new-key", help="generate a signing key and save it to this file")
+    emit.add_argument("--new-key", help="generate a signing key and save it to this new file, mode 0600 (an existing path is refused)")
     emit.set_defaults(func=_cmd_emit)
 
-    emit_eval = sub.add_parser("emit-eval", help="emit a signed eval receipt from a claim JSON")
+    emit_eval = sub.add_parser("emit-eval", help="emit a signed eval receipt from a claim JSON", allow_abbrev=False)
     emit_eval.add_argument("--claim", required=True, help="path to the eval-claim JSON")
     emit_eval.add_argument("--out", required=True, help="path to write the receipt bundle JSON")
     emit_eval.add_argument("--key", help="use an existing 32 byte raw Ed25519 seed file")
-    emit_eval.add_argument("--new-key", help="generate a signing key and save it to this file")
+    emit_eval.add_argument("--new-key", help="generate a signing key and save it to this new file, mode 0600 (an existing path is refused)")
     emit_eval.set_defaults(func=_cmd_emit_eval)
 
-    show_eval = sub.add_parser("show-eval", help="verify an eval receipt and print the claim")
+    show_eval = sub.add_parser("show-eval", help="verify an eval receipt and print the claim", allow_abbrev=False)
     show_eval.add_argument("receipt", help="path to the eval receipt bundle JSON")
     show_eval.add_argument("--context", dest="context", default=None,
                            help="require the receipt's signed context_binding to equal this (cross-context replay guard)")
@@ -3469,7 +3825,7 @@ def build_parser() -> argparse.ArgumentParser:
     show_eval.set_defaults(func=_cmd_show_eval)
 
     verify_proof = sub.add_parser(
-        "verify-proof", help="verify a C2SP .tlog-proof file offline (v1.3)")
+        "verify-proof", help="verify a C2SP .tlog-proof file offline (v1.3)", allow_abbrev=False)
     verify_proof.add_argument("proof", help="path to the .tlog-proof file")
     verify_proof.add_argument("--payload-file", required=True,
                               help="file with the exact logged leaf bytes (the bundle payload)")
@@ -3487,7 +3843,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     hf_token = sub.add_parser(
         "hf-token",
-        help="pack a receipt into a pb1. token for HF eval_results, or verify one (v1.4)")
+        help="pack a receipt into a pb1. token for HF eval_results, or verify one (v1.4)", allow_abbrev=False)
     hf_token.add_argument("bundle_or_token",
                           help="bundle JSON path (emit) or pb1. token / token file (--verify)")
     hf_token.add_argument("--verify", action="store_true",
@@ -3496,7 +3852,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     challenge = sub.add_parser(
         "audit-challenge",
-        help="derive k audit indices from a samples root (v1.5; supply --nonce for real audits)")
+        help="derive k audit indices from a samples root (v1.5; supply --nonce for real audits)", allow_abbrev=False)
     challenge.add_argument("root", help="the receipt's samples root (base64)")
     challenge.add_argument("n", type=int, help="committed sample count")
     challenge.add_argument("k", type=int, help="number of samples to challenge")
@@ -3510,7 +3866,7 @@ def build_parser() -> argparse.ArgumentParser:
     challenge.set_defaults(func=_cmd_audit_challenge)
 
     verify_opening = sub.add_parser(
-        "verify-opening", help="verify one sample opening against a samples root (v1.5)")
+        "verify-opening", help="verify one sample opening against a samples root (v1.5)", allow_abbrev=False)
     verify_opening.add_argument("opening", help="opening JSON file (index/disclosure/proof_b64)")
     verify_opening.add_argument("--root", required=True, help="the receipt's samples root (base64)")
     verify_opening.add_argument("--n", required=True, type=int, help="committed sample count")
@@ -3519,7 +3875,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     verify_enclave = sub.add_parser(
         "verify-enclave",
-        help="[EXPERIMENTAL v2.0] verify a TEE Attestation Result (EAT) bound to a receipt")
+        help="[EXPERIMENTAL v2.0] verify a TEE Attestation Result (EAT) bound to a receipt", allow_abbrev=False)
     verify_enclave.add_argument("eat", help="path to the EAT (compact JWS) file")
     verify_enclave.add_argument("--receipt", required=True, help="the receipt bundle JSON the EAT must bind")
     verify_enclave.add_argument("--verifier-key", required=True,
@@ -3546,7 +3902,7 @@ def build_parser() -> argparse.ArgumentParser:
                "     policy hash, subject, transcript hash)\n"
                "Trust comes only from the options: the record's own cnf key, policy hash and time are\n"
                "never trusted on their own. A verified record is evidence for a policy, never a decision,\n"
-               "and never safeForAutomation: revocation and platform evidence are not checked.")
+               "and never safeForAutomation: revocation and platform evidence are not checked.", allow_abbrev=False)
     verify_trace.add_argument("record", help="path to the record: a compact JWS or a JSON object with an "
                                              "embedded Ed25519 signature")
     verify_trace.add_argument("--key", action="append", required=True, metavar="JWK_FILE",
@@ -3584,7 +3940,7 @@ def build_parser() -> argparse.ArgumentParser:
                "Trust comes only from the options: nothing is fetched, and nothing the bundle says about\n"
                "itself is trusted. Profiles: github-artifact-attestation, npm-provenance, npm-publish.\n"
                "A verified attestation is evidence for a policy, never safeForAutomation: revocation and\n"
-               "log consistency over time are not checked (docs/SIGSTORE_BUNDLE_VERIFIER.md).")
+               "log consistency over time are not checked (docs/SIGSTORE_BUNDLE_VERIFIER.md).", allow_abbrev=False)
     verify_sigstore.add_argument("bundle", help="path to the Sigstore bundle (JSON)")
     verify_sigstore.add_argument("--trusted-root", dest="trusted_root", required=True, metavar="FILE",
                                  help="the trusted_root.json of the Sigstore instance you trust")
@@ -3614,18 +3970,18 @@ def build_parser() -> argparse.ArgumentParser:
     demo = sub.add_parser(
         "demo",
         help="run the whole trust story in memory (pip-only, offline): honest receipt verifies, "
-             "six tampers fail, a swapped sample is caught")
+             "six tampers fail, a swapped sample is caught", allow_abbrev=False)
     demo.add_argument("--json", action="store_true", help="machine readable output")
     demo.set_defaults(func=_cmd_demo)
 
     intoto = sub.add_parser(
         "intoto",
         help="[PROPOSED] export an eval receipt as a DSSE-signed in-toto eval-result attestation "
-             "(in-toto/attestation#565), or verify one with --verify")
+             "(in-toto/attestation#565), or verify one with --verify", allow_abbrev=False)
     intoto.add_argument("receipt", help="the eval receipt bundle JSON (export) or the attestation JSON (--verify)")
     intoto.add_argument("--out", help="path to write the DSSE attestation JSON (export)")
     intoto.add_argument("--key", help="issuer's 32 byte raw Ed25519 seed file to sign the attestation")
-    intoto.add_argument("--new-key", help="generate a signing key and save it to this file")
+    intoto.add_argument("--new-key", help="generate a signing key and save it to this new file, mode 0600 (an existing path is refused)")
     intoto.add_argument("--subject-profile", choices=("receipt", "public-model", "release-gate"),
                         default=None,
                         help="what the Statement subject IS (default: receipt — binds without revealing the model)")
@@ -3641,7 +3997,7 @@ def build_parser() -> argparse.ArgumentParser:
                                               "its evidence entry (optional)")
     intoto.add_argument("--verify", action="store_true",
                         help="verify an exported attestation instead of emitting one (needs --pub); accepts "
-                             "eval-result v0.1 under its released predicate contract and v0.2 with its shape "
+                             "eval-result v0.1 with every member v0.1 requires and v0.2 with its shape "
                              "checked, each as an in-toto Statement v1 whose every subject carries a digest")
     intoto.add_argument("--pub", help="issuer Ed25519 public key (base64) to verify against")
     intoto.set_defaults(func=_cmd_intoto)
@@ -3649,11 +4005,11 @@ def build_parser() -> argparse.ArgumentParser:
     svr = sub.add_parser(
         "svr",
         help="[PROPOSED] emit an in-toto Summary Verification Result (svr/v0.1) for a PASSING receipt, "
-             "or verify one with --verify")
+             "or verify one with --verify", allow_abbrev=False)
     svr.add_argument("receipt", help="the eval receipt bundle JSON (emit) or the SVR JSON (--verify)")
     svr.add_argument("--out", help="path to write the SVR attestation JSON (emit)")
     svr.add_argument("--key", help="the verifier's 32 byte raw Ed25519 seed file to sign the SVR")
-    svr.add_argument("--new-key", help="generate a signing key and save it to this file")
+    svr.add_argument("--new-key", help="generate a signing key and save it to this new file, mode 0600 (an existing path is refused)")
     svr.add_argument("--policy-uri", help="optional verifier.policy URI (SVR v0.1 extension field)")
     svr.add_argument("--policy-sha256", help="optional verifier.policy digest (sha256 hex)")
     svr.add_argument("--verify", action="store_true", help="verify an SVR instead of emitting one (needs --pub)")
@@ -3661,19 +4017,19 @@ def build_parser() -> argparse.ArgumentParser:
     svr.set_defaults(func=_cmd_svr)
 
     policy_cmd = sub.add_parser(
-        "policy", help="inspect a trust policy: explain its effective pins, lint for vacuousness")
+        "policy", help="inspect a trust policy: explain its effective pins, lint for vacuousness", allow_abbrev=False)
     psub = policy_cmd.add_subparsers(dest="policy_command", required=True)
     _profile_help = ("path to a trust-policy JSON, OR the name of a packaged profile (WP3, "
                      "see docs/POLICY_PROFILES.md) such as strict-eval-v1 — a real file of the "
                      "same name always wins over a packaged profile")
     p_explain = psub.add_parser(
-        "explain", help="list the effective pins a trust policy makes (what POLICY: OK will mean)")
+        "explain", help="list the effective pins a trust policy makes (what POLICY: OK will mean)", allow_abbrev=False)
     p_explain.add_argument("policy", help=_profile_help)
     p_explain.add_argument("--json", action="store_true", help="machine readable output")
     p_explain.set_defaults(func=_cmd_policy_explain)
     p_lint = psub.add_parser(
         "lint", help="fail (exit 1) on a WIRKUNGSLOSE policy that would produce a vacuous "
-                     "POLICY: OK; --strict also fails on attributes-to-nobody")
+                     "POLICY: OK; --strict also fails on attributes-to-nobody", allow_abbrev=False)
     p_lint.add_argument("policy", help=_profile_help)
     p_lint.add_argument("--strict", action="store_true",
                         help="promote warnings (attributes to nobody) to lint failures")
@@ -3681,7 +4037,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_lint.set_defaults(func=_cmd_policy_lint)
     p_list = psub.add_parser(
         "list-profiles", help="list the named trust-policy profiles shipped with this package (WP3); "
-                              "canonical template names first, deprecated aliases marked")
+                              "canonical template names first, deprecated aliases marked", allow_abbrev=False)
     p_list.add_argument("--json", action="store_true", help="machine readable output")
     p_list.set_defaults(func=_cmd_policy_list_profiles)
     p_inst = psub.add_parser(
@@ -3694,7 +4050,7 @@ def build_parser() -> argparse.ArgumentParser:
                "    --output org-strict-eval-v1.json\n"
                "The result pins the issuer key(s), sets requiresIdentityOverlay=false, and is\n"
                "deploymentReady=true only when every required field is filled (an authenticated-root\n"
-               "template also needs --expected-root-file). Exit 0 on success, 2 on any error.")
+               "template also needs --expected-root-file). Exit 0 on success, 2 on any error.", allow_abbrev=False)
     p_inst.add_argument("template", help="a template profile name, e.g. strict-eval-template-v1 "
                                          "(deprecated aliases resolve with a warning)")
     p_inst.add_argument("--issuer-key", action="append", required=True, metavar="FILE",
@@ -3716,7 +4072,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     prereg = sub.add_parser(
         "prereg",
-        help="hash an eval protocol file to commit to it BEFORE the run (--check verifies a receipt)")
+        help="hash an eval protocol file to commit to it BEFORE the run (--check verifies a receipt)", allow_abbrev=False)
     prereg.add_argument("protocol", help="path to the protocol/plan file to hash")
     prereg.add_argument("--check", metavar="RECEIPT",
                         help="verify the protocol matches a receipt's prereg_sha256 instead of hashing")
@@ -3725,7 +4081,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     evalcard = sub.add_parser(
         "evalcard",
-        help="hash an external Eval Card document to reference it from a claim (--check verifies a receipt)")
+        help="hash an external Eval Card document to reference it from a claim (--check verifies a receipt)", allow_abbrev=False)
     evalcard.add_argument("card", help="path to the Eval Card document to hash")
     evalcard.add_argument("--check", metavar="RECEIPT",
                           help="verify the card matches a receipt's evaluation_card_sha256 instead of hashing")
@@ -3733,31 +4089,36 @@ def build_parser() -> argparse.ArgumentParser:
     evalcard.set_defaults(func=_cmd_evalcard)
 
     # decision-receipt/v0.1 predicate (vendored). Nested group: init / emit / verify / inspect.
-    decision = sub.add_parser("decision", help="decision-receipt/v0.1: init/emit/verify/inspect an agent decision")
+    decision = sub.add_parser("decision", help="decision-receipt/v0.1: init/emit/verify/inspect an agent decision", allow_abbrev=False)
     dsub = decision.add_subparsers(dest="decision_command", required=True)
 
-    d_init = dsub.add_parser("init", help="print a template decision predicate (fill in and sign with 'decision emit')")
+    d_init = dsub.add_parser("init", help="print a template decision predicate (fill in and sign with 'decision emit')", allow_abbrev=False)
     d_init.add_argument("--out", default=None, help="write the template to a file instead of stdout")
     d_init.set_defaults(func=_cmd_decision_init)
 
-    d_emit = dsub.add_parser("emit", help="sign a decision predicate into a DSSE receipt")
+    d_emit = dsub.add_parser("emit", help="sign a decision predicate into a DSSE receipt", allow_abbrev=False)
     d_emit.add_argument("predicate", help="path to the decision predicate JSON")
     d_emit.add_argument("--out", required=True, help="output path for the signed decision receipt")
     d_emit.add_argument("--key", help="load an existing Ed25519 signing key from file")
-    d_emit.add_argument("--new-key", dest="new_key", help="generate a new signing key and write it to file")
+    d_emit.add_argument("--new-key", dest="new_key", help="generate a new signing key and write it to this new file, mode 0600 (an existing path is refused)")
     d_emit.add_argument("--lenient", action="store_true", help="allow non-strict predicates (skip strict-mode required fields)")
     d_emit.set_defaults(func=_cmd_decision_emit)
 
     d_verify = dsub.add_parser(
         "verify", help="verify a decision receipt (crypto + structure; optional audience/nonce)",
-        description=("Exit codes: 0 crypto+structure OK · 1 crypto/verification failure · 2 malformed input or "
-                     "predicateType confusion. Without a decision policy the output shows POLICY: NOT_EVALUATED "
-                     "and never exits 3. A verified ALLOW receipt is a record of a decision, NOT an "
+        description=("Exit codes: 0 crypto+structure OK · 1 crypto/verification failure · 2 malformed input, "
+                     "predicateType confusion, an expired receipt, or a requested binding, action, case or "
+                     "lineage check that does not hold (expiry is judged last, so an expired receipt whose "
+                     "only other failure is the policy exits 3) · 3 the trust "
+                     "policy is not satisfied, or the relying party refuses the approval under Section 4 "
+                     "(--consumed, --received). Without a decision policy the output shows POLICY: NOT_EVALUATED, "
+                     "and exit 3 then comes only from Section 4. A verified ALLOW receipt is a record of a decision, NOT an "
                      "authorization or bearer token — the executing system makes its own authorization "
-                     "check. --aud/--nonce bind a receipt that CARRIES validity.audience/validity.nonce "
-                     "to this context; a receipt without a validity object is not checked against them, "
-                     "so require their presence via a v0.2 policy's require_audience/require_nonce "
-                     "(see docs/NON_CLAIMS.md)."))
+                     "check. --aud/--nonce bind the receipt to this context: a receipt whose "
+                     "validity.audience does not hold the expected audience, or whose validity.nonce "
+                     "differs, fails (exit 2), and so does a receipt without a validity object; a v0.2 "
+                     "policy's require_audience/require_nonce require their presence even without "
+                     "--aud/--nonce (see docs/NON_CLAIMS.md)."), allow_abbrev=False)
     d_verify.add_argument("envelope", help="path to the DSSE decision receipt")
     d_verify.add_argument("--pub", required=True, help="issuer Ed25519 public key (base64) to verify against")
     d_verify.add_argument("--policy", default=None,
@@ -3790,29 +4151,50 @@ def build_parser() -> argparse.ArgumentParser:
                                "commitment to the predicate (subject_binding.classify_subject) — rejects a "
                                "self-attested/rehung subject_sha256 override. Default off: an "
                                "EXTERNAL_ATTESTED subject is still warned, never silent")
+    d_verify.add_argument("--action", dest="action", default=None, metavar="PATH",
+                          help="the action bytes the relying party holds (a file, read as bytes): their SHA-256 "
+                               "must equal proposedAction.parametersDigest, step 10 of Section 3.2 of "
+                               "draft-gruszka-audit-decision-receipts. A mismatch, or a receipt without that "
+                               "digest, exits 2 like --aud/--nonce")
+    d_verify.add_argument("--case", dest="case", default=None, metavar="CASE",
+                          help="the case of Section 3.3 of draft-gruszka-audit-decision-receipts the relying party "
+                               "checks the receipt under: approval (with --approval) or declined. The receipt never "
+                               "chooses its case. A case that does not hold exits 2")
+    d_verify.add_argument("--approval", dest="approval", default=None, metavar="PATH",
+                          help="the approval record bytes for --case approval (a file, read as bytes): exactly one "
+                               "inputSnapshot entry named \"approval record\" must hash to them, they must be their own "
+                               "RFC 8785 form, and their bounds must hold at the evaluation time")
+    d_verify.add_argument("--consumed", dest="consumed", default=None, metavar="PATH",
+                          help="Section 4: the relying party's consumption state (a JSON array of approval identities "
+                               "or an object of generations), read only, never written. With --case approval an "
+                               "approval whose identity is in any generation, or a state that is no complete view, "
+                               "exits 3. An OK says only that the identity is not in the state given")
+    d_verify.add_argument("--received", dest="received", default=None, metavar="PATH",
+                          help="Section 4 item 2: the copies of the approval the relying party received (a JSON array); "
+                               "T must be earlier than the earliest validUntil of the same identity, else exit 3")
     d_verify.add_argument("--verification-time", dest="verification_time", default=None, metavar="ISO8601",
                           help="Nachtrag 49b: evaluate the receipt AS OF this past instant (ISO-8601 'Z') — it "
                                "pins validity.expiresAt freshness and, with --policy, the policy lifecycle at "
                                "one time; without it the wall clock. An expired/unreadable expiresAt exits 2")
     d_verify.set_defaults(func=_cmd_decision_verify)
 
-    d_inspect = dsub.add_parser("inspect", help="print a decision receipt's predicate (no crypto verification)")
+    d_inspect = dsub.add_parser("inspect", help="print a decision receipt's predicate (no crypto verification)", allow_abbrev=False)
     d_inspect.add_argument("receipt", help="path to a DSSE receipt or a raw in-toto Statement")
     d_inspect.set_defaults(func=_cmd_decision_inspect)
 
     # ── Action Outcome Receipt (3.2.0, action-outcome/v0.1, EXPERIMENTAL) ──
-    outcome = sub.add_parser("outcome", help="action-outcome/v0.1 (EXPERIMENTAL): init/emit/verify/inspect an action outcome")
+    outcome = sub.add_parser("outcome", help="action-outcome/v0.1 (EXPERIMENTAL): init/emit/verify/inspect an action outcome", allow_abbrev=False)
     osub = outcome.add_subparsers(dest="outcome_command", required=True)
 
-    o_init = osub.add_parser("init", help="print a template outcome predicate (fill in and sign with 'outcome emit')")
+    o_init = osub.add_parser("init", help="print a template outcome predicate (fill in and sign with 'outcome emit')", allow_abbrev=False)
     o_init.add_argument("--out", default=None, help="write the template to a file instead of stdout")
     o_init.set_defaults(func=_cmd_outcome_init)
 
-    o_emit = osub.add_parser("emit", help="sign an outcome predicate into a DSSE receipt")
+    o_emit = osub.add_parser("emit", help="sign an outcome predicate into a DSSE receipt", allow_abbrev=False)
     o_emit.add_argument("predicate", help="path to the outcome predicate JSON")
     o_emit.add_argument("--out", required=True, help="output path for the signed outcome receipt")
     o_emit.add_argument("--key", help="load an existing Ed25519 signing key from file")
-    o_emit.add_argument("--new-key", dest="new_key", help="generate a new signing key and write it to file")
+    o_emit.add_argument("--new-key", dest="new_key", help="generate a new signing key and write it to this new file, mode 0600 (an existing path is refused)")
     o_emit.add_argument("--lenient", action="store_true", help="allow non-strict predicates")
     o_emit.set_defaults(func=_cmd_outcome_emit)
 
@@ -3822,7 +4204,7 @@ def build_parser() -> argparse.ArgumentParser:
                      "/ decision-binding or role-separation mismatch. --expected-decision-ref binds the outcome "
                      "to a specific decision content root (replay across decisions fails). --decision-maker-id "
                      "enforces role separation (executor must differ from the decision maker). status=executed "
-                     "without an effect/actual digest is a self-asserted claim, not proof of the effect."))
+                     "without an effect/actual digest is a self-asserted claim, not proof of the effect."), allow_abbrev=False)
     o_verify.add_argument("envelope", help="path to the DSSE outcome receipt")
     o_verify.add_argument("--pub", required=True, help="executor Ed25519 public key (base64) to verify against")
     o_verify.add_argument("--expected-decision-ref", dest="expected_decision_ref", default=None,
@@ -3847,9 +4229,31 @@ def build_parser() -> argparse.ArgumentParser:
                                "commitment to the predicate (subject_binding.classify_subject) — rejects a "
                                "self-attested/rehung subject_sha256 override. Default off: an "
                                "EXTERNAL_ATTESTED subject is still warned, never silent")
+    o_verify.add_argument("--executor-id", dest="executor_id", default=None, metavar="ID",
+                          help="the expected executor.id; given beside --pub it says this key may attest that id "
+                               "(step 5 of Section 3.4 of draft-gruszka-audit-decision-receipts). A mismatch exits 2")
+    o_verify.add_argument("--effect", dest="effect", default=None, metavar="PATH",
+                          help="the effect bytes (a file, read as bytes): effectDigest must be present and equal "
+                               "their SHA-256, whatever the status (step 6). A mismatch or no effectDigest exits 2")
+    o_verify.add_argument("--decision", dest="decision", default=None, metavar="PATH",
+                          help="the decision receipt this outcome is bound to (with --decision-pub): decisionRef must "
+                               "be its content root, requestedActionDigest its parametersDigest, the keys and ids "
+                               "must differ, and decidedAt <= performedAt < its validity.expiresAt (steps 4, 5, 7). "
+                               "A failure exits 2")
+    o_verify.add_argument("--decision-pub", dest="decision_pub", default=None, metavar="B64",
+                          help="the decision maker's Ed25519 public key (base64) the --decision receipt is verified "
+                               "under; required with --decision")
+    o_verify.add_argument("--case", dest="case", default=None, metavar="CASE",
+                          help="Case 3 of Section 3.3: executed (with --decision): the decision's verdict must be "
+                               "ALLOW and the outcome's status executed, after the checks of Section 3.4 this verifier "
+                               "applies hold (docs/NON_CLAIMS.md names draft rules it does not apply). A failure exits 2")
+    o_verify.add_argument("--verification-time", dest="verification_time", default=None, metavar="ISO8601",
+                          help="the evaluation time T (ISO-8601 'Z', a whole past second) at which the --decision "
+                               "receipt must pass decision verify, its freshness included; without it the wall clock. No "
+                               "step of Section 3.4 compares the outcome itself with T. A malformed value exits 2")
     o_verify.set_defaults(func=_cmd_outcome_verify)
 
-    o_inspect = osub.add_parser("inspect", help="print an outcome receipt's predicate (no crypto verification)")
+    o_inspect = osub.add_parser("inspect", help="print an outcome receipt's predicate (no crypto verification)", allow_abbrev=False)
     o_inspect.add_argument("receipt", help="path to a DSSE receipt or a raw in-toto Statement")
     o_inspect.set_defaults(func=_cmd_outcome_inspect)
 
@@ -3858,18 +4262,18 @@ def build_parser() -> argparse.ArgumentParser:
     relstmt = sub.add_parser(
         "relation-statement",
         help="relation-statement/v0.1 (EXPERIMENTAL): init/emit/verify/inspect a standalone signed "
-             "relation OVER a target receipt (retract/supersede without touching the original)")
+             "relation OVER a target receipt (retract/supersede without touching the original)", allow_abbrev=False)
     rsub = relstmt.add_subparsers(dest="relation_statement_command", required=True)
 
-    rs_init = rsub.add_parser("init", help="print a template relation-statement predicate (fill in and sign with 'emit')")
+    rs_init = rsub.add_parser("init", help="print a template relation-statement predicate (fill in and sign with 'emit')", allow_abbrev=False)
     rs_init.add_argument("--out", default=None, help="write the template to a file instead of stdout")
     rs_init.set_defaults(func=_cmd_relation_statement_init)
 
-    rs_emit = rsub.add_parser("emit", help="sign a relation-statement predicate into a DSSE statement")
+    rs_emit = rsub.add_parser("emit", help="sign a relation-statement predicate into a DSSE statement", allow_abbrev=False)
     rs_emit.add_argument("predicate", help="path to the relation-statement predicate JSON")
     rs_emit.add_argument("--out", required=True, help="output path for the signed relation statement")
     rs_emit.add_argument("--key", help="load an existing Ed25519 signing key from file")
-    rs_emit.add_argument("--new-key", dest="new_key", help="generate a new signing key and write it to file")
+    rs_emit.add_argument("--new-key", dest="new_key", help="generate a new signing key and write it to this new file, mode 0600 (an existing path is refused)")
     rs_emit.set_defaults(func=_cmd_relation_statement_emit)
 
     rs_verify = rsub.add_parser(
@@ -3880,7 +4284,7 @@ def build_parser() -> argparse.ArgumentParser:
                      "retracts statement never invalidates the target's crypto — it sets a visible "
                      "state; reject_retracted/reject_superseded turn continued automated use of the "
                      "target into an exit-3 block. Whether the issuer MAY declare the relation is a "
-                     "relying-party policy decision (relation_signer pin)."))
+                     "relying-party policy decision (relation_signer pin)."), allow_abbrev=False)
     rs_verify.add_argument("envelope", help="path to the DSSE relation statement")
     rs_verify.add_argument("--pub", required=True, help="issuer Ed25519 public key (base64) to verify against")
     rs_verify.add_argument("--json", action="store_true", help="machine readable output")
@@ -3900,16 +4304,59 @@ def build_parser() -> argparse.ArgumentParser:
                                 "to the predicate — rejects a self-attested/rehung subject override")
     rs_verify.set_defaults(func=_cmd_relation_statement_verify)
 
-    rs_inspect = rsub.add_parser("inspect", help="print a relation statement's predicate (no crypto verification)")
+    rs_inspect = rsub.add_parser("inspect", help="print a relation statement's predicate (no crypto verification)", allow_abbrev=False)
     rs_inspect.add_argument("receipt", help="path to a DSSE statement or a raw in-toto Statement")
     rs_inspect.set_defaults(func=_cmd_relation_statement_inspect)
+
+    # scitt (6.6.0, EXPERIMENTAL): the reader of draft-gruszka-scitt-statement-identification-03, Section 6.
+    scitt = sub.add_parser(
+        "scitt", allow_abbrev=False,
+        help="[EXPERIMENTAL] SCITT statement identification: match a reference to a candidate COSE_Sign1 "
+             "(draft-gruszka-scitt-statement-identification-03, Section 6)")
+    ssub = scitt.add_subparsers(dest="scitt_command", required=True)
+    s_match = ssub.add_parser(
+        "match", allow_abbrev=False,
+        help="report ref_usable, match, is_scitt and the signature of a candidate under one named scheme",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="Exit codes:\n"
+               "  0  MATCH: the digest of the scheme's bytes equals the reference. Nothing else: a MATCH may come\n"
+               "     with a signature that does not verify or without tag 18 (cases C6, C9 and C11 of the draft)\n"
+               "  1  NO_MATCH: the comparison was made and differs, or the candidate is not a statement under the\n"
+               "     read check of Section 6 while the reference is usable\n"
+               "  2  unreadable input or option, or no verdict: input this reader does not read (a map key it does\n"
+               "     not represent, input over its budget), never reported as matching or not\n"
+               "  3  INDETERMINATE: the reference is not usable for the scheme, or a needed input (external_aad, a\n"
+               "     detached payload) is not supplied\n"
+               "The scheme is named by you, never taken from the reference, and there is no fallback to another\n"
+               "scheme. sig_valid of Section 6 is reported as not evaluated, since this reader does not apply its\n"
+               "rule 2; SIGNATURE is Ed25519 under the profile of SPEC.md section 4a (docs/SCITT_STATEMENT_MATCH.md).")
+    s_match.add_argument("candidate", help="path to the candidate COSE_Sign1, bare or with tag 18, as binary CBOR")
+    s_match.add_argument("--reference", required=True, metavar="FILE",
+                         help="path to the reference, the CBOR array [alg, scheme, digest], as binary CBOR")
+    s_match.add_argument("--scheme", required=True, choices=_SCITT_SCHEMES,
+                         help="ToBeSigned (Section 5.1 of the draft) or WholeBytes (the digest of the candidate bytes "
+                              "as given, a local experimental scheme)")
+    s_match.add_argument("--alg", required=True, type=int, metavar="N",
+                         help="the scheme's hash function as a COSE algorithm number: -16 SHA-256, -43 SHA-384, -44 "
+                              "SHA-512, -17 SHA-512/256, -15 SHA-256/64, -18 SHAKE128, -45 SHAKE256, -14 SHA-1")
+    s_match.add_argument("--external-aad", dest="external_aad", default=None, metavar="FILE",
+                         help="the external_aad bytes for ToBeSigned; a file of 0 bytes is a supplied empty value. "
+                              "Without the option it is not supplied, and a ToBeSigned match is INDETERMINATE")
+    s_match.add_argument("--detached-payload", dest="detached_payload", default=None, metavar="FILE",
+                         help="the payload bytes for a candidate whose payload is nil; an embedded payload is used "
+                              "even when this is given")
+    s_match.add_argument("--pub", default=None, metavar="B64",
+                         help="the Ed25519 public key (base64 of 32 bytes) the SIGNATURE axis is checked under; "
+                              "without it SIGNATURE is not evaluated")
+    s_match.add_argument("--json", action="store_true", help="machine readable output")
+    s_match.set_defaults(func=_cmd_scitt_match)
 
     # ── anchor operations (OTS hardening + calendar-risk, EXPERIMENTAL, the [anchors] extra) ──
     anchor = sub.add_parser(
         "anchor",
         help="external time-anchor operations (EXPERIMENTAL): package an UPGRADED OpenTimestamps proof "
              "into a self-contained, calendar-independent evidence pack; verify one OFFLINE; inspect "
-             "the lifecycle and the calendars carrying it")
+             "the lifecycle and the calendars carrying it", allow_abbrev=False)
     ansub = anchor.add_subparsers(dest="anchor_command", required=True)
 
     a_up = ansub.add_parser(
@@ -3921,7 +4368,7 @@ def build_parser() -> argparse.ArgumentParser:
                      "3 proof not upgraded yet (PENDING — upgrading embeds the Bitcoin block-header "
                      "path and needs the OpenTimestamps client after a Bitcoin confirmation, which is "
                      "time-gated; run `ots upgrade` first). The pack verifies OFFLINE against a "
-                     "relying-party Bitcoin header — no calendar needed."))
+                     "relying-party Bitcoin header — no calendar needed."), allow_abbrev=False)
     a_up.add_argument("--proof", required=True, help="path to the detached OpenTimestamps proof (.ots)")
     a_up.add_argument("--target-file", dest="target_file", default=None,
                       help="the exact bytes that were stamped; its SHA-256 is the canonical root the "
@@ -3953,7 +4400,7 @@ def build_parser() -> argparse.ArgumentParser:
                      "pack) · 2 malformed input · 3 pending or upgraded-without-a-relying-party-header "
                      "(honest not-pass). The pack's OWN bundled header is producer-controlled evidence "
                      "and is never trusted (WP-A1); supply your own header from a pruned Bitcoin node "
-                     "or a trusted checkpoint."))
+                     "or a trusted checkpoint."), allow_abbrev=False)
     a_vp.add_argument("pack", help="path to the evidence pack JSON")
     # Nachtrag 32 (the High): bind the timestamp to the target the relying party means. Exactly one of these is
     # REQUIRED; the expected root is computed/decoded INDEPENDENTLY and compared to the pack's canonicalRoot
@@ -3975,7 +4422,7 @@ def build_parser() -> argparse.ArgumentParser:
     a_in = ansub.add_parser(
         "inspect",
         help="print the lifecycle state (pending/upgraded/self-contained) and the calendars/operators "
-             "carrying an OpenTimestamps proof (.ots) or evidence pack — transparency, no crypto trust")
+             "carrying an OpenTimestamps proof (.ots) or evidence pack — transparency, no crypto trust", allow_abbrev=False)
     a_in.add_argument("path", help="path to a detached OTS proof (.ots) or an evidence pack JSON")
     a_in.add_argument("--json", action="store_true", help="machine readable output")
     a_in.set_defaults(func=_cmd_anchor_inspect)

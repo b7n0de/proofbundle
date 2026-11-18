@@ -1,5 +1,7 @@
 # proofbundle format specification — `proofbundle/v0.1`
 
+**The normative description of the proofbundle/v0.1 evidence-bundle format.** This page is for anyone who writes a second verifier or needs the exact rules a bundle must follow. It defines the fields, the order of the checks and the optional layers, and section 7a says what a bundle attests and what it does not. A short overview for readers is in the [README](README.md).
+
 Revision: 2026-07-13
 
 This is the normative description of the `proofbundle/v0.1` evidence-bundle format.
@@ -537,10 +539,19 @@ predicate of §PREDICATE.md). The mapping is fixed:
   algorithm key — never `sha256`, which would falsely imply an artifact hash); a bare `name`-only
   descriptor is invalid per the ResourceDescriptor rule. test-result has **no native metric field and no
   predicate-level annotations**, so metric/comparator/threshold/passed/provenance live in the model
-  descriptor's `annotations`. `passedTests`/`failedTests` carry the suite name.
-- **DSSE** — `payloadType` = `application/vnd.in-toto.test-result+json`; `payload` = standard RFC 4648 §4
-  base64 (with padding, **not** base64url) of the serialized Statement bytes; `signatures[].sig` = base64
-  of the raw Ed25519 signature. The signature is over the DSSE **PAE**:
+  descriptor's `annotations`. `passedTests`/`failedTests` carry the suite name. A verifier refuses a
+  test-result statement whose predicate lacks `result` or `configuration`, the two members the in-toto
+  predicate marks required; `url` and the case lists are optional. It also refuses one whose members are
+  not of the type the predicate gives them, for a generic statement as for one of ours: `result` one of
+  `PASSED`, `WARNED`, `FAILED`, `url` a string in URI form (ResourceURI, the form only, never fetched;
+  `to_test_result_statement` refuses a `url` in another form), each case list an array of strings, and each
+  `configuration` entry a ResourceDescriptor that specifies one of `uri`, `digest` or `content`.
+- **DSSE** — `payloadType` = `application/vnd.in-toto.test-result+json`; `payload` = base64 of the
+  serialized Statement bytes in the standard (RFC 4648 §4) or the URL-safe (RFC 4648 §5) alphabet, which
+  the DSSE envelope allows ("Either standard or URL-safe encoding is allowed"), padded and canonical in
+  either alphabet; the exporter writes the standard alphabet, and a payload without its padding does not
+  verify. The rule of section 2, the standard alphabet only, governs the native bundle fields, not this
+  envelope. `signatures[].sig` = base64 of the raw Ed25519 signature. The signature is over the DSSE **PAE**:
   `"DSSEv1" SP LEN(payloadType) SP payloadType SP LEN(body) SP body`, where `LEN` is the ASCII-decimal
   byte length with no leading zeros and `body` is the **raw** Statement bytes — never the base64 string.
   A verifier decodes `payload` and reconstructs the PAE over exactly those bytes (it never re-serializes),
@@ -902,15 +913,16 @@ DECLARED_UNRESOLVED / FAIL / NOT_EVALUATED) rather than leaving replacement invi
   an unknown predicate member is malformed (exit 2), as is every other finding of the
   default-mode validation of the receipt under verification; and a present `validity.expiresAt` of the
   receipt under verification is judged at one evaluation time, `--verification-time` when given,
-  else the wall clock (expired is exit 2); `outcome verify` and `relation-statement verify` take no
-  `--verification-time` (giving it is a usage error) and judge the lifetime of a `--policy` at the
-  verifier's wall clock. An attached target is verified STANDALONE by its own
+  else the wall clock (expired is exit 2 when no earlier check has decided the exit; the order is in
+  `docs/predicates/decision-receipt.md` §7); `relation-statement verify` takes no `--verification-time`
+  (giving it is a usage error); `outcome verify` takes it only as the evaluation time at which a bound
+  `--decision` is verified, and both judge the lifetime of a `--policy` at the verifier's wall clock. An attached target is verified STANDALONE by its own
   signature under its key, its `payloadType` and the statement oracle of
   `docs/predicates/relation.md` §4; its own `validity.expiresAt` is not judged. The edges of the
   receipt under verification are judged once its signature verifies, whatever else its validation
-  finds: a foreign `predicateType`, an unknown member or another finding, and an expired `validity`
-  make it malformed (exit 2), and `lineage` is still reported as its edges give it; under a signature
-  that fails (exit 1) the report's `lineage` is `null`.
+  finds: a foreign `predicateType`, an unknown member or another finding make it malformed (exit 2), an
+  expired `validity` fails its freshness check, and `lineage` is still reported as its edges give it;
+  under a signature that fails (exit 1) the report's `lineage` is `null`.
 
 ### Trust-policy hook (trust-policy v0.2, section `relations`)
 

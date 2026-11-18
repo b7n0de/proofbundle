@@ -23,6 +23,14 @@ WHAT IT REFUSES, each with a reason and the offset where it was decided (:class:
   indefinite strings; a chunk counts one level below its string, as in the two other strict readers), and a map key
   this reader cannot represent (an array, a map, a tag or a NaN as key).
 
+TWO KINDS OF REFUSAL SAY "NOT READ", NOT "NOT VALID". Every refusal is a :class:`CborInvalid`, with the same reason as
+before. Two subclasses mark the refusals that make no statement about validity: :class:`CborUnrepresentable` for
+valid input that holds a map key this reader does not represent (an array, a map or a tag as key, a NaN as key, and
+two distinct data items that are one Python dict key, such as 1 and true or 0 and 0.0), and :class:`CborBeyondLimits`
+for input over the byte, depth or width budget. A caller that has to tell "not valid" from "not read", as the
+statement reader of draft-gruszka-scitt-statement-identification-03 does, catches these two first; every other caller
+reads a :class:`CborInvalid` as it always did.
+
 WHAT IT ACCEPTS that a profile may still refuse: heads that are not in their shortest form and indefinite
 lengths. Both are valid CBOR under Section 5.3.1; requiring the preferred or deterministic encoding (Section 4.2)
 is a profile decision, made by the caller on top of this reader. Tags are returned as :class:`Tag` and are not
@@ -49,16 +57,27 @@ from typing import Any
 
 from .errors import BundleFormatError
 
-__all__ = ["CborInvalid", "Tag", "Simple", "UNDEFINED", "loads_strict_cbor", "load_item_strict"]
+__all__ = ["CborInvalid", "CborUnrepresentable", "CborBeyondLimits", "Tag", "Simple", "UNDEFINED",
+           "loads_strict_cbor", "load_item_strict"]
 
 
 class CborInvalid(BundleFormatError):
-    """The bytes are not one valid CBOR data item. ``reason`` is the rule, ``offset`` where it was decided."""
+    """The bytes are refused: not one valid CBOR data item, or, for the two subclasses below, not read by this
+    reader. ``reason`` is the rule, ``offset`` where it was decided."""
 
     def __init__(self, reason: str, offset: int):
         self.reason = reason
         self.offset = offset
         super().__init__(f"CBOR refused at offset {offset}: {reason}")
+
+
+class CborUnrepresentable(CborInvalid):
+    """Valid CBOR that this reader does not represent: a map key that is an array, a map, a tag or a NaN, or two
+    distinct data items that are one Python dict key. Says nothing about the validity of the input."""
+
+
+class CborBeyondLimits(CborInvalid):
+    """Input over the byte, depth or width budget of this reader. Says nothing about the validity of the input."""
 
 
 @dataclass(frozen=True)
@@ -104,11 +123,11 @@ def _key_marker(key: Any, offset: int):
         # Numerically equal floats are one key (RFC 8949 Section 5.6.1), so -0.0 and 0.0 are a duplicate: adding 0.0
         # turns -0.0 into 0.0 and leaves every other value as it is. A NaN key is refused, see the module docstring.
         if math.isnan(key):
-            raise CborInvalid("a NaN as map key, which this reader does not represent", offset)
+            raise CborUnrepresentable("a NaN as map key, which this reader does not represent", offset)
         return ("float", struct.pack(">d", key + 0.0))
     if typ is Simple:
         return ("simple", key.value)
-    raise CborInvalid("map key is an array, a map or a tag, which this reader does not represent", offset)
+    raise CborUnrepresentable("map key is an array, a map or a tag, which this reader does not represent", offset)
 
 
 class _Reader:
@@ -122,7 +141,8 @@ class _Reader:
     def _count(self, k: int, offset: int) -> None:
         self.items += k
         if self.items > self.max_items:
-            raise CborInvalid(f"more than {_grenze(self.max_items)} array elements, map pairs and string chunks", offset)
+            raise CborBeyondLimits(f"more than {_grenze(self.max_items)} array elements, map pairs and string chunks",
+                                   offset)
 
     def head(self, i: int):
         """-> (major type, argument or None for an indefinite length, offset after the head)."""
@@ -145,7 +165,7 @@ class _Reader:
 
     def item(self, i: int, depth: int):
         if depth > self.max_depth:
-            raise CborInvalid(f"nesting deeper than {_grenze(self.max_depth)}", i)
+            raise CborBeyondLimits(f"nesting deeper than {_grenze(self.max_depth)}", i)
         start = i
         mt, arg, i = self.head(i)
         if mt == 0:
@@ -163,7 +183,7 @@ class _Reader:
                         break
                     cpos = i
                     if depth + 1 > self.max_depth:
-                        raise CborInvalid(f"nesting deeper than {_grenze(self.max_depth)}", cpos)
+                        raise CborBeyondLimits(f"nesting deeper than {_grenze(self.max_depth)}", cpos)
                     cmt, carg, j = self.head(i)
                     if cmt != mt or carg is None:
                         raise CborInvalid("a chunk of an indefinite string is not a definite string of its type", cpos)
@@ -223,7 +243,7 @@ class _Reader:
                     # Two DIFFERENT data items that Python treats as one dict key: 1 and 1.0, true and 1, 0.0 and
                     # -0.0. Keeping both is impossible in a dict and keeping one is the silent merge this reader
                     # exists to refuse, so it refuses.
-                    raise CborInvalid(f"map keys {k!r} and an earlier key are distinct CBOR data items that "
+                    raise CborUnrepresentable(f"map keys {k!r} and an earlier key are distinct CBOR data items that "
                                       "collide as one dict key", kpos)
                 seen.add(marker)
                 v, i = self.item(i, depth + 1)
@@ -300,7 +320,7 @@ def load_item_strict(data: bytes, offset: int = 0, *, max_bytes: int | None = No
     data = bytes(data)
     mb, md, mi = _budget(max_bytes, max_depth, max_items)
     if len(data) > mb:
-        raise CborInvalid(f"input of {len(data)} bytes exceeds {_grenze(mb)}", 0)
+        raise CborBeyondLimits(f"input of {len(data)} bytes exceeds {_grenze(mb)}", 0)
     if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0 or offset > len(data):
         raise CborInvalid("offset outside the input", 0)
     return _Reader(data, md, mi).item(offset, 0)

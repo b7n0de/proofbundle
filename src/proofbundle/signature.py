@@ -22,7 +22,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 
 from ._membership import is_member
-from .canonical import _bytes_von, _ein_stand
+from .canonical import _bytes_von, _ein_stand, _puffer_von
 
 __all__ = ["verify_ed25519", "verify_ed25519_pinned", "ed25519_trust_anchor_weakness",
            "plain_bytes", "plain_text", "verify_ecdsa_p256", "verify_ecdsa_p384", "canonical_es256_signature"]
@@ -167,6 +167,56 @@ def plain_bytes(value: Any) -> "bytes | None":
     if issubclass(typ, bytearray):
         return bytes(bytearray.__getitem__(value, slice(None)))
     return None
+
+
+def _signaturbytes_von(value: Any) -> "bytes | None":
+    """A signer's output read once as the exact bytes it holds, or None: the reading of `_ed25519_signatur_von`
+    without its length, for a producer whose signature has another length.
+
+    Codex pre-review 13 of the class fix after 6.5.0: `trust_pack.sign_trust_pack` checked an ML-DSA-65 signer's
+    output through ``len()`` of the value `pqsig.sign_mldsa` returned. ``bytes(...)`` there keeps a ``bytes``
+    subclass whose ``__bytes__`` returns itself, so an output that reported 3309 and stored 750,001 bytes was written.
+    The length a producer checks is the length of these exact bytes, and they are what it writes.
+    """
+    roh = _puffer_von(value)
+    if roh is None:
+        try:
+            with memoryview(value) as sicht:
+                roh = sicht.tobytes()
+        except (BufferError, TypeError, ValueError):
+            return None
+    return roh
+
+
+def _ed25519_signatur_von(value: Any) -> "bytes | None":
+    """A signer's output as the 64 bytes of an Ed25519 signature, read once as the bytes it holds, or None.
+
+    THE ONE READ OF A SIGNER'S OUTPUT BY A PRODUCER (Codex pre-reviews 5 and 6 of the class fix after 6.5.0). A
+    producer of an Ed25519 signature asked its signer and wrote what came back, unchecked, into something its own
+    verifier reads under a budget or as one segment. A signer of another kind that returned 750,001 bytes gave a
+    bundle, a DSSE envelope or a Trust Pack that the verifier refuses at string_len, and 6,500,000 bytes gave a status
+    list token past the segment bound. Each producer reads the output here and refuses None with its own error.
+
+    Read by `canonical._puffer_von`, the reader of the surfaces that took any bytes-like value: ``bytes``, a subclass
+    and ``bytearray`` by their storage, and a ``memoryview`` by the buffer it already holds, so a signer that returns
+    its signature as a view keeps working (pre-review 6: `plain_bytes`, the reader of a caller's key, refuses a view,
+    and the SD-JWT producers refused a valid signature with it).
+
+    Any other object that exports a buffer is read as the bytes of that buffer, once, by ``memoryview.tobytes``
+    (pre-review 7). The producers read a signer's output with ``bytes(...)`` or wrote it where a buffer was taken, so
+    a view that is not C-contiguous (renewal's ``bytes(ed.sign(content))`` took one) and an ``array.array`` carried a
+    real signature before; `_puffer_von` refuses both because its concatenation needs contiguous storage. ``tobytes``
+    reads the exported buffer once and runs no ``__bytes__`` of the value. It is not free of the caller's code: on
+    Python 3.12 and later a class written in Python can export a buffer (pre-review 8). Its ``__buffer__`` runs once
+    when the view is taken; a ``BufferError``, ``TypeError`` or ``ValueError`` raised there makes the result None, any
+    other error reaches the producer. Its ``__release_buffer__`` runs once when the view is released; CPython hands an
+    error raised there to ``sys.unraisablehook`` and does not raise it here, so the bytes already read are returned
+    (pre-review 9, measured on 3.12, 3.13 and 3.14). The bytes read are copied, checked for their length and written as
+    they are, so what the export returns cannot change after the check. A value that exports no buffer (a ``str``, an
+    ``int``, a list, an object with only ``__bytes__``), a released view, and any length but 64 is None.
+    """
+    roh = _signaturbytes_von(value)
+    return roh if roh is not None and len(roh) == 64 else None
 
 
 @_ein_stand

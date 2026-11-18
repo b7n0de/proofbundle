@@ -1,5 +1,7 @@
 # Cross-Implementation Report (3.2.0 O8)
 
+**Where an independent Rust verifier agrees with the Python one, and what it does not cover yet.** This page is for reviewers who want a second implementation as a check. The Rust verifier is read-only and experimental and reproduces a measured part of the conformance corpus, and the current state comes from `scripts/rust_parity_gate.py`. Agreement between the two does not show that any recorded claim is true.
+
 **Machine-checked as of Finding 11 (2026-07-15):** this file is prose, and prose drifts — it did, in
 practice, before this note existed (a new Python `verify_*` surface can ship with nobody remembering to
 update the tables below). The **live, re-checked-every-run source of truth is
@@ -45,6 +47,7 @@ a green run means the Rust verifier computed the SAME value / reached the SAME v
 | RFC 6962 Merkle tree head | RFC 6962 | `merkle-root` | byte-identical hex vs Python |
 | native bundle verify exit-code contract (sig + inclusion + root/tree-size) | RFC 6962 / 9162 | `verify-bundle` | same exit code (0/1/2) as the Python CLI, incl. relying-party `--expected-root` / `--expected-tree-size` |
 | trust-pack/v0.1 root-of-trust THRESHOLD (Ed25519 leg only, Finding 11) | proofbundle `trust_pack.py` (TUF-inspired) | `verify-trust-pack-threshold` | same `root_threshold_met` boolean as Python's `verify_trust_pack`, on both a threshold-met and a threshold-NOT-met envelope; DISTINCT-key-material dedup (aliasing defense) reproduced independently. **PARTIAL**, not COVERED — see Pending below for what this slice does NOT check |
+| primary payload of a relation surface is its own RFC 8785 serialization, and a relation statement carries `schemaVersion` 0.1.x and a non-empty `statementId` (deep gate 6.6.0 at c3472f6f, L6 Z11) | RFC 8785 + proofbundle `relation_statement.py` | `verify-relation`, `verify-relation-statement` | same exit code as the Python CLI on a canonical control and on each mutant (block 4j) |
 
 The PAE byte rule (`DSSEv1 SP LEN(type) SP type SP LEN(body) SP body`) and the RFC 6962 node rule
 (`SHA256(0x01 ‖ left ‖ right)`) are implemented from the specs in Rust, not ported from the Python
@@ -94,7 +97,7 @@ an OPTIONAL layer, not the primary trust — with Sigsum / RFC 3161 / transparen
 `pb_verify_rs verify-bundle`, `verify-relation` and `verify-relation-statement` read their words with argparse's
 rules (Z381). Two forms stay different from the Python CLI by decision, and each is a contract, not a gap:
 
-- **R1.** A help word in a verify command (`-h`, `--help` or an abbreviation such as `--he`, also after the path)
+- **R1.** A help word in a verify command (`-h` or `--help`, also after the path)
   makes the Python CLI print its help and exit 0 without verifying anything, while `pb_verify_rs` exits 2, so an
   exit 0 after a help word is never a verdict.
 - **R2.** An option that only the Python CLI carries out (`--json` and `--policy` on `verify-bundle`, `--strict`
@@ -109,6 +112,25 @@ for the Python CLI and a number for `pb_verify_rs`; under 3.14 a digit of Unicod
 number for the Python CLI and a usage error (exit 2) for `pb_verify_rs`. The earlier relation form, the key as a word
 after the path without `--pub`, is still read by `pb_verify_rs` and refused by the Python CLI with exit 2. It is a
 residual of Z381 named in `docs/release_scope/6.4.0.md`, not a contract.
+
+**R3, a difference to be closed, not a contract.** Since 6.6.0 every parser of the Python CLI is built with
+`allow_abbrev=False`, so an abbreviated long option such as `--expected-r` for `--expected-root` or `--allow-p` for
+`--allow-pending` exits 2. `pb_verify_rs` still reads such an abbreviation as argparse with `allow_abbrev=True` does
+(`tools/pb_verify_rs/src/main.rs`, Z381), and `tools/pb_verify_rs/tests/py_grammatik.rs` still records the earlier
+Python reading as its expectation. The Rust verifier follows as an item of its own, and R3 is removed with it.
+
+**R4, a difference to be closed, not a contract.** Since 6.6.0 the Python CLI counts an attached `--with-related`
+receipt as verified only when its predicate also passes the structure check of its own type, the check its standalone
+verifier applies (`decision verify`, `outcome verify` and `relation-statement verify`). `pb_verify_rs` judges an
+attachment by its signature under its key, its strict and canonical payload, its in-toto `_type` and a predicate that
+is an object when one is present, and it counts an attachment of all three types without a predicate or with
+`predicate: null` as verified. It does not run the predicate schema of a decision, outcome or relation-statement receipt
+(the registry marks that surface PARTIAL). A correctly signed attachment whose predicate fails only that structure
+check, or that carries none, therefore makes `verify-relation` and `verify-relation-statement` answer as if it had
+verified, where Python exits 2. The rule of B22,
+that an attachment which did not verify fails the requested lineage check also where no edge names it, holds in both
+since 6.6.0, and `tools/pb_verify_rs/crosscheck.py` holds it at all three surfaces. The Rust verifier follows for the
+structure check as an item of its own, and R4 is removed with it.
 
 ## Pending — NOT yet covered by the Rust verifier (honest scope)
 

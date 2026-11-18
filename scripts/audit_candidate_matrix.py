@@ -112,7 +112,17 @@ _EVIDENZ_ZUSTAND: dict[str, str] = {}
 # under time pressure — exactly the risk Auflage C6 warns against ("eine dokumentierte Ausnahme
 # darf nicht still dieselbe Freigabestaerke behalten"). So: informative, and said so here, in the
 # inventory (`EVIDENCE_ADMISSION_INVENTORY` below) and in the check's own docstring — never silent.
-_INFORMATIVE_CHECKS = {"C1.2", "C1.3", "C9.2", "C10.2", "C10.3", "C10.4", "C10.5", "C11.3"}
+#
+# C6.3 JOINED THIS SET after release 6.5.0, by owner choice C on card OA-69770dad93 (2026-11-05) —
+# the same kind of documented, visible downgrade. The owner decided on 2026-09-08 (RESTRISIKO_600.md,
+# S21) that the full 24-hour soak is a named residual risk: it runs beside the release, its result is
+# added later, and it is NOT a gate that holds the tag. The matrix still listed C6.3 as release-
+# deciding, so without a signed 24-hour run it reported "not ready" for a tag the owner had already
+# decided not to hold. Its reader is unchanged: it still admits only signed, candidate-bound evidence
+# through `_signed_versioned_artifact`, and an INVALID artefact is still FAIL in its row. What changed
+# is only that its row no longer decides `audit_candidate_ready`. C6.2, the recorded soak of minutes
+# on the same artefact, stays release-deciding.
+_INFORMATIVE_CHECKS = {"C1.2", "C1.3", "C6.3", "C9.2", "C10.2", "C10.3", "C10.4", "C10.5", "C11.3"}
 _KNOWN_VERDICTS = {PASS, PENDING, DATA_BLOCKED, EXTERNAL, FAIL, NOT_APPLICABLE}
 _EXTERNAL_CHECK_ID = "EXT.1"  # the ONE explicitly-external open audit
 
@@ -2135,6 +2145,11 @@ def c6_3_full_24h():
     Faelle sind hier DATA_BLOCKED, und beide sind Aussagen ueber die Umgebung: es liegt GAR KEINE
     Aufzeichnung vor (diese Maschine ist keine Soak-Box), oder es liegt eine gueltige, aber KURZE
     vor (hier standen keine 24 Stunden zur Verfuegung).
+
+    INFORMATIVE since card OA-69770dad93 C, after the release 6.5.0: the decision of 2026-09-08
+    (RESTRISIKO_600, S21) names the 24-hour soak a residual risk that does not hold the tag. This row is
+    still measured and reported, but no longer decides `audit_candidate_ready` (``_INFORMATIVE_CHECKS``).
+    Its admission path is unchanged.
     """
     res = _soak_artifact()
     _EVIDENZ_ZUSTAND["C6.3"] = res["state"]
@@ -2637,9 +2652,24 @@ def c10_4_manifest_self_receipt():
     if not man.is_file():
         return FAIL, "readiness pack SHA-256 manifest missing"
     receipt_dir = REPO / "docs" / "readiness_pack" / "proofbundle"
-    has_receipt = receipt_dir.is_dir() and any(receipt_dir.iterdir())
-    return (PASS, "SHA-256 manifest + proofbundle self-receipt present (advisory dogfood)") if has_receipt \
-        else (PENDING, "SHA-256 manifest present; proofbundle self-receipt not generated (advisory)")
+    eintraege = sorted(receipt_dir.iterdir()) if receipt_dir.is_dir() else []
+    if not eintraege:
+        return PENDING, "SHA-256 manifest present; proofbundle self-receipt not generated (advisory)"
+    # THE FOLDER HOLDS EXACTLY WHAT THE PACK SCRIPT WRITES (DELTA2 N5, 2026-11-06): any entry used to
+    # pass, so a stray `.DS_Store` stood in for the self-receipt. The two files of
+    # `scripts/readiness_pack_manifest.py` (RECEIPT, PUBKEY) must be regular files, and an entry
+    # beside them, file, folder or link, is named by repr.
+    erwartet = ("readiness_pack.bundle.json", "readiness_pack.pub.b64")
+    fremd = [p.name for p in eintraege if p.name not in erwartet]
+    fehlt = [n for n in erwartet
+             if not (receipt_dir / n).is_file() or (receipt_dir / n).is_symlink()]
+    if fremd or fehlt:
+        return FAIL, ("the self-receipt folder docs/readiness_pack/proofbundle is not the pack's: "
+                      + (f"foreign entr(y/ies) {', '.join(repr(n) for n in fremd)}" if fremd else "")
+                      + ("; " if fremd and fehlt else "")
+                      + (f"missing or not a regular file {', '.join(repr(n) for n in fehlt)}"
+                         if fehlt else ""))
+    return PASS, "SHA-256 manifest + proofbundle self-receipt present (advisory dogfood)"
 
 
 def c10_5_runbook():
@@ -2863,7 +2893,9 @@ EVIDENCE_ADMISSION_INVENTORY = (
      "release_deciding": True},
     {"id": "C6.3", "property": "a full 24h soak artifact is present, attested and candidate-bound",
      "evidence_kind": "signed_versioned_artifact", "admission_fn": "c6_3_full_24h",
-     "release_deciding": True},
+     # Informative since card OA-69770dad93 C: the owner decision of 2026-09-08 (RESTRISIKO_600 S21)
+     # names the 24h soak a residual risk that does not hold the tag.
+     "release_deciding": False},
     {"id": "C8.2", "property": "Python<->Rust differential agrees on every recorded vector, "
                                 "population matches its own claim",
      "evidence_kind": "signed_versioned_artifact", "admission_fn": "c8_2_differential_agrees",

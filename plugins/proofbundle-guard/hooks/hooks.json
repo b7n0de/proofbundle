@@ -1,0 +1,144 @@
+{
+  "description": "Guard Preview hooks for Claude Code in the house profile of b7n0de: the plugin proofbundle-guard, which the owner's machines install beside proofbundle; proofbundle alone registers no hook (D134). These commands start the gate with the house's autonomous flag, the opt-in of D125: where the base decision path asks, the autonomous answer asks only for an external effect and denies the rest (D85, D93), and the standing GO for work-branch pushes needs its own consent (D129). Recognized git and gh shell forms can check declared evidence; local evidence is diagnostic only. Unrecognized code-carried operations and unresolved write targets can receive no decision. Level 1 is not a security boundary. The installed git pre-push hook is a separate, bypassable check. Host behaviour after a hook timeout is not measured. The Stop and TaskCompleted hooks run the done check of a declaring repository, and a SessionStart hook hands an open done blocker on (D127). A Read or Grep of a key file is denied (D102). The PostToolUse hooks count a session's open pull requests (D110) and the answered asks (D94).",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py\" --autonomous || { echo 'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }",
+            "timeout": 120
+          }
+        ]
+      },
+      {
+        "matcher": "^mcp__.+__(create_pull_request|create_merge_request|create_release|push_files|create_or_update_file|merge_pull_request)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py\" --autonomous || { echo 'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }",
+            "timeout": 120
+          }
+        ]
+      },
+      {
+        "matcher": "^(Write|Edit|MultiEdit|NotebookEdit)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py\" --autonomous || { echo 'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }",
+            "timeout": 120
+          }
+        ]
+      },
+      {
+        "matcher": "^(Read|Grep)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_secrets.py\" --autonomous || { echo 'proofbundle gate: the gate could not run, so the call is blocked' >&2; exit 2; }",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_answered.py\" || true",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "^mcp__.+__(create_pull_request|create_merge_request|create_release|push_files|create_or_update_file|merge_pull_request)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_answered.py\" || true",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "^(Write|Edit|MultiEdit|NotebookEdit)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_answered.py\" || true",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_answered.py\" || true",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "^mcp__.+__(create_pull_request|create_merge_request|create_release|push_files|create_or_update_file|merge_pull_request)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_answered.py\" || true",
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "^(Write|Edit|MultiEdit|NotebookEdit)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_answered.py\" || true",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py\" stop || { echo 'proofbundle done check: the check could not run, so the session does not end' >&2; exit 2; }",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "out=$(python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py\" task-completed) || { echo 'proofbundle done check: the check could not run, so the task stays open' >&2; exit 2; }; if [ -n \"$out\" ]; then printf '%s\\n' \"$out\" >&2; exit 2; fi",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/proofbundle_gate.py\" session-start || printf '%s\\n' '{\"systemMessage\": \"proofbundle done check: the hand-over could not run, so an open blocker was not handed on; the done check at Stop is unchanged (D127).\"}'",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
+}

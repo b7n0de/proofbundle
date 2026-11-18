@@ -392,7 +392,6 @@ class TheOldFormatIsNotReinterpreted(unittest.TestCase):
         bound refuses such a payload before the interpreter's recursion limit is reached, so the answer names
         BundleFormatError ("JSON nesting is too deep") where it named RecursionError. The boundary is the same: an
         answer, never an exception."""
-        from proofbundle import dsse
         tiefe = 10000
         while tiefe <= 10_000_000:
             try:
@@ -403,7 +402,10 @@ class TheOldFormatIsNotReinterpreted(unittest.TestCase):
         else:
             self.skipTest("NOT MEASURABLE: json.loads raised no RecursionError up to 10,000,000 nested arrays")
         roh = b"[" * tiefe + b"]" * tiefe
-        signiert = dsse.sign_envelope(roh, self.g.test_key("gate"), payload_type="application/vnd.in-toto+json")
+        # Past the budget on purpose: since deep gate 6.6.0 (Z7) dsse.sign_envelope refuses this body before it signs,
+        # so the envelope the reconciler must answer is built without the producer (tests/_dsse_ohne_budget.py).
+        from _dsse_ohne_budget import sign_ohne_budget
+        signiert = sign_ohne_budget(roh, self.g.test_key("gate"), payload_type="application/vnd.in-toto+json")
         antwort = self._reconcile(signiert)
         self.assertEqual(antwort["verdict"], self.g.UNKNOWN)
         self.assertIn("BundleFormatError", antwort["reasons"][0])

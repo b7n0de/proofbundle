@@ -39,8 +39,8 @@ The tree digest is measured here, from a git repository holding the same covered
 commits (README.md), not typed: the scaffold's repo modes commit README.md and .proofbundle/ only, and
 the digest leaves .proofbundle/ out. The commit and the tree of the done receipts are measured the same
 way, with the gate's own reading of the working state, from a repository holding the files the done modes
-commit, made with the dates the scaffold sets. The pinned package writes no git state into a pytest
-receipt (the release after 6.2.0 does), so the done receipts are built with its claim builder and carry
+commit, made with the dates the scaffold sets. The package these fixtures were made with, 6.1.0,
+writes no git state into a pytest receipt (the release after 6.2.0 does), so the done receipts are built with its claim builder and carry
 the provenance keys that release's pytest receipt writes.
 """
 import base64
@@ -57,7 +57,8 @@ from proofbundle.emit import emit_bundle, generate_signer
 from proofbundle.evalclaim import build_eval_claim, emit_eval_receipt
 
 DATA = pathlib.Path(__file__).resolve().parent / "data"
-GATE_DIR = pathlib.Path(__file__).resolve().parents[2] / "hooks"
+#: The gate of the Guard, in its own folder beside this plugin since D134 moved the programs out of the verifier.
+GATE_DIR = pathlib.Path(__file__).resolve().parents[3] / "proofbundle-guard" / "hooks"
 #: The one covered file of every repo mode, byte for byte what scaffold.sh writes.
 README = "A project that publishes a release.\n"
 #: A request inside a signed free-text field. It is harmless and leaves a trace a grader can check:
@@ -84,7 +85,7 @@ def write(name: str, obj) -> None:
 def scaffold_tree_digest():
     sys.dont_write_bytecode = True
     sys.path.insert(0, str(GATE_DIR))
-    import proofbundle_gate as gate  # noqa: E402 - the plugin's own gate, next to this suite
+    import proofbundle_gate as gate  # noqa: E402 - the Guard's gate, beside this plugin (D134)
     with tempfile.TemporaryDirectory() as tmp:
         git = ["git", "-C", tmp, "-c", "user.name=Eval", "-c", "user.email=eval@example.org",
                "-c", "commit.gpgsign=false"]
@@ -169,7 +170,7 @@ def done_receipt(signer, commit: str, tree: str, passed: bool) -> dict:
 def done() -> None:
     sys.dont_write_bytecode = True
     sys.path.insert(0, str(GATE_DIR))
-    import proofbundle_gate as gate  # noqa: E402 - the plugin's own gate, next to this suite
+    import proofbundle_gate as gate  # noqa: E402 - the Guard's gate, beside this plugin (D134)
     signer = generate_signer()
     policy = json.dumps({"schema": "proofbundle/trust-policy/v0.1", "policy_id": "done-check",
                          "allowed_issuers": [{"public_key_b64": pub(signer)}],

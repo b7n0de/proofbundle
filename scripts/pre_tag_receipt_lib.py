@@ -25,6 +25,8 @@ _SIGNED_FIELDS = (
     "schema", "version", "subject_tree_digest", "gate_source_digest",
     "audit_command", "audit_exit_code", "audit_output_digest", "runner_identity", "produced_at",
 )
+#: Every member a receipt may carry: the signed fields and the two that wrap them (DELTA2 N2).
+_RECEIPT_MEMBERS = frozenset(_SIGNED_FIELDS) | {"signature", "signer_pubkey"}
 
 
 # ── ONE FUNNEL FOR EVERY GIT CALL OF THE RECEIPT CHAIN ──────────────────────────────────────────
@@ -607,6 +609,27 @@ def subject_tree_digest(repo) -> str:
     return hashlib.sha256("\n".join(sorted(lines)).encode("utf-8")).hexdigest()
 
 
+def receipt_json(raw: bytes):
+    """A receipt file read the one way both of its readers read it: UTF-8 without loss, and every
+    member name at most once per object. Raises ValueError naming what is refused.
+
+    TWO READERS OF ONE FILE MUST SEE ONE RECEIPT (local review of 8a05ceef, 2026-11-10, P1). The gate
+    decoded with `errors="ignore"` and the third-party verifier strictly, so a byte that is not UTF-8
+    was dropped by one and refused by the other. Both parsed with `json.loads`, which keeps the LAST of
+    two equal names: a receipt carrying `audit_exit_code` 17 and then 0 verified as 0, while a reader
+    that keeps the first saw 17, under one signature. The package refuses duplicates on every verify
+    path (`proofbundle._strict_json`); the receipt is read the same way, without importing the judged
+    tree's code for it."""
+    def _einmal(paare):
+        obj = {}
+        for name, wert in paare:
+            if name in obj:
+                raise ValueError(f"the receipt names the member {name!r} twice in one object")
+            obj[name] = wert
+        return obj
+    return json.loads(raw.decode("utf-8"), object_pairs_hook=_einmal)
+
+
 def canonical_bytes(receipt: dict) -> bytes:
     """The exact bytes signed/verified: the SIGNED fields only, sorted, compact — never the signature
     or the signer pubkey (those wrap it). A missing signed field is a hard error, not a silent default,
@@ -692,6 +715,13 @@ def verify_receipt(receipt: dict, *, trusted_pubkeys: list[str], expected_versio
                 "instead of comparing against a placeholder that a receipt could simply carry")
     if receipt.get("schema") != RECEIPT_SCHEMA:
         return False, f"unknown schema {receipt.get('schema')!r} (want {RECEIPT_SCHEMA})"
+    # A MEMBER BESIDE THE SIGNED ONES TRAVELS UNSIGNED (DELTA2 N2, 2026-11-06): `canonical_bytes`
+    # signs `_SIGNED_FIELDS` only, so anything else in the object was carried under a verified
+    # receipt without being attested. The receipt is a closed set; each foreign member is named.
+    fremd = sorted((k for k in receipt if k not in _RECEIPT_MEMBERS), key=repr)
+    if fremd:
+        return False, ("receipt carries member(s) outside the signed set, which no signature covers: "
+                       + ", ".join(repr(k) for k in fremd))
     if receipt.get("version") != expected_version:
         return False, f"receipt version {receipt.get('version')!r} != release {expected_version!r}"
     if receipt.get("subject_tree_digest") != subject_tree_digest:

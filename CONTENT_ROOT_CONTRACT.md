@@ -1,5 +1,7 @@
 # Content Root Contract (Phase 1 / R51)
 
+**The one rule for how proofbundle computes the content root of a signed statement.** This page is for anyone who implements a verifier or audits how receipts are hashed. It cites the normative definition in ADR 0002 and the code, lists the predicate paths that use it, and names the conformance vectors that pin it.
+
 Generated 2026-08-24 (order `20260824T071500Z`; source document sha256
 `1bfc06cefd284867271862808e4929bf7070aa8c3eb5b1ad168356a3e9891709`). This document states the
 contract; the normative single source for the definition is **ADR 0002**

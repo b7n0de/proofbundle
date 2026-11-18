@@ -27,7 +27,7 @@ def _write_repo(t: Path, version: str, changelog_headings: list[str]) -> None:
     (t / "pyproject.toml").write_text(f'[project]\nname = "proofbundle"\nversion = "{version}"\n', encoding="utf-8")
     (t / "src" / "proofbundle" / "__init__.py").write_text(f'__version__ = "{version}"\n', encoding="utf-8")
     (t / "CITATION.cff").write_text(f"cff-version: 1.2.0\nversion: {version}\n", encoding="utf-8")
-    body = "# Changelog\n\n" + "".join(f"## [{h}] - 2026-07-12\n\n- something\n\n" for h in changelog_headings)
+    body = "# Changelog\n\n" + "".join(f"## [{h}] - 2026-07-12\n\nA release. Semantics do not change.\n\n- something\n\n" for h in changelog_headings)
     (t / "CHANGELOG.md").write_text(body, encoding="utf-8")
     _write_tracked_places(t, version)
 

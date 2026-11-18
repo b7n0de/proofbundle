@@ -43,6 +43,30 @@ __all__ = [
 ]
 
 
+#: The members `build_evidence_pack` writes (DELTA2 N3). The verifier refuses any other member and any
+#: other `type` or `packVersion`: a member nobody reads is a member a producer can put anything into.
+_PACK_TYPE = "opentimestamps-evidence-pack"
+_PACK_VERSION = "v0.2"
+_PACK_MEMBERS = frozenset({
+    "type", "packVersion", "canonicalRoot", "proof", "selfContained", "provenCalendars",
+    "provenCalendarOperators", "operatorRedundancy", "bundledHeaderEvidence", "declaredCalendars",
+    "declaredCalendarOperators", "declaredCalendarsVerified", "frozen"})
+#: EVERY PACK VERSION A RELEASE WROTE IS ITS OWN CLOSED SET (2026-11-10). proofbundle 3.2.0 to 3.3.0
+#: wrote `packVersion` v0.1 with `calendars` and `calendarRedundancy`; since 3.6.0 the builder writes
+#: v0.2 and exactly `_PACK_MEMBERS`, measured on the builder's source at every tag. Judging every pack
+#: against the v0.2 set alone turned a pack that a released version built, and that main verified by its
+#: proof, into `malformed_pack`. A pack is judged against the set of ITS version: the old pack stays
+#: readable, and a member of the other version, an unknown version or a foreign member is still refused.
+#: The formats are pairs, and a pack's `packVersion` is compared with each version by equality. A dict
+#: keyed by version hashed the value from outside, and only `isinstance(version, str)` stood between an
+#: unhashable value and a TypeError; equality hashes nothing (the membership guard, PR 515).
+_PACK_FORMATS = (
+    ("v0.1", frozenset({"type", "packVersion", "canonicalRoot", "proof", "selfContained", "calendars",
+                        "calendarRedundancy", "bundledHeaderEvidence", "frozen"})),
+    (_PACK_VERSION, _PACK_MEMBERS),
+)
+
+
 def _as_dict(v):
     """adversarial re-audit r5/r6 class-fix: Config-Sub-Feld als dict, sonst {} (das ``_as_dict(x.get(k))``-Idiom ersetzte nur FALSY)."""
     return v if isinstance(v, dict) else {}
@@ -119,8 +143,8 @@ def build_evidence_pack(canonical_root: bytes, proof: bytes, *,
     proven = _calendar_uris_of(timestamp) if timestamp is not None else []
     proven_operators = calendar_operators(proven)
     pack: dict = {
-        "type": "opentimestamps-evidence-pack",
-        "packVersion": "v0.2",
+        "type": _PACK_TYPE,
+        "packVersion": _PACK_VERSION,
         "canonicalRoot": base64.b64encode(canonical_root).decode(),
         "proof": base64.b64encode(proof).decode(),
         "selfContained": _classify(timestamp)[0] if timestamp is not None else False,
@@ -188,6 +212,23 @@ def verify_evidence_pack(pack: dict, *, rp_trust: Optional[dict] = None,
     except ValueError as exc:
         return {"ok": False, "warn": False, "status": "malformed_pack",
                 "detail": f"evidence pack is not a JSON object: {exc}"}
+    if not isinstance(pack, dict):
+        return {"ok": False, "warn": False, "status": "malformed_pack",
+                "detail": f"evidence pack must be a JSON object, got {type(pack).__name__}"}
+    if pack.get("type") != _PACK_TYPE:
+        return {"ok": False, "warn": False, "status": "malformed_pack",
+                "detail": f"evidence pack type is {pack.get('type')!r}, not {_PACK_TYPE!r}"}
+    version = pack.get("packVersion")
+    erlaubt = next((mitglieder for v, mitglieder in _PACK_FORMATS if v == version), None)
+    if erlaubt is None:
+        return {"ok": False, "warn": False, "status": "malformed_pack",
+                "detail": f"evidence pack packVersion is {version!r}, not one of "
+                          f"{sorted(v for v, _m in _PACK_FORMATS)!r}"}
+    fremd = sorted((k for k in pack if k not in erlaubt), key=repr)
+    if fremd:
+        return {"ok": False, "warn": False, "status": "malformed_pack",
+                "detail": f"evidence pack {version} carries member(s) its pack format does not have: "
+                          + ", ".join(repr(k) for k in fremd)}
     try:
         proof = decode_b64(pack["proof"])
         canonical_root = decode_b64(pack["canonicalRoot"])

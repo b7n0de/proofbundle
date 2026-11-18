@@ -1,0 +1,33 @@
+{
+  "session_id": "1d70bb73-fec3-4141-89e3-668ac90ee1a7",
+  "lines_converted": 8,
+  "dialog": 4,
+  "events": 4,
+  "events_by_type": {
+    "policy-decision": 2,
+    "tool-invocation": 1,
+    "tool-result": 1
+  },
+  "operations": {
+    "48253767-60e5-8ec8-97ba-0105d312234d": "toolu_01Jh5KN3htQGLpgnvy5xwFz6",
+    "b5622fed-eac6-8ca7-874f-c9b459139de2": "toolu_01HjMNbh61G3rhFxQuLpmQnQ"
+  },
+  "not_converted": {
+    "arguments of a disallowed operation (tool-invocation-00 6.1.1)": 1,
+    "tool result of a disallowed operation": 1,
+    "type attachment": 4
+  },
+  "receipts": {
+    "a-c3d403fa489a533ed075263186638b06-1.json": {
+      "verdict": "ESCALATE",
+      "call": "toolu_01HjMNbh61G3rhFxQuLpmQnQ",
+      "operation_id": "b5622fed-eac6-8ca7-874f-c9b459139de2"
+    },
+    "a-9f29d0cdfac2bc0ab4f1734466abf86a-1.json": {
+      "verdict": "DENY",
+      "call": "toolu_01Jh5KN3htQGLpgnvy5xwFz6",
+      "operation_id": "48253767-60e5-8ec8-97ba-0105d312234d"
+    }
+  },
+  "hook_messages": 4
+}

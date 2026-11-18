@@ -12,11 +12,14 @@ PROOFBUNDLE_EMIT=1 PROOFBUNDLE_THRESHOLD=0.9 inspect eval task.py --model mockll
 ```
 
 Installed via the `inspect_ai` entry-point group; when enabled, the hook can write a receipt at the end of a task.
-The `inspect` extra installs `inspect_ai>=0.3.112,<=0.3.281`. Configure it through environment variables.
+The `inspect` extra installs `inspect_ai>=0.3.112,<=0.3.288`. Configure it through environment variables.
 `PROOFBUNDLE_KEY` is a path to a file containing a 32-byte raw Ed25519 seed; when unset, signing uses an ephemeral
 key with a warning. `PROOFBUNDLE_OUT` selects a file or directory. `PROOFBUNDLE_METRIC` selects the metric,
 `PROOFBUNDLE_COMPARATOR` defaults to `>=`, and `PROOFBUNDLE_THRESHOLD` is required for receipt emission since
 5.0.0, with no default. The model and dataset stay salted commitments.
+`proofbundle verify` checks the signed payload of a receipt against the public key the receipt carries, not whose key
+that is, so a receipt someone changed and re-signed with their own key also verifies; pin the issuer you expect with
+`proofbundle show-eval --expect-issuer ed25519:<key>`, which then exits 1.
 
 ## pytest (pytest11 plugin)
 

@@ -58,15 +58,17 @@ class TestBudgetParitaet(unittest.TestCase):
         cls.rust = _binary()
 
     def _signiertes_ziel(self, zusatz: str | None = None):
-        from proofbundle.dsse import sign_envelope
+        from _dsse_ohne_budget import sign_ohne_budget
         from proofbundle.emit import generate_signer
         signer = generate_signer()
         pub = signer.public_key().public_bytes_raw()
         koerper = {"a": 1, "body": "laenger, damit padding entsteht"}
         if zusatz is not None:
             koerper["gross"] = zusatz
-        env = sign_envelope(json.dumps(koerper).encode(), signer,
-                            payload_type="application/vnd.test")
+        # Past the budget on purpose when `zusatz` is given: since deep gate 6.6.0 (Z7) dsse.sign_envelope refuses
+        # such a body before it signs, so the envelope both verifiers must refuse is built without the producer.
+        env = sign_ohne_budget(json.dumps(koerper).encode(), signer,
+                               payload_type="application/vnd.test")
         return env, base64.b64encode(pub).decode("ascii")
 
     def _rust_urteil(self, env, pub_b64):

@@ -1,5 +1,27 @@
 # Demo — see it work, then watch it fail
 
+**See a receipt pass, then watch tampering fail.**
+
+The demo builds a signed receipt in memory, verifies it, then changes it in six ways and shows that each change is caught. After the install it needs no checkout, no files and no network.
+
+## Try it
+
+```sh
+pip install proofbundle
+proofbundle demo
+```
+
+The last line says that every guarantee held, and the command exits with code 0. It exits with another code if any tampered receipt verifies, so it also works as a quick self-check. `proofbundle demo --json` prints the same result for a program to read.
+
+## Good to know
+
+- The demo shows that the signature and the Merkle proof catch changes. It does not show that a reported result is true.
+- The tiers below that run from a checkout or turn real eval logs into receipts need a clone or extra installs.
+
+The [technical details](#technical-details) follow below, with all three tiers and what a failure looks like.
+
+## Technical details
+
 Three tiers, each copy-paste, each stating its offline guarantee. Every block ends with the
 expected output so you can diff.
 

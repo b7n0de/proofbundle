@@ -718,9 +718,14 @@ MUTATIONS = [
      "    if False and (len(sdists) > 1 or len(wheels) > 1):",
      "matrix: Mehrdeutigkeit in dist/ wird nicht mehr abgewiesen", True),
     ("scripts/audit_candidate_matrix.py",
-     '_INFORMATIVE_CHECKS = {"C1.2", "C1.3", "C9.2", "C10.2", "C10.3", "C10.4", "C10.5", "C11.3"}',
-     '_INFORMATIVE_CHECKS = {"C1.2", "C1.3", "C9.2", "C10.3", "C10.4", "C10.5", "C11.3"}',
+     '_INFORMATIVE_CHECKS = {"C1.2", "C1.3", "C6.3", "C9.2", "C10.2", "C10.3", "C10.4", "C10.5", "C11.3"}',
+     '_INFORMATIVE_CHECKS = {"C1.2", "C1.3", "C6.3", "C9.2", "C10.3", "C10.4", "C10.5", "C11.3"}',
      "matrix: C10.2 wieder freigabeentscheidend hochgestuft", True),
+    # Card OA-69770dad93 C: C6.3 is informative; moving it back among the deciding rows must turn red.
+    ("scripts/audit_candidate_matrix.py",
+     '_INFORMATIVE_CHECKS = {"C1.2", "C1.3", "C6.3", "C9.2", "C10.2", "C10.3", "C10.4", "C10.5", "C11.3"}',
+     '_INFORMATIVE_CHECKS = {"C1.2", "C1.3", "C9.2", "C10.2", "C10.3", "C10.4", "C10.5", "C11.3"}',
+     "matrix: C6.3 wieder freigabeentscheidend hochgestuft", True),
 
     # D2-6 · das ausgeschlossene Signierskript zurueck in den sdist.
     ("MANIFEST.in",
@@ -909,11 +914,17 @@ def _cap_the_address_space_of_the_child() -> None:
 #: a mutant.
 #: The limit keeps its first reason (a mutant that removes a resource bound may hang the child), so it
 #: is not dropped: a mutant run may take 1.5 times as long as the baseline over the same selection
-#: took, and never less than 3600 s. The baseline has no measurement before it and runs under 5400 s.
+#: took, and never less than 3600 s. The baseline has no measurement before it and runs under 10800 s.
 #: A run past its limit stays NOT MEASURABLE, a gap, as before. The step limit of the CI job (345 min)
 #: still bounds a whole shard, and a shard it cuts is red.
+#: THE BASELINE LIMIT WAS 5400 S UNTIL 6.6.0 (owner card OA-26aee97e98, 2026-11-06). On the 6.5.0
+#: candidate 65bd4b7a the second full mutation run stopped with all 8 baselines past 5400 s, NOT
+#: MEASURABLE, because the suite had grown by about 60 % since 6.4.0. Run 5 of 6.5.0 set 10800 s at run
+#: time. Six of its eight shards ended with a verdict; shards 5 and 6 ran again as six groups, and the
+#: twelve logs together ended with 117 operators and no gap. The same limit now stands here, so a
+#: candidate needs no overlay to set it.
 GRENZE_JE_LAUF = 3600
-GRENZE_BASISLINIE = 5400
+GRENZE_BASISLINIE = 10800
 FAKTOR_JE_MUTANT = 1.5
 
 

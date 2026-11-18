@@ -1,5 +1,26 @@
 # Glossary — proofbundle in plain terms
 
+**The words proofbundle uses, in plain terms.**
+
+This page is for a developer without a background in cryptography. It explains what a receipt, a signature, a Merkle proof or a commitment means here and why it matters, with no math.
+
+## Try it
+
+```sh
+pip install proofbundle
+proofbundle demo
+```
+
+The demo shows a receipt that verifies and receipts that fail after a change, the core of every word below.
+
+## Good to know
+
+- `=> OK` means the signature and integrity checks for that receipt passed. Whether the signing key is one you should trust depends on the keys and the policy you supply, and `OK` does not mean the result is true.
+
+The [words and their meaning](#technical-details) follow below.
+
+## Technical details
+
 For a developer without a cryptography background. No math, just what each word means here and why
 it matters.
 

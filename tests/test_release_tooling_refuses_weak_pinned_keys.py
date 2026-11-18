@@ -260,6 +260,8 @@ THIRD_PARTY = {
     "pytest": "the test runner, for the part plugin of the CI job test (scripts/ci_test_part.py); it verifies no "
               "signature",
     "markdown_it": "a CommonMark parser, for reading what a Markdown text renders; it verifies no signature",
+    "coverage": "coverage.py, read by the closing step of the CI job coverage (scripts/ci_coverage_combine.py); it "
+                "verifies no signature",
     "ccf": "UNMODELLED",
 }
 

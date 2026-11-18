@@ -1,5 +1,7 @@
 # Eval-claim specification — `proofbundle/eval-claim/v0.1`
 
+**The format of an eval claim, the signed statement inside an eval receipt.** This page is for anyone who implements or checks eval receipts. It lists the fields, the canonical form and how the claim is bound to the key that signed it. Section 1 says what a receipt proves and what it does not.
+
 An **eval receipt** is a regular `proofbundle/v0.1` bundle (see [SPEC.md](SPEC.md))
 whose payload is a canonical **eval claim**. This document specifies the claim.
 

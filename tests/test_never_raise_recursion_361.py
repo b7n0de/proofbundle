@@ -15,7 +15,6 @@ import pathlib
 import tempfile
 import unittest
 
-from proofbundle import dsse
 from proofbundle.bundle import load_bundle
 from proofbundle.cli import _read_pubkey_line, main
 from proofbundle.decision import INTOTO_STATEMENT_PAYLOAD_TYPE, verify_decision_receipt
@@ -23,6 +22,7 @@ from proofbundle.emit import generate_signer
 from proofbundle.errors import BundleFormatError
 from proofbundle._strict_json import loads_strict
 from _lastdeckel import gedeckelt  # LAUF11-L3: Testlast am Speicher gedeckelt
+from _dsse_ohne_budget import sign_ohne_budget
 
 _DEEP_ARRAY = "[" * 4000 + "]" * 4000
 _DEEP_OBJECT = '{"a":' * 4000 + "1" + "}" * 4000
@@ -88,8 +88,10 @@ class NeverRaiseAllSurfaces(unittest.TestCase):
     def test_api_decision_verify_deep_payload_returns_verdict(self):
         # a validly-signed but pathologically deep payload -> stable fail-closed verdict, never a raise.
         signer = generate_signer()
-        env = dsse.sign_envelope(_DEEP_OBJECT.encode("utf-8"), signer,
-                                 payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+        # Past the budget on purpose: since deep gate 6.6.0 (Z7) dsse.sign_envelope refuses such a body before it signs,
+        # so the envelope a verifier must survive is built without the producer (tests/_dsse_ohne_budget.py).
+        env = sign_ohne_budget(_DEEP_OBJECT.encode("utf-8"), signer,
+                               payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
         r = verify_decision_receipt(env, signer.public_key().public_bytes_raw())
         self.assertIs(r["structure_ok"], False)
         self.assertIs(r["ok"], False)
@@ -116,7 +118,9 @@ class BudgetNeverRaise(unittest.TestCase):
 
     def _signed(self, payload_bytes):
         signer = generate_signer()
-        env = dsse.sign_envelope(payload_bytes, signer, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+        # Past the budget on purpose: since deep gate 6.6.0 (Z7) dsse.sign_envelope refuses such a body before it signs,
+        # so the envelope a verifier must survive is built without the producer (tests/_dsse_ohne_budget.py).
+        env = sign_ohne_budget(payload_bytes, signer, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
         return env, signer.public_key().public_bytes_raw()
 
     def test_wide_payload_over_node_budget_returns_verdict(self):

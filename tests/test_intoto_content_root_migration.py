@@ -174,12 +174,14 @@ class TestProofB_NewReceiptsUseJcs(unittest.TestCase):
 # ─────────────────────────────────────────────────────────────────────────────
 def _attack_statement(alg):
     # A float forces json.dumps(sort_keys) ("1.0") to DIFFER from RFC-8785/JCS ("1"), so a legacy body
-    # offered as jcs is provably non-canonical. Predicate shape is irrelevant to the binding check.
+    # offered as jcs is provably non-canonical. The predicate carries every member eval-result v0.1
+    # requires and the float in a member v0.1 does not know, so the binding is the only reason a verify
+    # can fail.
     stmt = {
         "_type": STATEMENT_TYPE,
         "subject": [{"name": "x", "digest": {"sha256": "a" * 64}}],
         "predicateType": EVAL_RESULT_PREDICATE_TYPE,
-        "predicate": {"threshold": 1.0},
+        "predicate": dict(to_eval_result_predicate(CLAIM, root_b64="cm9vdA=="), threshold=1.0),
     }
     if alg is not None:
         stmt["contentRootAlg"] = alg

@@ -1,5 +1,7 @@
 # Governance
 
+**Who decides what in proofbundle, and how trust is granted.** proofbundle is a single-maintainer project. This page says how decisions are made, what support to expect and how a contributor can gain rights step by step. Security reports go the private way that [SECURITY.md](SECURITY.md) describes.
+
 proofbundle is currently a **single-maintainer project** (Konrad Gruszka, [@b7n0de](https://github.com/b7n0de)).
 This document says how decisions are made and what support you can expect — honestly, without
 pretending to be a foundation.

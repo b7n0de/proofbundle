@@ -25,9 +25,19 @@ examples/verdict_contract/out/* -text
 examples/verdict_contract/reply.txt -text
 examples/verdict_contract/verdict_contract.py -text
 
+# examples/vcon_ai_agent_receipts/ (2026-11-03): check_example.py binds the signed vCon forms, the receipts and the
+# fixture by their bytes, and the SHA256SUMS of the folder binds every file in it, the scripts and the README too.
+# A checkout that rewrote line ends would fail both, so the rule pins the whole folder, as the checksum file covers it.
+examples/vcon_ai_agent_receipts/** -text
+
 # conformance/cap1/ (2026-10-26): SPEC.md §7l binds the vendored CAP-1 draft, its schema and its licence files by
 # sha256, so a checkout that rewrote line ends would no longer hold the author's bytes.
 conformance/cap1/draft-hillier-coverage-attestation-00.txt -text
 conformance/cap1/LICENSE-SPEC -text
 conformance/cap1/NOTICE -text
 conformance/cap1/CAP-1.schema.json -text
+
+# drafts/draft-gruszka-audit-decision-receipts/ (2026-11-13): Appendix A.5 of each revision of
+# draft-gruszka-audit-decision-receipts names its test package archive by its SHA-256 and gives its address at a fixed
+# commit of this repository, so a checkout that rewrote bytes would no longer hold the archives the drafts name.
+drafts/draft-gruszka-audit-decision-receipts/*.tar.gz -text

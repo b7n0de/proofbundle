@@ -1,0 +1,50 @@
+{
+ "derivation": [
+  "derived from V2-good",
+  "the member n with the number 1e+21 written after the member _type"
+ ],
+ "draft": "draft-gruszka-audit-decision-receipts-07",
+ "expected": {
+  "result": "pass",
+  "step": null
+ },
+ "id": "F94",
+ "inputs": {
+  "T": "2026-10-15T09:06:00Z",
+  "approval_record": null,
+  "case": "declined",
+  "consumption_state": null,
+  "decision": {
+   "action_bytes": {
+    "base64": "Z2ggcHIgbWVyZ2UgNyAtLXJlcG8gYWNtZS93aWRnZXRzIC0tbWVyZ2UK",
+    "length": 42,
+    "sha256": "5a7549948a1441addb710f5ada59e06dbce25cc5a59accf14f140379f47adb5b"
+   },
+   "envelope": {
+    "base64": "eyJwYXlsb2FkIjoiZXlKZmRIbHdaU0k2SW1oMGRIQnpPaTh2YVc0dGRHOTBieTVwYnk5VGRHRjBaVzFsYm5RdmRqRWlMQ0p1SWpveFpTc3lNU3dpY0hKbFpHbGpZWFJsSWpwN0ltRmpkR2x2Yms5MWRHTnZiV1VpT25zaWIzVjBZMjl0WlZKbFppSTZiblZzYkN3aWNHVnlabTl5YldWa1FYUWlPbTUxYkd3c0luTjBZWFIxY3lJNkltSnNiMk5yWldRaWZTd2lZV2RsYm5RaU9uc2lhV1FpT2lKaFoyVnVkQzAwTWlKOUxDSmtaV05wWkdWa1FYUWlPaUl5TURJMkxURXdMVEUxVkRBNU9qQTFPakF3V2lJc0ltUmxZMmx6YVc5dUlqcDdJbkpsWVhOdmJrTnZaR1Z6SWpwYkluSmxjWFZwY21Wa1gyTm9aV05yWDJaaGFXeGxaQ0pkTENKMlpYSmthV04wSWpvaVJFVk9XU0o5TENKa1pXTnBjMmx2YmtOb1lXNW5aVU52Ym1ScGRHbHZibk1pT2x0N0ltTnZibVJwZEdsdmJsUjVjR1VpT2lKeWRXeGxRMmhoYm1kbElpd2laR1Z6WTNKcGNIUnBiMjRpT2lKaElHTm9ZVzVuWldRZ1oyRjBaU3dnYlc5a1pTQnZjaUJ5ZFd4bElHOW1JSFJvWlNCbllYUmxJbjFkTENKa1pXTnBjMmx2Ymtsa0lqb2laR1ZqTFRBd01ESWlMQ0prWldOcGMybHZiazFoYTJWeUlqcDdJbWxrSWpvaVoyRjBaUzB4SW4wc0ltUmxZMmx6YVc5dVZIbHdaU0k2SW5CeVpVRmpkR2x2YmtGMWRHaHZjbWw2WVhScGIyNGlMQ0psZG1sa1pXNWpaVkpsWm5NaU9sdGRMQ0pwYm5CMWRGTnVZWEJ6YUc5MElqcGJleUprYVdkbGMzUWlPbnNpYzJoaE1qVTJJam9pTldFM05UUTVPVFE0WVRFME5ERmhaR1JpTnpFd1pqVmhaR0UxT1dVd05tUmlZMlV5TldOak5XRTFPV0ZqWTJZeE5HWXhOREF6TnpsbU5EZGhaR0kxWWlKOUxDSnRaV1JwWVZSNWNHVWlPaUowWlhoMEwzQnNZV2x1SWl3aWJtRnRaU0k2SW5CeWIzQnZjMlZrSUdKNWRHVnpJbjFkTENKdWIzUkRhR1ZqYTJWa0lqcGJleUptYVdWc1pDSTZJbU52Ym5SbGJuUWlMQ0pwYlhCaFkzUWlPaUpoYmlCaGNIQnliM1psWkNCMFpYaDBJR05oYmlCaVpTQjNjbTl1WnlJc0luSmxZWE52YmlJNkluUm9aU0JuWVhSbElHUnZaWE1nYm05MElHcDFaR2RsSUhkb1pYUm9aWElnZEdobElIUmxlSFFnYVhNZ2RISjFaU0o5WFN3aWNHOXNhV041UW05MWJtUmhjbmtpT25zaVluVnVaR3hsVW1WMmFYTnBiMjRpT2lJeElpd2laR1ZqYVhOcGIyNVFZWFJvSWpvaWIzVjBZbTkxYm1RdFoyRjBaUzlrWlc1NUxYZHlhWFJsSWl3aWNHOXNhV041UkdsblpYTjBJanA3SW5Ob1lUSTFOaUk2SWpRek56ZzVZalF4T1RFMVlXVXdabVZpWTJReE16STJNMlF5T1RNeE1ERmhaalZoWWpBME1XVmlOMk15TXpSbE1XTmlaVFl5TldRMk16RXlPREUxWmpZaWZTd2ljRzlzYVdONVJXNW5hVzVsSWpvaWNISnZiMlppZFc1a2JHVXRjR2xzYjNRdloybDBhSFZpTFhkeWFYUmxJaXdpY0c5c2FXTjVTV1FpT2lKdmRYUmliM1Z1WkMxbllYUmxMWEoxYkdWekluMHNJbkJ5YVc1amFYQmhiQ0k2ZXlKcFpDSTZJblZ6WlhJdE1USXpJbjBzSW5CeWFYWmhZM2tpT25zaWNtRjNTVzV3ZFhSelNXNWpiSFZrWldRaU9tWmhiSE5sZlN3aWNISnZjRzl6WldSQlkzUnBiMjRpT25zaVlXTjBhVzl1Vkhsd1pTSTZJbWRwZEdoMVlpNXRaWEpuWlNJc0ltMWxkR2h2WkNJNkluZHlhWFJsSWl3aWNHRnlZVzFsZEdWeWMwUnBaMlZ6ZENJNmV5SnphR0V5TlRZaU9pSTFZVGMxTkRrNU5EaGhNVFEwTVdGa1pHSTNNVEJtTldGa1lUVTVaVEEyWkdKalpUSTFZMk0xWVRVNVlXTmpaakUwWmpFME1ETTNPV1kwTjJGa1lqVmlJbjBzSW5SaGNtZGxkQ0k2ZXlKdVlXMWxJam9pYUhSMGNITTZMeTluYVhRdVpYaGhiWEJzWlM5aFkyMWxMM2RwWkdkbGRITXZjSFZzYkM4M0lpd2lkWEpwSWpvaWFIUjBjSE02THk5bmFYUXVaWGhoYlhCc1pTOWhZMjFsTDNkcFpHZGxkSE12Y0hWc2JDODNJbjE5TENKelkyaGxiV0ZXWlhKemFXOXVJam9pTUM0eExqQWlMQ0owY21GalpVTnZiblJsZUhRaU9uc2ljR0Z5Wlc1MFNXUWlPaUpwYm5RdE1EQXpJaXdpZEhKaFkyVkpaQ0k2SW5SeVlXTmxMV0ZpWXlKOUxDSjJZV3hwWkdsMGVTSTZleUpoZFdScFpXNWpaU0k2V3lKdlluTmxjblpsY2kweElsMHNJbVY0Y0dseVpYTkJkQ0k2SWpJd01qWXRNVEF0TVRWVU1EazZNVEE2TURCYUlpd2libTl1WTJVaU9pSmtaV010TURBd01pSjlmU3dpY0hKbFpHbGpZWFJsVkhsd1pTSTZJbWgwZEhCek9pOHZZamR1TUdSbExtTnZiUzl3Y205dlptSjFibVJzWlM5d2NtVmthV05oZEdWekwyUmxZMmx6YVc5dUxYSmxZMlZwY0hRdmRqQXVNU0lzSW5OMVltcGxZM1FpT2x0N0ltUnBaMlZ6ZENJNmV5SnphR0V5TlRZaU9pSTRaVEF6WVRkak5HSmpZbVZoTURFNU1HTXdOVFpsWmpBNVlUTmlOelV3TW1JMFpUY3laVGN6T1RSa1pHSmxPREJoTjJFNVpXRm1OMlZqTXpjMVlqRmtJbjBzSW01aGJXVWlPaUprWldOcGMybHZianBrWldNdE1EQXdNaUo5WFgwPSIsInBheWxvYWRUeXBlIjoiYXBwbGljYXRpb24vdm5kLmluLXRvdG8ranNvbiIsInNpZ25hdHVyZXMiOlt7ImtleWlkIjoiU0hBMjU2Ok5qWk1BZWxMcTlYT04zcHhWNXRSNWhaalg5OU5rUXl3NGdHSlNSYzJnUDgiLCJzaWciOiJVTEpmQU1OeUlyWlRNbHRVbXV3ajFuNDhlU2hNZTVzbFplZi9YNzRuQmVpWDBiVldSMWI0ZWd5ODYxVVpSWXNHbmFNY0ZYZXdoVzFLbFovcll3VjZDZz09In1dfQ==",
+    "length": 2602,
+    "sha256": "6362d8c83b6384c0997ff13695026e9027b8ae16b1bedfd3247ff60a73378c69"
+   },
+   "expected_audience": "observer-1",
+   "expected_decision_maker": "gate-1",
+   "expected_nonce": "dec-0002",
+   "public_key": "TWfs75IN1In3CNI8TnyIOUHgtwilOPGcRFQLJ670CJc="
+  },
+  "held_receipts": null,
+  "outcome": null,
+  "trust_policy": {
+   "decision": {
+    "TWfs75IN1In3CNI8TnyIOUHgtwilOPGcRFQLJ670CJc=": [
+     "gate-1"
+    ]
+   },
+   "outcome": {
+    "4hDsi5TCL+A+9SB7k2l4EkY7XePUheE+zE9mBazt2Fs=": [
+     "forge:agent-42-bot"
+    ]
+   }
+  }
+ },
+ "procedure": "decision receipt",
+ "source": "test package"
+}

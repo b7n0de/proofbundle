@@ -50,6 +50,10 @@ PLUGIN = REPO / "scripts" / "ci_test_part.py"
 SUITE = "python -m pytest -q --numprocesses=auto --dist=worksteal -p scripts.ci_test_part --ci-part=$CI_PART"
 #: The step that builds the Rust verifier the suite requires; every part needs it.
 BUILD = "cd tools/pb_verify_rs && cargo build --release"
+#: The step that fills uv's cache with the plugin's pinned verifier; every part runs plugin tests offline from it.
+#: Named by its step name: its command names the plugin's server, a test file naming the plugin is a plugin test
+#: (tests/_plugin_env.py), and tests/test_plugin_ci_uv_cache.py holds that command word for word.
+FILL = "Fill uv's cache with the plugin's pinned verifier (the suite reads it offline)"
 #: The condition of a check that runs once per version.
 PART_ONE = "matrix.part == 1"
 #: The share of collected files the weights must know; below it the table is stale, not wrong.
@@ -98,7 +102,8 @@ def job_findings(job: dict) -> list[str]:
         name = s.get("name") or s.get("uses") or run
         if "continue-on-error" in s:
             findings.append(f"the step {name!r} carries `continue-on-error`")
-        every_part = "uses" in s or s is step or run.strip() == BUILD or "pip install" in run
+        every_part = ("uses" in s or s is step or run.strip() == BUILD or s.get("name") == FILL
+                      or "pip install" in run)
         if every_part:
             if "if" in s:
                 findings.append(f"the step {name!r} carries `if`, and every part needs it")
@@ -264,7 +269,8 @@ class TheJobCheckCatchesWhatItIsFor(unittest.TestCase):
                          {"name": "Lint", "if": PART_ONE, "run": "ruff check ."},
                          {"name": "Build", "run": BUILD},
                          {"name": "Test", "env": {"CI_PART": "${{ matrix.part }}/2"}, "run": SUITE},
-                         {"name": "Gate", "if": PART_ONE, "run": "python scripts/test_manifest_gate.py"}]}
+                         {"name": "Gate", "if": PART_ONE, "run": "python scripts/test_manifest_gate.py"},
+                         {"name": FILL, "env": {"UV_OFFLINE": "false"}, "run": "uv run --script server.py"}]}
         job.update(changes)
         return job
 
@@ -296,6 +302,7 @@ class TheJobCheckCatchesWhatItIsFor(unittest.TestCase):
             "not 'python": self._with_step(4, run="python -m pytest -q --numprocesses=auto --dist=worksteal"),
             "CI_PART": self._with_step(4, env={"CI_PART": "${{ matrix.part }}/3"}),
             "every part needs it": self._with_step(3, **{"if": PART_ONE}),
+            f"the step {FILL!r} carries `if`": self._with_step(6, **{"if": PART_ONE}),
             "not once per version": lint_everywhere,
             "carries `continue-on-error`": self._with_step(5, **{"continue-on-error": True}),
             "one suite step": self._job(steps=[]),
@@ -321,6 +328,66 @@ class TheJobCheckCatchesWhatItIsFor(unittest.TestCase):
                                          "the order of the collected items must not change the assignment")
         self.assertEqual(plugin.unit_of("tests/test_0.py::test_1", heavy), "tests/test_0.py::test_1")
         self.assertEqual(plugin.unit_of("tests/test_0.py::test_2", heavy), "tests/test_0.py")
+
+
+@unittest.skipIf(yaml is None, "PyYAML is missing, so the workflow cannot be read")
+class TheTimeLimitFollowsTheMeasuredParts(unittest.TestCase):
+    """The comment above the limit said it comes down once three runs on main have measured a part. Three have: the
+    longest part took 15.1 minutes on main and 20.9 in a PR run (owner decision of 2026-10-30, 45 minutes). The lower
+    bound, the measured part plus its reserve, is held in ONE table, GEMESSENE_MAXIMA_MIN in
+    tests/test_der_ci_schnitt_haelt.py; this test holds the upper one, so a hung part stops within the hour."""
+
+    def test_the_limit_of_a_part_is_at_most_45_minutes(self):
+        self.assertLessEqual(_test_job()["timeout-minutes"], 45)
+
+
+@unittest.skipIf(yaml is None, "PyYAML is missing, so the workflow cannot be read")
+class TheNoteSaysWhatTheWeightsHold(unittest.TestCase):
+    """The rereading of the weights of PR 440 (Z6): the note said "no file is heavier than a part". Measured on
+    30.10.2026 at 647ed0a2: two files weigh more than a mean part in all (the heaviest 3055 s against 1389 s over seven
+    parts), and no unit does, because the heavy tests of a file are units of their own."""
+
+    def test_no_unit_is_heavier_than_a_mean_part_and_the_note_says_unit(self):
+        plugin = _plugin()
+        data = json.loads(plugin.WEIGHTS.read_text(encoding="utf-8"))
+        files, tests, offset = plugin.load_weights()
+        parts = len(_test_job()["strategy"]["matrix"]["part"])
+        mean_part = (sum(files.values()) + sum(tests.values()) + offset) / parts
+        heaviest = max([*files.values(), *tests.values()])
+        self.assertLessEqual(heaviest, mean_part, "a unit is heavier than a mean part; split it in the weights")
+        self.assertIn("no unit is heavier than a part", data["note"])
+        self.assertNotIn("no file is heavier than a part", data["note"])
+
+
+class TheWeightsRejectWhatIsNoDuration(unittest.TestCase):
+    """The first reading of PR 440 (Z7): `load_weights` checked only `v < 0`. JSON reads `1e309` as infinity and `NaN`
+    as not a number, and both passed; an infinite weight pins every unit after it to one part."""
+
+    CASES = {
+        "infinite file": '{"seconds": {"tests/test_a.py": 1e309}, "tests": {}, "part_one_offset_seconds": 0}',
+        "nan test": '{"seconds": {"tests/test_a.py": 1}, "tests": {"tests/test_a.py::t": NaN}, '
+                    '"part_one_offset_seconds": 0}',
+        "infinite offset": '{"seconds": {"tests/test_a.py": 1}, "tests": {}, "part_one_offset_seconds": 1e309}',
+    }
+
+    def test_infinity_and_nan_are_a_usage_error(self):
+        import pytest
+        plugin = _plugin()
+        with tempfile.TemporaryDirectory() as t:
+            for name, text in self.CASES.items():
+                with self.subTest(name):
+                    p = pathlib.Path(t) / "weights.json"
+                    p.write_text(text, encoding="utf-8")
+                    with self.assertRaises(pytest.UsageError):
+                        plugin.load_weights(p)
+
+    def test_finite_weights_still_load(self):
+        plugin = _plugin()
+        with tempfile.TemporaryDirectory() as t:
+            p = pathlib.Path(t) / "weights.json"
+            p.write_text('{"seconds": {"tests/test_a.py": 1.5}, "tests": {"tests/test_a.py::t": 0}, '
+                         '"part_one_offset_seconds": 2}', encoding="utf-8")
+            self.assertEqual(plugin.load_weights(p), ({"tests/test_a.py": 1.5}, {"tests/test_a.py::t": 0.0}, 2.0))
 
 
 if __name__ == "__main__":

@@ -114,8 +114,9 @@ def _trust_pack():
         "witnesses")}
     return {"schemaVersion": "0.1.0", "trustPackId": "t", "version": 2, "expires": "2099-01-01T00:00:00Z",
             "prevVersionDigest": {"sha256": H("f")}, "roles": roles,
+            # executorIds (6.6.0) is filled too, so the generator bends it like every other optional field
             "keys": {"k1": {"publicKey": base64.b64encode(b"\x01" * 32).decode(), "scheme": "ed25519",
-                            "alg": "ed25519"},
+                            "alg": "ed25519", "executorIds": ["e"]},
                      "k2": {"publicKey": base64.b64encode(b"\x02" * 32).decode(), "alg": "hybrid-ed25519-mldsa65",
                             "publicKeyPq": base64.b64encode(b"\x03" * 1952).decode()}},
             "revoked": ["k2"], "nonClaims": ["n"]}

@@ -1,5 +1,7 @@
 # Conformance policy — the corpus is the original authority
 
+**The rules that decide what a proofbundle verifier must accept and reject.** This page is for anyone who builds a second implementation or changes the test corpus. The corpus in [conformance/](conformance/README.md) is the authority, and this page sets how its cases are pinned, labelled and changed. How to run the corpus is in its README.
+
 The [`conformance/`](conformance/README.md) corpus is the **original authority** on what a
 proofbundle verifier must accept and reject. When an implementation and the corpus disagree,
 the corpus wins until a governed change (below) says otherwise. This file is the *policy*;

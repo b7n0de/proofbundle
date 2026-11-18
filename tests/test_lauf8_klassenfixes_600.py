@@ -108,6 +108,12 @@ class EinNichtLesbaresPraedikatIstNichtSchweigen(unittest.TestCase):
     fehlendes oder ausdruecklich leeres Praedikat bleibt unberuehrt (in-toto v1 erlaubt es), und
     eine fremde Attestation wird nicht beurteilt."""
 
+    # CHANGED BY THE DEEP GATE OF 6.6.0 AT c3472f6f (lens L6, Z4, P1; the owner chose A on the card of that run): since
+    # 6.6.0 the resolver applies to every attachment the structure check of its own type, the one its standalone
+    # verifier applies (docs/predicates/relation.md, RELATION_TARGET_MALFORMED). For OUR types that check requires a
+    # predicate, and alone a missing one and `null` end with exit 2. The jury rule therefore holds for FOREIGN types,
+    # for which in-toto allows a missing predicate; for our types it is a form error like a list.
+
     def _lauf(self, praedikat, **kw):
         sk = generate_signer()
         pub = sk.public_key().public_bytes_raw()
@@ -130,13 +136,21 @@ class EinNichtLesbaresPraedikatIstNichtSchweigen(unittest.TestCase):
         self.assertTrue(e["payload_malformed"])
         self.assertFalse(e["verified"])
 
-    def test_GEGENRICHTUNG_null_und_fehlend_bleiben_unberuehrt(self):
-        """Die Jury hat meine erste Fassung hier widerlegt: sie wies auch `null` ab."""
+    def test_GEGENRICHTUNG_null_und_fehlend_bleiben_bei_einem_fremden_typ_unberuehrt(self):
+        """The jury refuted my first version here, which refused `null` as well. For a FOREIGN type that still holds."""
+        for name, kw in (("null", {}), ("fehlt", {"weglassen": True})):
+            with self.subTest(fall=name):
+                e = self._lauf(None, predicate_type="https://example.org/fremd/v1", **kw)
+                self.assertIsNone(e["payload_malformed"])
+                self.assertTrue(e["verified"])
+
+    def test_null_und_fehlend_sind_bei_einem_eigenen_typ_ein_formfehler(self):
+        """Deep gate 6.6.0 at c3472f6f, L6 Z4: the same bytes alone end with exit 2."""
         for name, kw in (("null", {}), ("fehlt", {"weglassen": True})):
             with self.subTest(fall=name):
                 e = self._lauf(None, **kw)
-                self.assertIsNone(e["payload_malformed"])
-                self.assertTrue(e["verified"])
+                self.assertTrue(e["payload_malformed"])
+                self.assertFalse(e["verified"])
 
     def test_GEGENRICHTUNG_eine_fremde_attestation_wird_nicht_beurteilt(self):
         e = self._lauf([1, 2, 3], predicate_type="https://example.org/fremd/v1")
@@ -144,9 +158,21 @@ class EinNichtLesbaresPraedikatIstNichtSchweigen(unittest.TestCase):
         self.assertTrue(e["verified"])
 
     def test_GEGENRICHTUNG_ein_objekt_als_praedikat_wird_gelesen(self):
-        e = self._lauf({"relationships": []})
+        # A VALID relation-statement predicate (deep gate 6.6.0, Z4): since 6.6.0 the resolver applies the structure
+        # check of its own type, and the skeleton {"relationships": []} that stood here before is not one. What this
+        # test says stays: an object is read, and its edges are taken over.
+        kante = {"relation": "retracts", "targetReceiptDigest": {"digestAlgorithm": "jcs-sha256-v1", "digest": "c" * 64},
+                 "reasonCode": "withdrawal", "reason": "x", "declaredAt": "2026-01-01T00:00:00Z"}
+        e = self._lauf({"schemaVersion": "0.1.0", "statementId": "urn:uuid:lauf8", "relationships": [kante]})
         self.assertIsNone(e["payload_malformed"])
-        self.assertEqual(e["relationships"], [])
+        self.assertTrue(e["verified"])
+        self.assertEqual(e["relationships"], [kante])
+
+    def test_ein_skelett_als_eigenes_praedikat_ist_ein_formfehler(self):
+        # The line Z4 draws, at exactly the value that stood here before as the counter-case.
+        e = self._lauf({"relationships": []})
+        self.assertTrue(e["payload_malformed"])
+        self.assertFalse(e["verified"])
 
 
 class EinUnlesbarerNachbarMaskiertKeineRuecknahme(unittest.TestCase):

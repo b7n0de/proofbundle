@@ -420,6 +420,15 @@ AUSGESCHLOSSEN = {
     # tests/test_ci_test_parts_cover_the_suite.py, names .github/ and skips outside a checkout.
     "ci_test_part.py": "splits the suite of the CI job `test` into parts; no CI matrix inside a package",
     "ci_test_part_weights.json": "the measured weights of ci_test_part.py; they name files of this checkout",
+    # 2026-11-02: the closing step of the CI job `coverage`, which checks and combines the data of the parts of
+    # `coverage-part`. An installed package has no CI matrix and no coverage artifacts. Its contract,
+    # tests/test_coverage_parts_cover_the_suite.py, names .github/ and skips outside a checkout.
+    "ci_coverage_combine.py": "combines the coverage data of the CI parts; no CI matrix inside a package",
+    # 2026-11-03: build and check the plugin release artifacts from the git objects of one commit, the plugin
+    # folders among them, which `prune plugins` keeps out of the sdist. An installed package has neither a git
+    # tree nor the plugins. Their contract, tests/test_plugin_release_artifacts.py, skips where they are absent.
+    "plugin_release_artifacts.py": "builds the plugin release from a git tree and plugins/; neither is in the package",
+    "plugin_release_run_probe.sh": "drives plugin_release_artifacts.py over a git tree; neither is in the package",
 }
 
 #: Vom MANIFEST global ausgeschlossen (`global-exclude *.py[cod]`), also nie eine Entscheidung

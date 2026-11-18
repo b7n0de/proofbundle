@@ -301,7 +301,12 @@ def _sign_ats_content(content: bytes, sig_alg: str, signers: dict) -> tuple:
         ed = signers.get("ed25519")
         if ed is None:
             raise RenewalError(f"sig_alg {sig_alg!r} needs an 'ed25519' signer")
-        sigs.append(("ed25519", base64.b64encode(bytes(ed.sign(content))).decode("ascii")))
+        from .signature import _ed25519_signatur_von  # noqa: PLC0415
+        ed_sig = _ed25519_signatur_von(ed.sign(content))
+        if ed_sig is None:
+            raise RenewalError("the 'ed25519' signer returned no 64-byte Ed25519 signature, so no timestamp is "
+                               "returned")
+        sigs.append(("ed25519", base64.b64encode(ed_sig).decode("ascii")))
     if sig_alg in ("mldsa65", "hybrid-ed25519-mldsa65"):
         m = signers.get("mldsa65")
         if m is None:

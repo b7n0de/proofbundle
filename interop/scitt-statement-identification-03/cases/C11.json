@@ -1,0 +1,63 @@
+{
+ "derivation": [
+  "Statement 01 with its 64 signature bytes replaced: R is a canonical encoding of a point of mixed order, and S is below L. Rule 2 refuses R, so sig_valid is False while the ToBeSigned reference matches. With rule 2 left out, the cofactored equation holds and the cofactorless equation does not.",
+  "The candidate is statement 01 with its 64 signature bytes replaced by (hex):"
+ ],
+ "draft": "draft-gruszka-scitt-statement-identification-03",
+ "expected": {
+  "is_scitt": true,
+  "match": "MATCH",
+  "ref_usable": true,
+  "sig_valid": false
+ },
+ "id": "C11",
+ "inputs": {
+  "candidate": {
+   "base64": "0oRYe6QBMgNwYXBwbGljYXRpb24vanNvbgRYIA5uhs0gwH306Vy0oHooYZLSn8dFZ7Qecm8cf3vSAutbD6MBdmh0dHBzOi8vaXNzdWVyLmV4YW1wbGUCeCBwa2c6Z2VuZXJpYy9leGFtcGxlLXdpZGdldEAxLjAuMAYaaM57IKBYhnsiYXJ0aWZhY3QiOiJleGFtcGxlLXdpZGdldC0xLjAuMC50YXIuZ3oiLCJsaWNlbnNlIjoiTUlUIiwic2hhMjU2IjoiNjA3ZTZjMWU2YzM1ZGNjOWI3NzBkZTVkYTkyYjk2OTcwNGEzNjZkNDY4OTcyYThiNTVkMWEwYzMyZGIzNGE3MiJ9WECVmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmS1axay0kzwXkAmKVlV3lav0ip9l9GNlUmWeConSoxEN",
+   "length": 330,
+   "sha256": "d1e77e708d759c9b393e93708968887df1ef0e56872166877f68d4ff9e43afe1"
+  },
+  "detached_payload": null,
+  "external_aad": {
+   "base64": "",
+   "length": 0,
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "reference": {
+   "base64": "gy9qVG9CZVNpZ25lZFggw/XxN2Rnm593kYu1J4JIC8IivlrkvON/UThKax+qnbw=",
+   "length": 47,
+   "sha256": "dadea76ef3137c95552e76c247908376cd69cf1883c49b391feef443ecbdbd42"
+  },
+  "scheme": {
+   "alg": -16,
+   "name": "ToBeSigned"
+  },
+  "stated_key": {
+   "name": "issuer",
+   "public_key": {
+    "base64": "GDHRldF3c/aCQN1T1r0XjSC8qIgB2gEawROg/CJ3bjI=",
+    "length": 32,
+    "sha256": "4a9a8725a3823cb54bd02fbaae487c296c3807e5c0d30c94973705e708e10df9"
+   }
+  }
+ },
+ "requirement": "A1",
+ "source": "Appendix A.3.11, Table 2 of Section 6",
+ "variants": [
+  {
+   "expected": {
+    "sig_valid": false
+   },
+   "name": "with rule 2 left out and the cofactorless equation",
+   "rules": "no-rule-2"
+  },
+  {
+   "expected": {
+    "sig_valid": true
+   },
+   "name": "with rule 2 left out and the cofactored equation",
+   "rules": "no-rule-2-cofactored"
+  }
+ ],
+ "what_it_shows": "R of mixed order"
+}

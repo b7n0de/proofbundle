@@ -412,12 +412,25 @@ def test_ohne_basis_und_aktion_wird_es_rot():
         assert _skript().main(fetch=api.fetch, sleep=api.sleep, clock=lambda: api.uhr, env=env) == 1, fehlt
 
 
-def _warter_zu_kurz(landung: dict, ci: dict, warte: tuple) -> list[str]:
-    """The jobs the waiter may outlast too little: its limit must stand 30 minutes above each, and within the
+def _pfad_min(ci: dict, job: str, unterwegs: tuple = ()) -> int:
+    """How long `job` may take from the start of the run: its own limit plus the longest chain of jobs it needs.
+
+    Since 2026-11-02 the job `coverage` needs the parts of `coverage-part` and has a short limit of its own, so its
+    own limit no longer says when it can end (order DELTA-COVERAGE-IN-TEILEN-01). A job without a limit counts the
     360 minutes a hosted job may take."""
+    if job in unterwegs:
+        raise AssertionError(f"the needs of {job} form a cycle: {' -> '.join(unterwegs + (job,))}")
+    v = ci["jobs"][job]
+    needs = v.get("needs") or []
+    needs = [needs] if isinstance(needs, str) else list(needs)
+    return int(v.get("timeout-minutes") or 360) + max([_pfad_min(ci, n, unterwegs + (job,)) for n in needs] + [0])
+
+
+def _warter_zu_kurz(landung: dict, ci: dict, warte: tuple) -> list[str]:
+    """The jobs the waiter may outlast too little: its limit must stand 30 minutes above how long each may take,
+    the jobs it needs included, and within the 360 minutes a hosted job may take."""
     eigen = int(landung["jobs"][VORBEDINGUNG].get("timeout-minutes") or 0)
-    schlecht = [f"{j} may take {ci['jobs'][j].get('timeout-minutes')} minutes" for j in warte
-                if eigen < int(ci["jobs"][j].get("timeout-minutes") or 360) + 30]
+    schlecht = [f"{j} may take {_pfad_min(ci, j)} minutes" for j in warte if eigen < _pfad_min(ci, j) + 30]
     return schlecht + ([f"{VORBEDINGUNG} exceeds 360 minutes"] if eigen > 360 else [])
 
 
@@ -433,6 +446,12 @@ def test_fangnachweis_ein_zu_kurzer_warter_wird_gefunden():
     ci = {"jobs": {"test": {"timeout-minutes": 180}, "coverage": {"timeout-minutes": 300}}}
     assert _warter_zu_kurz(landung, ci, ("test", "coverage")) == ["test may take 180 minutes",
                                                                   "coverage may take 300 minutes"]
+    # The chain the old comparison missed: each limit alone stands 30 minutes below the waiter's, the chain not.
+    kette = {"jobs": {"coverage-part": {"timeout-minutes": 180},
+                      "coverage": {"timeout-minutes": 20, "needs": ["coverage-part"]}}}
+    assert _warter_zu_kurz({"jobs": {VORBEDINGUNG: {"timeout-minutes": 220}}}, kette, ("coverage",)) == [
+        "coverage may take 200 minutes"]
+    assert _warter_zu_kurz({"jobs": {VORBEDINGUNG: {"timeout-minutes": 230}}}, kette, ("coverage",)) == []
 
 
 def _wanduhr_schritt(datei: str) -> str:

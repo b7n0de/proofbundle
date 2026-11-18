@@ -518,6 +518,13 @@ class TestEveryProducerAgreesWithDecode(_Basis):
     STRENGER = {("timestamp=''", name) for name in (
         "export_eval_result_dsse", "to_eval_result_statement", "to_eval_result_predicate",
         "resolve_subject")}
+    #: By the owner's choice of 2026-10-31 the eval-result v0.1 verifier reads `evaluatedAt` as an RFC 3339
+    #: date-time with an offset, as v0.2 does, and the three eval-result producers refuse a claim timestamp in
+    #: another form, so they sign no statement their verifier refuses. decode keeps the claim schema's rule
+    #: for `timestamp`, a string, so these are the corpus timestamps decode accepts and the producers refuse.
+    STRENGER |= {(f"timestamp={wert!r}", name)
+                 for wert in ("x", "0.5", "sha256:x", "sha256:" + "a" * 64, "SHA256:" + "a" * 64)
+                 for name in ("export_eval_result_dsse", "to_eval_result_statement", "to_eval_result_predicate")}
 
     def test_every_producer_and_emit_agree_with_decode(self):
         fp = issuer_fingerprint(self.signer)
@@ -645,14 +652,28 @@ class TestAMisshapenContainerIsAReason(_Basis):
         self._abgewiesen(self._test_result(umbau, platzhalter=False), "configuration[1]")
 
     def test_control_absent_containers_make_no_claim(self):
-        """An absent `configuration`, an entry without `digest`, and an absent predicate verify."""
-        for name, umbau in (
-                ("no configuration", lambda st: st["predicate"].pop("configuration")),
-                ("entry without digest", lambda st: st["predicate"]["configuration"][0].pop("digest")),
-                ("no predicate", lambda st: st.pop("predicate"))):
+        """An entry without `digest` verifies: it makes no claim. It names its resource by `uri`, because a
+        ResourceDescriptor MUST specify one of `uri`, `digest` or `content` (SPEC.md section 7b: a bare
+        `name`-only descriptor is invalid), and one that specifies none is a reason."""
+        def umbau(st):
+            st["predicate"]["configuration"][0].pop("digest")
+            st["predicate"]["configuration"][0]["uri"] = "https://example.invalid/model"
+        res = self._test_result(umbau, platzhalter=False)
+        self.assertTrue(res["ok"], res["content_root_detail"])
+        self._abgewiesen(self._test_result(lambda st: st["predicate"]["configuration"][0].pop("digest"),
+                                           platzhalter=False),
+                         "configuration[0]: must specify one of uri, digest or content")
+
+    def test_an_absent_configuration_or_predicate_is_a_reason(self):
+        """`configuration` and `result` are required members of the test-result predicate, so a statement
+        without `configuration`, or without a predicate at all, does not verify."""
+        for name, umbau, text in (
+                ("no configuration", lambda st: st["predicate"].pop("configuration"),
+                 "predicate configuration: is required by test-result v0.1 and absent"),
+                ("no predicate", lambda st: st.pop("predicate"),
+                 "predicate result: is required by test-result v0.1 and absent")):
             with self.subTest(fall=name):
-                res = self._test_result(umbau, platzhalter=False)
-                self.assertTrue(res["ok"], res["content_root_detail"])
+                self._abgewiesen(self._test_result(umbau, platzhalter=False), text)
 
 
 class TestResultAndPassedAgree(_Basis):
@@ -948,7 +969,10 @@ class TestTheCaseListsAgreeWithTheVerdict(_Basis):
              lambda p: p.update(passedTests=[suite, suite]), "case lists"),
             ("passedTests a string", None, lambda p: p.update(passedTests=suite), "passedTests"),
             ("every list empty", None, lambda p: p.update(passedTests=[], failedTests=[]), "case lists"),
-            ("no result, the suite under failedTests", None, ohne_result, "case lists"),
+            # `result` is a required member, and the verdict names the first reason, so the missing member
+            # is named before the case lists.
+            ("no result, the suite under failedTests", None, ohne_result,
+             "result: is required by test-result v0.1 and absent"),
             ("failing claim, the suite under passedTests", scheitert,
              lambda p: p.update(passedTests=p.pop("failedTests")), "case lists"),
         )
@@ -2662,11 +2686,44 @@ class TestTheSerializerAfterTheCopyGivesTheEntrysRefusal(_Basis):
             "export_svr_dsse legacy policy": (BundleFormatError, lambda w: intoto.export_svr_dsse(
                 buendel, s, policy={"p": w}, content_root_alg=alt)),
         }
+        from proofbundle.budget import DEFAULT_BUDGET  # noqa: PLC0415
+        from proofbundle.sdjwt import verify_sd_jwt  # noqa: PLC0415
         for name, (erlaubt, aufruf) in wege.items():
             for art in ("list", "dict"):
                 with self.subTest(weg=name, art=art):
                     tiefste, danach = self._bandsuche(aufruf, erlaubt, art)
-                    self.assertGreater(tiefste, 64)
+                    if name.startswith("issue_sd_jwt"):
+                        # Since the neighbour of the 6.5.0 SD-JWT finding the issuer reads each disclosure as
+                        # verify_sd_jwt does (at ac4129f7 it wrote openings about 990 levels deep, past the depth
+                        # bound of 64). The deepest opening written is the deepest that verifier reads, exactly:
+                        # an issuer that refused earlier would pass "the deepest written verifies" alone (review of
+                        # the class fix, round 1).
+                        if name == "issue_sd_jwt dataset_id_opening" and art == "dict":
+                            # list(kopie) discloses the keys; nested values still exercise the copy.
+                            self.assertGreater(tiefste, 64)
+                        else:
+                            # The verifier's depth bound counts the disclosure array, the opening array of
+                            # model_id_opening ["m", w] and the scalar leaf.
+                            wrappers = 3 if name == "issue_sd_jwt model_id_opening" else 2
+                            self.assertEqual(tiefste, DEFAULT_BUDGET.json_depth - wrappers)
+                        result = verify_sd_jwt(aufruf(_geschachtelt(tiefste, art)), self.pub)
+                        self.assertIs(result["structure_ok"], True)
+                        self.assertIs(result["sig_ok"], True)
+                    else:
+                        # Since deep gate 6.6.0 (Z7) the DSSE producer reads a `+json` payload as the statement
+                        # verifiers read it. Measured at d8881edc: these exporters wrote 984 to 987 levels deep, and
+                        # their own verifier answered ok False. The deepest written is now the deepest the verifier
+                        # reads, exactly, and it verifies. The wrappers are the containers of the statement around the
+                        # value, counted at this head: 7 for the in-toto harness, 4 for the eval-result harness and
+                        # anchors, 5 for the SVR policy.
+                        wrappers = {"export_intoto_dsse": 7, "export_eval_result_dsse": 4, "export_svr_dsse": 5}
+                        verifier = {"export_intoto_dsse": intoto.verify_intoto_dsse,
+                                    "export_eval_result_dsse": intoto.verify_eval_result_dsse,
+                                    "export_svr_dsse": intoto.verify_svr_dsse}
+                        exporter = name.split()[0]
+                        self.assertEqual(tiefste, DEFAULT_BUDGET.json_depth - wrappers[exporter])
+                        result = verifier[exporter](aufruf(_geschachtelt(tiefste, art)), self.pub)
+                        self.assertIs(result["ok"], True)
                     self.assertEqual(danach, ["refused"] * 13, tiefste)
 
     def test_f3_a_number_the_serializer_refuses_is_the_exporters_refusal(self):

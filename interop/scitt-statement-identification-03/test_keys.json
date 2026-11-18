@@ -1,0 +1,17 @@
+{
+ "draft": "draft-gruszka-scitt-statement-identification-03",
+ "keys": {
+  "auditor": {
+   "ed25519_seed_hex": "2a8b1161e212cc24681c06e6d7486daa0910253e54903d41ae964aaee2bfc681",
+   "kid_hex": "a2820b29631a0e52ec5dbe41f948a9e5725c6b8d8c0346bd3ef5483cab27de58",
+   "public_key_hex": "90407cca3b8d4c7d02831c65bb2fb2c66a047e36448184ed4c75efbb467e45cb"
+  },
+  "issuer": {
+   "ed25519_seed_hex": "51bdccce75df50a4bcee21a2f730ccdcd4917a0a4d20dd2ab3d2e5ffad3f6fd3",
+   "kid_hex": "0e6e86cd20c07df4e95cb4a07a286192d29fc74567b41e726f1c7f7bd202eb5b",
+   "public_key_hex": "1831d195d17773f68240dd53d6bd178d20bca88801da011ac113a0fc22776e32"
+  }
+ },
+ "source": "Appendix A.2",
+ "warning": "PURE TEST KEYS given as fixed seeds. They MUST NOT be used for any real statement."
+}

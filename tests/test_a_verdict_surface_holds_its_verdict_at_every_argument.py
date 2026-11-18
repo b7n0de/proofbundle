@@ -705,9 +705,6 @@ _NICHT_ERREICHT: "frozenset[str]" = frozenset({
     "checkpoint.sign_checkpoint(signer)",
     "checkpoint.witness_quorum(log_key_material)",
     "decision.emit_decision_receipt(signer)",
-    "decision.verify_decision_receipt(expected_audience)",
-    "decision.verify_decision_receipt(expected_nonce)",
-    "decision.verify_decision_receipt(now)",
     "decision.verify_decision_receipt(rp_trust)",
     "decision.verify_decision_receipt_or_raise(expected_audience)",
     "decision.verify_decision_receipt_or_raise(expected_nonce)",
@@ -726,9 +723,11 @@ _NICHT_ERREICHT: "frozenset[str]" = frozenset({
     "intoto.export_svr_dsse(signer)",
     "intoto.svr_properties(result)",
     "outcome.emit_outcome_receipt(signer)",
-    "outcome.verify_outcome_receipt(decision_maker_id)",
     "outcome.verify_outcome_receipt(expected_audience)",
     "outcome.verify_outcome_receipt(expected_nonce)",
+    # New with the inputs of Section 3.4: now is the evaluation time of the bound decision only (outcome.py, the
+    # docstring of verify_outcome_receipt), so the base case, which binds no decision_envelope, cannot reach it.
+    "outcome.verify_outcome_receipt(now)",
     "outcome.verify_outcome_receipt(trust_pack_expected_genesis_digest)",
     "outcome.verify_outcome_receipt(trust_pack_expected_root_keys)",
     "policy.evaluate_policy(result)",

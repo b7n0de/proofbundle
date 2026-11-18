@@ -719,13 +719,18 @@ class TheReleasedV01Statements(unittest.TestCase):
                 self.assertIn("evaluator", res["predicate_shape_detail"])
 
     def test_dispatch_a_revised_predicate_under_v01_gets_the_old_rules(self):
-        # The v0.1 contract never checked the predicate's shape, and it still does not: dispatch is by
-        # the declared type, not by what the predicate looks like.
+        # Dispatch is by the declared type, not by what the predicate looks like. The v0.1 rules ask for
+        # the members v0.1 requires, `verifier` among them, and never for the shape v0.2 adds: a revised
+        # predicate labelled v0.1 fails for the v0.1 member it lacks, and no v0.2 rule reaches it.
         statement = _base_statement()
         statement["predicateType"] = V01
         res = I.verify_eval_result_dsse(_sign(statement), _pub())
-        self.assertIs(res["ok"], True)
+        self.assertIs(res["ok"], False)
         self.assertIsNone(res["predicate_shape_ok"])
+        self.assertIn("predicate verifier: is required by eval-result v0.1", res["content_root_detail"])
+        statement["predicate"]["verifier"] = {"id": "https://b7n0de.com/proofbundle"}
+        res = I.verify_eval_result_dsse(_sign(statement), _pub())
+        self.assertIs(res["ok"], True, res)
         del statement["predicate"]["evaluator"]
         res = I.verify_eval_result_dsse(_sign(statement), _pub())
         self.assertIs(res["ok"], True, "no v0.2 rule reaches a v0.1 statement")

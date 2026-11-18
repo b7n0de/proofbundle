@@ -1539,14 +1539,47 @@ fn is_rfc3339_z(s: &str) -> bool {
         return false;
     }
     // position 19 is either 'Z' (len 20) or '.' followed by >=1 digit then 'Z'.
-    if b.len() == 20 {
-        return b[19] == b'Z';
-    }
-    if b[19] != b'.' {
+    let form = if b.len() == 20 {
+        b[19] == b'Z'
+    } else {
+        let frac = &b[20..b.len() - 1];
+        b[19] == b'.' && !frac.is_empty() && frac.iter().all(|c| c.is_ascii_digit())
+    };
+    form && is_calendar_instant(b)
+}
+
+/// Mirror of `_schema_shapes._is_calendar_instant`: a value of the rfc3339z FORM names a real
+/// instant, month 01 to 12, a day that exists in that month and year, hour to 23, minute to 59 and
+/// second to 60 (RFC 3339 5.6 and 5.7). Measured 2026-11-03: `2026-13-15T09:05:00Z` passed here
+/// while Python refused it, the same bytes with two verdicts. The caller has checked the form, so
+/// positions 0..19 hold ASCII digits and separators.
+fn is_calendar_instant(b: &[u8]) -> bool {
+    let num = |from: usize, to: usize| {
+        b[from..to]
+            .iter()
+            .fold(0u32, |n, c| n * 10 + u32::from(c - b'0'))
+    };
+    let (year, month, day) = (num(0, 4), num(5, 7), num(8, 10));
+    let (hour, minute, second) = (num(11, 13), num(14, 16), num(17, 19));
+    if !(1..=12).contains(&month) {
         return false;
     }
-    let frac = &b[20..b.len() - 1];
-    !frac.is_empty() && frac.iter().all(|c| c.is_ascii_digit())
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let days = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    (1..=days[(month - 1) as usize]).contains(&day) && hour <= 23 && minute <= 59 && second <= 60
 }
 
 fn validate_edge_digest(obj: &serde_json::Value, errors: &mut Vec<String>) {
@@ -2209,6 +2242,19 @@ fn load_related(
     main_pub_b64: &str,
     expected_payload_type: &str,
 ) -> Result<std::collections::HashMap<String, TargetInfo>, String> {
+    // ONE READER, ONE PAIRING CHECK, as in Python `cli._load_related` (deep gate 6.6.0 at c71eeb12, lens L6,
+    // finding Z11A). Python refuses a `--related-pub` without its `--with-related` target since 6.6.0, in all three
+    // verify commands, because a key without a target is checked by nothing. This reader paired keys and targets by
+    // position and never looked at a key past the last target, so the same arguments gave exit 0 here and exit 2
+    // there. Both relation commands read their targets through this function, so the check stands here once.
+    if related_pubs.len() > paths.len() {
+        return Err(format!(
+            "{} --related-pub given for {} --with-related: each key is paired with the target at its \
+             position, and a key without a target is checked by nothing",
+            related_pubs.len(),
+            paths.len()
+        ));
+    }
     // Alle gelesenen Kopien je content root; die Zusammenfuehrung passiert NACH der Schleife,
     // damit das Ergebnis nicht von der Lesereihenfolge abhaengt (Fund L4-900-01).
     let mut roh: std::collections::HashMap<String, Vec<TargetInfo>> =
@@ -2474,6 +2520,17 @@ fn run_verify_relation(
     // exactly-one-edge; the decision/outcome path's full predicate-schema validation is Python-only
     // (honestly PARTIAL in the registry) and never the deciding axis of a relation vector.
     let mut structure_ok = true;
+    // THE PRIMARY PAYLOAD IS RFC 8785 CANONICAL OR IT FAILS THE STRUCTURE GATE (deep gate 6.6.0 at c3472f6f, L6 Z11,
+    // P1). Python's decision, outcome and relation-statement verifiers compare the signed bytes with their JCS form
+    // and refuse a payload that is not its own serialization ("payload is not RFC-8785 canonical (hash_binding
+    // fail-closed)", structure_ok False, exit 2); this path parsed the primary payload without that comparison, so a
+    // signed trailing newline exited 0 here and 2 there. An attached target already had the comparison
+    // (`load_related`); the primary statement now has the same one, in both modes. No early return: the lineage is
+    // computed over the exact signed bytes as before, and the exit ladder below decides.
+    if !jcs_bytes(&statement).map(|c| c == body).unwrap_or(false) {
+        structure_ok = false;
+        reasons.push("payload is not RFC-8785 canonical (hash_binding fail-closed)".into());
+    }
     if statement_mode {
         if statement.get("predicateType").and_then(|v| v.as_str())
             != Some(RELATION_STATEMENT_PREDICATE_TYPE)
@@ -2496,6 +2553,35 @@ fn run_verify_relation(
                     "relation-statement: unknown field(s) in predicate: {fremd:?} \
                      (additionalProperties:false, fail-closed)"
                 ));
+            }
+            // THE REQUIRED MEMBERS AND THEIR FORMS, as `validate_relation_statement_predicate` (L6 Z11, P1): a
+            // statement without `schemaVersion` exited 0 here and 2 in Python. `relationships` is judged below.
+            for req in ["schemaVersion", "statementId"] {
+                if !pred.contains_key(req) {
+                    structure_ok = false;
+                    reasons.push(format!(
+                        "relation-statement: missing required field {req:?}"
+                    ));
+                }
+            }
+            if let Some(sv) = pred.get("schemaVersion") {
+                let passt = sv
+                    .as_str()
+                    .and_then(|s| s.strip_prefix("0.1."))
+                    .is_some_and(|rest| {
+                        !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit())
+                    });
+                if !passt {
+                    structure_ok = false;
+                    reasons.push("relation-statement: schemaVersion must match 0.1.x".into());
+                }
+            }
+            if let Some(sid) = pred.get("statementId") {
+                if sid.as_str().is_none_or(|s| s.is_empty()) {
+                    structure_ok = false;
+                    reasons
+                        .push("relation-statement: statementId must be a non-empty string".into());
+                }
             }
             match pred.get("relationships").and_then(|v| v.as_array()) {
                 Some(a) if a.len() == 1 => {}
@@ -2530,6 +2616,21 @@ fn run_verify_relation(
         return (2, lineage_state, reasons);
     }
     if lineage_state == LINEAGE_FAIL {
+        return (2, lineage_state, reasons);
+    }
+    // B22 on this path too (deep gate 6.6.0 at d8881edc; Codex thread on pull request 519, P1). Python fails the
+    // requested lineage check for an attached target that did not verify under its key, also where no edge names it:
+    // `decision verify` since B22, `outcome verify` and `relation-statement verify` since the fix of finding Z4, each
+    // with `relation:target_verification_failed` and exit 2, and the lineage state itself unchanged. This verifier
+    // judged only a target that an edge names, so the same bytes gave exit 0 here and exit 2 there. The structure check
+    // that Python also applies to an attached decision, outcome or relation-statement predicate is not mirrored here;
+    // CROSS_IMPLEMENTATION_REPORT.md names that difference as R4.
+    let unbelegt = related.values().filter(|t| !t.verified).count();
+    if unbelegt > 0 {
+        reasons.push(format!(
+            "relation:target_verification_failed: {unbelegt} attached related target(s) did not verify under \
+             their key (fail-closed)"
+        ));
         return (2, lineage_state, reasons);
     }
 
@@ -4263,6 +4364,37 @@ mod tests {
         let v =
             wert(r#"{"a":1,"b":[1,2,3],"c":{"d":"text"}}"#).expect("sauberes Dokument abgewiesen");
         assert_eq!(v["a"], serde_json::json!(1));
+    }
+
+    #[test]
+    fn ein_zeitfeld_nennt_einen_echten_kalendermoment() {
+        // Codex-Fund P1 an PR 477: die Form allein nahm Monat 13 an, Python wies ihn ab. Dieselben
+        // Werte wie REFUSED und ACCEPTED in tests/test_time_fields_read_the_calendar.py.
+        for v in [
+            "2026-13-15T09:05:00Z",
+            "2026-00-10T00:00:00Z",
+            "2026-10-32T09:05:00Z",
+            "2026-01-00T00:00:00Z",
+            "2026-02-29T00:00:00Z",
+            "2100-02-29T00:00:00Z",
+            "2026-02-30T00:00:00Z",
+            "2026-04-31T00:00:00Z",
+            "2026-10-15T24:00:00Z",
+            "2026-10-15T09:60:00Z",
+            "2026-10-15T09:05:61Z",
+            "2026-13-15T09:05:00.5Z",
+        ] {
+            assert!(!is_rfc3339_z(v), "{v} angenommen");
+        }
+        for v in [
+            "2026-10-15T09:05:00Z",
+            "2024-02-29T00:00:00Z",
+            "2000-02-29T00:00:00Z",
+            "2026-12-31T23:59:60Z",
+            "2026-10-15T09:05:00.123456Z",
+        ] {
+            assert!(is_rfc3339_z(v), "{v} abgewiesen");
+        }
     }
 
     #[test]

@@ -1,5 +1,28 @@
 # For reviewers — a 30-minute adversarial audit path
 
+**Try to break proofbundle in about 30 minutes.**
+
+This page is for a skeptical reviewer, not a user. It names the small trusted core, the modules that add checks of their own, and a path in six steps from running the demo to reading the limits.
+
+## Try it
+
+```sh
+pip install proofbundle
+proofbundle demo
+```
+
+An honest receipt verifies, six tampered receipts fail, and a swapped sample is caught. The command exits with another code than 0 if any tampered receipt verifies. If you can make it exit with 0 while a real tamper verifies, that is a break.
+
+## Good to know
+
+- A receipt binds the recorded claim to a signing key and shows that it has not changed, never that the number is true, the issuer honest or the eval well designed. Attributing it to a signer needs an expected key obtained independently of the receipt.
+- Since 2.1.0 the three files of the original core are not the whole picture. [AUDIT_SCOPE.md](AUDIT_SCOPE.md) says what a full review should cover.
+- Report a break privately, as `SECURITY.md` describes.
+
+The [technical details](#technical-details) follow below, with the trusted core, the 30-minute path and the places worth attacking.
+
+## Technical details
+
 proofbundle asks to be trusted with a security-sensitive claim ("this verifies offline"), so it
 should be easy to try to break. This page is written for a skeptical external reviewer, not a user.
 
