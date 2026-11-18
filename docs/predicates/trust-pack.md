@@ -59,6 +59,17 @@ entry gains a second field for the PQ leg: `{"keyid":, "sig": <classical or sing
 b64, hybrid only>]}`. The `alg` label lives INSIDE the signed predicate, so it cannot be relabeled without
 invalidating every signature over the pack (no separate alg-confusion surface, unlike a bare JWT `alg` header).
 
+**One leg, one key.** A key is the set of its legs: `publicKey`, and `publicKeyPq` for a hybrid key. No leg may
+appear in two keys of a pack, whatever their `alg`. One ML-DSA-65 key named as an `mldsa65` key and as the PQ leg of
+a hybrid, or as the PQ leg of two hybrids, is one signer; until 6.6.1 it counted twice toward a threshold, so once
+Ed25519 is broken a single ML-DSA secret met a threshold of two (KR-01). The validator refuses such a pack, and every
+count (root threshold, rotation vouch) counts a key only if none of its legs was counted. The root-key pin (anchor 3)
+does not pick a disjoint subset: if two keys of the declared, non-revoked root share a leg, the whole root is not
+pinned. A key id listed twice in a role is one key, not two keys that share their legs. A leg counts only when it
+decodes to the length of its algorithm (Ed25519 32 bytes, ML-DSA-65 1952 bytes), and a `publicKeyPq` on a key that is
+not hybrid is no leg of that key; a key's identity (for the pin) and its legs (for every count) come from this one
+reading, so a key that has no legs has no identity either.
+
 **Executor identifiers (6.6.0).** A `keys[kid]` entry may carry `executorIds`, a list of 1 to 256 distinct
 non-empty strings: the `executor.id` values that key attests in an Action Outcome. `verify_outcome_receipt`
 compares the outcome's `executor.id` with that list for the key named by `executor.keyId` (`executor_id_bound`,
@@ -73,8 +84,9 @@ Each check fail-closed; read the aggregate `ok`, never an individual field:
 
 1. **structure_ok / predicate_type_ok** — valid predicate, vendored `trust-pack/v0.1`.
 2. **root_threshold_met** — `>=` the root role's `threshold` DISTINCT valid non-revoked root signatures over
-   the exact PAE bytes. Signatures are counted as a Set of key ids (no double-count); a key id not in the root
-   set, or revoked, or with an unresolved / malformed public key, does not count.
+   the exact PAE bytes. Signatures are counted by key material, every leg of a key (no double-count: a key whose
+   classical or post-quantum leg is already counted adds nothing); a key id not in the root set, or revoked, or
+   with an unresolved / malformed public key, does not count.
 3. **not_expired** — `expires > now` (fail-closed past expiry).
 4. **version_monotone** — `version > prevVersion` when a previous version is supplied (rollback/freeze catch).
 5. **prevVersionDigest chain** — each version links the previous version's content root; the first is `null`.
@@ -95,7 +107,12 @@ anchor was supplied but none matched), `None` (no anchor supplied) — and takes
 - `expected_genesis_digest` — the pack's content-root digest `sha256(JCS(predicate))` (the value a successor
   carries as its `prevVersionDigest`, and what `build_trust_pack_statement` writes as the subject digest);
 - `expected_root_keys` — a `{keyId: publicKey_b64}` / key-object map that must COVER the pack's declared,
-  non-revoked root role (every declared root key pinned, the declared threshold reachable within it);
+  non-revoked root role (every declared root key pinned, the declared threshold reachable within it). A declared,
+  non-revoked root key that cannot be read (an unknown `alg`, a leg of the wrong length, an incomplete hybrid, a
+  root key id with no key object) refuses this anchor, because a relying party cannot pin what it cannot read. In
+  6.6.0 a key whose leg had the wrong length took part in the comparison like a readable key, so it refused the
+  anchor unless the relying party pinned the same bytes, while a hybrid without its PQ leg, an unknown `alg`, a
+  `publicKey` that is no base64, a key that is not an object or a key id with no key was left out of the comparison. Only the text entries of `revoked` name a key;
 - a rotation anchor — `prev_root_keys` + `prev_root_threshold`: the relying party pins the PREDECESSOR's root,
   and `rotation_authorized` being True binds this pack.
 

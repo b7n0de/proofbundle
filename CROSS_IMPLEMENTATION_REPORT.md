@@ -141,7 +141,12 @@ are declared as **not yet reproduced** by the second implementation and remain P
 - `action-outcome/v0.1`, `run-ledger/v0.1`, `verification-summary/v0.1` predicate validation
 - Trust Pack: `mldsa65` / `hybrid-ed25519-mldsa65` root keys (the Ed25519 leg is now PARTIAL, see
   above), `not_expired`, `version_monotone` / `prevVersionDigest` chaining, two-stage rotation
-  authorization, full predicate-shape validation
+  authorization, full predicate-shape validation. Within that validation, the alias rule is not
+  reproduced: no key part may occur twice in a pack, including the post-quantum part of a hybrid
+  key. Measured on 18 November 2026 with one Ed25519 root key at threshold 1, a pack whose two
+  other keys share a key part is refused by Python and meets its threshold here (`OK`, exit 0),
+  both for two hybrid keys with one post-quantum part and for two Ed25519 keys with one
+  `publicKey`. A port of the rule is planned before the next patch release.
 - SD-JWT / SD-JWT VC holder key binding and issuer-signature verify
 - Checkpoint signature + witness-quorum trust, atomic root/tree-size trust
 - External anchors (OpenTimestamps / RFC 3161) offline resolution
