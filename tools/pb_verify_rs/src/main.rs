@@ -1214,6 +1214,73 @@ const VERIFY_SUBCOMMANDS: &[&str] = &[
     "verify-scitt-consistency-receipt",
 ];
 
+// The three key algorithms of a trust pack (Python `trust_pack._KEY_ALGS`) and the raw length of an
+// ML-DSA-65 public key (FIPS 204, Python `_KEY_RAW_LEN["mldsa65"]`).
+const TRUST_PACK_SCHLUESSEL_ALGS: [&str; 3] = ["ed25519", "mldsa65", "hybrid-ed25519-mldsa65"];
+const MLDSA65_SCHLUESSEL_LAENGE: usize = 1952;
+
+/// The parts of one trust-pack key, read as Python's `trust_pack._key_reading` reads them: `publicKey`,
+/// and `publicKeyPq` for a `hybrid-ed25519-mldsa65` key only, each only when its base64 decodes to the
+/// length of its algorithm (Ed25519 32 bytes, ML-DSA-65 1952 bytes). An absent `alg` is `ed25519`; an
+/// `alg` that is not one of the three, or not text, reads as no key. A bare base64 text is a legacy
+/// Ed25519 key. `None`: the key cannot be read.
+fn schluessel_teile(kv: &serde_json::Value) -> Option<Vec<Vec<u8>>> {
+    let (alg, haupt, pq) = match kv {
+        serde_json::Value::String(_) => ("ed25519", Some(kv), None),
+        serde_json::Value::Object(o) => {
+            let alg = match o.get("alg") {
+                None => "ed25519",
+                Some(serde_json::Value::String(s))
+                    if TRUST_PACK_SCHLUESSEL_ALGS.contains(&s.as_str()) =>
+                {
+                    s.as_str()
+                }
+                Some(_) => return None,
+            };
+            let pq = if alg == "hybrid-ed25519-mldsa65" {
+                o.get("publicKeyPq")
+            } else {
+                None
+            };
+            (alg, o.get("publicKey"), pq)
+        }
+        _ => return None,
+    };
+    let laenge = if alg == "mldsa65" {
+        MLDSA65_SCHLUESSEL_LAENGE
+    } else {
+        32
+    };
+    let haupt = gelesener_teil(haupt, laenge)?;
+    if alg != "hybrid-ed25519-mldsa65" {
+        return Some(vec![haupt]);
+    }
+    let pq = gelesener_teil(pq, MLDSA65_SCHLUESSEL_LAENGE)?;
+    Some(vec![haupt, pq])
+}
+
+/// One part of a key (Python `trust_pack._decoded_leg`): the bytes its base64 text decodes to, only at
+/// the length of the part's algorithm. Anything else is no part.
+fn gelesener_teil(wert: Option<&serde_json::Value>, laenge: usize) -> Option<Vec<u8>> {
+    let roh = b64_strict(wert?.as_str()?).ok()?;
+    (roh.len() == laenge).then_some(roh)
+}
+
+/// The parts the alias rule compares (Python `_alias_teile` in `validate_trust_pack_predicate`): the
+/// parts of a readable key; for a key object that cannot be read, its `publicKey` decoded at whatever
+/// length, as 6.6.0 compared it; nothing else.
+fn alias_teile(kv: &serde_json::Value) -> Vec<Vec<u8>> {
+    if let Some(teile) = schluessel_teile(kv) {
+        return teile;
+    }
+    kv.as_object()
+        .and_then(|o| o.get("publicKey"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| b64_strict(s).ok())
+        .map(|roh| vec![roh])
+        .unwrap_or_default()
+}
+
 // ---------------------------------------------------------------------------
 // trust-pack/v0.1 root-of-trust THRESHOLD verify (Finding 11 first portation, Ed25519 leg only).
 // Mirrors proofbundle.trust_pack.verify_trust_pack's `root_threshold_met` computation: count DISTINCT
@@ -1227,7 +1294,9 @@ const VERIFY_SUBCOMMANDS: &[&str] = &[
 // never fatal) and surfaced in the printed diagnostic as `skipped_non_ed25519`. It does NOT check
 // `not_expired`, `version_monotone`, `prevVersionDigest` chaining, two-stage rotation authorization, or
 // full predicate-shape validation — those remain Python-only (see CROSS_IMPLEMENTATION_REPORT.md /
-// scripts/rust_parity_gate.py PENDING entries for trust_pack.verify_trust_pack).
+// scripts/rust_parity_gate.py PENDING entries for trust_pack.verify_trust_pack). Two rules of that
+// validation hold here over every key of the pack: the trust-anchor rule for an Ed25519 key and the
+// alias rule (no key part in two keys, KR-01).
 // Ok(true)/Ok(false) => threshold met/not met (contributes exit 0/1); Err(..) => malformed (exit 2).
 fn verify_trust_pack_threshold(
     envelope: &serde_json::Value,
@@ -1331,6 +1400,34 @@ fn verify_trust_pack_threshold(
                 "keys['{kid}'].publicKey is a {schwaeche} {label} key \u{2014} {} (fail-closed)",
                 grund_der_schwaeche(schwaeche)
             ));
+        }
+    }
+    // KR-01, the alias rule of Python's `validate_trust_pack_predicate`: no part of a key, classical or
+    // post-quantum, may occur in two keys of a pack, in any role and whether revoked or not. One ML-DSA
+    // key named as the PQ part of two hybrid keys, or as an `mldsa65` key and the PQ part of a hybrid,
+    // is one signer counted twice, and so are two keyIds over one Ed25519 `publicKey`. Python refuses
+    // such a pack; this slice met its threshold with it (measured on 18 November 2026, both for two
+    // hybrid keys with one PQ part and for two Ed25519 keys with one `publicKey`). The parts are read as
+    // Python's `_alias_teile` reads them, in the order the keys are written, and the first key that
+    // shares a part is named in Python's words.
+    let mut gesehene_teile: std::collections::HashMap<Vec<u8>, &str> =
+        std::collections::HashMap::new();
+    for (kid, kv) in keys {
+        for teil in alias_teile(kv) {
+            match gesehene_teile.get(&teil) {
+                Some(erster) if *erster != kid.as_str() => {
+                    return Err(format!(
+                        "keys[{}] duplicates the key material of keys[{}] (a classical or \
+                         post-quantum leg) \u{2014} key aliasing dilutes thresholds (Sybil), fail-closed",
+                        py_str_repr(kid),
+                        py_str_repr(erster)
+                    ));
+                }
+                Some(_) => {}
+                None => {
+                    gesehene_teile.insert(teil, kid.as_str());
+                }
+            }
         }
     }
     let revoked: HashSet<String> = predicate
@@ -4633,14 +4730,27 @@ mod tests {
         );
     }
 
+    // A valid Ed25519 public key per index, from a fixed seed, so that n keys are n different keys.
+    fn ed25519_pubkey_b64(i: usize) -> String {
+        let mut seed = [7u8; 32];
+        seed[..8].copy_from_slice(&(i as u64).to_le_bytes());
+        let pk = ed25519_dalek::SigningKey::from_bytes(&seed)
+            .verifying_key()
+            .to_bytes();
+        base64::engine::general_purpose::STANDARD.encode(pk)
+    }
+
     fn trust_pack_mit_root_keyids(n: usize) -> serde_json::Value {
         let kids: Vec<String> = (0..n).map(|i| format!("k{i}")).collect();
+        // Different keys: n keyIds over one key are refused by the alias rule (KR-01) before any
+        // budget at the limit could be measured.
         let keys: serde_json::Map<String, serde_json::Value> = kids
             .iter()
-            .map(|k| {
+            .enumerate()
+            .map(|(i, k)| {
                 (
                     k.clone(),
-                    serde_json::json!({"publicKey": gueltiger_pubkey_b64()}),
+                    serde_json::json!({"publicKey": ed25519_pubkey_b64(i)}),
                 )
             })
             .collect();
@@ -4671,6 +4781,124 @@ mod tests {
         let env = trust_pack_mit_root_keyids(BUDGET_WITNESSES);
         let r = verify_trust_pack_threshold(&env).expect("an der Schranke wurde verweigert");
         assert!(!r.0, "eine Junk-Signatur darf die Schwelle nicht erfuellen");
+    }
+
+    // KR-01: a pack with the Ed25519 root key `r` and the given further keys, root threshold 1.
+    fn trust_pack_mit_schluesseln(
+        weitere: serde_json::Value,
+        revoked: serde_json::Value,
+    ) -> serde_json::Value {
+        let mut keys = serde_json::Map::new();
+        keys.insert(
+            "r".into(),
+            serde_json::json!({"publicKey": ed25519_pubkey_b64(0)}),
+        );
+        for (k, v) in weitere.as_object().expect("object") {
+            keys.insert(k.clone(), v.clone());
+        }
+        let statement = serde_json::json!({
+            "_type": INTOTO_STATEMENT_TYPE,
+            "subject": [{"digest": {"sha256": "0".repeat(64)}}],
+            "predicate": {"keys": keys, "revoked": revoked,
+                          "roles": {"root": {"keyIds": ["r"], "threshold": 1}}}
+        });
+        let body = serde_json::to_vec(&statement).expect("json");
+        serde_json::json!({
+            "payloadType": "application/vnd.in-toto+json",
+            "payload": base64::engine::general_purpose::STANDARD.encode(body),
+            "signatures": [{"keyid": "r", "sig": "AA=="}]
+        })
+    }
+
+    fn pq_b64(fuellung: u8) -> String {
+        base64::engine::general_purpose::STANDARD.encode(vec![fuellung; MLDSA65_SCHLUESSEL_LAENGE])
+    }
+
+    fn hybrid(i: usize, pq: &str) -> serde_json::Value {
+        serde_json::json!({"alg": "hybrid-ed25519-mldsa65", "publicKey": ed25519_pubkey_b64(i),
+                           "publicKeyPq": pq})
+    }
+
+    fn alias_meldung(weitere: serde_json::Value, revoked: serde_json::Value) -> String {
+        verify_trust_pack_threshold(&trust_pack_mit_schluesseln(weitere, revoked))
+            .expect_err("a pack with a key part in two keys was checked")
+    }
+
+    #[test]
+    fn ein_pq_teil_in_zwei_hybriden_wird_abgewiesen() {
+        let pq = pq_b64(0x11);
+        let e = alias_meldung(
+            serde_json::json!({"h1": hybrid(1, &pq), "h2": hybrid(2, &pq)}),
+            serde_json::json!([]),
+        );
+        assert!(
+            e.starts_with("keys['h2'] duplicates the key material of keys['h1']"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn ein_publickey_in_zwei_ed25519_schluesseln_wird_abgewiesen() {
+        let e = alias_meldung(
+            serde_json::json!({"d1": {"publicKey": ed25519_pubkey_b64(1)},
+                               "d2": {"publicKey": ed25519_pubkey_b64(1)}}),
+            serde_json::json!([]),
+        );
+        assert!(
+            e.starts_with("keys['d2'] duplicates the key material of keys['d1']"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn ein_mldsa_schluessel_als_pq_teil_eines_hybriden_wird_abgewiesen() {
+        let pq = pq_b64(0x22);
+        let e = alias_meldung(
+            serde_json::json!({"m": {"alg": "mldsa65", "publicKey": pq}, "h": hybrid(1, &pq)}),
+            serde_json::json!([]),
+        );
+        assert!(
+            e.starts_with("keys['h'] duplicates the key material of keys['m']"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn auch_ein_widerrufener_schluessel_teilt_keinen_teil() {
+        let e = alias_meldung(
+            serde_json::json!({"d1": {"publicKey": ed25519_pubkey_b64(1)},
+                               "d2": {"publicKey": ed25519_pubkey_b64(1)}}),
+            serde_json::json!(["d2"]),
+        );
+        assert!(e.contains("duplicates the key material"), "{e}");
+    }
+
+    #[test]
+    fn ein_unlesbarer_schluessel_nennt_seinen_publickey_wie_6_6_0() {
+        let e = alias_meldung(
+            serde_json::json!({"d1": {"publicKey": ed25519_pubkey_b64(1)},
+                               "u": {"alg": "rsa4096", "publicKey": ed25519_pubkey_b64(1)}}),
+            serde_json::json!([]),
+        );
+        assert!(
+            e.starts_with("keys['u'] duplicates the key material of keys['d1']"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn verschiedene_teile_und_ein_fremdes_publickeypq_bleiben_erlaubt() {
+        // Two hybrids with different PQ parts, and an Ed25519 key carrying a `publicKeyPq` equal to
+        // one of them: that field is no part of an Ed25519 key (Python `_key_reading`), so nothing is
+        // shared. The junk signature then leaves the threshold unmet, exit 1, not malformed.
+        let pq = pq_b64(0x33);
+        let r = verify_trust_pack_threshold(&trust_pack_mit_schluesseln(
+            serde_json::json!({"h1": hybrid(1, &pq), "h2": hybrid(2, &pq_b64(0x44)),
+                               "d": {"publicKey": ed25519_pubkey_b64(3), "publicKeyPq": pq}}),
+            serde_json::json!([]),
+        ))
+        .expect("a pack without a shared key part was refused");
+        assert!(!r.0, "a junk signature met the threshold");
     }
 
     #[test]

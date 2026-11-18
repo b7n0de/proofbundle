@@ -152,5 +152,21 @@ def test_the_baseline_names_its_limit_and_measures_its_duration(monkeypatch, tmp
     monkeypatch.setattr(mc, "time", types.SimpleNamespace(monotonic=lambda: uhr["jetzt"]))
     with contextlib.redirect_stdout(io.StringIO()):
         b = mc._basislinie(tmp_path, ("tests/test_x.py",), {})
-    assert mc.GRENZE_BASISLINIE == 5400 and gesehen == [5400], gesehen
+    assert mc.GRENZE_BASISLINIE == 10800 and gesehen == [10800], gesehen
     assert b.bestanden == frozenset({KILLER}) and b.dauer == 1234.5, b
+
+
+def test_a_baseline_past_5400_s_gets_its_verdict(monkeypatch, tmp_path):
+    """THE COUNTER CASE of owner card OA-26aee97e98: on the 6.5.0 candidate all 8 baselines ran past
+    5400 s and the run was NOT MEASURABLE. A baseline of 6000 s stopped at 5400 s on the code before
+    the change and the shard ended with SystemExit; now it runs, and the mutant gets 1.5 times it."""
+    gaps, text = _fahre(monkeypatch, tmp_path, basislinie_s=6000.0, mutant_s=6100.0)
+    assert gaps == 0 and "KILLED" in text, text
+    assert "limit per mutant run: 9000 s (the baseline took 6000.0 s)" in text, text
+
+
+def test_ANTI_PARITY_a_baseline_past_10800_s_still_stops(monkeypatch, tmp_path):
+    """The baseline keeps a limit: a run past 10800 s leaves no verdict, and the shard ends with
+    SystemExit, as a baseline past 5400 s did before."""
+    with pytest.raises(SystemExit):
+        _fahre(monkeypatch, tmp_path, basislinie_s=11000.0, mutant_s=11100.0)

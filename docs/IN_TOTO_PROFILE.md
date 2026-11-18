@@ -57,9 +57,11 @@ The two compose: emit the `eval-result` Statement for the detail, and an SVR for
 
 `verify_svr_dsse` and `proofbundle svr --verify` refuse an SVR statement whose predicate lacks one of the
 four members svr/v0.1 marks required (`verifier`, `verifier.id`, `timeCreated`, `properties`) or carries
-one of them in another JSON type, and one whose `verifier.id` is no URI (TypeURI) or whose `timeCreated`
-is no RFC 3339 date-time with an offset (Timestamp); the command answers such a statement as malformed,
-exit 2. `export_svr_dsse` refuses a `time_created` in another form. The v0.1 extension field
+one of them in another JSON type, and one whose `verifier.id` is no URI with a lower-case scheme (TypeURI)
+or whose `timeCreated` is no RFC 3339 date-time in UTC with `Z` (Timestamp), the two forms in-toto
+`spec/v1/field_types.md` gives these types; the command answers such a statement as malformed, exit 2. Before
+6.6.0 a `verifier.id` beginning `HTTPS:` and a `timeCreated` with a numeric offset such as `+01:00` verified.
+`export_svr_dsse` refuses a `time_created` in another form. The v0.1 extension field
 `verifier.policy` stays optional, and unknown members stay unread.
 
 ## The `eval-result/v0.2` predicate
