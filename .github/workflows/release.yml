@@ -111,6 +111,17 @@ jobs:
         # audit_artifacts file names the version — enforcing the discipline the project already follows.
         run: python scripts/pre_tag_audit_gate.py --repo . --version "${GITHUB_REF_NAME#v}" --strict
 
+      - name: Every signed digest resolves at this tag — the audit output is a tracked file (from 6.6.1)
+        # LESSON 2 OF 18 NOVEMBER 2026. An outside reader asked for the audit output of 6.6.0 and
+        # found none: the receipt verified, and its `audit_output_digest` named no tracked file
+        # until pull request 538 put the output into the tree afterwards. The gate above already
+        # recomputes `subject_tree_digest` and `gate_source_digest` from this tree; this step asks
+        # the third digest. For every receipt the gate verifies, the audit output must be a tracked
+        # file whose raw bytes have that digest, as `sha256sum` computes it outside. Before the build,
+        # so nothing is built, attested or uploaded for a tag whose evidence cannot be found.
+        # A tag of an earlier release runs its own workflow file, so this changes no earlier release.
+        run: python scripts/audit_output_aufloesbar.py --repo . --version "${GITHUB_REF_NAME#v}"
+
       - name: Formpruefer ueber Tag-Text und Release-Notiz (Release-Standard 6.0.0, Bedingung 8)
         # WARUM DIESER SCHRITT HIER STEHT. Der Release-Standard nennt einen "Formpruefer und
         # Benennungs-Gate ueber Release-Notiz und Tag-Text". GEMESSEN am 2026-09-07: es gab keinen.

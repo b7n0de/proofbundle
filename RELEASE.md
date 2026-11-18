@@ -40,6 +40,15 @@ Every line is checkable by someone else. "I think so" is not an answer.
 - [ ] **An adversarial deep-gate run holds a valid verdict on exactly this digest.** A verdict for an
       earlier digest is not a verdict for this one (`scripts/pre_tag_audit_gate.py --strict` blocks
       the build without the record).
+- [ ] **Every digest the signed pre-tag receipt names resolves at the commit that will be tagged**
+      (since 6.6.1). The audit output is a tracked file whose raw bytes have the receipt's
+      `audit_output_digest`: `python3 scripts/audit_output_aufloesbar.py --repo . --version X.Y.Z`
+      exits 0. The tree and the gate source are recomputed from the commit, as a reader outside
+      does it: `python -I scripts/verify_pre_tag_receipt.py --commit <sha> --version X.Y.Z` exits 0
+      (see *Verifying a published release* for its preconditions). `release.yml` runs the first check
+      again right after the pre-tag gate, before the build. For 6.6.0 the audit output was not
+      tracked when the tag was set; an outside reader found the gap and pull request 538 closed it
+      afterwards.
 - [ ] **The budget cost axis was measured ON THE REFERENCE MACHINE and the artifact says so.**
       Owner card `OA-dc37e26295` (2026-09-08) took this axis out of the CI verdict: a runner is
       roughly twice as slow as the reference machine, its factor runs into the derived cap (1.925 on

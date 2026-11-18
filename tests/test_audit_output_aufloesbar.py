@@ -131,3 +131,152 @@ def test_exit_codes_trennen_alle_drei_zustaende(baum, tmp_path, capsys):
 def test_unlesbares_receipt_stuerzt_nicht_ab_sondern_meldet(tmp_path, baum):
     fehlt = tmp_path / "gibt_es_nicht.json"
     assert A.main(["--receipt", str(fehlt), "--repo", str(baum)]) == 2
+
+
+# ── THE RELEASE STEP (--version), lesson 2 of 18 November 2026 ────────────────────────────────────
+#
+# An outside reader asked for the audit output of 6.6.0 and found none: the receipt verified, its
+# `audit_output_digest` named no tracked file, and the output came into the tree only through pull
+# request 538. From 6.6.1 on, release.yml runs `--version` right after the gate, so a tag whose audit
+# output is not a tracked file stops before the build. The gate is replaced by `_Tor` where the test
+# needs a verified receipt without a signing key; one case runs the real gate.
+
+QUITTUNG = "audit_artifacts/661/pre_tag_receipt_v6.6.1.json"
+#: The real gate loader, bound before any test replaces `A._gate` (a stand-in that asked `A._gate`
+#: for the library would ask itself).
+_ECHTES_TOR = A._gate
+AUSGABE = "audit_artifacts/661/audit_output_v6.6.1.txt"
+
+
+class _Tor:
+    """A stand-in for `pre_tag_audit_gate`: `evaluate` answers as given, `_lib` is the real library."""
+
+    def __init__(self, urteil):
+        self.urteil = urteil
+
+    def evaluate(self, repo, version):
+        if isinstance(self.urteil, Exception):
+            raise self.urteil
+        return self.urteil
+
+    def _lib(self):
+        return _ECHTES_TOR()._lib()
+
+
+def _verifiziert(*pfade):
+    return {"ok": True, "state": "verified", "verified_receipts": [{"path": p, "reason": "x"} for p in pfade]}
+
+
+@pytest.fixture()
+def release(tmp_path):
+    """A tree with the audit output of 6.6.1 tracked, in CRLF so that text and bytes differ."""
+    repo = tmp_path / "rel"
+    (repo / "audit_artifacts" / "661").mkdir(parents=True)
+    _git(repo, "init", "-q")
+    (repo / AUSGABE).write_bytes(b"28245 passed\r\n158 skipped\r\n")
+    (repo / "README.md").write_text("# rel\n", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "init")
+    return repo
+
+
+def _bytes(p: Path) -> str:
+    import hashlib
+    return hashlib.sha256(p.read_bytes()).hexdigest()
+
+
+def _quittung(repo: Path, rel: str, digest: str) -> None:
+    (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+    (repo / rel).write_text(json.dumps({"audit_output_digest": digest}), encoding="utf-8")
+
+
+def test_version_findet_die_verfolgte_ausgabe_ueber_ihre_rohen_bytes(release, monkeypatch, capsys):
+    """GRUENE KONTROLLE. Die Quittung nennt die Summe der rohen Bytes einer verfolgten Datei."""
+    _quittung(release, QUITTUNG, _bytes(release / AUSGABE))
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(QUITTUNG)))
+    r = A.fuer_version(release, "6.6.1")
+    assert r["zustand"] == "AUFLOESBAR", r
+    assert r["quittungen"][0]["treffer"] == [AUSGABE], "der Treffer muss benannt werden"
+    assert A.main(["--version", "6.6.1", "--repo", str(release)]) == 0
+
+
+def test_version_eine_nicht_verfolgte_ausgabe_haelt_den_release_an(release, monkeypatch):
+    """DER FALL 6.6.0: die Ausgabe gibt es, aber nicht im Baum."""
+    fluechtig = release / "audit_output_ausserhalb.txt"
+    fluechtig.write_bytes(b"nur im Arbeitsbaum\n")
+    _quittung(release, QUITTUNG, _bytes(fluechtig))
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(QUITTUNG)))
+    r = A.fuer_version(release, "6.6.1")
+    assert r["zustand"] == "NICHT_AUFLOESBAR", r
+    assert A.main(["--version", "6.6.1", "--repo", str(release)]) == 1
+
+
+def test_version_rechnet_ueber_die_bytes_nicht_ueber_den_text(release, monkeypatch):
+    """Wer von aussen prueft, hasht die Bytes (sha256sum), und so rechnet auch der Erzeuger. Eine
+    Quittung mit der Text-Summe einer CRLF-Datei loest fuer den Release NICHT auf, fuer `--receipt`
+    (die alte Lesart) schon. Ohne diesen Fall bliebe unbemerkt, wenn `--version` den Text nimmt."""
+    text = A.sha256_text((release / AUSGABE).read_text(encoding="utf-8", errors="ignore"))
+    assert text != _bytes(release / AUSGABE), "die Fixture trennt Text und Bytes nicht"
+    _quittung(release, QUITTUNG, text)
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(QUITTUNG)))
+    assert A.fuer_version(release, "6.6.1")["zustand"] == "NICHT_AUFLOESBAR"
+    assert A.aufloesbar({"audit_output_digest": text}, release)["zustand"] == "AUFLOESBAR"
+
+
+def test_version_ohne_verifizierte_quittung_ist_NICHT_MESSBAR(release, monkeypatch, capsys):
+    monkeypatch.setattr(A, "_gate", lambda: _Tor({"ok": False, "state": "absent", "verified_receipts": []}))
+    r = A.fuer_version(release, "6.6.1")
+    assert r["zustand"] == "NICHT_MESSBAR" and r["gate_state"] == "absent", r
+    assert A.main(["--version", "6.6.1", "--repo", str(release)]) == 2
+
+
+def test_version_ein_tor_das_nicht_urteilen_kann_ist_NICHT_MESSBAR(release, monkeypatch):
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(RuntimeError("kaputt")))
+    r = A.fuer_version(release, "6.6.1")
+    assert r["zustand"] == "NICHT_MESSBAR" and "kaputt" in r["grund"], r
+
+
+def test_version_eine_von_zwei_quittungen_loest_nicht_auf(release, monkeypatch):
+    """Ein Befund an einer Quittung haelt an, was auch neben ihr liegt; beide werden benannt."""
+    zweite = "audit_artifacts/661/pre_tag_receipt_v6.6.1_b.json"
+    _quittung(release, QUITTUNG, _bytes(release / AUSGABE))
+    _quittung(release, zweite, "b" * 64)
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(QUITTUNG, zweite)))
+    r = A.fuer_version(release, "6.6.1")
+    assert r["zustand"] == "NICHT_AUFLOESBAR", r
+    assert [q["pfad"] for q in r["quittungen"]] == [QUITTUNG, zweite]
+    assert [q["zustand"] for q in r["quittungen"]] == ["AUFLOESBAR", "NICHT_AUFLOESBAR"]
+
+
+def test_version_eine_unlesbare_quittung_ist_NICHT_MESSBAR(release, monkeypatch):
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert("audit_artifacts/661/fehlt.json")))
+    r = A.fuer_version(release, "6.6.1")
+    assert r["zustand"] == "NICHT_MESSBAR", r
+
+
+def test_version_gegen_das_echte_tor_ohne_quittung(release):
+    """Das echte Tor, ohne Ersatz: ohne Quittung urteilt es `absent`, und der Schritt misst nichts."""
+    r = A.fuer_version(release, "6.6.1")
+    assert r["zustand"] == "NICHT_MESSBAR", r
+    assert r["gate_state"] == "absent", r
+
+
+def test_receipt_und_version_schliessen_einander_aus(release, tmp_path):
+    q = tmp_path / "q.json"
+    q.write_text("{}", encoding="utf-8")
+    with pytest.raises(SystemExit) as beide:
+        A.main(["--receipt", str(q), "--version", "6.6.1", "--repo", str(release)])
+    assert beide.value.code == 2
+    with pytest.raises(SystemExit) as keins:
+        A.main(["--repo", str(release)])
+    assert keins.value.code == 2
+
+
+def test_version_ein_tor_das_ablehnt_gibt_keine_quittung_frei_auch_mit_verifizierter_daneben(release, monkeypatch):
+    """Das echte Tor meldet `ok=False`, wenn neben einer verifizierten Quittung eine abgelehnte liegt
+    (DELTA2 N1). Der Schritt darf dann nicht ueber die verifizierte urteilen, als waere nichts."""
+    _quittung(release, QUITTUNG, _bytes(release / AUSGABE))
+    urteil = {"ok": False, "state": "rejected", "verified_receipts": [{"path": QUITTUNG, "reason": "x"}]}
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(urteil))
+    r = A.fuer_version(release, "6.6.1")
+    assert r["zustand"] == "NICHT_MESSBAR" and r["gate_state"] == "rejected", r
