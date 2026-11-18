@@ -47,7 +47,8 @@ receipt that does not bind them. The third is this module's question, asked for 
     python3 scripts/audit_output_aufloesbar.py --version X.Y.Z [--repo .] [--json]
 
 It asks the gate which receipts verify for this tree and version, and requires that the
-`audit_output_digest` of each of them is the SHA-256 of the RAW BYTES of a tracked file. Raw bytes,
+`audit_output_digest` of each of them is the SHA-256 of the RAW BYTES of a regular file that the head
+commit carries, read from the commit's objects and never from the working tree. Raw bytes,
 not the decoded text: the producer hashes the bytes it captured (`pre_tag_receipt._audit_ausfuehren`,
 "recomputable by anyone who holds the record, with sha256sum"), and a reader outside does the same.
 The text reading above stays for `--receipt`, where older receipts were built over the decoded text.
@@ -60,52 +61,66 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pre_tag_receipt_lib import sha256_text  # noqa: E402
+from pre_tag_receipt_lib import (  # noqa: E402
+    BaumNichtLesbar,
+    git_file,
+    git_objects,
+    git_tree,
+    sha256_text,
+)
 
 SCHEMA = "b7n0de.audit_output_aufloesbar.v1"
 
+#: The modes of a regular file in a tree. A symbolic link (120000) carries its target's NAME as its
+#: content, and a gitlink (160000) carries no content in this repository at all.
+_REGULAER = ("100644", "100755")
 
-def _tracked_files(repo: Path) -> list[str] | None:
-    """Tracked paths, or None if git cannot answer — None is the NICHT_MESSBAR signal, not [].
+
+def _verfolgte_blobs(repo: Path) -> list[tuple[str, bytes]] | None:
+    """(path, content) of every regular file the HEAD COMMIT carries, sorted by path, or None if git
+    cannot answer — None is the NICHT_MESSBAR signal, not [].
 
     The distinction is the whole point: an empty list would read as 'searched everything, found
     nothing', which is a verdict. A broken git has no verdict to give.
 
-    READ WITH -z AND AS BYTES (2026-09-26, measured in a throwaway repository). Without -z git
-    quotes a path that holds a byte outside ASCII (`"audit_artifacts/pr\\303\\274fung.md"`), that
-    name opens no file, and the file was skipped without being counted: its digest was never
-    compared, and a record under such a name read as NICHT_AUFLOESBAR."""
+    READ FROM THE COMMIT, NOT FROM THE WORKING TREE (Codex on pull request 541, P2, 2026-11-18). The
+    question is whether a digest resolves at the commit that is tagged. This listed the tracked paths
+    and then read each from disk, and `Path.is_file()` follows a symbolic link: a committed link to an
+    untracked record outside the tree passed as AUFLOESBAR, and deleting only that record changed the
+    answer without changing the commit. A tracked file modified on disk and a file that is only staged
+    are the same mismatch. Every blob is now read through `git_tree` and `git_objects` of the receipt
+    library, each object checked against its id, and only regular files count.
+
+    NAMES AS GIT STORES THEM (2026-09-26, measured in a throwaway repository). The path is the raw
+    bytes of the tree entry, decoded the way Python decodes a file name (`os.fsdecode`); a quoted
+    display form opens no file, and a record under such a name was once skipped without being
+    counted."""
     try:
-        r = subprocess.run(["git", "-C", str(repo), "ls-files", "-z"],
-                           capture_output=True, timeout=60)
-    except (OSError, subprocess.SubprocessError):
+        _commit, eintraege = git_tree(repo, "HEAD")
+        dateien = sorted((pfad, oid) for mode, typ, oid, pfad in eintraege
+                         if typ == "blob" and mode in _REGULAER)
+        inhalte = git_objects(repo, [(oid, "blob") for _pfad, oid in dateien])
+    except (BaumNichtLesbar, OSError):
         return None
-    if r.returncode != 0:
-        return None
-    return [os.fsdecode(z) for z in r.stdout.split(b"\0") if z]
+    return [(os.fsdecode(pfad), inhalte[oid]) for pfad, oid in dateien]
 
 
-def _digest_wie_das_receipt(p: Path) -> str | None:
-    """Exactly the receipt's computation. Returns None for a path that cannot be read as a file."""
-    try:
-        return sha256_text(p.read_text(encoding="utf-8", errors="ignore"))
-    except (OSError, ValueError):
-        return None
+def _digest_wie_das_receipt(inhalt: bytes) -> str:
+    """Exactly the older receipts' computation: the text as `Path.read_text(encoding="utf-8",
+    errors="ignore")` returns it, which also turns `\\r\\n` and `\\r` into `\\n`."""
+    return sha256_text(io.TextIOWrapper(io.BytesIO(inhalt), encoding="utf-8", errors="ignore").read())
 
 
-def _digest_der_bytes(p: Path) -> str | None:
-    """SHA-256 of the raw bytes, as the producer and `sha256sum` compute it; None if unreadable."""
-    try:
-        return hashlib.sha256(p.read_bytes()).hexdigest()
-    except OSError:
-        return None
+def _digest_der_bytes(inhalt: bytes) -> str:
+    """SHA-256 of the raw bytes, as the producer and `sha256sum` compute it."""
+    return hashlib.sha256(inhalt).hexdigest()
 
 
 def aufloesbar(receipt: dict, repo: Path, *, roh: bool = False) -> dict:
@@ -122,19 +137,13 @@ def aufloesbar(receipt: dict, repo: Path, *, roh: bool = False) -> dict:
         return aus
     digest = digest.strip().lower()
     aus["digest"] = digest
-    dateien = _tracked_files(repo)
+    dateien = _verfolgte_blobs(repo)
     if dateien is None:
         aus.update(zustand="NICHT_MESSBAR", treffer=[], geprueft=0,
-                   grund=f"git konnte den Baum nicht auflisten: {repo}")
+                   grund=f"git could not read the tree of the head commit: {repo}")
         return aus
-    treffer, geprueft = [], 0
-    for rel in dateien:
-        p = repo / rel
-        if not p.is_file():
-            continue
-        geprueft += 1
-        if rechne(p) == digest:
-            treffer.append(rel)
+    treffer = [rel for rel, inhalt in dateien if rechne(inhalt) == digest]
+    geprueft = len(dateien)
     aus["geprueft"] = geprueft
     aus["treffer"] = treffer
     if treffer:
@@ -183,8 +192,16 @@ def fuer_version(repo: Path, version: str, *, gate=None) -> dict:
         return aus
     for eintrag in verifiziert:
         rel = eintrag.get("path") if isinstance(eintrag, dict) else None
+        # THE RECEIPT TOO IS READ FROM THE COMMIT (the neighbour of the P2 above): the gate judged the
+        # file on disk, and this step answers for the commit. A receipt that is not a regular file of
+        # the commit, or whose bytes on disk are not the committed ones, leaves nothing to resolve.
         try:
-            receipt = gate._lib().receipt_json((repo / rel).read_bytes())
+            im_commit = git_file(repo, "HEAD", rel)
+            if im_commit is None or im_commit[1] != "blob" or im_commit[0] not in _REGULAER:
+                raise ValueError("the receipt is not a regular file of the head commit")
+            if (repo / rel).read_bytes() != im_commit[3]:
+                raise ValueError("the receipt the gate judged on disk is not the one the head commit carries")
+            receipt = gate._lib().receipt_json(im_commit[3])
         except Exception as e:  # noqa: BLE001
             aus["quittungen"].append({"pfad": rel, "zustand": "NICHT_MESSBAR", "treffer": [],
                                       "grund": f"Quittung nicht lesbar: {type(e).__name__}: {e}"})

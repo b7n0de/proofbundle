@@ -185,9 +185,13 @@ def _bytes(p: Path) -> str:
     return hashlib.sha256(p.read_bytes()).hexdigest()
 
 
-def _quittung(repo: Path, rel: str, digest: str) -> None:
+def _quittung(repo: Path, rel: str, digest: str, *, committen: bool = True) -> None:
+    """A receipt naming `digest`, committed by default: the step reads the receipt from the commit."""
     (repo / rel).parent.mkdir(parents=True, exist_ok=True)
     (repo / rel).write_text(json.dumps({"audit_output_digest": digest}), encoding="utf-8")
+    if committen:
+        _git(repo, "add", "--", rel)
+        _git(repo, "commit", "-q", "-m", f"receipt {rel}")
 
 
 def test_version_findet_die_verfolgte_ausgabe_ueber_ihre_rohen_bytes(release, monkeypatch, capsys):
@@ -280,3 +284,95 @@ def test_version_ein_tor_das_ablehnt_gibt_keine_quittung_frei_auch_mit_verifizie
     monkeypatch.setattr(A, "_gate", lambda: _Tor(urteil))
     r = A.fuer_version(release, "6.6.1")
     assert r["zustand"] == "NICHT_MESSBAR" and r["gate_state"] == "rejected", r
+
+
+# ── THE STEP READS THE COMMIT, NOT THE WORKING TREE (Codex on pull request 541, P2) ───────────────
+#
+# A committed symbolic link to an untracked record outside the tree passed as AUFLOESBAR, because the
+# step listed the tracked paths and read each from disk, following the link. A tracked file modified
+# on disk and a file that is only staged are the same mismatch, and so is a receipt whose bytes on
+# disk are not the committed ones. Each case below fails against the reading from disk.
+
+
+def test_version_ein_symlink_auf_eine_datei_ausserhalb_loest_nicht_auf(release, tmp_path, monkeypatch):
+    """THE CASE CODEX MEASURED. The link is committed, the record it points to is not."""
+    aussen = tmp_path / "aussen_audit_output.txt"
+    aussen.write_bytes(b"the record outside the commit\n")
+    link = release / "audit_artifacts" / "661" / "verweis.txt"
+    try:
+        link.symlink_to(aussen)
+    except OSError as exc:
+        pytest.skip(f"this file system refuses a symbolic link: {exc}")
+    _git(release, "add", "--", "audit_artifacts/661/verweis.txt")
+    _git(release, "commit", "-q", "-m", "a link to a record outside the commit")
+    _quittung(release, QUITTUNG, _bytes(aussen))
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(QUITTUNG)))
+    r = A.fuer_version(release, "6.6.1")
+    assert r["zustand"] == "NICHT_AUFLOESBAR", r
+    assert r["quittungen"][0]["treffer"] == [], r
+    assert A.aufloesbar({"audit_output_digest": A.sha256_text(aussen.read_text(encoding="utf-8"))},
+                        release)["zustand"] == "NICHT_AUFLOESBAR", "--receipt reads the commit as well"
+
+
+def test_version_eine_geaenderte_verfolgte_datei_zaehlt_mit_dem_inhalt_des_commits(release, monkeypatch):
+    """The output on disk is changed after the commit. The digest of the new bytes names no file of
+    the commit; the digest of the committed bytes still does."""
+    committet = _bytes(release / AUSGABE)
+    (release / AUSGABE).write_bytes(b"other bytes on disk\n")
+    _quittung(release, QUITTUNG, _bytes(release / AUSGABE))
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(QUITTUNG)))
+    assert A.fuer_version(release, "6.6.1")["zustand"] == "NICHT_AUFLOESBAR"
+    zweite = "audit_artifacts/661/pre_tag_receipt_v6.6.1_c.json"
+    _quittung(release, zweite, committet)
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(zweite)))
+    r = A.fuer_version(release, "6.6.1")
+    assert r["zustand"] == "AUFLOESBAR" and r["quittungen"][0]["treffer"] == [AUSGABE], r
+
+
+def test_version_eine_nur_gestagte_datei_loest_nicht_auf(release, monkeypatch):
+    """Staged is not committed: the tag would not carry it."""
+    gestaged = release / "audit_artifacts" / "661" / "nur_gestaged.txt"
+    gestaged.write_bytes(b"staged, never committed\n")
+    _git(release, "add", "--", "audit_artifacts/661/nur_gestaged.txt")
+    _quittung(release, QUITTUNG, _bytes(gestaged), committen=False)
+    _git(release, "add", "--", QUITTUNG)
+    _git(release, "commit", "-q", "-m", "receipt only", "--", QUITTUNG)
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(QUITTUNG)))
+    r = A.fuer_version(release, "6.6.1")
+    assert r["zustand"] == "NICHT_AUFLOESBAR", r
+
+
+def test_version_eine_quittung_nur_im_arbeitsbaum_ist_NICHT_MESSBAR(release, monkeypatch):
+    """The gate judged a receipt the commit does not carry: there is nothing to resolve for the tag."""
+    _quittung(release, QUITTUNG, _bytes(release / AUSGABE), committen=False)
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(QUITTUNG)))
+    r = A.fuer_version(release, "6.6.1")
+    assert r["zustand"] == "NICHT_MESSBAR", r
+    assert "regular file of the head commit" in r["grund"], r
+
+
+def test_version_eine_im_arbeitsbaum_geaenderte_quittung_ist_NICHT_MESSBAR(release, monkeypatch):
+    """The committed receipt names the committed output, the one on disk names other bytes. The gate
+    read the one on disk, so its verdict is not about the commit."""
+    _quittung(release, QUITTUNG, _bytes(release / AUSGABE))
+    (release / QUITTUNG).write_text(json.dumps({"audit_output_digest": "c" * 64}), encoding="utf-8")
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(QUITTUNG)))
+    r = A.fuer_version(release, "6.6.1")
+    assert r["zustand"] == "NICHT_MESSBAR", r
+    assert "not the one the head commit carries" in r["grund"], r
+
+
+def test_version_der_text_eines_symlinks_ist_keine_datei_des_commits(release, tmp_path, monkeypatch):
+    """A link's blob carries the NAME of its target. A reader who checks out the tag and runs sha256sum
+    on that path hashes the target, never that name, so the name must not resolve either."""
+    link = release / "audit_artifacts" / "661" / "nur_ein_name.txt"
+    try:
+        link.symlink_to("gibt_es_nicht.txt")
+    except OSError as exc:
+        pytest.skip(f"this file system refuses a symbolic link: {exc}")
+    _git(release, "add", "--", "audit_artifacts/661/nur_ein_name.txt")
+    _git(release, "commit", "-q", "-m", "a dangling link")
+    import hashlib
+    _quittung(release, QUITTUNG, hashlib.sha256(b"gibt_es_nicht.txt").hexdigest())
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(QUITTUNG)))
+    assert A.fuer_version(release, "6.6.1")["zustand"] == "NICHT_AUFLOESBAR"
