@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import unittest
 from datetime import datetime, timezone
 from unittest import mock
 
@@ -25,10 +26,18 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from proofbundle import dsse
 from proofbundle import trust_pack as tp
-from proofbundle.pqsig import generate_mldsa
+from proofbundle.pqsig import PQUnavailable, generate_mldsa
 
 _NOW = datetime(2026, 11, 15, 12, 0, 0, tzinfo=timezone.utc)
-_P, _P2 = generate_mldsa(), generate_mldsa()
+# Nearly every case here builds ML-DSA keys, and they are built when the module is imported. The cryptography
+# floor of the CI job crypto-floor (42.*) has no ML-DSA, so `generate_mldsa` raises PQUnavailable there, and the
+# module failed to import in every part of that job. There the module is skipped and says why; with ML-DSA every
+# case runs. Only PQUnavailable is caught, so any other error at import stays an error. A unittest SkipTest is
+# what both runners read as a skip of the module: `unittest discover` in the floor job and pytest everywhere else.
+try:
+    _P, _P2 = generate_mldsa(), generate_mldsa()
+except PQUnavailable as exc:
+    raise unittest.SkipTest(f"NOT MEASURABLE without ML-DSA in this cryptography build: {exc}") from exc
 _E1, _E2, _E3 = Ed25519PrivateKey.generate(), Ed25519PrivateKey.generate(), Ed25519PrivateKey.generate()
 
 
