@@ -151,6 +151,33 @@ def test_every_python_process_of_the_release_job_reads_bytecode_from_a_fresh_dir
     nennungen = [nr for nr, z in enumerate(text.splitlines(), 1)
                  if "PYTHONPYCACHEPREFIX" in z and not z.strip().startswith("#")]
     assert len(nennungen) == 1, f"PYTHONPYCACHEPREFIX is named outside a comment on lines {nennungen}"
+    # EVERY PROCESS THAT RUNS PYTHON READS THE VARIABLE (Codex on pull request 541, round lx6, P1 5): `-E` and `-I` make
+    # Python ignore it, so such a call would read a cache beside a source again. The only one allowed is the outside
+    # verifier, which keeps its own fresh bytecode directory before it loads anything of the checkout.
+    erlaubt = {AUSSEN}
+    abweichend = [aufruf for s in steps for aufruf in _python_aufrufe(s.get("run") or "")
+                  if aufruf[1] & {"-E", "-I"} and aufruf[0] not in erlaubt]
+    assert not abweichend, f"a Python call of job {name} ignores PYTHONPYCACHEPREFIX: {abweichend}"
+
+
+def _python_aufrufe(lauf: str) -> list[tuple[str, frozenset]]:
+    """(the command line, its options before the script or `-m`) of every Python call in a `run:` text."""
+    aus = []
+    for zeile in lauf.splitlines():
+        kern = zeile.strip()
+        for m in re.finditer(r"(?:^|[\s;&|(])(python3?)((?:\s+-[A-Za-z]+)*)\s", kern + " "):
+            optionen = frozenset(o for o in m.group(2).split() if o.startswith("-"))
+            aus.append((kern, optionen))
+    return aus
+
+
+def test_the_python_call_reader_sees_an_option_that_ignores_the_environment():
+    """[COUNTS] The reader the bytecode contract relies on: `-E` and `-I` are seen, in a chain and at the start."""
+    assert _python_aufrufe("python -E scripts/x.py")[0][1] == {"-E"}
+    assert _python_aufrufe("cd a && python3 -I -B scripts/x.py --json")[0][1] == {"-I", "-B"}
+    assert _python_aufrufe("python scripts/pre_tag_audit_gate.py --strict")[0][1] == frozenset()
+    # A mention reads as a call without options, which the contract allows: the reader errs towards counting.
+    assert _python_aufrufe("echo python is here")[0][1] == frozenset()
 
 
 def _oberste_glieder(ausdruck: str) -> tuple[list[str], bool]:
