@@ -687,6 +687,10 @@ _RULE_SITES = {
     ("src/proofbundle/adapters/trace_record.py", "_parse_public_jwk"): (1, "verifier: the bytes it decoded "
                                                                          "itself from a JWK member, judged "
                                                                          "and then used; never written"),
+    ("src/proofbundle/bundle.py", "_verify_bundle"): (1, "verifier: the bundle's own key, plain bytes that _b64d "
+                                                         "decoded from the bundle itself; names why it is refused, "
+                                                         "verify_ed25519_pinned judges it again and decides; "
+                                                         "writes nothing (6.6.1, SPEC section 4b)"),
     ("src/proofbundle/checkpoint.py", "_refuse_weak_ed25519_vkey"): (1, "the helper; its callers below"),
     ("src/proofbundle/checkpoint.py", "vkey"): (1, "PRODUCER, ProducersOfRawKeys"),
     ("src/proofbundle/checkpoint.py", "cosign_vkey"): (1, "PRODUCER, ProducersOfRawKeys"),
