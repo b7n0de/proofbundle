@@ -173,6 +173,40 @@ def ist_quittungspfad(pfad: str) -> bool:
     return bool(_quittungsmuster().search("\t" + pfad))
 
 
+def _receipt_lib():
+    """``scripts/pre_tag_receipt_lib.py``, loaded BY ITS PATH, for the same reason as `_quittungsmuster`."""
+    import importlib.util as _ilu  # noqa: PLC0415
+    nachbar = Path(__file__).resolve().parent / "pre_tag_receipt_lib.py"
+    try:
+        spec = _ilu.spec_from_file_location("_sra_pre_tag_receipt_lib_ausgabe", nachbar)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"no loader for {nachbar}")
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception as e:  # noqa: BLE001 — without the rule there is no digest, not a guessed one
+        raise SystemExit(f"the receipt library is not loadable from {nachbar} — a digest over a "
+                         f"guessed exclusion set binds nothing: {type(e).__name__}: {e}") from e
+
+
+def ist_ausgabepfad(pfad: str) -> bool:
+    """True when ``pfad`` has the form of the audit output beside its receipt (owner choice A on card
+    OA-71c0d50067). The form excludes nothing by itself; see ``pre_tag_receipt_lib.gebundene_ausgaben``."""
+    return _receipt_lib().ist_ausgabepfad(pfad)
+
+
+def _gebundene_ausgaben(repo: Path) -> set:
+    """The audit outputs of HEAD that the receipt beside them binds by their bytes, as text paths: the
+    same rule `pre_tag_receipt_lib.subject_tree_digest` applies, taken from that library (ONE RULE FOR
+    BOTH BINDINGS, see `_quittungsmuster`)."""
+    lib = _receipt_lib()
+    try:
+        _commit, eintraege = lib.git_tree(repo, "HEAD")
+        return {p.decode("ascii") for p in lib.gebundene_ausgaben(repo, eintraege)}
+    except lib.BaumNichtLesbar as e:
+        raise SystemExit(f"cannot read the tree in {repo} as the objects its ids name: {e}") from e
+
+
 def tree_digest(repo: Path, *, exclude: tuple[str, ...] = MUTABLE_EVIDENCE_RELS) -> str:
     """The quantity the gate recomputes: sha256 over sorted, RECURSIVE `git ls-tree HEAD`, minus
     exactly the paths in ``exclude`` (see :data:`MUTABLE_EVIDENCE_RELS`) and every path matching the
@@ -201,8 +235,9 @@ def tree_digest(repo: Path, *, exclude: tuple[str, ...] = MUTABLE_EVIDENCE_RELS)
         gesehen.add(pfad)
     suffixe = tuple(f"\t{p}" for p in exclude)
     quittung = _quittungsmuster()
+    ausgaben = _gebundene_ausgaben(repo)
     zeilen = [ln for ln in alle if ln.split(" ", 2)[1:2] != ["tree"] and not ln.endswith(suffixe)
-              and not quittung.search(ln)]
+              and not quittung.search(ln) and ln.partition("\t")[2] not in ausgaben]
     return hashlib.sha256("\n".join(sorted(zeilen)).encode("utf-8")).hexdigest()
 
 

@@ -469,6 +469,82 @@ _RECEIPT_MUSTER = _re.compile(
     r"\taudit_artifacts/[0-9][0-9A-Za-z.+!_\-]*/pre_tag_receipt_v?[0-9][0-9A-Za-z.+!_\-]*\.json$")
 
 
+#: THE AUDIT OUTPUT BESIDE ITS RECEIPT (owner choice A on card OA-71c0d50067, 2026-11-18, lesson 2).
+#: The receipt binds the tree as it was measured BEFORE the audit ran, and the output only exists after
+#: the run. Committed afterwards, it changed this digest, so a release could carry its receipt or its
+#: audit output but never both (measured on a throwaway clone at v6.6.0: the gate said `verified`, and
+#: with the 6.6.0 output committed beside the receipt it said `other_tree`). One path form is therefore
+#: left out of the digest, and only when the receipt beside it binds it: see `gebundene_ausgaben`. The
+#: form is new on purpose: no tag and not main carry it (0 of 58 refs, measured 2026-11-18), so no digest
+#: computed so far changes, while the older name `audit_output_v<version>.txt` lies in four tags and stays
+#: in the digest. The pattern is matched against the whole path, and its folder must be the version's.
+_AUSGABE_MUSTER = _re.compile(
+    r"\A(audit_artifacts/([0-9][0-9A-Za-z.+!_\-]*))/pre_tag_audit_output_v([0-9][0-9A-Za-z.+!_\-]*)\.txt\Z")
+
+#: The modes of a regular file in a tree.
+_REGULAERE_MODI = ("100644", "100755")
+
+
+def ist_ausgabepfad(pfad: str) -> bool:
+    """True when `pfad` (repository-relative) has the form of an audit output beside its receipt and
+    sits in its version's folder. The form alone excludes nothing; `gebundene_ausgaben` decides."""
+    m = _AUSGABE_MUSTER.match(pfad)
+    return bool(m) and m.group(2) == m.group(3).replace(".", "")
+
+
+def gebundene_ausgaben(repo, eintraege) -> set:
+    """The paths (bytes) of the audit outputs in `eintraege` that the digest leaves out.
+
+    `eintraege` is the listing `git_tree` returns, objects already checked against their ids. An output
+    is left out only when all of this holds, and otherwise it stays in the digest:
+      - it is a regular file at `audit_artifacts/<token>/pre_tag_audit_output_v<version>.txt`, and
+        `<token>` is `<version>` without its dots;
+      - a regular file `pre_tag_receipt_v<version>.json` or `pre_tag_receipt_<version>.json` lies in the
+        same folder, is read the one way the gate and the verifier read a receipt (`receipt_json`), names
+        `<version>` as its `version`, and names the SHA-256 of the output's bytes as its
+        `audit_output_digest`.
+    So no file stands in the excluded path without a digest that names its bytes: an output that does not
+    match stays in the digest, and a receipt that bound the tree without it no longer verifies. Whether
+    that receipt is signed by a trusted key is the gate's question, which it asks of every receipt in the
+    version's folder; a receipt that fails it is rejected, and the gate does not pass."""
+    nach_pfad = {pfad: (mode, typ, oid) for mode, typ, oid, pfad in eintraege}
+    kandidaten = []
+    for mode, typ, oid, pfad in eintraege:
+        if typ != "blob" or mode not in _REGULAERE_MODI:
+            continue
+        try:
+            text = pfad.decode("ascii")
+        except UnicodeDecodeError:
+            continue
+        m = _AUSGABE_MUSTER.match(text)
+        if not m or m.group(2) != m.group(3).replace(".", ""):
+            continue
+        ordner, version = m.group(1), m.group(3)
+        quittungen = []
+        for name in (f"{ordner}/pre_tag_receipt_v{version}.json", f"{ordner}/pre_tag_receipt_{version}.json"):
+            e = nach_pfad.get(name.encode("ascii"))
+            if e is not None and e[1] == "blob" and e[0] in _REGULAERE_MODI:
+                quittungen.append(e[2])
+        if quittungen:
+            kandidaten.append((pfad, oid, version, quittungen))
+    if not kandidaten:
+        return set()
+    objekte = git_objects(repo, sorted({(oid, "blob") for _p, oid, _v, qs in kandidaten for oid in [oid, *qs]}))
+    gebunden = set()
+    for pfad, oid, version, quittungen in kandidaten:
+        digest = hashlib.sha256(objekte[oid]).hexdigest()
+        for q in quittungen:
+            try:
+                rc = receipt_json(objekte[q])
+            except ValueError:
+                continue
+            if (isinstance(rc, dict) and rc.get("version") == version
+                    and rc.get("audit_output_digest") == digest):
+                gebunden.add(pfad)
+                break
+    return gebunden
+
+
 #: Ein erwarteter Digest ist ein sha256 in Kleinhex, 64 Stellen — und NUR das. Siehe die Pruefung in
 #: `verify_receipt`: sie entscheidet ueber die FORM des erwarteten Wertes, damit kein Ersatzwert
 #: eines Aufrufers je bindbar wird.
@@ -589,8 +665,12 @@ def subject_tree_digest(repo) -> str:
             f"the listing git printed for {commit} in {repo} is not the tree its checked objects "
             "name — the digest would be taken over a tree the commit does not carry")
     veraenderlich = tuple(f"\t{pfad}" for pfad in MUTABLE_EVIDENCE_RELS)
+    # The audit output beside its receipt, only where that receipt names its bytes (`gebundene_ausgaben`).
+    # Its path is ASCII by the pattern, so `ls-tree` prints it unquoted and it compares as text.
+    ausgaben = {p.decode("ascii") for p in gebundene_ausgaben(repo, geprueft)}
     lines = [ln for ln in text.splitlines()
-             if not ln.endswith(veraenderlich) and not _RECEIPT_MUSTER.search(ln)]
+             if not ln.endswith(veraenderlich) and not _RECEIPT_MUSTER.search(ln)
+             and ln.partition("\t")[2] not in ausgaben]
     # DIE STILLE LEERMESSUNG (Gegenlesung 07.09.2026, ausgefuehrt — und sie geht MITTEN durch die
     # Formpruefung hindurch, die derselbe Commit eingezogen hat). `git -C <unterordner> ls-tree -r
     # HEAD` endet mit rc=0 und LEERER Ausgabe, wenn unter dem Pfad nichts getrackt ist. Der Digest
