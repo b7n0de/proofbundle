@@ -169,13 +169,29 @@ def _import_time_statements(body: list[ast.stmt]):
             yield from _import_time_statements(case.body)
 
 
+def _origins_at_import(tree: ast.AST) -> tuple:
+    """`_origins` over the bindings a raise at import time can see: the tree with every function body and parameter list
+    taken out, the names of the functions kept. A parameter named like a module imported from elsewhere is no binding of
+    the module (Codex on pull request 543, round 3, P1)."""
+    leer = ast.arguments(posonlyargs=[], args=[], vararg=None, kwonlyargs=[], kw_defaults=[], kwarg=None, defaults=[])
+    beschnitten = ast.parse(ast.unparse(tree))
+    for node in ast.walk(beschnitten):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            node.body, node.args = [ast.Pass()], leer
+        elif isinstance(node, ast.Lambda):
+            node.body, node.args = ast.Constant(None), leer
+    return _origins(beschnitten)
+
+
 def _skip_test_names(tree: ast.AST, origins: tuple) -> set[str]:
     """The names under which a module binds unittest's SkipTest: every alias of an import of it from unittest or one of
     its modules, `SkipTest` itself after `from unittest import *`, or unless an import that runs at import time binds
     it from elsewhere, and every name assigned a value that is SkipTest, followed to a fixed point (`S =
     unittest.SkipTest`, then `T = S`; Codex on pull request 543, round 1, P0). Only an import that runs at import time
     can take the name away: an import inside a function never ran when the module raised (round 2, P0). An assignment
-    anywhere in the module counts, in the strict direction."""
+    anywhere in the module counts, in the strict direction. So does an instance assigned to a name (`e =
+    unittest.SkipTest("x")`, then `raise e`) and a class whose bases name SkipTest (`class S(unittest.SkipTest)`), both
+    round 3, P0."""
     names: set[str] = set()
     fremd = False
     for node in _import_time_statements(tree.body):
@@ -193,13 +209,17 @@ def _skip_test_names(tree: ast.AST, origins: tuple) -> set[str]:
     while True:
         new = set()
         for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                if any(_skip_test_value(b, names, origins) for b in node.bases) and node.name not in names:
+                    new.add(node.name)
+                continue
             if isinstance(node, ast.Assign):
                 targets, value = node.targets, node.value
             elif isinstance(node, (ast.AnnAssign, ast.NamedExpr)) and node.value is not None:
                 targets, value = [node.target], node.value
             else:
                 continue
-            if _skip_test_value(value, names, origins):
+            if _is_skip_test(value, names, origins):
                 new |= {t.id for t in targets if isinstance(t, ast.Name)} - names
         if not new:
             return names
@@ -226,10 +246,11 @@ def module_level_skip_lines(source: str) -> list[int]:
     NOT READ, and named (Codex on pull request 543, rounds 1 and 2): a raise inside a function that the module calls
     while it is imported; SkipTest reached through code this reading does not follow, such as a value a call returns,
     `exec`, `importlib`, or a name bound by a loop target or a `with ... as`; a raise of a name assigned only through a
-    container or an attribute; and a skip in a helper module outside `tests/`. Where such a skip happens on the floor,
+    container or an attribute; a skip in a helper module outside `tests/`; and ANY OTHER FORM: this reading is a tripwire
+    for the forms named here, not a proof that a module never skips at import. Where such a skip happens on the floor,
     the load above still finds it there."""
     tree = ast.parse(source)
-    origins = _origins(tree)
+    origins = _origins_at_import(tree)
     names = _skip_test_names(tree, origins)
     return sorted(node.lineno for node in _import_time_statements(tree.body)
                   if isinstance(node, ast.Raise) and _is_skip_test(node.exc, names, origins))
@@ -574,6 +595,13 @@ class ThePartitionCheckCatchesWhatItIsFor(unittest.TestCase):
             # function body makes.
             "import unittest\nraise getattr(unittest, 'SkipTest')\n": [2],
             "from unittest import *\ndef f():\n    from other import SkipTest\n    return SkipTest\nraise SkipTest('x')\n": [5],
+            # Each rule of the origin alone: a foreign import only in a function body takes no name away, and a star
+            # import from unittest after a foreign import at module level binds unittest's SkipTest again.
+            "def f():\n    from other import SkipTest\n    return SkipTest\nraise SkipTest('x')\n": [4],
+            "from other import SkipTest\nfrom unittest import *\nraise SkipTest('x')\n": [3],
+            # Round 3: an instance assigned to a name, and a subclass.
+            "import unittest\ne = unittest.SkipTest('x')\nraise e\n": [3],
+            "import unittest\nclass S(unittest.SkipTest):\n    pass\nraise S()\n": [4],
         }
         for source, lines in found.items():
             with self.subTest(source):
@@ -591,7 +619,9 @@ class ThePartitionCheckCatchesWhatItIsFor(unittest.TestCase):
                        "import other\nraise getattr(other, 'SkipTest')('x')\n",
                        # Round 2, P1: the origin is read at the start of the attribute chain.
                        "import other\nraise other.child.SkipTest('x')\n",
-                       "import other\nraise getattr(other.child, 'SkipTest')\n"):
+                       "import other\nraise getattr(other.child, 'SkipTest')\n",
+                       # Round 3, P1: a parameter of a function is no binding of the module.
+                       "import other\ndef f(other):\n    pass\nraise other.child.SkipTest()\n"):
             with self.subTest(source):
                 self.assertEqual(module_level_skip_lines(source), [])
 
