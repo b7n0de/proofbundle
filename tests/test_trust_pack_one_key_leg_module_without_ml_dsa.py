@@ -35,15 +35,16 @@ import pytest
 
 class Sammler:
     def __init__(self):
-        self.ergebnis = {"passed": 0, "failed": 0, "skipped": 0, "gruende": set(), "gesammelt": 0, "ids": []}
+        self.ergebnis = {"passed": 0, "failed": 0, "skipped": 0, "je_skip": [], "gesammelt": 0, "ids": []}
     def pytest_collection_modifyitems(self, items):
         self.ergebnis["gesammelt"] = len(items)
         self.ergebnis["ids"] = sorted(i.nodeid for i in items)
     def pytest_runtest_logreport(self, report):
         if report.when == "call" or report.outcome != "passed":
             self.ergebnis[report.outcome] += 1
-            if report.skipped and isinstance(report.longrepr, tuple):
-                self.ergebnis["gruende"].add(str(report.longrepr[2]))
+            if report.skipped:
+                lang = report.longrepr
+                self.ergebnis["je_skip"].append(str(lang[2]) if isinstance(lang, tuple) and len(lang) > 2 else "")
 
 # unittest first, so it imports the module itself and would build the stand-in of a skip at import.
 def flat(x):
@@ -57,7 +58,7 @@ ids = [t.id() for t in flat(unittest.TestLoader().discover("tests", os.path.base
 
 s = Sammler()
 rc = pytest.main(["-q", "-p", "no:cacheprovider", "-p", "no:warnings", sys.argv[1]], plugins=[s])
-e = dict(s.ergebnis, gruende=sorted(s.ergebnis["gruende"]), rc=int(rc), unittest_ids=ids)
+e = dict(s.ergebnis, rc=int(rc), unittest_ids=ids)
 print("ERGEBNIS " + json.dumps(e))
 """
 
@@ -96,9 +97,11 @@ class TheModuleWithoutMlDsaSkipsEveryCaseAndNoStandIn(unittest.TestCase):
         # A sweep over nothing is green and says nothing, and a smaller sweep hides the cases it lost.
         self.assertEqual(e["gesammelt"], _ERWARTET, e)
         self.assertEqual((e["passed"], e["failed"], e["skipped"]), (0, 0, e["gesammelt"]), e)
-        self.assertTrue(e["gruende"], e)
-        for grund in e["gruende"]:
-            self.assertIn("NOT MEASURABLE without ML-DSA", grund)
+        # The reason of EVERY skipped case, one per case (Codex on pull request 543, round 5, P1): a skip without the
+        # reason, or of another form, is no measured floor path.
+        self.assertEqual(len(e["je_skip"]), e["skipped"], e)
+        ohne = [g for g in e["je_skip"] if "NOT MEASURABLE without ML-DSA" not in g]
+        self.assertEqual(ohne, [], e)
         self.assertEqual(e["rc"], 0, e)
 
     def test_unittest_builds_no_stand_in_for_the_module(self):

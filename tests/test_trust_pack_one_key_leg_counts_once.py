@@ -34,8 +34,9 @@ _NOW = datetime(2026, 11, 15, 12, 0, 0, tzinfo=timezone.utc)
 # THE MODULE IS NOT SKIPPED AT IMPORT. A module that raises unittest.SkipTest while it is imported becomes a stand-in
 # test that no `-k` filters out, so it runs in every part of that job, and tests/test_crypto_floor_shards_cover_the_suite.py
 # refuses any such stand-in. A skip at import here turned crypto-floor (5 of 5) red on every main run from 3ef175c9 on.
-# Without ML-DSA every case is skipped through `pytestmark` and says why, and the module is still read: two stand-in
-# keys give the values built below their shape and refuse to sign, so no case can pass on them. `unittest discover`
+# Without ML-DSA every case is skipped through `pytestmark` and says why; that no case passes on a stand-in is the
+# mark's doing. The module is still read: two stand-in keys give the values built below their shape, and they refuse
+# to sign as a second guard (Codex on pull request 543, round 5, P1). `unittest discover`
 # loads no case from this module in any build, since its cases are pytest functions; there it only has to import.
 # Only PQUnavailable is caught, so any other error at import stays an error.
 
