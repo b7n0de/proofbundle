@@ -71,8 +71,11 @@ def test_gate_step_and_build_run_in_one_job_unconditionally_and_in_that_order():
     assert len(tor) == 1 and len(schritt) == 1 and bau, (tor, schritt, bau)
     assert tor[0] < schritt[0] < min(bau), f"gate {tor[0]}, step {schritt[0]}, build {min(bau)} in job {name}"
     assert "if" not in job and not job.get("continue-on-error", False), f"job {name} runs under a condition"
-    for i, s in enumerate(steps[:min(bau)]):
+    for i, s in enumerate(steps[:max(bau) + 1]):
         assert not s.get("continue-on-error", False), f"step {i} of {name} lets its failure through"
+        # NO CONDITION UP TO THE LAST BUILD STEP (Codex on pull request 541, round lx4, P1 4): a build step with
+        # `if: always()` would run after a failed gate or step.
+        assert "if" not in s, f"step {i} of {name} runs under a condition: {s['if']!r}"
     for i in (tor[0], schritt[0]):
         assert "if" not in steps[i], f"step {i} of {name} runs under a condition: {steps[i]['if']!r}"
     for andere, j in jobs.items():
@@ -85,8 +88,48 @@ def test_gate_step_and_build_run_in_one_job_unconditionally_and_in_that_order():
         # failed need. Such a condition must itself ask for the success of the job that holds the step.
         bedingung = str(j.get("if") or "")
         if re.search(r"\b(?:always|failure|cancelled)\s*\(", bedingung):
-            assert f"needs.{name}.result == 'success'" in bedingung, (
+            # A NECESSARY condition, not a substring (round lx4, P1 4): the expression is a pure conjunction, so
+            # `... || true` cannot make the success comparison optional, and the comparison is one of its terms.
+            glieder, oder = _oberste_glieder(bedingung)
+            assert not oder, f"job {andere} runs under `{bedingung}`, whose top level is not a conjunction"
+            assert f"needs.{name}.result == 'success'" in glieder, (
                 f"job {andere} runs under `{bedingung}` even when {name} failed")
+
+
+def _oberste_glieder(ausdruck: str) -> tuple[list[str], bool]:
+    """(the conjuncts at the top level of a GitHub expression, whether `||` occurs at the top level). Brackets
+    nest; a conjunct wrapped in one pair of brackets is unwrapped, so `(a == b)` and `a == b` compare alike."""
+    glieder, tiefe, start, oder, i = [], 0, 0, False, 0
+    while i < len(ausdruck):
+        c = ausdruck[i]
+        if c == "(":
+            tiefe += 1
+        elif c == ")":
+            tiefe -= 1
+        elif tiefe == 0 and ausdruck.startswith("&&", i):
+            glieder.append(ausdruck[start:i])
+            start, i = i + 2, i + 2
+            continue
+        elif tiefe == 0 and ausdruck.startswith("||", i):
+            oder = True
+        i += 1
+    glieder.append(ausdruck[start:])
+    aus = []
+    for g in glieder:
+        g = g.strip()
+        while g.startswith("(") and g.endswith(")") and _oberste_glieder(g[1:-1])[0] == [g[1:-1].strip()]:
+            g = g[1:-1].strip()
+        aus.append(g)
+    return aus, oder
+
+
+def test_the_conjunction_reader_refuses_an_optional_success_test():
+    """The reader the contract test relies on: `|| true` around the comparison, or at the top level, hides it."""
+    ok = "always() && needs.b.result == 'success' && (needs.p.result != 'success' || needs.r.result != 'success')"
+    assert _oberste_glieder(ok) == ([
+        "always()", "needs.b.result == 'success'", "needs.p.result != 'success' || needs.r.result != 'success'"], False)
+    assert "needs.b.result == 'success'" not in _oberste_glieder("always() && (needs.b.result == 'success' || true)")[0]
+    assert _oberste_glieder("always() && needs.b.result == 'success' || true")[1] is True
 
 
 def _release_gate() -> list[str]:

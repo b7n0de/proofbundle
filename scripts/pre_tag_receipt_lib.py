@@ -490,6 +490,10 @@ _REGULAERE_MODI = ("100644", "100755")
 #: the tree without moving any binding. An output at any other mode stays in the digest.
 _AUSGABE_MODUS = "100644"
 
+#: The release version a tree declares, read the way `pre_tag_audit_gate.pyproject_version` reads it: the first
+#: `version = "X.Y.Z..."` line of `pyproject.toml`. Only the output of THIS version may leave the digest.
+_VERSION_IN_PYPROJECT = _re.compile(r'(?m)^\s*version\s*=\s*["\']([0-9]+\.[0-9]+\.[0-9]+[^"\']*)["\']')
+
 #: The trust anchor of the pre-tag receipt, as a path in the tree. It is never excluded from the digest.
 _SCHLUESSELDATEI = b"audit_artifacts/pre_tag_trusted_pubkeys.txt"
 
@@ -535,9 +539,10 @@ def gebundene_ausgaben(repo, eintraege, *, zeilen: list) -> set:
     it is asked about. Under `audit_artifacts/660/` anyone who writes the tree could commit an unsigned
     receipt naming any digest and an output with those bytes, and both left the digest that the receipt of
     6.6.1 binds. The owner's choice A says the output is bound by the SIGNED digest; a digest nobody
-    signed binds nothing. The tree digest a receipt binds is not part of this check (it would be circular:
-    the digest is computed without the output), and it need not be: what is excluded is exactly the bytes
-    a trusted key signed for that version. When the signature cannot be checked at all, because the
+    signed binds nothing. The tree a receipt attests is checked as well, in the fixed point described below, and
+    only the output of the version the tree itself declares in `pyproject.toml` (a file in the digest) is a
+    candidate at all (Codex on pull request 541, round lx4, P0 1: a pair signed for another version over the same
+    tree left the digest otherwise). When the signature cannot be checked at all, because the
     signature module of the package cannot be imported, the digest is refused (`BaumNichtLesbar`), never
     taken with or without the output by default."""
     nach_pfad = {pfad: (mode, typ, oid) for mode, typ, oid, pfad in eintraege}
@@ -560,6 +565,18 @@ def gebundene_ausgaben(repo, eintraege, *, zeilen: list) -> set:
                 quittungen.append(e[2])
         if quittungen:
             kandidaten.append((pfad, oid, version, quittungen))
+    if not kandidaten:
+        return set()
+    # ONLY THE TREE'S OWN VERSION. A tree without a readable `pyproject.toml` version leaves nothing out.
+    pp = nach_pfad.get(b"pyproject.toml")
+    eigene = None
+    if pp is not None and pp[1] == "blob" and pp[0] in _REGULAERE_MODI:
+        try:
+            m = _VERSION_IN_PYPROJECT.search(git_objects(repo, [(pp[2], "blob")])[pp[2]].decode("utf-8"))
+        except UnicodeDecodeError:
+            m = None
+        eigene = m.group(1) if m else None
+    kandidaten = [k for k in kandidaten if k[2] == eigene]
     if not kandidaten:
         return set()
     anker = nach_pfad.get(_SCHLUESSELDATEI)

@@ -216,11 +216,12 @@ def test_a_change_of_mode_of_a_bound_output_moves_both_digests(tree, monkeypatch
 
 
 @pytest.mark.parametrize("bound", [True, False])
-def test_a_signed_pair_of_another_tree_moves_both_digests(tree, bound):
+def test_a_signed_pair_of_another_version_moves_both_digests(tree, bound):
     """[COUNTS] Codex's P0 1 on pull request 541, round lx3. The 6.6.1 pair is bound, then a pair that the trusted
-    key once signed for 6.6.0, its receipt attesting the 6.6.0 tree, is added beside it. That pair attests another
-    tree, so it stays in both digests. The control (`bound=False`) shows the same pair is left out when its receipt
-    attests exactly this tree: the attested tree is what decides, not the version or the folder."""
+    key once signed for 6.6.0 is added beside it, its receipt attesting another tree (`bound=True`) or this very tree
+    (`bound=False`). Either way it stays in both digests: only the output of the version the tree itself declares
+    in pyproject.toml may leave (Codex on pull request 541, round lx4, P0 1, which the control of round lx3
+    still showed as left out)."""
     repo, _c = tree
     vorher = _digests(repo)[0]
     digest = hashlib.sha256(OUTPUT_BYTES).hexdigest()
@@ -233,13 +234,14 @@ def test_a_signed_pair_of_another_tree_moves_both_digests(tree, bound):
     _commit(repo, pair_6_6_0, "a 6.6.0 pair added")
     after = _digests(repo)
     lib = _module("_lib_pair_of_another_tree", "pre_tag_receipt_lib.py")
+    assert after[0] != before[0] and after[1] != before[1], "a pair of another version left the digest"
     if bound:
-        assert after[0] != before[0] and after[1] != before[1], "a pair of another tree left the digest"
         # The tree changed, so the 6.6.1 receipt no longer attests it either: nothing stays left out. A single pass
         # over the candidates kept the 6.6.1 output (measured on the mutant X2).
         assert lib.gebundene_ausgaben_des_baums(repo) == set(), lib.gebundene_ausgaben_des_baums(repo)
     else:
-        assert after == before, "a pair attesting this tree was not left out"
+        assert b"audit_artifacts/660/pre_tag_audit_output_v6.6.0.txt" not in {
+            p.encode() for p in lib.gebundene_ausgaben_des_baums(repo)}
 
 
 def test_without_the_signature_module_the_digest_is_refused_not_guessed(tree, monkeypatch):
