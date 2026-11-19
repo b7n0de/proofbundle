@@ -29,14 +29,16 @@ import proofbundle.pqsig as pq
 def ohne_ml_dsa(*_a, **_k):
     raise pq.PQUnavailable("simulated for the floor: no ML-DSA in this cryptography build")
 
-pq.generate_mldsa = ohne_ml_dsa
+if sys.argv[2] == "simuliert":
+    pq.generate_mldsa = ohne_ml_dsa
 import pytest
 
 class Sammler:
     def __init__(self):
-        self.ergebnis = {"passed": 0, "failed": 0, "skipped": 0, "gruende": set(), "gesammelt": 0}
+        self.ergebnis = {"passed": 0, "failed": 0, "skipped": 0, "gruende": set(), "gesammelt": 0, "ids": []}
     def pytest_collection_modifyitems(self, items):
         self.ergebnis["gesammelt"] = len(items)
+        self.ergebnis["ids"] = sorted(i.nodeid for i in items)
     def pytest_runtest_logreport(self, report):
         if report.when == "call" or report.outcome != "passed":
             self.ergebnis[report.outcome] += 1
@@ -60,8 +62,22 @@ print("ERGEBNIS " + json.dumps(e))
 """
 
 
-def _lauf() -> dict:
-    r = subprocess.run([sys.executable, "-c", _LAUF, MODUL], cwd=REPO, capture_output=True, text=True, timeout=900,
+#: The number of cases the module holds. A change of the module that adds or removes cases changes this number on
+#: purpose; a stand-in key that silently dropped a parametrised form would change it by accident (Codex on pull request
+#: 543, round 2, P1).
+_ERWARTET = 94
+
+
+def _ml_dsa_da() -> bool:
+    try:
+        from cryptography.hazmat.primitives.asymmetric import mldsa  # noqa: F401, PLC0415
+    except ImportError:
+        return False
+    return True
+
+
+def _lauf(art: str = "simuliert") -> dict:
+    r = subprocess.run([sys.executable, "-c", _LAUF, MODUL, art], cwd=REPO, capture_output=True, text=True, timeout=900,
                        env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"))
     zeilen = [z for z in r.stdout.splitlines() if z.startswith("ERGEBNIS ")]
     if not zeilen:
@@ -77,8 +93,8 @@ class TheModuleWithoutMlDsaSkipsEveryCaseAndNoStandIn(unittest.TestCase):
 
     def test_every_case_is_collected_and_skipped_with_the_reason(self):
         e = self.e
-        # A sweep over nothing is green and says nothing: the module holds 94 cases with ML-DSA.
-        self.assertGreater(e["gesammelt"], 50, e)
+        # A sweep over nothing is green and says nothing, and a smaller sweep hides the cases it lost.
+        self.assertEqual(e["gesammelt"], _ERWARTET, e)
         self.assertEqual((e["passed"], e["failed"], e["skipped"]), (0, 0, e["gesammelt"]), e)
         self.assertTrue(e["gruende"], e)
         for grund in e["gruende"]:
@@ -87,6 +103,15 @@ class TheModuleWithoutMlDsaSkipsEveryCaseAndNoStandIn(unittest.TestCase):
 
     def test_unittest_builds_no_stand_in_for_the_module(self):
         self.assertEqual([i for i in self.e["unittest_ids"] if i.startswith("unittest.loader.")], [], self.e)
+
+    def test_the_floor_collects_the_same_cases_as_a_build_with_ml_dsa(self):
+        """Where ML-DSA is there, the run without the simulation collects the cases a build with ML-DSA runs; the floor
+        run must collect exactly the same ids, so no stand-in value drops or adds a parametrised case."""
+        if not _ml_dsa_da():
+            self.skipTest("NOT MEASURABLE without ML-DSA in this cryptography build: no run with ML-DSA to compare with")
+        echt = _lauf("echt")
+        self.assertEqual(echt["ids"], self.e["ids"])
+        self.assertEqual((echt["passed"], echt["failed"]), (_ERWARTET, 0), echt)
 
 
 if __name__ == "__main__":
