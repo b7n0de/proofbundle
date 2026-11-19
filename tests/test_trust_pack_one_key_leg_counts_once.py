@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import unittest
 from datetime import datetime, timezone
 from unittest import mock
 
@@ -30,14 +29,42 @@ from proofbundle.pqsig import PQUnavailable, generate_mldsa
 
 _NOW = datetime(2026, 11, 15, 12, 0, 0, tzinfo=timezone.utc)
 # Nearly every case here builds ML-DSA keys, and they are built when the module is imported. The cryptography
-# floor of the CI job crypto-floor (42.*) has no ML-DSA, so `generate_mldsa` raises PQUnavailable there, and the
-# module failed to import in every part of that job. There the module is skipped and says why; with ML-DSA every
-# case runs. Only PQUnavailable is caught, so any other error at import stays an error. A unittest SkipTest is
-# what both runners read as a skip of the module: `unittest discover` in the floor job and pytest everywhere else.
+# floor of the CI job crypto-floor (42.*) has no ML-DSA, so `generate_mldsa` raises PQUnavailable there.
+#
+# THE MODULE IS NOT SKIPPED AT IMPORT. A module that raises unittest.SkipTest while it is imported becomes a stand-in
+# test that no `-k` filters out, so it runs in every part of that job, and tests/test_crypto_floor_shards_cover_the_suite.py
+# refuses any such stand-in. A skip at import here turned crypto-floor (5 of 5) red on every main run from 3ef175c9 on.
+# Without ML-DSA every case is skipped through `pytestmark` and says why, and the module is still read: two stand-in
+# keys give the values built below their shape and refuse to sign, so no case can pass on them. `unittest discover`
+# loads no case from this module in any build, since its cases are pytest functions; there it only has to import.
+# Only PQUnavailable is caught, so any other error at import stays an error.
+
+
+class _OhneMlDsa:
+    """Only where cryptography has no ML-DSA: a value of a key's shape that refuses to sign. Its 1952 bytes are the
+    length of an ML-DSA-65 public key, and they hold `+` and `/` in base64, so the spellings built below differ from
+    it as they do from a real key. No case runs on it; `pytestmark` skips every case."""
+
+    def __init__(self, fill: int) -> None:
+        self._raw = bytes([0xFB, 0xFF, 0xBF]) * 650 + bytes([fill, fill])
+
+    def public_key(self) -> "_OhneMlDsa":
+        return self
+
+    def public_bytes_raw(self) -> bytes:
+        return self._raw
+
+    def sign(self, _message: bytes) -> bytes:
+        raise PQUnavailable("no ML-DSA in this cryptography build, so this stand-in key cannot sign")
+
+
 try:
     _P, _P2 = generate_mldsa(), generate_mldsa()
+    _OHNE_MLDSA = None
 except PQUnavailable as exc:
-    raise unittest.SkipTest(f"NOT MEASURABLE without ML-DSA in this cryptography build: {exc}") from exc
+    _OHNE_MLDSA = f"NOT MEASURABLE without ML-DSA in this cryptography build: {exc}"
+    _P, _P2 = _OhneMlDsa(1), _OhneMlDsa(2)
+pytestmark = pytest.mark.skipif(_OHNE_MLDSA is not None, reason=_OHNE_MLDSA or "ML-DSA is available")
 _E1, _E2, _E3 = Ed25519PrivateKey.generate(), Ed25519PrivateKey.generate(), Ed25519PrivateKey.generate()
 
 

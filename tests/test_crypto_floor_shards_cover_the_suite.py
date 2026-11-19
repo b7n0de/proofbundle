@@ -26,7 +26,9 @@ under any local name: imported under an alias, or fetched with `getattr` or a su
 A STAND-IN RUNS IN EVERY PART. A module that raises `unittest.SkipTest` while it is imported becomes
 a stand-in test the loader builds directly, so no `-k` filters it out: a skip counted once in the
 serial run is counted once per part. The real suite must load no such stand-in (the same reading,
-P2 on Z6 and Z1); a case below builds one and shows that it is found.
+P2 on Z6 and Z1); a case below builds one and shows that it is found. The load finds it only where
+the skip happens, so the source of every module is read for a skip at import as well, which holds
+in every job (crypto-floor 5 of 5 at 3ef175c9: red there and green everywhere else).
 """
 from __future__ import annotations
 
@@ -116,6 +118,40 @@ def stand_in_findings(ids: list[str]) -> list[str]:
     """The stand-ins of modules that skipped themselves at import: each would run in every part."""
     return [f"{tid}: a module skipped at import, so every part runs and counts this stand-in"
             for tid in ids if tid.startswith(MODULE_SKIPPED)]
+
+
+def _is_skip_test(exc: ast.AST | None) -> bool:
+    """Whether a raised value is unittest's SkipTest: `SkipTest`, `unittest.SkipTest` or `unittest.case.SkipTest`,
+    called or not."""
+    target = exc.func if isinstance(exc, ast.Call) else exc
+    return ((isinstance(target, ast.Name) and target.id == "SkipTest")
+            or (isinstance(target, ast.Attribute) and target.attr == "SkipTest"))
+
+
+def module_level_skip_lines(source: str) -> list[int]:
+    """Lines where a module raises SkipTest while it is imported, read without importing it.
+
+    The load above finds such a module only where the missing dependency makes the raise happen, on the floor and
+    nowhere else, so an ordinary run of the suite stays green over it. Read from the source, the raise is found in every
+    build (crypto-floor at 3ef175c9: green in every other job, red in part 5 of 5). Import time is the module body and
+    every block in it that runs then: `if`, `try`, `with`, loops, and the body of a class. A function body runs later."""
+    lines: list[int] = []
+
+    def walk(body: list[ast.stmt]) -> None:
+        for node in body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if isinstance(node, ast.Raise) and _is_skip_test(node.exc):
+                lines.append(node.lineno)
+            for field in ("body", "orelse", "finalbody"):
+                walk(getattr(node, field, None) or [])
+            for handler in getattr(node, "handlers", None) or []:
+                walk(handler.body)
+            for case in getattr(node, "cases", None) or []:
+                walk(case.body)
+
+    walk(ast.parse(source).body)
+    return sorted(lines)
 
 
 def job_findings(job: dict) -> list[str]:
@@ -298,6 +334,21 @@ class TheCommentClaimsNoMoreThanTheContractCarries(unittest.TestCase):
         self.assertIn("The parts run in separate processes", flat)
 
 
+class NoModuleSkipsItselfAtImport(unittest.TestCase):
+    """The stand-in rule above, read from the source of every module under tests/, so it holds in every job and not
+    only where a dependency is missing. A helper module counts too: a test module that imports it would skip with it."""
+
+    def test_no_module_under_tests_raises_a_skip_at_import(self):
+        hits = []
+        for p in sorted((REPO / "tests").rglob("*.py")):
+            try:
+                lines = module_level_skip_lines(p.read_text(encoding="utf-8", errors="replace"))
+            except SyntaxError:
+                continue
+            hits += [f"{p.relative_to(REPO)}:{n}" for n in lines]
+        self.assertEqual(hits, [], "a skip at import is a stand-in that runs in every part of crypto-floor")
+
+
 class NoCodeLoadsTestsThroughTheSharedLoader(unittest.TestCase):
 
     def test_no_module_names_the_shared_loader(self):
@@ -418,6 +469,26 @@ class ThePartitionCheckCatchesWhatItIsFor(unittest.TestCase):
         self.assertEqual(stand_in_findings(["test_fine.T.test_x", "unittest.loader._FailedTest.test_broken"]), [])
         self.assertIn("Ran 1 test", r.stderr)
         self.assertIn("skipped=1", r.stderr)
+
+    def test_a_skip_at_import_is_read_from_the_source_and_one_in_a_function_is_not(self):
+        found = {
+            "import unittest\nraise unittest.SkipTest('x')\n": [2],
+            "from unittest import SkipTest\ntry:\n    import a\nexcept ImportError:\n    raise SkipTest('x')\n": [5],
+            "import unittest\nif True:\n    raise unittest.case.SkipTest\n": [3],
+            "import unittest\nclass C:\n    raise unittest.SkipTest('x')\n": [3],
+            "import unittest\nwith open('f') as f:\n    raise unittest.SkipTest('x')\n": [3],
+        }
+        for source, lines in found.items():
+            with self.subTest(source):
+                self.assertEqual(module_level_skip_lines(source), lines)
+        # The controls: a function body runs later, a decorator is not a raise, another exception is not a skip.
+        for source in ("import unittest\ndef f():\n    raise unittest.SkipTest('x')\n",
+                       "import unittest\nclass C(unittest.TestCase):\n    def test_x(self):\n"
+                       "        raise unittest.SkipTest('x')\n",
+                       "import unittest\n@unittest.skip('x')\nclass C(unittest.TestCase):\n    pass\n",
+                       "raise ImportError('x')\n"):
+            with self.subTest(source):
+                self.assertEqual(module_level_skip_lines(source), [])
 
     def test_the_shared_loader_is_found_under_an_alias_and_by_its_name(self):
         self.assertEqual(shared_loader_lines("from unittest import defaultTestLoader as loader\n"
