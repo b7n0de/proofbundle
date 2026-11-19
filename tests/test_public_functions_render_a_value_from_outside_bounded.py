@@ -118,6 +118,7 @@ _DOCUMENTED_BUILTIN = {
     # Three functions from the branch of PR 356, each documenting its builtin refusal at the function.
     "proofbundle.receipt_cose.cose_key_thumbprint": (ValueError,),  # "Raises ValueError for a key that is not ..."
     "proofbundle.signed_eval_receipt.payload_bytes": (ValueError,),  # "Raises ValueError naming the first violation"
+    "proofbundle.signed_eval_receipt.salted_commitment": (ValueError,),  # "Raises ValueError for an identifier ..."
     # "Raises ValueError ... and TypeError for a signer that is not an Ed25519PrivateKey"
     "proofbundle.signed_eval_receipt.emit_signed_eval_receipt": (ValueError, TypeError),
     # One function again: "Raises ValueError for a scheme or algorithm this reader does not know or an input that
@@ -753,6 +754,10 @@ _HAND_SEEDS = {
     "proofbundle.signed_eval_receipt.emit_signed_eval_receipt": lambda tmp: [((_ser_payload(), _fixed_key("a")),
                                                                               {})],
     "proofbundle.signed_eval_receipt.names_receipt_type": lambda tmp: [((_ser_call()[0][0],), {})],
+    # sha256-salted-v1 of -04 Section 3.3, with the PURE TEST salt of Appendix A.1.
+    "proofbundle.signed_eval_receipt.salted_commitment": lambda tmp: [(("acme/model-x@2026-09",
+                                                                        bytes.fromhex("2d1845bc523b3c2635ab90af343f33eb")),
+                                                                       {})],
     "proofbundle.receipt_cose.cose_key_thumbprint": lambda tmp: [((_fixed_key("a").public_key().public_bytes_raw(),),
                                                                   {})],
     "proofbundle.receipt_cose.receipt_to_statement": _receipt_cose_forward,

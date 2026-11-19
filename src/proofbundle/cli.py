@@ -540,8 +540,8 @@ def _cmd_emit_eval(args: argparse.Namespace) -> int:
 
 
 def _emit_signed_eval_receipt(args: argparse.Namespace) -> int:
-    """``emit-eval --format eval-receipt-v1``: the receipt of draft-gruszka-signed-evaluation-receipts-00
-    (EXPERIMENTAL). Only on this explicit switch; without it ``emit-eval`` writes eval-claim v0.1 as
+    """``emit-eval --format eval-receipt-v1``: the receipt of draft-gruszka-signed-evaluation-receipts-04
+    (EXPERIMENTAL, in no release scope). Only on this explicit switch; without it ``emit-eval`` writes eval-claim v0.1 as
     before. The claim file is the Payload itself, exactly the members of the draft's Table 1. The receipt
     carries no inclusion proof; registering it in a log is outside this command."""
     from .signed_eval_receipt import emit_signed_eval_receipt  # noqa: PLC0415
@@ -3920,7 +3920,7 @@ def build_parser() -> argparse.ArgumentParser:
     emit_eval.add_argument("--new-key", help="generate a signing key and save it to this new file, mode 0600 (an existing path is refused)")
     emit_eval.add_argument("--format", choices=("v0.1", "eval-receipt-v1"), default="v0.1",
                            help="v0.1 (default): the eval-claim v0.1 receipt bundle. eval-receipt-v1 "
-                                "(EXPERIMENTAL): the receipt of draft-gruszka-signed-evaluation-receipts-00; "
+                                "(EXPERIMENTAL): the receipt of draft-gruszka-signed-evaluation-receipts-04; "
                                 "--claim is then the Payload of that draft's Table 1")
     emit_eval.set_defaults(func=_cmd_emit_eval)
 

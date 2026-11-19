@@ -47,9 +47,11 @@ from __future__ import annotations
 
 import base64
 import decimal
+import hashlib
 import json
 import math
 import re
+import secrets
 from typing import Any, Mapping, NamedTuple, Optional
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -67,7 +69,8 @@ COMMIT_ALG = "sha256-salted-v1"
 DRAFT = "draft-gruszka-signed-evaluation-receipts-04"
 
 __all__ = ["RECEIPT_TYPE", "PAYLOAD_SCHEMA", "COMMIT_ALG", "DRAFT", "ReceiptVerdict", "pae",
-           "payload_bytes", "emit_signed_eval_receipt", "verify_signed_eval_receipt", "names_receipt_type"]
+           "payload_bytes", "emit_signed_eval_receipt", "verify_signed_eval_receipt", "names_receipt_type",
+           "salted_commitment", "SALT_BYTES"]
 
 _RECEIPT_MEMBERS = frozenset({"schema", "payload_b64", "signature"})
 _SIGNATURE_MEMBER_SETS = (frozenset({"alg", "sig"}), frozenset({"alg", "sig", "key"}))
@@ -77,6 +80,8 @@ _PAYLOAD_MEMBERS = frozenset({"schema", "suite", "suite_version", "metric", "com
 #: The only optional Payload member (the draft's Section 3.2 and 3.5): the digest of a criteria set, with the
 #: pattern of the commitments; only its form is checked.
 _OPTIONAL_PAYLOAD_MEMBER = "criteria_digest"
+#: The salt of sha256-salted-v1 is exactly 16 bytes (the draft's Section 3.3).
+SALT_BYTES = 16
 _COMPARATORS = (">=", ">", "<=", "<")
 # Table 1 of the draft: an optional minus sign, then 0 or a digit 1-9 followed by digits, then
 # optionally a full stop and one or more digits. Stricter than eval-claim v0.1, which allows 00.5.
@@ -586,10 +591,24 @@ def payload_bytes(payload: Mapping) -> bytes:
 
 @_ein_stand(aussen={"signer": "signierer"}, fehler=ValueError, payload=_abbild_stand)
 def emit_signed_eval_receipt(payload: Mapping, signer: Ed25519PrivateKey, *, key_hint: bool = True) -> bytes:
-    """The receipt bytes for PAYLOAD, signed by SIGNER. The receipt object is written in its RFC 8785 form. The bytes
-    are verified under the signer's key before they are returned, so this producer never hands out a receipt its own
-    verifier refuses. Raises ValueError naming the first violation of the payload, and TypeError for a signer that is
-    not an Ed25519PrivateKey."""
+    """The receipt bytes for PAYLOAD, signed by SIGNER, by Sections 3 and 4 of draft-gruszka-signed-evaluation-
+    receipts-04. Raises ValueError naming the first violation of the payload, and TypeError for a signer that is not
+    an Ed25519PrivateKey.
+
+    WHAT IS SIGNED. Exactly ``PAE(type, B)`` (Section 4.1 and 4.3: ``sig = Ed25519-Sign(secret key, PAE(type, B))``,
+    pure Ed25519 of RFC 8032 Section 5.1, no context and no prehash): the fixed type of Section 4.2 and B, the RFC 8785
+    bytes of the Payload (Section 3.4), with every member of Table 1 and criteria_digest when the caller gives it.
+
+    WHAT IS NOT SIGNED. The receipt object around B: its ``schema`` member, the encoding of ``payload_b64`` and the
+    ``signature`` object, ``key`` included. The key hint (KEY_HINT, default True) is "only a hint" (Section 3.1 and
+    step 10 of Section 5): a Receiver compares it with the key it fixed and never verifies under it. The object is
+    written in its RFC 8785 form so that the draft's positive vectors come out byte for byte, but -04 does not
+    require that ("the receipt object is not canonicalized", Section 3.1). Nothing binds the salts of the two
+    commitments or the bytes of a criteria set; ``salted_commitment`` keeps the salt with the caller (Section 3.3).
+
+    The bytes are verified under the signer's key by Section 5 before they are returned, so this producer never hands
+    out a receipt its own verifier refuses. A key the library generates has order L, and its R is r*B', so rules 1 and
+    2 of Section 4.4 hold for every signature it makes; the self-check confirms that instead of assuming it."""
     # The switch first: it changes what is published (the unsigned key hint), so only an exact bool is
     # read, before anything is computed or signed (`_membership.require_switch`).
     require_switch(key_hint, "key_hint")
@@ -611,6 +630,30 @@ def emit_signed_eval_receipt(payload: Mapping, signer: Ed25519PrivateKey, *, key
         raise ValueError(f"the emitted receipt fails its own verification at step {verdict.step_label}: "
                          f"{verdict.reason}")
     return out
+
+
+@_ein_stand(fehler=ValueError)
+def salted_commitment(identifier: str, salt: Optional[bytes] = None) -> tuple:
+    """``(commitment, salt)`` of IDENTIFIER under sha256-salted-v1 (Section 3.3 of -04): ``sha256:`` followed by the
+    64 lowercase hexadecimal digits of SHA-256 over the 16 salt bytes immediately followed by the UTF-8 bytes of
+    IDENTIFIER, with no separator and no length prefix. Without SALT the 16 bytes come from ``secrets.token_bytes``, a
+    cryptographically secure source, as the draft requires of an Issuer; a SALT given is for reproducing the draft's
+    PURE TEST commitments of Appendix A.1 and must be exactly 16 bytes. The salt is returned so that the Issuer keeps
+    it: only salt and identifier together let a Receiver check the binding. Signs nothing. Raises ValueError for an
+    identifier that is no string or not UTF-8, or a salt that is not 16 bytes."""
+    if type(identifier) is not str:
+        raise ValueError("the identifier must be a str")
+    try:
+        ident = identifier.encode("utf-8")
+    except UnicodeEncodeError:
+        raise ValueError("the identifier is not UTF-8 text (it contains a surrogate)") from None
+    if salt is None:
+        raw = secrets.token_bytes(SALT_BYTES)
+    else:
+        raw = plain_bytes(salt)
+        if raw is None or len(raw) != SALT_BYTES:
+            raise ValueError(f"the salt of {COMMIT_ALG} is exactly {SALT_BYTES} bytes")
+    return "sha256:" + hashlib.sha256(raw + ident).hexdigest(), raw
 
 
 @_ein_stand
