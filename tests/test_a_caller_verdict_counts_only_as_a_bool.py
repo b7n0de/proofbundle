@@ -1368,6 +1368,10 @@ _SWITCHES = {
     ("proofbundle.hashalg", "resolve_hash_alg", "allow_deprecated"): _RELAXING,
     ("proofbundle.hf_evals", "to_eval_results_entry", "allow_value_mismatch"): _RELAXING,
     ("proofbundle.hf_evals", "to_eval_results_entry", "include_token"): _RELAXING,
+    # draft-gruszka-signed-evaluation-receipts-00: whether the emitted receipt carries the unsigned key
+    # hint. No verdict or signed byte depends on it, but it changes what is published, so it is read
+    # through require_switch.
+    ("proofbundle.signed_eval_receipt", "emit_signed_eval_receipt", "key_hint"): _RELAXING,
     ("proofbundle.hf_evals", "to_eval_results_entry", "require_verified"): _RELAXING,
     ("proofbundle.outcome", "emit_outcome_receipt", "strict"): _RELAXING,
     ("proofbundle.run_ledger", "emit_run_ledger", "strict"): _RELAXING,
@@ -1472,6 +1476,7 @@ _OPTIONAL_EXTRAS = {
     "pq": {"cryptography": "cryptography"},
     "rootcommit": {"ecdsa": "ecdsa"},
     "formal": {"z3-solver": "z3"},
+    "scitt": {"cbor2": "cbor2"},
     "pytest": {"pytest": "pytest"},
     "test": {"pytest": "pytest", "hypothesis": "hypothesis", "pyyaml": "yaml", "jsonschema": "jsonschema",
              "sd-jwt": "sd_jwt", "rfc8785": "rfc8785"},
@@ -1583,6 +1588,7 @@ def _probes(not_swept=()):
             "trust_pack", "verification_summary"))
     _provenance, eee = load("proofbundle.adapters._provenance"), load("proofbundle.adapters.eee")
     emit = load("proofbundle.emit")
+    signed_eval_receipt = load("proofbundle.signed_eval_receipt")
     signer = generate_signer()
     v01 = _v01_predicate()
     v02 = _v02_predicate()
@@ -1639,6 +1645,8 @@ def _probes(not_swept=()):
                                                      allow_value_mismatch=v),
         ("proofbundle.hf_evals", "to_eval_results_entry", "include_token"):
             lambda v: hf_evals.to_eval_results_entry(bundle, dataset_id="d", task_id="t", value=0.9, include_token=v),
+        ("proofbundle.signed_eval_receipt", "emit_signed_eval_receipt", "key_hint"):
+            lambda v: signed_eval_receipt.emit_signed_eval_receipt({}, signer, key_hint=v),
         ("proofbundle.hf_evals", "to_eval_results_entry", "require_verified"):
             lambda v: hf_evals.to_eval_results_entry(bundle, dataset_id="d", task_id="t", value=0.9,
                                                      require_verified=v),

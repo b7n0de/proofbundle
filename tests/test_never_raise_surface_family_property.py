@@ -86,6 +86,12 @@ _MODULES = [
     # FOREIGN format. The population guard reported `verify_sigstore_bundle`; the bundle, the trusted root
     # and the registry keys document all arrive as bytes we did not write.
     "adapters.sigstore_bundle",
+    # 2026-10-02: draft-gruszka-signed-evaluation-receipts-00 (EXPERIMENTAL, behind --format
+    # eval-receipt-v1). verify_signed_eval_receipt answers with a verdict for any argument.
+    "signed_eval_receipt",
+    # 2026-10-03: the receipt <-> COSE_Sign1 translator (EXPERIMENTAL, [scitt] extra). check_statement answers
+    # with a status for any argument and never raises for what it reads.
+    "receipt_cose",
 ]
 # Broadened name family (round 8): the predicate-validation surfaces a relying party actually calls
 # (validate_*/require_valid_*/require_derived_*/classify_*/derive_*) were entirely outside the old pattern.
@@ -373,6 +379,14 @@ _OUT_OF_SCOPE = frozenset({
     # it never raises on its object and raises ValueError only for a kind no type map may name.
     "nested_type_violations",  "ots_upgraded_proof_is_self_contained",
     "outcome_execution_proven",  "pae",
+    # signed_eval_receipt: the producers take the caller's own payload and refuse loudly
+    # (`payload_bytes`, `emit_signed_eval_receipt`, ValueError naming the step); `names_receipt_type`
+    # is a dispatch question and answers False for any value.
+    "payload_bytes", "emit_signed_eval_receipt", "names_receipt_type",
+    # receipt_cose: the producer takes the caller's receipt and key and refuses loudly (ReceiptCoseError,
+    # CoseUnavailable); the thumbprint hashes a public key the caller gives and raises ValueError for one
+    # that is not 32 bytes.
+    "receipt_to_statement", "cose_key_thumbprint",
     # 2026-09-05 (deep gate L1-600-02): `pack_key_binds_signer` ist ein URTEIL derselben Familie wie
     # *_trusted_by_role — es vergleicht Schluesselmaterial eines bereits authentifizierten Packs mit dem
     # Schluessel, unter dem ein Umschlag gerade verifiziert wurde; es wirft nie (eigene Tests).

@@ -2199,6 +2199,8 @@ _LENGTH_32 = {
     ("emit.py", "emit_bundle"): (1, "the signer's own key, checked for the 32 bytes the budget reading assumed "
                                     "before it is written; the key of the private key it signs with (the sweep "
                                     "list above)"),
+    ("cli.py", "_show_signed_eval_receipt"): (1, "the key the Receiver fixes; _refuse_weak_issuer_pins "
+                                                "applies the rule before, and the draft's profile again"),
     ("evalclaim.py", "_issuer_key_weakness"): (1, "followed by the rule"),
     ("evalclaim.py", "build_eval_claim"): (1, "a root, no key"),
     ("evalclaim.py", "_field_violation"): (1, "a root, no key (the samples root; D4, PR 300, moved this "
@@ -2210,6 +2212,10 @@ _LENGTH_32 = {
     ("persample.py", "audit_challenge"): (1, "a root, no key"),
     ("policy.py", "_validate_pinned_ed25519_pubkey"): (1, "followed by the rule"),
     ("policy.py", "_validate_root_b64"): (1, "a root, no key"),
+    ("receipt_cose.py", "_rule_broken"): (2, "a kid (a thumbprint) and a payload (a digest), no key"),
+    ("receipt_cose.py", "_statement_keys"): (1, "the relying party's statement key; followed by the rule"),
+    ("receipt_cose.py", "cose_key_thumbprint"): (1, "hashes a public key it is given; trusts and writes "
+                                                    "nothing, the rule stands where a key is trusted"),
     ("relation.py", "_keys_equal"): (1, "compares two keys; writes nothing"),
     ("scitt_ccf.py", "<module>"): (3, "the CDDL rule table of the receipt pass: the leaf's transaction "
                                       "hash, its data-hash and the consistency anchor, tree hashes, no key"),
@@ -2220,6 +2226,10 @@ _LENGTH_32 = {
     ("sdjwt_issue.py", "issue_sd_jwt"): (1, "the holder key; followed by the rule since this fix"),
     ("signature.py", "ed25519_trust_anchor_weakness"): (1, "the rule itself"),
     ("signature.py", "verify_ed25519"): (1, "the SPEC 4a verify profile"),
+    ("signed_eval_receipt.py", "verify_signed_eval_receipt"): (1, "a key that is not 32 bytes fails rule 1 "
+                                                                   "of the draft's profile, which with rule "
+                                                                   "2 refuses non-canonical and small-order "
+                                                                   "keys before any arithmetic"),
     ("tlogproof.py", "format_tlog_proof"): (1, "a hash, no key"),
     ("tlogproof.py", "parse_tlog_proof"): (1, "a hash, no key"),
 }

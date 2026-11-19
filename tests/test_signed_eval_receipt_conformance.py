@@ -1,0 +1,272 @@
+"""The vectors of draft-gruszka-signed-evaluation-receipts-00 as conformance tests (EXPERIMENTAL format).
+
+Every vector of the draft's Appendix A is judged as the draft judges it: the same verdict and the same
+first failing step of Section 5. Where proofbundle produces a receipt (P1, P2, P6 to P10) it produces
+the draft's bytes. The receipt has no inclusion member since 2026-10-03; B and the signatures are the
+ones of the 68 vectors before, and the seven vectors that only exercised the inclusion proof are gone. eval-claim v0.1 stays verifiable next to the new format, and the new format
+is written only on the explicit ``--format eval-receipt-v1`` switch. A divergence is red; the fixture
+is never adjusted to the code (tests/fixtures/signed_eval_receipt/README.md).
+"""
+import base64
+import hashlib
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+from proofbundle import signed_eval_receipt as ser
+
+REPO = Path(__file__).resolve().parents[1]
+FIXTURE = REPO / "tests" / "fixtures" / "signed_eval_receipt" / "draft1_vectors.json"
+SPECCHECK = REPO / "tests" / "fixtures" / "ed25519_speccheck_cases.json"
+#: The draft's PURE TEST seed of the issuer key (its Appendix A.1), written out: a shipped test builds a
+#: throwaway key from a literal and loads no key from outside (tests/test_sdist_ohne_signierwerkzeug.py).
+#: The fixture carries the same seed, and a test below holds the two equal.
+_DRAFT_TEST_SEED = b'#eR\x04\x10t\x8d\xe8w\x8bTD\x10\xb1W\x92\xfc\xf1t\xe0\xfb\xa4\x80j\x8c\x1a\xfb\xdb\xb0\x94k\x07'
+
+
+def _load():
+    doc = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    payloads = {name: (p["text"].encode("utf-8") if "text" in p else base64.b64decode(p["b64"]))
+                for name, p in doc["payloads"].items()}
+    vectors = []
+    for v in doc["vectors"]:
+        raw = v["receipt_text"].encode("utf-8") if "receipt_text" in v else base64.b64decode(v["receipt_b64"])
+        for name, b in payloads.items():
+            raw = raw.replace(b"@" + name.encode("ascii") + b"@", base64.b64encode(b))
+        vectors.append(dict(v, receipt=raw, key=base64.b64decode(v["key_b64"])))
+    return doc, vectors
+
+
+DOC, VECTORS = _load()
+
+
+def _run(*args):
+    return subprocess.run([sys.executable, "-m", "proofbundle.cli", *args], capture_output=True, text=True,
+                          cwd=REPO, env={**os.environ, "PYTHONPATH": str(REPO / "src")})
+
+
+class TheFixtureIsTheDraftsVectors(unittest.TestCase):
+    def test_the_written_seed_is_the_drafts_test_seed(self):
+        self.assertEqual(_DRAFT_TEST_SEED.hex(), DOC["issuer_seed_hex"])
+
+    def test_every_rebuilt_receipt_has_the_published_sha256(self):
+        self.assertEqual(len(VECTORS), 66)
+        for v in VECTORS:
+            with self.subTest(vector=v["id"]):
+                self.assertEqual(hashlib.sha256(v["receipt"]).hexdigest(), v["receipt_sha256"])
+
+    def test_an_identifier_is_a_label_for_the_expected_verdict(self):
+        """The draft's Appendix A: a P vector expects PASS and an N vector FAIL (owner choice of 2026-10-08)."""
+        self.assertEqual({(v["id"][0], v["expected"]) for v in VECTORS}, {("P", "PASS"), ("N", "FAIL")})
+        self.assertEqual(sum(v["id"][0] == "P" for v in VECTORS), 10)
+        self.assertEqual(sum(v["id"][0] == "N" for v in VECTORS), 56)
+
+
+class EveryVectorIsJudgedAsTheDraftJudgesIt(unittest.TestCase):
+    def test_verdict_and_first_failing_step(self):
+        for v in VECTORS:
+            with self.subTest(vector=v["id"]):
+                got = ser.verify_signed_eval_receipt(v["receipt"], v["key"])
+                self.assertEqual(("PASS" if got.ok else "FAIL", got.step_label), (v["expected"], v["step"]),
+                                 got.reason)
+
+    def test_each_of_the_eleven_steps_decides_some_vector(self):
+        steps = {int(v["step"].split()[0]) for v in VECTORS if v["expected"] == "FAIL"}
+        self.assertEqual(steps, set(range(1, 12)))
+
+    def test_a_receipt_of_the_former_shape_with_inclusion_fails_at_step_1(self):
+        """The member set is exactly schema, payload_b64 and signature: P1 with the inclusion object it
+        carried until 2026-10-03 (the same B and signature) is refused at step 1, not verified."""
+        p1 = next(v for v in VECTORS if v["id"] == "P1")
+        former = json.loads(p1["receipt"])
+        former["inclusion"] = {"tree_size": 1, "leaf_index": 0, "inclusion_path": [],
+                               "root": hashlib.sha256(b"\x00" + base64.b64decode(former["payload_b64"])).hexdigest()}
+        got = ser.verify_signed_eval_receipt(json.dumps(former).encode("utf-8"), p1["key"])
+        self.assertEqual((got.ok, got.step_label), (False, "1"), got.reason)
+
+    def test_whitespace_after_the_json_text_is_admitted_and_b_must_still_be_its_own_form(self):
+        """Step 1 admits insignificant whitespace after the receipt's JSON text, and step 4 admits it after
+        B under the rules of step 1 (RFC 8259 Section 2). P12 is P1's receipt followed by a line feed and
+        verifies; N60 is P1's B followed by a line feed, signed anew, and fails at step 5, not at step 4."""
+        by_id = {v["id"]: v for v in VECTORS}
+        p1, p12, n60 = by_id["P1"], by_id["P12"], by_id["N60"]
+        self.assertEqual(p12["receipt"], p1["receipt"] + b"\n")
+        b_p1 = base64.b64decode(json.loads(p1["receipt"])["payload_b64"])
+        self.assertEqual(base64.b64decode(json.loads(n60["receipt"])["payload_b64"]), b_p1 + b"\n")
+        got = ser.verify_signed_eval_receipt(p12["receipt"], p12["key"])
+        self.assertEqual((got.ok, got.step_label), (True, "all"), got.reason)
+        self.assertEqual(got.payload, b_p1)
+        got = ser.verify_signed_eval_receipt(n60["receipt"], n60["key"])
+        self.assertEqual((got.ok, got.step_label), (False, "5"), got.reason)
+
+    def test_whitespace_before_the_json_text_is_admitted(self):
+        """Step 1 admits insignificant whitespace before the receipt's JSON text as well (RFC 8259
+        Section 2). P13 is a line feed followed by P1's receipt and verifies, with the B of P1."""
+        by_id = {v["id"]: v for v in VECTORS}
+        p1, p13 = by_id["P1"], by_id["P13"]
+        self.assertEqual(p13["receipt"], b"\n" + p1["receipt"])
+        got = ser.verify_signed_eval_receipt(p13["receipt"], p13["key"])
+        self.assertEqual((got.ok, got.step_label), (True, "all"), got.reason)
+        self.assertEqual(got.payload, base64.b64decode(json.loads(p1["receipt"])["payload_b64"]))
+
+    def test_a_pass_returns_b_and_a_fail_returns_none(self):
+        p1 = next(v for v in VECTORS if v["id"] == "P1")
+        got = ser.verify_signed_eval_receipt(p1["receipt"], p1["key"])
+        self.assertEqual(base64.b64encode(got.payload).decode("ascii"),
+                         json.loads(p1["receipt"])["payload_b64"])
+        n7 = next(v for v in VECTORS if v["id"] == "N7")
+        self.assertIsNone(ser.verify_signed_eval_receipt(n7["receipt"], n7["key"]).payload)
+
+
+class TheEmitterWritesTheDraftsBytes(unittest.TestCase):
+    def test_positive_vectors_byte_for_byte(self):
+        signer = Ed25519PrivateKey.from_private_bytes(_DRAFT_TEST_SEED)
+        by_id = {v["id"]: v for v in VECTORS}
+        for vid, key_hint in DOC["emit"].items():
+            with self.subTest(vector=vid):
+                v = by_id[vid]
+                b = base64.b64decode(json.loads(v["receipt"])["payload_b64"])
+                out = ser.emit_signed_eval_receipt(json.loads(b), signer, key_hint=key_hint)
+                self.assertEqual(out, v["receipt"])
+
+    def test_a_payload_the_verifier_refuses_is_not_emitted(self):
+        signer = Ed25519PrivateKey.from_private_bytes(_DRAFT_TEST_SEED)
+        p1 = next(v for v in VECTORS if v["id"] == "P1")
+        payload = json.loads(base64.b64decode(json.loads(p1["receipt"])["payload_b64"]))
+        for change, step in (({"score": "0.700"}, "8"), ({"score": ".834"}, "6"), ({"n": 0}, "6"),
+                             ({"model_id_commit": "acme/model-x"}, "7"), ({"extra": "x"}, "6"),
+                             ({"criteria_digest": "sha256:" + "A" * 64}, "7"), ({"criteria_digest": 7}, "6")):
+            with self.subTest(change=change):
+                with self.assertRaisesRegex(ValueError, f"step {step}"):
+                    ser.emit_signed_eval_receipt(dict(payload, **change), signer)
+
+
+    def test_payload_bytes_refuses_a_digest_member_step_7_refuses(self):
+        """payload_bytes promises steps 4 to 8 as a Receiver applies them, so a criteria_digest with
+        uppercase digits fails there at step 7, as it does for a Receiver, not only later in the emitter's
+        own verification."""
+        p1 = next(v for v in VECTORS if v["id"] == "P1")
+        payload = json.loads(base64.b64decode(json.loads(p1["receipt"])["payload_b64"]))
+        for change in ({"criteria_digest": "sha256:" + "A" * 64}, {"model_id_commit": "sha256:" + "B" * 64}):
+            with self.subTest(change=change):
+                with self.assertRaisesRegex(ValueError, "fails step 7"):
+                    ser.payload_bytes(dict(payload, **change))
+
+
+class TheProfileIsTheDraftsProfile(unittest.TestCase):
+    def test_taming_the_many_eddsas_cases_get_the_strict_row(self):
+        """The 12 cases of "Taming the Many EdDSAs" (vendored, tests/fixtures). The draft's profile
+        refuses non-canonical encodings and every key or R that is not a point of order L, and uses the
+        cofactorless equation; measured, it refuses all twelve. Case 3, whose A and R have mixed order,
+        is the one that Dalek strict and LibSodium accept in that fixture's README; rule 2 refuses its
+        key. SPEC section 4a's backing verifier accepts 0, 1, 2, 3 and 11."""
+        row = []
+        for case in json.loads(SPECCHECK.read_text(encoding="utf-8")):
+            try:
+                ser._profile(bytes.fromhex(case["pub_key"]), bytes.fromhex(case["signature"]),
+                             bytes.fromhex(case["message"]))
+                row.append("V")
+            except ser._Fail:
+                row.append("X")
+        self.assertEqual("".join(row), "XXXXXXXXXXXX")
+
+
+class NoReceiptBytesRaise(unittest.TestCase):
+    def test_every_prefix_of_p1_is_judged_not_raised(self):
+        p1 = next(v for v in VECTORS if v["id"] == "P1")
+        for cut in range(0, len(p1["receipt"]), 7):
+            got = ser.verify_signed_eval_receipt(p1["receipt"][:cut], p1["key"])
+            self.assertFalse(got.ok)
+            self.assertEqual(got.step, 1)
+
+    def test_deep_nesting_is_a_resource_limit_not_a_step_failure(self):
+        """Owner choice of 2026-10-07: a stop at a resource limit is no FAIL of step 1 (the draft's Section 5)."""
+        key = VECTORS[0]["key"]
+        got = ser.verify_signed_eval_receipt(b"[" * 100000 + b"]" * 100000, key)
+        self.assertEqual((got.ok, got.step, got.resource_limit, got.step_label), (False, None, True, "resource limit"))
+
+    def test_any_argument_gets_a_verdict_not_an_exception(self):
+        got = ser.verify_signed_eval_receipt(VECTORS[0]["receipt"], b"\x00" * 31)
+        self.assertEqual((got.ok, got.step_label), (False, "11 (profile 1, key)"))
+        self.assertEqual(ser.verify_signed_eval_receipt(VECTORS[0]["receipt"], None).step_label,
+                         "11 (profile 1, key)")
+        self.assertEqual(ser.verify_signed_eval_receipt("not bytes", VECTORS[0]["key"]).step, 1)
+
+
+class TheCliKeepsV01AndSwitchesExplicitly(unittest.TestCase):
+    def test_emit_eval_writes_v01_by_default_and_the_receipt_only_on_the_switch(self):
+        p1 = next(v for v in VECTORS if v["id"] == "P1")
+        b = base64.b64decode(json.loads(p1["receipt"])["payload_b64"])
+        with tempfile.TemporaryDirectory() as d:
+            seed = os.path.join(d, "seed.bin")
+            Path(seed).write_bytes(bytes.fromhex(DOC["issuer_seed_hex"]))
+            payload = os.path.join(d, "payload.json")
+            Path(payload).write_bytes(b)
+            out = os.path.join(d, "receipt.json")
+            r = _run("emit-eval", "--format", "eval-receipt-v1", "--claim", payload, "--key", seed, "--out", out)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(Path(out).read_bytes(), p1["receipt"])
+            # The tree options went with the inclusion member: argparse refuses them (exit 2), nothing written.
+            out2 = os.path.join(d, "receipt2.json")
+            r = _run("emit-eval", "--format", "eval-receipt-v1", "--claim", payload, "--key", seed,
+                     "--leaf-index", "0", "--out", out2)
+            self.assertEqual(r.returncode, 2)
+            self.assertFalse(os.path.exists(out2))
+            # Without the switch the same payload is read as an eval-claim v0.1 claim, which it is not:
+            # the v0.1 path refuses it, and no receipt of the new format is written.
+            out01 = os.path.join(d, "v01.json")
+            r = _run("emit-eval", "--claim", payload, "--key", seed, "--out", out01)
+            self.assertEqual(r.returncode, 2)
+            self.assertFalse(os.path.exists(out01))
+
+    def test_show_eval_tells_the_formats_apart_by_schema(self):
+        from proofbundle import evalclaim as ec
+        from proofbundle.emit import generate_signer
+        signer = generate_signer()
+        claim, _ = ec.build_eval_claim(
+            suite="s", suite_version="v1", metric="acc", comparator=">=", threshold="0.80", score="0.90",
+            n=100, model_id="m", dataset_id="d", issuer="x", timestamp="2026-07-01T12:00:00Z",
+            model_salt=b"0" * 16, dataset_salt=b"1" * 16)
+        pin = "ed25519:" + DOC["issuer_public_b64"]
+        by_id = {v["id"]: v for v in VECTORS}
+        with tempfile.TemporaryDirectory() as d:
+            v01 = os.path.join(d, "v01.json")
+            Path(v01).write_text(json.dumps(ec.emit_eval_receipt(claim, signer)), encoding="utf-8")
+            r = _run("show-eval", v01)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertNotIn("eval-receipt-v1", r.stdout)
+            for vid, code, text in (("P1", 0, "=> OK"), ("P10", 0, "=> OK"),
+                                    ("N7", 1, "=> FAILED at step 11 (profile 4)"),
+                                    ("N23", 1, "=> FAILED at step 1"), ("N44", 1, "=> FAILED at step 1")):
+                with self.subTest(vector=vid):
+                    path = os.path.join(d, vid + ".json")
+                    Path(path).write_bytes(by_id[vid]["receipt"])
+                    r = _run("show-eval", path, "--expect-issuer", pin)
+                    self.assertEqual(r.returncode, code, r.stderr)
+                    self.assertIn(text, r.stdout + r.stderr)
+            # Measured and kept as it is: N2's schema is not the receipt type, so the dispatch sends it
+            # to the eval-claim v0.1 path, which refuses it (exit 1); N12's key is a point of small
+            # order, and a pin naming one is refused before any receipt is read (exit 2, SPEC 4b).
+            # Both stay FAIL; neither reaches the step the draft names.
+            for vid, code, text in (("N2", 1, "not a valid, issuer-bound eval receipt"),
+                                    ("N12", 2, "low-order Ed25519 key")):
+                with self.subTest(vector=vid):
+                    path = os.path.join(d, vid + ".json")
+                    Path(path).write_bytes(by_id[vid]["receipt"])
+                    r = _run("show-eval", path, "--expect-issuer", "ed25519:" + by_id[vid]["key_b64"])
+                    self.assertEqual(r.returncode, code, r.stderr)
+                    self.assertIn(text, r.stderr)
+            # The receipt format needs the key the Receiver fixed: no pin is a malformed invocation.
+            r = _run("show-eval", os.path.join(d, "P1.json"))
+            self.assertEqual(r.returncode, 2)
+            self.assertIn("exactly one --expect-issuer", r.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()

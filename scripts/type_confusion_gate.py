@@ -144,6 +144,10 @@ def _benign_fixtures() -> dict[str, object]:
         # measured here; the parser itself is fuzzed by tests/test_never_raise_surface_family_property.py.
         "trusted_root": b'{"mediaType": "application/vnd.dev.sigstore.trustedroot+json;version=0.1"}',
         "artifact_digest": "sha256:" + "00" * 32, "profile": "github-artifact-attestation",
+        # The verification key a Receiver fixes, 32 raw bytes, as the SECOND parameter of
+        # signed_eval_receipt.verify_signed_eval_receipt(receipt, key): the receipt is the fuzzed primary.
+        # Without it the surface stood as NEEDS_FIXTURE, evaluated 71 of 72.
+        "key": pub,
     }
 
 
