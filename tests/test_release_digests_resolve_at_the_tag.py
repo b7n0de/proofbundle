@@ -13,6 +13,7 @@ The behaviour of the check itself is tested in `tests/test_audit_output_aufloesb
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -80,6 +81,12 @@ def test_gate_step_and_build_run_in_one_job_unconditionally_and_in_that_order():
         needs = j.get("needs")
         needs = [needs] if isinstance(needs, str) else list(needs or [])
         assert name in needs, f"job {andere} does not need {name}, so it could run without the step"
+        # A NEED IS NOT ENOUGH (Codex on pull request 541, round lx3, P1 4): a job with `if: always()` runs after a
+        # failed need. Such a condition must itself ask for the success of the job that holds the step.
+        bedingung = str(j.get("if") or "")
+        if re.search(r"\b(?:always|failure|cancelled)\s*\(", bedingung):
+            assert f"needs.{name}.result == 'success'" in bedingung, (
+                f"job {andere} runs under `{bedingung}` even when {name} failed")
 
 
 def _release_gate() -> list[str]:

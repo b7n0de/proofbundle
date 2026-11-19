@@ -66,11 +66,16 @@ def _commit(repo: pathlib.Path, files: dict, message: str) -> str:
     return _git(repo, "rev-parse", "HEAD")
 
 
-def _receipt_naming(digest: str, version: str = VERSION, *, signer=_TRUSTED) -> str:
-    """A receipt naming `digest` for `version`, signed by `signer` over its canonical bytes, or unsigned
-    when `signer` is None. Its tree and gate digests play no part in the exclusion (it would be circular)."""
+#: The tree digest a receipt built by `_receipt_naming` attests unless told otherwise; each test sets it to the digest
+#: of its tree without the output (`monkeypatch.setitem`), so that a counter-case fails only at its own condition.
+_BAUM = {"wert": "0" * 64}
+
+
+def _receipt_naming(digest: str, version: str = VERSION, *, signer=_TRUSTED, baum: str | None = None) -> str:
+    """A receipt naming `digest` for `version`, attesting the tree digest `baum` (default `_BAUM`), signed by
+    `signer` over its canonical bytes, or unsigned when `signer` is None."""
     lib = _module("_lib_receipt_naming", "pre_tag_receipt_lib.py")
-    r = {"schema": lib.RECEIPT_SCHEMA, "version": version, "subject_tree_digest": "0" * 64,
+    r = {"schema": lib.RECEIPT_SCHEMA, "version": version, "subject_tree_digest": baum or _BAUM["wert"],
          "gate_source_digest": "0" * 64, "audit_command": "python -m pytest -q", "audit_exit_code": 0,
          "audit_output_digest": digest, "runner_identity": "test", "produced_at": "2026-11-19T06:00:00Z"}
     if signer is not None:
@@ -95,10 +100,11 @@ def _digests(repo):
     return lib.subject_tree_digest(repo), sra.tree_digest(repo)
 
 
-def test_a_bound_output_beside_its_receipt_leaves_both_digests_unchanged(tree):
+def test_a_bound_output_beside_its_receipt_leaves_both_digests_unchanged(tree, monkeypatch):
     """[COUNTS] The finding: receipt and output after the candidate, both bindings stay those of the candidate."""
     repo, c = tree
     before = _digests(repo)
+    monkeypatch.setitem(_BAUM, "wert", before[0])
     _commit(repo, {RECEIPT: _receipt_naming(hashlib.sha256(OUTPUT_BYTES).hexdigest())}, "receipt")
     assert _digests(repo) == before
     e = _commit(repo, {OUTPUT: OUTPUT_BYTES}, "the audit output beside its receipt")
@@ -113,13 +119,16 @@ def test_a_bound_output_beside_its_receipt_leaves_both_digests_unchanged(tree):
     "old_name", "below_src", "symlink", "symlink_text", "receipt_unreadable",
     "unsigned", "untrusted_key", "no_trusted_key", "other_schema", "mode_100755", "foreign_folder_unsigned",
 ])
-def test_an_output_that_no_receipt_binds_moves_both_digests(tree, case):
+def test_an_output_that_no_receipt_binds_moves_both_digests(tree, case, monkeypatch):
     """[COUNTS] Every way an output can fail to be bound keeps it in the digest.
 
     `unsigned`, `untrusted_key`, `no_trusted_key`, `other_schema` and `foreign_folder_unsigned` are Codex's P0 1 on
     pull request 541 (round lx2): a receipt nobody trusted signed bound the output, in any version's folder.
     `mode_100755` is its P0 2: the excluded line carries the mode, and the signed digest does not."""
     repo, _c = tree
+    if case == "no_trusted_key":  # the anchor is in the digest: change it first, then attest that tree
+        _commit(repo, {ANCHOR: "# no key pinned\n"}, "anchor without a key")
+    monkeypatch.setitem(_BAUM, "wert", _digests(repo)[0])
     digest = hashlib.sha256(OUTPUT_BYTES).hexdigest()
     receipt, output = RECEIPT, OUTPUT
     if case == "unsigned":
@@ -127,7 +136,7 @@ def test_an_output_that_no_receipt_binds_moves_both_digests(tree, case):
     elif case == "untrusted_key":
         files = {receipt: _receipt_naming(digest, signer=_STRANGER)}
     elif case == "no_trusted_key":
-        files = {receipt: _receipt_naming(digest), ANCHOR: "# no key pinned\n"}
+        files = {receipt: _receipt_naming(digest)}
     elif case == "other_schema":
         lib = _module("_lib_other_schema", "pre_tag_receipt_lib.py")
         r = json.loads(_receipt_naming(digest, signer=None))
@@ -193,9 +202,10 @@ def test_an_output_that_no_receipt_binds_moves_both_digests(tree, case):
     assert after[1] != before[1], f"{case}: the readiness digest did not move"
 
 
-def test_a_change_of_mode_of_a_bound_output_moves_both_digests(tree):
+def test_a_change_of_mode_of_a_bound_output_moves_both_digests(tree, monkeypatch):
     """[COUNTS] Codex's P0 2 from the other side: the output is bound at 100644, and only its mode changes."""
     repo, _c = tree
+    monkeypatch.setitem(_BAUM, "wert", _digests(repo)[0])
     _commit(repo, {RECEIPT: _receipt_naming(hashlib.sha256(OUTPUT_BYTES).hexdigest()), OUTPUT: OUTPUT_BYTES},
             "receipt and output")
     before = _digests(repo)
@@ -205,15 +215,31 @@ def test_a_change_of_mode_of_a_bound_output_moves_both_digests(tree):
     assert after[0] != before[0] and after[1] != before[1], (before, after)
 
 
-def test_a_signed_receipt_of_another_version_binds_its_own_output(tree):
-    """[COUNTS] The positive control of `foreign_folder_unsigned`: a receipt of 6.6.0 that the trusted key
-    signed binds the 6.6.0 output in its own folder, and both bindings stay those of the candidate."""
+@pytest.mark.parametrize("bound", [True, False])
+def test_a_signed_pair_of_another_tree_moves_both_digests(tree, bound):
+    """[COUNTS] Codex's P0 1 on pull request 541, round lx3. The 6.6.1 pair is bound, then a pair that the trusted
+    key once signed for 6.6.0, its receipt attesting the 6.6.0 tree, is added beside it. That pair attests another
+    tree, so it stays in both digests. The control (`bound=False`) shows the same pair is left out when its receipt
+    attests exactly this tree: the attested tree is what decides, not the version or the folder."""
     repo, _c = tree
+    vorher = _digests(repo)[0]
+    digest = hashlib.sha256(OUTPUT_BYTES).hexdigest()
+    _commit(repo, {RECEIPT: _receipt_naming(digest, baum=vorher), OUTPUT: OUTPUT_BYTES}, "the 6.6.1 pair")
     before = _digests(repo)
-    _commit(repo, {"audit_artifacts/660/pre_tag_receipt_v6.6.0.json":
-                   _receipt_naming(hashlib.sha256(OUTPUT_BYTES).hexdigest(), "6.6.0"),
-                   "audit_artifacts/660/pre_tag_audit_output_v6.6.0.txt": OUTPUT_BYTES}, "6.6.0 beside")
-    assert _digests(repo) == before
+    assert before[0] == vorher, "the 6.6.1 pair itself was not left out"
+    pair_6_6_0 = {"audit_artifacts/660/pre_tag_receipt_v6.6.0.json":
+                  _receipt_naming(digest, "6.6.0", baum="1" * 64 if bound else vorher),
+                  "audit_artifacts/660/pre_tag_audit_output_v6.6.0.txt": OUTPUT_BYTES}
+    _commit(repo, pair_6_6_0, "a 6.6.0 pair added")
+    after = _digests(repo)
+    lib = _module("_lib_pair_of_another_tree", "pre_tag_receipt_lib.py")
+    if bound:
+        assert after[0] != before[0] and after[1] != before[1], "a pair of another tree left the digest"
+        # The tree changed, so the 6.6.1 receipt no longer attests it either: nothing stays left out. A single pass
+        # over the candidates kept the 6.6.1 output (measured on the mutant X2).
+        assert lib.gebundene_ausgaben_des_baums(repo) == set(), lib.gebundene_ausgaben_des_baums(repo)
+    else:
+        assert after == before, "a pair attesting this tree was not left out"
 
 
 def test_without_the_signature_module_the_digest_is_refused_not_guessed(tree, monkeypatch):

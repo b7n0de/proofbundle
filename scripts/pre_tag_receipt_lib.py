@@ -501,7 +501,7 @@ def ist_ausgabepfad(pfad: str) -> bool:
     return bool(m) and m.group(2) == m.group(3).replace(".", "")
 
 
-def gebundene_ausgaben(repo, eintraege) -> set:
+def gebundene_ausgaben(repo, eintraege, *, zeilen: list) -> set:
     """The paths (bytes) of the audit outputs in `eintraege` that the digest leaves out.
 
     `eintraege` is the listing `git_tree` returns, objects already checked against their ids. An output
@@ -515,7 +515,19 @@ def gebundene_ausgaben(repo, eintraege) -> set:
         its `audit_output_digest`, and carries a signature over its signed fields by a key that the trust
         anchor of THIS tree (`audit_artifacts/pre_tag_trusted_pubkeys.txt`, itself in the digest) names
         (`signatur_eines_vertrauten`, the check `verify_receipt` ends with).
-    So no file stands in the excluded path without a trusted signature over a digest that names its bytes.
+      - that receipt's signed `subject_tree_digest` is the digest of `zeilen` (the listing lines the tree digest
+        hashes) without exactly the outputs left out.
+    So no file stands in the excluded path without a trusted signature over a digest that names its bytes, given
+    for the tree that is measured.
+
+    THE RECEIPT MUST ATTEST THIS TREE (Codex on pull request 541, round lx3, P0 1). With signature, version and
+    output digest alone, a pair that a trusted key once signed for 6.6.0, the receipt and its output, could be added
+    to a tree whose 6.6.1 receipt was already given, or taken from it, and both paths left the digest: the gate of
+    6.6.1 does not judge the folder of 6.6.0. Now an output is left out only when the receipt beside it attests the
+    digest that results without it. The digest depends on which outputs are left out, so the set is a fixed point:
+    start from every candidate, take the digest without all of them, keep the candidates whose receipt attests that
+    digest, and repeat until nothing more falls away. The set only shrinks, so this ends; an empty set is the
+    digest with every output in it.
 
     THE SIGNATURE IS CHECKED HERE, NOT LEFT TO THE GATE (Codex on pull request 541, round lx2, P0 1). The
     first form of this rule read the receipt beside the output and checked no signature, on the reasoning
@@ -560,7 +572,7 @@ def gebundene_ausgaben(repo, eintraege) -> set:
         vertraut = _schluessel_aus_text(objekte[anker_oid].decode("utf-8")) if anker_oid is not None else []
     except UnicodeDecodeError:
         vertraut = []
-    gebunden = set()
+    bezeugt: dict = {}
     for pfad, oid, version, quittungen in kandidaten:
         digest = hashlib.sha256(objekte[oid]).hexdigest()
         for q in quittungen:
@@ -580,9 +592,22 @@ def gebundene_ausgaben(repo, eintraege) -> set:
                     f"the package is not importable ({fehler}). The digest would be taken over a guess"
                 ) from fehler
             if ok:
-                gebunden.add(pfad)
-                break
+                bezeugt.setdefault(pfad, set()).add(rc.get("subject_tree_digest"))
+    gebunden = set(bezeugt)
+    while gebunden:
+        texte = {q.decode("ascii") for q in gebunden}
+        ohne = _digest_der_zeilen([ln for ln in zeilen if ln.partition("\t")[2] not in texte])
+        bleibt = {q for q in gebunden if ohne in bezeugt[q]}
+        if bleibt == gebunden:
+            break
+        gebunden = bleibt
     return gebunden
+
+
+def _digest_der_zeilen(zeilen: list) -> str:
+    """The tree digest over listing lines: sha256 of the sorted lines, joined by newlines. One formula for the
+    digest and for the fixed point of `gebundene_ausgaben`."""
+    return hashlib.sha256("\n".join(sorted(zeilen)).encode("utf-8")).hexdigest()
 
 
 #: Ein erwarteter Digest ist ein sha256 in Kleinhex, 64 Stellen — und NUR das. Siehe die Pruefung in
@@ -616,7 +641,7 @@ class BaumNichtLesbar(RuntimeError):
     """
 
 
-def subject_tree_digest(repo) -> str:
+def _messung(repo, rev: str = "HEAD") -> tuple:
     """Digest the receipt binds and the gate verifies: a stable sha256 over the RECURSIVE
     ``git ls-tree -r HEAD`` entries, minus exactly the receipt itself and the mutable evidence a
     release run writes while measuring -- never a whole directory.
@@ -641,7 +666,6 @@ def subject_tree_digest(repo) -> str:
     Die Quittung steht in einem EIGENEN Muster; ``MUTABLE_EVIDENCE_RELS`` bleibt unveraendert und
     wird nur mitgelesen, damit Erzeuger und Tor dieselben Pfade meinen.
     """
-    import hashlib  # noqa: PLC0415
     # DIE AUSSCHLUSSMENGE KOMMT AUS DEM TORVERZEICHNIS, NICHT VOM ANFANG DES SUCHPFADS
     # (Gegenlesung 07.09.2026, ausgefuehrt). `pre_tag_audit_gate.evaluate` legt `<repo>/src` auf
     # `sys.path[0]`, damit `proofbundle.signature` importierbar ist. Ein schlichtes
@@ -683,7 +707,7 @@ def subject_tree_digest(repo) -> str:
     # is still taken over the text of `ls-tree`, so no digest computed so far changes; that text
     # must describe, entry for entry, the tree that `git_tree` read from a commit and from trees
     # whose bytes each hash to their id, or there is no digest.
-    commit, geprueft = git_tree(repo, "HEAD")
+    commit, geprueft = git_tree(repo, rev)
     r = git_run(repo, "ls-tree", "--full-tree", "-r", commit, timeout=10)
     if r.returncode != 0:
         raise BaumNichtLesbar(f"cannot read the tree in {repo}: "
@@ -707,10 +731,10 @@ def subject_tree_digest(repo) -> str:
     veraenderlich = tuple(f"\t{pfad}" for pfad in MUTABLE_EVIDENCE_RELS)
     # The audit output beside its receipt, only where that receipt names its bytes (`gebundene_ausgaben`).
     # Its path is ASCII by the pattern, so `ls-tree` prints it unquoted and it compares as text.
-    ausgaben = {p.decode("ascii") for p in gebundene_ausgaben(repo, geprueft)}
-    lines = [ln for ln in text.splitlines()
-             if not ln.endswith(veraenderlich) and not _RECEIPT_MUSTER.search(ln)
-             and ln.partition("\t")[2] not in ausgaben]
+    grund = [ln for ln in text.splitlines()
+             if not ln.endswith(veraenderlich) and not _RECEIPT_MUSTER.search(ln)]
+    ausgaben = {p.decode("ascii") for p in gebundene_ausgaben(repo, geprueft, zeilen=grund)}
+    lines = [ln for ln in grund if ln.partition("\t")[2] not in ausgaben]
     # DIE STILLE LEERMESSUNG (Gegenlesung 07.09.2026, ausgefuehrt — und sie geht MITTEN durch die
     # Formpruefung hindurch, die derselbe Commit eingezogen hat). `git -C <unterordner> ls-tree -r
     # HEAD` endet mit rc=0 und LEERER Ausgabe, wenn unter dem Pfad nichts getrackt ist. Der Digest
@@ -726,7 +750,18 @@ def subject_tree_digest(repo) -> str:
             "succeeded and returned nothing, which happens for a path inside a repository that "
             "tracks no file there. The digest of an empty list is a well-formed sha256 and means "
             "nothing; a candidate with no files is not a candidate")
-    return hashlib.sha256("\n".join(sorted(lines)).encode("utf-8")).hexdigest()
+    return _digest_der_zeilen(lines), ausgaben
+
+
+def subject_tree_digest(repo, rev: str = "HEAD") -> str:
+    """Digest the receipt binds and the gate verifies, of the tree of `rev` (see `_messung`)."""
+    return _messung(repo, rev)[0]
+
+
+def gebundene_ausgaben_des_baums(repo, rev: str = "HEAD") -> set:
+    """The audit outputs (text paths) the digest of the tree of `rev` leaves out, decided by the same measurement
+    as `subject_tree_digest`, so the readiness binding and the receipt can never leave out different sets."""
+    return set(_messung(repo, rev)[1])
 
 
 def receipt_json(raw: bytes):

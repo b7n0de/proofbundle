@@ -145,7 +145,8 @@ QUITTUNG = "audit_artifacts/661/pre_tag_receipt_v6.6.1.json"
 #: The real gate loader, bound before any test replaces `A._gate` (a stand-in that asked `A._gate`
 #: for the library would ask itself).
 _ECHTES_TOR = A._gate
-AUSGABE = "audit_artifacts/661/audit_output_v6.6.1.txt"
+#: The output at its fixed path, which the release step requires (Codex on PR 541, round lx3, P1 3).
+AUSGABE = "audit_artifacts/661/pre_tag_audit_output_v6.6.1.txt"
 ANKER = "audit_artifacts/pre_tag_trusted_pubkeys.txt"
 #: The gate source digest the stand-in reports and the receipts below sign.
 TOR_DIGEST = "e" * 64
@@ -209,12 +210,12 @@ def _bytes(p: Path) -> str:
     return hashlib.sha256(p.read_bytes()).hexdigest()
 
 
-def _signiert(repo: Path, digest: str, *, signer=_VERTRAUT, tor: str = TOR_DIGEST) -> str:
+def _signiert(repo: Path, digest: str, *, signer=_VERTRAUT, tor: str = TOR_DIGEST, baum: str | None = None) -> str:
     """A receipt for 6.6.1 naming `digest`, bound to the tree of `repo`'s head and to `tor`, signed by
     `signer` (unsigned when `signer` is None)."""
     import base64
     lib = _ECHTES_TOR()._lib()
-    r = {"schema": lib.RECEIPT_SCHEMA, "version": "6.6.1", "subject_tree_digest": lib.subject_tree_digest(repo),
+    r = {"schema": lib.RECEIPT_SCHEMA, "version": "6.6.1", "subject_tree_digest": baum or lib.subject_tree_digest(repo),
          "gate_source_digest": tor, "audit_command": "python -m pytest -q", "audit_exit_code": 0,
          "audit_output_digest": digest, "runner_identity": "test", "produced_at": "2026-11-19T06:00:00Z"}
     if signer is not None:
@@ -223,10 +224,11 @@ def _signiert(repo: Path, digest: str, *, signer=_VERTRAUT, tor: str = TOR_DIGES
     return json.dumps(r)
 
 
-def _quittung(repo: Path, rel: str, digest: str, *, committen: bool = True, signer=_VERTRAUT) -> None:
+def _quittung(repo: Path, rel: str, digest: str, *, committen: bool = True, signer=_VERTRAUT,
+              baum: str | None = None) -> None:
     """A signed receipt naming `digest`, committed by default: the step reads the receipt from the commit."""
     (repo / rel).parent.mkdir(parents=True, exist_ok=True)
-    (repo / rel).write_text(_signiert(repo, digest, signer=signer), encoding="utf-8")
+    (repo / rel).write_text(_signiert(repo, digest, signer=signer, baum=baum), encoding="utf-8")
     if committen:
         _git(repo, "add", "--", rel)
         _git(repo, "commit", "-q", "-m", f"receipt {rel}")
@@ -406,13 +408,19 @@ def test_version_eine_im_arbeitsbaum_geaenderte_quittung_ist_NICHT_MESSBAR(relea
 def test_version_der_text_eines_symlinks_ist_keine_datei_des_commits(release, tmp_path, monkeypatch):
     """A link's blob carries the NAME of its target. A reader who checks out the tag and runs sha256sum
     on that path hashes the target, never that name, so the name must not resolve either."""
-    link = release / "audit_artifacts" / "661" / "nur_ein_name.txt"
+    # AT THE FIXED PATH, so that only the regular-file rule can refuse it (the fixed-path rule would otherwise
+    # hide a step that counted links, measured on the mutant P2).
+    _git(release, "rm", "-q", "--", AUSGABE)
+    link = release / AUSGABE
+    # git removes the folder with its last file; without it the link fails with ENOENT, which the skip below would
+    # read as a file system that refuses links (measured: the case skipped and the mutant P2 survived).
+    link.parent.mkdir(parents=True, exist_ok=True)
     try:
         link.symlink_to("gibt_es_nicht.txt")
     except OSError as exc:
         pytest.skip(f"this file system refuses a symbolic link: {exc}")
-    _git(release, "add", "--", "audit_artifacts/661/nur_ein_name.txt")
-    _git(release, "commit", "-q", "-m", "a dangling link")
+    _git(release, "add", "--", AUSGABE)
+    _git(release, "commit", "-q", "-m", "a dangling link at the fixed path")
     import hashlib
     _quittung(release, QUITTUNG, hashlib.sha256(b"gibt_es_nicht.txt").hexdigest())
     monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(release, QUITTUNG)))
@@ -426,20 +434,25 @@ def test_version_der_text_eines_symlinks_ist_keine_datei_des_commits(release, tm
 # now verifies the committed bytes itself. Each case below resolved (AUFLOESBAR) before that.
 
 
-@pytest.mark.parametrize("fall", ["unsigniert", "fremder_schluessel", "anderer_baum", "anderes_tor"])
+@pytest.mark.parametrize("fall", ["unsigniert", "fremder_schluessel", "anderer_baum", "anderes_tor",
+                                  "quittung_bezeugt_anderen_baum"])
 def test_version_eine_quittung_im_commit_die_nicht_verifiziert_ist_NICHT_MESSBAR(release, monkeypatch, fall):
     """[COUNTS] The gate says `verified`, and the committed receipt names the committed output. It is
     resolved only when the committed bytes verify against the anchor of the commit and the digests of
     the gate's verdict."""
     signer = None if fall == "unsigniert" else _FREMD if fall == "fremder_schluessel" else _VERTRAUT
-    _quittung(release, QUITTUNG, _bytes(release / AUSGABE), signer=signer)
+    _quittung(release, QUITTUNG, _bytes(release / AUSGABE), signer=signer,
+              baum="f" * 64 if fall == "quittung_bezeugt_anderen_baum" else None)
     urteil = _verifiziert(release, QUITTUNG, baum="f" * 64 if fall == "anderer_baum" else None)
     if fall == "anderes_tor":
         urteil["gate_source_digest"] = "d" * 64
     monkeypatch.setattr(A, "_gate", lambda: _Tor(urteil))
     r = A.fuer_version(release, "6.6.1")
     assert r["zustand"] == "NICHT_MESSBAR", r
-    assert "does not verify" in r["quittungen"][0]["grund"], r
+    if fall == "anderer_baum":  # the step's own tree check stops it before any receipt is read (lx3, P0 2)
+        assert "another tree" in r["grund"] and r["quittungen"] == [], r
+    else:
+        assert "does not verify" in r["quittungen"][0]["grund"], r
 
 
 def test_version_der_austausch_zwischen_tor_und_schritt_loest_nicht_auf(release, monkeypatch):
@@ -502,3 +515,87 @@ def test_version_ein_austausch_nach_dem_vergleich_wird_nicht_gelesen(release, mo
     assert gelesen, "the step no longer compares the receipt on disk with the committed one"
     assert r["zustand"] == "NICHT_MESSBAR", r
     assert "does not verify" in r["quittungen"][0]["grund"], r
+
+
+# ── ONE COMMIT AND ONE PATH (Codex on pull request 541, round lx3, P0 2 and P1 3) ──────────────────────
+
+
+def test_version_ein_kopf_der_waehrend_des_tors_wandert_ist_NICHT_MESSBAR(release, monkeypatch):
+    """[COUNTS] The gate's verdict holds for the commit it measured. A commit made while it judges moves HEAD, and
+    the step answers NICHT_MESSBAR instead of reading receipt, anchor and outputs from the new commit."""
+    _quittung(release, QUITTUNG, _bytes(release / AUSGABE))
+    urteil = _verifiziert(release, QUITTUNG)
+
+    class _Wandert:
+        def evaluate(self, repo, version):
+            (release / "spaeter.txt").write_text("a commit while the gate judges\n", encoding="utf-8")
+            _git(release, "add", "--", "spaeter.txt")
+            _git(release, "commit", "-q", "-m", "moved")
+            return urteil
+
+        def _lib(self):
+            return _ECHTES_TOR()._lib()
+
+    monkeypatch.setattr(A, "_gate", lambda: _Wandert())
+    r = A.fuer_version(release, "6.6.1")
+    assert r["zustand"] == "NICHT_MESSBAR" and "HEAD moved while the gate judged" in r["grund"], r
+
+
+def test_version_ein_kopf_der_waehrend_des_lesens_wandert_ist_NICHT_MESSBAR(release, monkeypatch):
+    """[COUNTS] The same after the gate: a commit made while the step reads the held commit. The reads still go to
+    the held id, and the step ends NICHT_MESSBAR because HEAD no longer names what it answered for."""
+    _quittung(release, QUITTUNG, _bytes(release / AUSGABE))
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(release, QUITTUNG)))
+    echt = A.aufloesbar
+
+    def aufloesbar(*args, **kwargs):
+        (release / "spaeter.txt").write_text("a commit while the step reads\n", encoding="utf-8")
+        _git(release, "add", "--", "spaeter.txt")
+        _git(release, "commit", "-q", "-m", "moved")
+        return echt(*args, **kwargs)
+
+    monkeypatch.setattr(A, "aufloesbar", aufloesbar)
+    r = A.fuer_version(release, "6.6.1")
+    assert r["zustand"] == "NICHT_MESSBAR" and "HEAD moved while the step read" in r["grund"], r
+
+
+def test_version_die_ausgabe_nur_an_einem_anderen_pfad_loest_nicht_auf(release, monkeypatch):
+    """[COUNTS] The owner's choice A puts the output beside its receipt under its fixed name. The same bytes at
+    another path only, with nothing at the fixed path, do not resolve."""
+    anders = release / "audit_artifacts" / "661" / "irgendwo.txt"
+    anders.write_bytes((release / AUSGABE).read_bytes())
+    _git(release, "rm", "-q", "--", AUSGABE)
+    _git(release, "add", "--", "audit_artifacts/661/irgendwo.txt")
+    _git(release, "commit", "-q", "-m", "the output only at another path")
+    _quittung(release, QUITTUNG, _bytes(anders))
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(release, QUITTUNG)))
+    r = A.fuer_version(release, "6.6.1")
+    assert r["zustand"] == "NICHT_AUFLOESBAR", r
+    assert "not the fixed path" in r["quittungen"][0]["grund"], r
+
+
+def test_version_liest_den_festgehaltenen_commit_auch_wenn_head_wackelt(release, monkeypatch):
+    """[COUNTS] While the step reads the receipt, HEAD moves to a commit without it and comes back. The step reads
+    the held commit, so it still resolves; a step that read HEAD would find no receipt (measured on the mutant K4)."""
+    _quittung(release, QUITTUNG, _bytes(release / AUSGABE))
+    a = subprocess.run(["git", "-C", str(release), "rev-parse", "HEAD"], capture_output=True, text=True,
+                       check=True).stdout.strip()
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(release, QUITTUNG)))
+    echt = A.git_file
+    gesehen = []
+
+    def git_file(repo, rev, pfad):
+        if not gesehen:
+            gesehen.append(rev)
+            _git(release, "rm", "-q", "--", QUITTUNG)
+            _git(release, "commit", "-q", "-m", "without the receipt")
+            try:
+                return echt(repo, rev, pfad)
+            finally:
+                _git(release, "reset", "-q", "--hard", a)
+        return echt(repo, rev, pfad)
+
+    monkeypatch.setattr(A, "git_file", git_file)
+    r = A.fuer_version(release, "6.6.1")
+    assert gesehen, "the step no longer reads the receipt through git_file"
+    assert r["zustand"] == "AUFLOESBAR", r

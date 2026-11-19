@@ -45,7 +45,7 @@ Every line is checkable by someone else. "I think so" is not an answer.
       `audit_output_digest`: copy the file that `scripts/pre_tag_receipt.py --audit-output-file`
       wrote to `audit_artifacts/<XYZ>/pre_tag_audit_output_vX.Y.Z.txt`, byte for byte, and commit it
       with the receipt, as a plain file (mode 100644). That one path is left out of the tree digest only while the receipt beside it
-      names its bytes and a key of the trust anchor signed it, so the receipt keeps binding the tree it measured, and an output with other
+      names its bytes, attests the tree without it and a key of the trust anchor signed it, so the receipt keeps binding the tree it measured, and an output with other
       bytes breaks that binding (owner choice A on card OA-71c0d50067). Then
       `python3 scripts/audit_output_aufloesbar.py --repo . --version X.Y.Z` exits 0. The tree and the gate source are recomputed from the commit, as a reader outside
       does it: `python -I scripts/verify_pre_tag_receipt.py --commit <sha> --version X.Y.Z` exits 0

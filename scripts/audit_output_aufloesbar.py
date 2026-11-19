@@ -84,7 +84,7 @@ SCHEMA = "b7n0de.audit_output_aufloesbar.v1"
 _REGULAER = ("100644", "100755")
 
 
-def _verfolgte_blobs(repo: Path) -> list[tuple[str, bytes]] | None:
+def _verfolgte_blobs(repo: Path, rev: str = "HEAD") -> list[tuple[str, bytes]] | None:
     """(path, content) of every regular file the HEAD COMMIT carries, sorted by path, or None if git
     cannot answer — None is the NICHT_MESSBAR signal, not [].
 
@@ -104,7 +104,7 @@ def _verfolgte_blobs(repo: Path) -> list[tuple[str, bytes]] | None:
     display form opens no file, and a record under such a name was once skipped without being
     counted."""
     try:
-        _commit, eintraege = git_tree(repo, "HEAD")
+        _commit, eintraege = git_tree(repo, rev)
         dateien = sorted((pfad, oid) for mode, typ, oid, pfad in eintraege
                          if typ == "blob" and mode in _REGULAER)
         inhalte = git_objects(repo, [(oid, "blob") for _pfad, oid in dateien])
@@ -124,7 +124,7 @@ def _digest_der_bytes(inhalt: bytes) -> str:
     return hashlib.sha256(inhalt).hexdigest()
 
 
-def aufloesbar(receipt: dict, repo: Path, *, roh: bool = False) -> dict:
+def aufloesbar(receipt: dict, repo: Path, *, roh: bool = False, rev: str = "HEAD") -> dict:
     """-> {zustand, digest, treffer, geprueft, grund}. Reports; never raises on a bad receipt.
 
     `roh=True` compares the SHA-256 of the raw bytes (the release step), otherwise the receipt's
@@ -138,7 +138,7 @@ def aufloesbar(receipt: dict, repo: Path, *, roh: bool = False) -> dict:
         return aus
     digest = digest.strip().lower()
     aus["digest"] = digest
-    dateien = _verfolgte_blobs(repo)
+    dateien = _verfolgte_blobs(repo, rev)
     if dateien is None:
         aus.update(zustand="NICHT_MESSBAR", treffer=[], geprueft=0,
                    grund=f"git could not read the tree of the head commit: {repo}")
@@ -170,7 +170,8 @@ def _gate():
     return mod
 
 
-def _im_commit_verifiziert(gate, repo: Path, version: str, urteil: dict, receipt) -> tuple[bool, str]:
+def _im_commit_verifiziert(gate, repo: Path, version: str, urteil: dict, receipt,
+                           commit: str = "HEAD") -> tuple[bool, str]:
     """(ok, reason): does the receipt read from the head commit verify as the gate verifies a receipt?
 
     `verify_receipt` of the gate's own library, with the trust anchor of the head commit, the version
@@ -189,7 +190,7 @@ def _im_commit_verifiziert(gate, repo: Path, version: str, urteil: dict, receipt
             src = str(Path(repo).resolve() / "src")
             if src not in sys.path:
                 sys.path.insert(0, src)
-            return lib.verify_receipt(receipt, trusted_pubkeys=lib.load_trusted_pubkeys(repo),
+            return lib.verify_receipt(receipt, trusted_pubkeys=lib.load_trusted_pubkeys(repo, ref=commit),
                                       expected_version=version,
                                       subject_tree_digest=urteil.get("subject_tree_digest"),
                                       gate_source_digest=urteil.get("gate_source_digest"))
@@ -203,6 +204,17 @@ def fuer_version(repo: Path, version: str, *, gate=None) -> dict:
     file. `gate` is the gate module (its `evaluate` and its `_lib`); tests hand in their own."""
     aus: dict = {"schema": SCHEMA, "repo": str(repo), "version": version, "rechnung": "bytes",
                  "gate_state": None, "quittungen": []}
+    # ONE COMMIT FOR EVERY READING (Codex on pull request 541, round lx3, P0 2). The gate measured HEAD, and this
+    # step then read receipt, trust anchor and outputs through HEAD again: a commit that moved in between let the
+    # verdict stand for one commit and the reading for another. The commit is now held at the start, every read
+    # goes to that id, the tree digest the gate reports must be the one of that commit, and HEAD must still name
+    # it when the step ends.
+    try:
+        festgehalten = git_tree(repo, "HEAD")[0]
+    except (BaumNichtLesbar, OSError) as e:
+        aus.update(zustand="NICHT_MESSBAR", grund=f"der Kopf-Commit ist nicht lesbar: {type(e).__name__}: {e}")
+        return aus
+    aus["commit"] = festgehalten
     try:
         gate = gate or _gate()
         urteil = gate.evaluate(repo, version)
@@ -218,13 +230,30 @@ def fuer_version(repo: Path, version: str, *, gate=None) -> dict:
                           f"(state={aus['gate_state']!r}); ohne verifizierte Quittung gibt es keinen "
                           "signierten Digest, der auf ein Artefakt zeigen muesste"))
         return aus
+    try:
+        nachher = git_tree(repo, "HEAD")[0]
+        eigener_digest = gate._lib().subject_tree_digest(repo, rev=festgehalten)
+    except Exception as e:  # noqa: BLE001
+        aus.update(zustand="NICHT_MESSBAR",
+                   grund=f"der festgehaltene Commit ist nicht messbar: {type(e).__name__}: {e}")
+        return aus
+    if nachher != festgehalten:
+        aus.update(zustand="NICHT_MESSBAR",
+                   grund=f"HEAD moved while the gate judged ({festgehalten[:12]} -> {nachher[:12]})")
+        return aus
+    if urteil.get("subject_tree_digest") != eigener_digest:
+        aus.update(zustand="NICHT_MESSBAR",
+                   grund=(f"the gate measured another tree ({str(urteil.get('subject_tree_digest'))[:12]}) than "
+                          f"the held commit carries ({eigener_digest[:12]})"))
+        return aus
+    kanon = f"audit_artifacts/{version.replace('.', '')}/pre_tag_audit_output_v{version}.txt"
     for eintrag in verifiziert:
         rel = eintrag.get("path") if isinstance(eintrag, dict) else None
         # THE RECEIPT TOO IS READ FROM THE COMMIT (the neighbour of the P2 above): the gate judged the
         # file on disk, and this step answers for the commit. A receipt that is not a regular file of
         # the commit, or whose bytes on disk are not the committed ones, leaves nothing to resolve.
         try:
-            im_commit = git_file(repo, "HEAD", rel)
+            im_commit = git_file(repo, festgehalten, rel)
             if im_commit is None or im_commit[1] != "blob" or im_commit[0] not in _REGULAER:
                 raise ValueError("the receipt is not a regular file of the head commit")
             if (repo / rel).read_bytes() != im_commit[3]:
@@ -241,14 +270,19 @@ def fuer_version(repo: Path, version: str, *, gate=None) -> dict:
         # head commit and the tree and gate digests the gate measured, and only bytes that verify are
         # resolved. What the gate saw no longer decides what is resolved; it only has to agree.
         try:
-            ok_c, grund_c = _im_commit_verifiziert(gate, repo, version, urteil, receipt)
+            ok_c, grund_c = _im_commit_verifiziert(gate, repo, version, urteil, receipt, festgehalten)
         except Exception as e:  # noqa: BLE001
             ok_c, grund_c = False, f"{type(e).__name__}: {e}"
         if not ok_c:
             aus["quittungen"].append({"pfad": rel, "zustand": "NICHT_MESSBAR", "treffer": [],
                                       "grund": f"the committed receipt does not verify: {grund_c}"})
             continue
-        r = aufloesbar(receipt, repo, roh=True)
+        r = aufloesbar(receipt, repo, roh=True, rev=festgehalten)
+        # THE FIXED PATH IS REQUIRED (Codex on pull request 541, round lx3, P1 3): bytes that match at another path
+        # do not put the output where the owner's choice A says it lies, beside its receipt under its fixed name.
+        if r["zustand"] == "AUFLOESBAR" and kanon not in r.get("treffer", []):
+            r = dict(r, zustand="NICHT_AUFLOESBAR",
+                     grund=f"the signed digest names {', '.join(r['treffer'])}, not the fixed path {kanon}")
         aus["quittungen"].append({"pfad": rel, "zustand": r["zustand"], "digest": r.get("digest"),
                                   "treffer": r.get("treffer", []), "geprueft": r.get("geprueft", 0),
                                   "grund": r.get("grund")})
@@ -262,6 +296,13 @@ def fuer_version(repo: Path, version: str, *, gate=None) -> dict:
     else:
         aus["zustand"] = "AUFLOESBAR"
     aus["grund"] = "; ".join(f"{q['pfad']}: {q['zustand']} — {q['grund']}" for q in aus["quittungen"])
+    try:
+        zuletzt = git_tree(repo, "HEAD")[0]
+    except (BaumNichtLesbar, OSError):
+        zuletzt = None
+    if zuletzt != festgehalten:
+        aus["zustand"] = "NICHT_MESSBAR"
+        aus["grund"] = f"HEAD moved while the step read the commit ({festgehalten[:12]} -> {str(zuletzt)[:12]}); " + aus["grund"]
     return aus
 
 

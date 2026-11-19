@@ -201,8 +201,7 @@ def _gebundene_ausgaben(repo: Path) -> set:
     library (ONE RULE FOR BOTH BINDINGS, see `_quittungsmuster`)."""
     lib = _receipt_lib()
     try:
-        _commit, eintraege = lib.git_tree(repo, "HEAD")
-        return {p.decode("ascii") for p in lib.gebundene_ausgaben(repo, eintraege)}
+        return lib.gebundene_ausgaben_des_baums(repo)
     except lib.BaumNichtLesbar as e:
         raise SystemExit(f"cannot read the tree in {repo} as the objects its ids name: {e}") from e
 
