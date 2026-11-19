@@ -1,0 +1,7 @@
+# The checker in this folder is kept byte for byte as delivered, so that its SHA-256 is the one the README lists. It
+# puts a few short statements on one line with a semicolon; for that file alone this one rule is waived. Every other
+# rule of the repository applies here as everywhere.
+extend = "../../../pyproject.toml"
+
+[lint.per-file-ignores]
+"ser_verify.py" = ["E702"]

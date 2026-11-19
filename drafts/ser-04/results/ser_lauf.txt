@@ -1,0 +1,153 @@
+SER vectors: 66 run, 66 same, 0 different
+file checks:
+   ('size equals A.3', 232309, 232309, True)
+   ('SHA-256 equals A.3', '710cb8abab7ca51cf61b85c5610018f9a153add4c3db4f71b2d597e57b1671d1', '710cb8abab7ca51cf61b85c5610018f9a153add4c3db4f71b2d597e57b1671d1', True)
+   ('one JSON text in UTF-8, strict parse (no BOM, no trailing data)', 'issues=[]', 'no issues', True)
+   ('top-level members', ['count', 'document', 'note', 'title', 'vectors'], ['count', 'document', 'note', 'title', 'vectors'], True)
+   ('document is the name of this draft', 'draft-gruszka-signed-evaluation-receipts-04', 'draft-gruszka-signed-evaluation-receipts-04', True)
+   ('title and note are strings', ('str', 'str'), 'str, str', True)
+   ('count equals number of vectors', (66, 66), '66, 66', True)
+   ('Table 2 rows read from the text', 66, 66, True)
+   ('vectors in the order of Table 2', True, True, True)
+structure problems: [('N24', "item names no size and SHA-256: 'payload bytes B: none, payload_b64 does not decode'")]
+keychecks: {
+ "issuer seed -> public key equals A.1 base64": true,
+ "second seed -> public key equals A.1 base64": true,
+ "order-8 point decodes canonically": true,
+ "order-8 point has order exactly 8": true,
+ "issuer public point + order-8 point equals A.1 mixed-order key": true,
+ "mixed-order key order class": "mixed",
+ "issuer key order class": "L",
+ "neutral canonical encoding decodes, order class": "small",
+ "y = p + 1 encoding rejected by RFC 8032 5.1.3 decoding": true,
+ "y = p + 1 read by a y-mod-p decoder is the neutral element": true,
+ "Section 5: encodings considered": 40,
+ "Section 5: of them rejected by rule 1 decoding": 40,
+ "Section 5: y-mod-p decoder gives no point / small / mixed / order L": "14 / 6 / 20 / 0",
+ "A.1 The model commitment: sha256(salt || UTF-8 identifier) equals the commitment": true,
+ "A.1 The model commitment: salt is 16 bytes": true,
+ "A.1 The dataset commitment: sha256(salt || UTF-8 identifier) equals the commitment": true,
+ "A.1 The dataset commitment: salt is 16 bytes": true,
+ "A.1 criteria digest equals sha256 over the criteria bytes": true,
+ "P10 criteria_digest equals the A.1 criteria digest": true,
+ "N57 criteria_digest is the A.1 digest in uppercase hex": true
+}
+A.2 vs file:
+   {'id': 'P1', 'heading_label': True, 'heading_expected': True, 'heading_step': True, 'description_words_equal': True, 'items_equal': True, 'receipt_bytes_equal': True}
+   {'id': 'P2', 'heading_label': True, 'heading_expected': True, 'heading_step': True, 'description_words_equal': True, 'items_equal': True, 'receipt_bytes_equal': True}
+   {'id': 'P4', 'heading_label': True, 'heading_expected': True, 'heading_step': True, 'description_words_equal': True, 'items_equal': True, 'receipt_bytes_equal': True, 'B_not_in_text; file payload bytes equal B of P1': True}
+   {'id': 'P6', 'heading_label': True, 'heading_expected': True, 'heading_step': True, 'description_words_equal': True, 'items_equal': True, 'receipt_bytes_equal': True, 'B_not_in_text; file payload bytes equal B of P1': True}
+   {'id': 'N5', 'heading_label': True, 'heading_expected': True, 'heading_step': True, 'description_words_equal': True, 'items_equal': True, 'receipt_bytes_equal': True}
+   {'id': 'N7', 'heading_label': True, 'heading_expected': True, 'heading_step': True, 'description_words_equal': True, 'items_equal': True, 'receipt_bytes_equal': True, 'B_not_in_text; file payload bytes equal B of P1': True}
+   {'id': 'N12', 'heading_label': True, 'heading_expected': True, 'heading_step': True, 'description_words_equal': True, 'items_equal': True, 'receipt_bytes_equal': True, 'B_not_in_text; file payload bytes equal B of P1': True}
+   {'id': 'N13', 'heading_label': True, 'heading_expected': True, 'heading_step': True, 'description_words_equal': True, 'items_equal': True, 'receipt_bytes_equal': True, 'B_not_in_text; file payload bytes equal B of P1': True}
+   {'id': 'N14', 'heading_label': True, 'heading_expected': True, 'heading_step': True, 'description_words_equal': True, 'items_equal': True, 'receipt_bytes_equal': True, 'B_not_in_text; file payload bytes equal B of P1': True}
+   {'id': 'N59', 'heading_label': True, 'heading_expected': True, 'heading_step': True, 'description_words_equal': True, 'items_equal': True, 'receipt_bytes_equal': True, 'B_not_in_text; file payload bytes equal B of P1': True}
+profile diagnostics: {
+ "N6": {
+  "R decodes (rule 1)": true,
+  "R order class": "L",
+  "S below L": false,
+  "S": "large",
+  "equations (no rules 1-3)": {
+   "cofactorless": true,
+   "cofactored": true
+  },
+  "pyca/cryptography (installed version) verify": "rejected (InvalidSignature)"
+ },
+ "N7": {
+  "R decodes (rule 1)": true,
+  "R order class": "L",
+  "S below L": true,
+  "S": "large",
+  "equations (no rules 1-3)": {
+   "cofactorless": false,
+   "cofactored": false
+  },
+  "verifies (profile) over PAE with type application/vnd.example.other+json": [
+   true,
+   null,
+   null
+  ],
+  "pyca/cryptography (installed version) verify": "rejected (InvalidSignature)"
+ },
+ "N12": {
+  "R decodes (rule 1)": true,
+  "R order class": "L",
+  "S below L": true,
+  "S": "large",
+  "equations (no rules 1-3)": {
+   "cofactorless": true,
+   "cofactored": true
+  },
+  "pyca/cryptography (installed version) verify": "accepted"
+ },
+ "N16": {
+  "R decodes (rule 1)": true,
+  "R order class": "small",
+  "S below L": true,
+  "S": "large",
+  "equations (no rules 1-3)": {
+   "cofactorless": true,
+   "cofactored": true
+  },
+  "pyca/cryptography (installed version) verify": "accepted"
+ },
+ "N17": {
+  "R decodes (rule 1)": false,
+  "R order class": "lenient:small",
+  "S below L": true,
+  "S": "large",
+  "equations (no rules 1-3)": null,
+  "pyca/cryptography (installed version) verify": "rejected (InvalidSignature)"
+ },
+ "N18": {
+  "R decodes (rule 1)": true,
+  "R order class": "L",
+  "S below L": true,
+  "S": "large",
+  "equations (no rules 1-3)": null,
+  "pyca/cryptography (installed version) verify": "accepted"
+ },
+ "N53": {
+  "R decodes (rule 1)": false,
+  "R order class": "lenient:small",
+  "S below L": true,
+  "S": 0,
+  "equations (no rules 1-3)": null,
+  "pyca/cryptography (installed version) verify": "rejected (InvalidSignature)"
+ },
+ "N54": {
+  "R decodes (rule 1)": true,
+  "R order class": "small",
+  "S below L": true,
+  "S": 0,
+  "equations (no rules 1-3)": {
+   "cofactorless": true,
+   "cofactored": true
+  },
+  "pyca/cryptography (installed version) verify": "accepted"
+ },
+ "N59": {
+  "R decodes (rule 1)": true,
+  "R order class": "mixed",
+  "S below L": true,
+  "S": "large",
+  "equations (no rules 1-3)": {
+   "cofactorless": false,
+   "cofactored": true
+  },
+  "pyca/cryptography (installed version) verify": "rejected (InvalidSignature)"
+ },
+ "N61": {
+  "R decodes (rule 1)": true,
+  "R order class": "L",
+  "S below L": true,
+  "S": "large",
+  "equations (no rules 1-3)": {
+   "cofactorless": true,
+   "cofactored": true
+  },
+  "pyca/cryptography (installed version) verify": "accepted"
+ }
+}

@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""Generate a fresh challenge set for one submission; see pruefmenge.py."""
+import pathlib
+import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+
+import pruefmenge  # noqa: E402
+
+sys.exit(pruefmenge.main_erzeugen(sys.argv[1:]))
