@@ -14,10 +14,13 @@ the audit is not signed-attested for this tree). At release, the runner signs; t
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import importlib.machinery
 import json
 import os
 import re as _re
+import sys
 from pathlib import Path
 
 RECEIPT_SCHEMA = "b7n0de.pre_tag_audit_receipt.v1"
@@ -424,6 +427,14 @@ def _pfad_aus_listing(text: str) -> bytes:
     return bytes(raus)
 
 
+#: SEIT LEHRE 2 NUR NOCH DIE PFADFORM, NICHT MEHR DIE AUSNAHME (Codex an PR 541, Runde lx4, P0 2; Owner-Wahl B,
+#: 19.11.2026). Bis dahin fiel JEDER Pfad dieser Form aus dem Digest, in jedem Versionsordner und in jedem Modus,
+#: auch ein Link oder ein Gitlink: `audit_artifacts/660/pre_tag_receipt_v6.6.0.json` liess sich neben einer
+#: gegebenen 6.6.1-Quittung anlegen, aendern oder entfernen, ohne dass sich ihr Digest bewegte, und weder das Tor
+#: noch der Aussenpruefer von 6.6.1 sehen in den Ordner von 6.6.0. Ausgenommen wird jetzt genau die Quittung der
+#: Version, die der Baum selbst in `pyproject.toml` nennt (`eigene_quittungen`); das Muster bleibt als Pfadform fuer
+#: den Uebergang der Audit-Matrix und fuer `sign_readiness_artifact.ist_quittungspfad`.
+#:
 #: Was diese Bindung ausschliessen MUSS, und nichts darueber hinaus: die Quittung selbst. Sie liegt
 #: in dem Baum, den sie bindet — ohne diesen einen Ausschluss enthielte ihr Digest sich selbst und
 #: waere nicht berechenbar. Ein MUSTER und keine Liste, weil jede Version ihre eigene Quittung
@@ -489,10 +500,53 @@ _REGULAERE_MODI = ("100644", "100755")
 #: output left out at `100755` and one at `100644` gave the same tree digest, so a change of mode moved
 #: the tree without moving any binding. An output at any other mode stays in the digest.
 _AUSGABE_MODUS = "100644"
+#: The receipt that leaves the digest carries the same one mode, for the same reason (Codex on pull request 541,
+#: round lx4, P0 2: the receipt rule matched the path and ignored the mode, so a change of mode moved no binding).
+_QUITTUNG_MODUS = _AUSGABE_MODUS
 
 #: The release version a tree declares, read the way `pre_tag_audit_gate.pyproject_version` reads it: the first
-#: `version = "X.Y.Z..."` line of `pyproject.toml`. Only the output of THIS version may leave the digest.
+#: `version = "X.Y.Z..."` line of `pyproject.toml`. Only the receipt and the output of THIS version may leave the
+#: digest.
 _VERSION_IN_PYPROJECT = _re.compile(r'(?m)^\s*version\s*=\s*["\']([0-9]+\.[0-9]+\.[0-9]+[^"\']*)["\']')
+#: The characters a version may carry before it names a path: the class of `_RECEIPT_MUSTER` and of the audit
+#: matrix's transition. A version outside it names no receipt and no output, so nothing leaves the digest.
+_VERSION_ALS_PFADTEIL = _re.compile(r"\A[0-9][0-9A-Za-z.+!_\-]*\Z")
+
+
+def eigene_version(repo, nach_pfad: dict) -> str | None:
+    """The version the tree declares in its `pyproject.toml`, or None.
+
+    `nach_pfad` maps a path (bytes) to `(mode, type, id)`, as `git_tree` lists the tree; the blob is read by its id
+    and checked against it. None when the file is not a regular blob of the tree, is not UTF-8, names no version, or
+    names one that is no path component (`_VERSION_ALS_PFADTEIL`). A tree without a version leaves no receipt and no
+    output out of its digest."""
+    pp = nach_pfad.get(b"pyproject.toml")
+    if pp is None or pp[1] != "blob" or pp[0] not in _REGULAERE_MODI:
+        return None
+    try:
+        m = _VERSION_IN_PYPROJECT.search(git_objects(repo, [(pp[2], "blob")])[pp[2]].decode("utf-8"))
+    except UnicodeDecodeError:
+        return None
+    if not m or not _VERSION_ALS_PFADTEIL.match(m.group(1)):
+        return None
+    return m.group(1)
+
+
+def eigene_quittungen(nach_pfad: dict, version: str | None) -> list:
+    """The paths (bytes) of the receipts the digest leaves out: in the folder of `version`, under one of the two
+    names the house uses (`pre_tag_receipt_v<version>.json` as the bundle carries it, `pre_tag_receipt_<version>.json`
+    as `pre_tag_receipt.py` writes it), as a regular file of mode `100644`. Nothing else: a receipt of another version,
+    in another folder, under another name, at another mode, a link or a gitlink stays in the digest."""
+    if version is None:
+        return []
+    ordner = f"audit_artifacts/{version.replace('.', '')}"
+    aus = []
+    for name in (f"{ordner}/pre_tag_receipt_v{version}.json", f"{ordner}/pre_tag_receipt_{version}.json"):
+        pfad = name.encode("ascii")
+        e = nach_pfad.get(pfad)
+        if e is not None and e[1] == "blob" and e[0] == _QUITTUNG_MODUS:
+            aus.append(pfad)
+    return aus
 
 #: The trust anchor of the pre-tag receipt, as a path in the tree. It is never excluded from the digest.
 _SCHLUESSELDATEI = b"audit_artifacts/pre_tag_trusted_pubkeys.txt"
@@ -513,8 +567,10 @@ def gebundene_ausgaben(repo, eintraege, *, zeilen: list) -> set:
       - it is a regular file at `audit_artifacts/<token>/pre_tag_audit_output_v<version>.txt`, and
         `<token>` is `<version>` without its dots;
       - its mode is `100644` (`_AUSGABE_MODUS`);
-      - a regular file `pre_tag_receipt_v<version>.json` or `pre_tag_receipt_<version>.json` lies in the
-        same folder, is read the one way the gate and the verifier read a receipt (`receipt_json`), carries
+      - `<version>` is the version the tree declares in `pyproject.toml` (`eigene_version`);
+      - a receipt that leaves the digest itself lies in the same folder (`eigene_quittungen`: one of the two
+        names, a regular file of mode `100644`), is read the one way the gate and the verifier read a receipt
+        (`receipt_json`), carries
         the receipt schema, names `<version>` as its `version`, names the SHA-256 of the output's bytes as
         its `audit_output_digest`, and carries a signature over its signed fields by a key that the trust
         anchor of THIS tree (`audit_artifacts/pre_tag_trusted_pubkeys.txt`, itself in the digest) names
@@ -546,39 +602,19 @@ def gebundene_ausgaben(repo, eintraege, *, zeilen: list) -> set:
     signature module of the package cannot be imported, the digest is refused (`BaumNichtLesbar`), never
     taken with or without the output by default."""
     nach_pfad = {pfad: (mode, typ, oid) for mode, typ, oid, pfad in eintraege}
-    kandidaten = []
-    for mode, typ, oid, pfad in eintraege:
-        if typ != "blob" or mode != _AUSGABE_MODUS:
-            continue
-        try:
-            text = pfad.decode("ascii")
-        except UnicodeDecodeError:
-            continue
-        m = _AUSGABE_MUSTER.match(text)
-        if not m or m.group(2) != m.group(3).replace(".", ""):
-            continue
-        ordner, version = m.group(1), m.group(3)
-        quittungen = []
-        for name in (f"{ordner}/pre_tag_receipt_v{version}.json", f"{ordner}/pre_tag_receipt_{version}.json"):
-            e = nach_pfad.get(name.encode("ascii"))
-            if e is not None and e[1] == "blob" and e[0] in _REGULAERE_MODI:
-                quittungen.append(e[2])
-        if quittungen:
-            kandidaten.append((pfad, oid, version, quittungen))
-    if not kandidaten:
+    # ONLY THE TREE'S OWN VERSION, and beside it only the receipts that leave the digest themselves
+    # (`eigene_quittungen`). A tree without a readable `pyproject.toml` version leaves nothing out.
+    version = eigene_version(repo, nach_pfad)
+    if version is None:
         return set()
-    # ONLY THE TREE'S OWN VERSION. A tree without a readable `pyproject.toml` version leaves nothing out.
-    pp = nach_pfad.get(b"pyproject.toml")
-    eigene = None
-    if pp is not None and pp[1] == "blob" and pp[0] in _REGULAERE_MODI:
-        try:
-            m = _VERSION_IN_PYPROJECT.search(git_objects(repo, [(pp[2], "blob")])[pp[2]].decode("utf-8"))
-        except UnicodeDecodeError:
-            m = None
-        eigene = m.group(1) if m else None
-    kandidaten = [k for k in kandidaten if k[2] == eigene]
-    if not kandidaten:
+    pfad = f"audit_artifacts/{version.replace('.', '')}/pre_tag_audit_output_v{version}.txt".encode("ascii")
+    e = nach_pfad.get(pfad)
+    if e is None or e[1] != "blob" or e[0] != _AUSGABE_MODUS:
         return set()
+    quittungen = [nach_pfad[q][2] for q in eigene_quittungen(nach_pfad, version)]
+    if not quittungen:
+        return set()
+    kandidaten = [(pfad, e[2], version, quittungen)]
     anker = nach_pfad.get(_SCHLUESSELDATEI)
     anker_oid = anker[2] if anker is not None and anker[1] == "blob" and anker[0] in _REGULAERE_MODI else None
     gesucht = {(oid, "blob") for _p, oid, _v, qs in kandidaten for oid in [oid, *qs]}
@@ -590,26 +626,30 @@ def gebundene_ausgaben(repo, eintraege, *, zeilen: list) -> set:
     except UnicodeDecodeError:
         vertraut = []
     bezeugt: dict = {}
-    for pfad, oid, version, quittungen in kandidaten:
-        digest = hashlib.sha256(objekte[oid]).hexdigest()
-        for q in quittungen:
-            try:
-                rc = receipt_json(objekte[q])
-            except ValueError:
-                continue
-            if not (isinstance(rc, dict) and rc.get("schema") == RECEIPT_SCHEMA
-                    and rc.get("version") == version and rc.get("audit_output_digest") == digest):
-                continue
-            try:
-                ok, _grund = signatur_eines_vertrauten(rc, vertraut)
-            except ImportError as fehler:
-                raise BaumNichtLesbar(
-                    f"the output {pfad.decode('ascii')} lies beside a receipt that names its bytes, and "
-                    "whether a trusted key signed that receipt cannot be checked: the signature module of "
-                    f"the package is not importable ({fehler}). The digest would be taken over a guess"
-                ) from fehler
-            if ok:
-                bezeugt.setdefault(pfad, set()).add(rc.get("subject_tree_digest"))
+    # THE SIGNATURE MODULE OF THE MEASURED COMMIT (Codex on pull request 541, round lx4, P0 3): the check below
+    # imports `proofbundle.signature`, and it is served from the blobs of the tree that is measured, never from the
+    # files of the checkout (`paket_aus_eintraegen`).
+    with paket_aus_eintraegen(repo, eintraege):
+        for pfad, oid, version, quittungen in kandidaten:
+            digest = hashlib.sha256(objekte[oid]).hexdigest()
+            for q in quittungen:
+                try:
+                    rc = receipt_json(objekte[q])
+                except ValueError:
+                    continue
+                if not (isinstance(rc, dict) and rc.get("schema") == RECEIPT_SCHEMA
+                        and rc.get("version") == version and rc.get("audit_output_digest") == digest):
+                    continue
+                try:
+                    ok, _grund = signatur_eines_vertrauten(rc, vertraut)
+                except ImportError as fehler:
+                    raise BaumNichtLesbar(
+                        f"the output {pfad.decode('ascii')} lies beside a receipt that names its bytes, and "
+                        "whether a trusted key signed that receipt cannot be checked: the signature module of "
+                        f"the package is not importable ({fehler}). The digest would be taken over a guess"
+                    ) from fehler
+                if ok:
+                    bezeugt.setdefault(pfad, set()).add(rc.get("subject_tree_digest"))
     gebunden = set(bezeugt)
     while gebunden:
         texte = {q.decode("ascii") for q in gebunden}
@@ -625,6 +665,140 @@ def _digest_der_zeilen(zeilen: list) -> str:
     """The tree digest over listing lines: sha256 of the sorted lines, joined by newlines. One formula for the
     digest and for the fixed point of `gebundene_ausgaben`."""
     return hashlib.sha256("\n".join(sorted(zeilen)).encode("utf-8")).hexdigest()
+
+
+# ── THE SIGNATURE MODULE COMES FROM THE HELD COMMIT, NOT FROM THE CHECKOUT ──────────────────────
+#
+# Codex on pull request 541, round lx4, P0 3 (owner choice B, 19 November 2026). The gate put `<repo>/src` in
+# front of `sys.path`, and so did the release step for its own check of the committed receipt, so that
+# `verify_receipt` could import `proofbundle.signature`. That imported whatever lay on disk: whoever could write the
+# checkout while the run went on could make the signature check of a forged receipt pass, with HEAD and every blob
+# that was read unchanged. The package is now served from the blobs of the commit that is judged, each read through
+# `git_objects` and so checked against its id; the files of the checkout are not read for it.
+#
+# A commit that carries no `src/proofbundle` (a test tree, or a repository judged with this repository's tools)
+# brings no package of its own. Then the interpreter's package is used, found on its search path, and refused when
+# it lies inside the judged checkout: code of that checkout which the commit does not carry never judges it.
+
+_PAKET = "proofbundle"
+_PAKET_ORDNER = b"src/proofbundle"
+
+
+def _gehoert_zum_paket(name: str) -> bool:
+    return name == _PAKET or name.startswith(_PAKET + ".")
+
+
+class _PaketAusDemCommit:
+    """A finder and loader on `sys.meta_path` for `proofbundle` and its submodules, from the entries of one commit.
+
+    `module` maps a module name to `(blob id, path, is a package)`; None means the commit carries no package. A
+    module the commit's package does not hold is refused, never looked for elsewhere: a finder that returned None
+    would hand the name to the next finder, and that one reads the disk."""
+
+    def __init__(self, repo, module, wurzel, grund: str | None = None):
+        self.repo, self.module, self.wurzel, self.grund = repo, module, wurzel, grund
+
+    def find_spec(self, name, path=None, target=None):
+        if not _gehoert_zum_paket(name):
+            return None
+        if self.grund is not None:
+            raise ModuleNotFoundError(f"{name} is not imported: {self.grund}", name=name)
+        if self.module is None:
+            if name != _PAKET:
+                return None                     # a submodule follows its parent's `__path__`, checked below
+            spec = importlib.machinery.PathFinder.find_spec(name)
+            if spec is None:
+                raise ModuleNotFoundError(f"the judged commit carries no {_PAKET} package, and the interpreter "
+                                          "finds none on its search path", name=name)
+            orte = [spec.origin, *(spec.submodule_search_locations or [])]
+            for ort in orte:
+                if not isinstance(ort, str):
+                    continue
+                try:
+                    drin = Path(ort).resolve().is_relative_to(self.wurzel)
+                except (OSError, RuntimeError, ValueError):
+                    drin = True
+                if drin:
+                    raise ModuleNotFoundError(
+                        f"the judged commit carries no {_PAKET} package, and the one on the search path lies in "
+                        f"the judged checkout ({ort}); code the commit does not carry does not judge it", name=name)
+            return spec
+        eintrag = self.module.get(name)
+        if eintrag is None:
+            raise ModuleNotFoundError(f"the judged commit carries no module {name}", name=name)
+        return importlib.machinery.ModuleSpec(name, self, origin=f"{eintrag[1]} (blob {eintrag[0][:12]})",
+                                              is_package=eintrag[2])
+
+    def create_module(self, spec):
+        return None
+
+    def exec_module(self, modul):
+        oid, pfad, _paket = self.module[modul.__name__]
+        quelle = git_objects(self.repo, [(oid, "blob")])[oid]
+        exec(compile(quelle, pfad, "exec", dont_inherit=True), modul.__dict__)  # noqa: S102 - the committed blob
+
+
+def _paketmodule(eintraege) -> dict | None:
+    """{module name: (blob id, path, is a package)} of `src/proofbundle` in `eintraege`, or None when the tree carries
+    no such directory. A `.py` file is a module, a directory is a package when it carries `__init__.py`."""
+    nach_pfad = {pfad: (mode, typ, oid) for mode, typ, oid, pfad in eintraege}
+    ordner = nach_pfad.get(_PAKET_ORDNER)
+    if ordner is None:
+        return None
+    if ordner[1] != "tree":
+        return {}
+    module: dict = {}
+    for mode, typ, oid, pfad in eintraege:
+        if typ != "blob" or mode not in _REGULAERE_MODI or not pfad.startswith(_PAKET_ORDNER + b"/"):
+            continue
+        if not pfad.endswith(b".py"):
+            continue
+        try:
+            teile = pfad[len(b"src/"):-len(b".py")].decode("ascii").split("/")
+        except UnicodeDecodeError:
+            continue
+        if not all(t.isidentifier() for t in teile):
+            continue
+        if teile[-1] == "__init__":
+            module[".".join(teile[:-1])] = (oid, os.fsdecode(pfad), True)
+        else:
+            module[".".join(teile)] = (oid, os.fsdecode(pfad), False)
+    return module
+
+
+@contextlib.contextmanager
+def paket_aus_eintraegen(repo, eintraege):
+    """While the block runs, `import proofbundle...` yields the package of the tree `eintraege` lists (as `git_tree`
+    returns it), read blob by blob from the object store; `eintraege=None` refuses every such import. The modules of
+    the package that were loaded before are put aside and come back afterwards, and nothing loaded inside stays."""
+    wurzel = Path(os.fspath(repo)).resolve()
+    if eintraege is None:
+        finder = _PaketAusDemCommit(repo, None, wurzel, grund="the held commit could not be read")
+    else:
+        finder = _PaketAusDemCommit(repo, _paketmodule(eintraege), wurzel)
+    beiseite = {n: m for n, m in list(sys.modules.items()) if _gehoert_zum_paket(n)}
+    for n in beiseite:
+        del sys.modules[n]
+    sys.meta_path.insert(0, finder)
+    try:
+        yield
+    finally:
+        with contextlib.suppress(ValueError):
+            sys.meta_path.remove(finder)
+        for n in [n for n in list(sys.modules) if _gehoert_zum_paket(n)]:
+            del sys.modules[n]
+        sys.modules.update(beiseite)
+
+
+@contextlib.contextmanager
+def paket_aus_commit(repo, commit):
+    """`paket_aus_eintraegen` for the tree of `commit` (None: refuse every import of the package)."""
+    try:
+        eintraege = git_tree(repo, commit)[1] if commit is not None else None
+    except BaumNichtLesbar:
+        eintraege = None
+    with paket_aus_eintraegen(repo, eintraege):
+        yield
 
 
 #: Ein erwarteter Digest ist ein sha256 in Kleinhex, 64 Stellen — und NUR das. Siehe die Pruefung in
@@ -746,10 +920,15 @@ def _messung(repo, rev: str = "HEAD") -> tuple:
             f"the listing git printed for {commit} in {repo} is not the tree its checked objects "
             "name — the digest would be taken over a tree the commit does not carry")
     veraenderlich = tuple(f"\t{pfad}" for pfad in MUTABLE_EVIDENCE_RELS)
+    # ONLY THE RECEIPT OF THE TREE'S OWN VERSION (Codex on pull request 541, round lx4, P0 2): see
+    # `_RECEIPT_MUSTER` for what this line excluded before. A receipt of another version is a committed file like
+    # any other and stays in the digest. Its path is ASCII by `eigene_quittungen`, so `ls-tree` prints it unquoted.
+    nach_pfad = {pfad: (mode, typ, oid) for mode, typ, oid, pfad in geprueft}
+    quittungen = {q.decode("ascii") for q in eigene_quittungen(nach_pfad, eigene_version(repo, nach_pfad))}
+    grund = [ln for ln in text.splitlines()
+             if not ln.endswith(veraenderlich) and ln.partition("\t")[2] not in quittungen]
     # The audit output beside its receipt, only where that receipt names its bytes (`gebundene_ausgaben`).
     # Its path is ASCII by the pattern, so `ls-tree` prints it unquoted and it compares as text.
-    grund = [ln for ln in text.splitlines()
-             if not ln.endswith(veraenderlich) and not _RECEIPT_MUSTER.search(ln)]
     ausgaben = {p.decode("ascii") for p in gebundene_ausgaben(repo, geprueft, zeilen=grund)}
     lines = [ln for ln in grund if ln.partition("\t")[2] not in ausgaben]
     # DIE STILLE LEERMESSUNG (Gegenlesung 07.09.2026, ausgefuehrt — und sie geht MITTEN durch die
@@ -767,7 +946,7 @@ def _messung(repo, rev: str = "HEAD") -> tuple:
             "succeeded and returned nothing, which happens for a path inside a repository that "
             "tracks no file there. The digest of an empty list is a well-formed sha256 and means "
             "nothing; a candidate with no files is not a candidate")
-    return _digest_der_zeilen(lines), ausgaben
+    return _digest_der_zeilen(lines), ausgaben, quittungen
 
 
 def subject_tree_digest(repo, rev: str = "HEAD") -> str:
@@ -779,6 +958,14 @@ def gebundene_ausgaben_des_baums(repo, rev: str = "HEAD") -> set:
     """The audit outputs (text paths) the digest of the tree of `rev` leaves out, decided by the same measurement
     as `subject_tree_digest`, so the readiness binding and the receipt can never leave out different sets."""
     return set(_messung(repo, rev)[1])
+
+
+def ausnahmen_des_baums(repo, rev: str = "HEAD") -> set:
+    """Every path (text) the digest of the tree of `rev` leaves out besides the mutable evidence: the receipt of the
+    tree's own version and the audit output it binds, from the one measurement `subject_tree_digest` takes. The
+    readiness binding leaves out exactly these (ONE RULE FOR BOTH BINDINGS)."""
+    _digest, ausgaben, quittungen = _messung(repo, rev)
+    return set(ausgaben) | set(quittungen)
 
 
 def receipt_json(raw: bytes):

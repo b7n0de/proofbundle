@@ -6,6 +6,9 @@ An outside reader asked for the audit output of 6.6.0 and found none: the receip
 
 - release.yml runs `scripts/audit_output_aufloesbar.py --repo . --version "${GITHUB_REF_NAME#v}"`
   once, after the pre-tag gate (which recomputes the tree and the gate source) and before the build;
+- before the gate, release.yml runs the outside verifier `python -I scripts/verify_pre_tag_receipt.py --commit`
+  for the tagged commit, which compares scripts/ and src/ with the commit before any of them runs (Codex on
+  pull request 541, round lx4, P0 3);
 - the release gate of RELEASE.md, answered before the owner GO, asks for that check and for the
   outside view `scripts/verify_pre_tag_receipt.py --commit`.
 
@@ -94,6 +97,33 @@ def test_gate_step_and_build_run_in_one_job_unconditionally_and_in_that_order():
             assert not oder, f"job {andere} runs under `{bedingung}`, whose top level is not a conjunction"
             assert f"needs.{name}.result == 'success'" in glieder, (
                 f"job {andere} runs under `{bedingung}` even when {name} failed")
+
+
+AUSSEN = 'python -I scripts/verify_pre_tag_receipt.py --repo . --commit "$GITHUB_SHA" --version "${GITHUB_REF_NAME#v}"'
+
+
+def test_the_outside_verifier_runs_once_isolated_and_before_the_gate():
+    """[COUNTS] Lesson 2, Codex on pull request 541, round lx4, P0 3, owner choice B. The gate and the step run from the
+    files of the checkout; the third-party verifier compares every file under scripts/ and src/ with the commit before
+    it loads one of them. It runs once, isolated (`-I`), for the tagged commit and version, in the job of the gate and
+    BEFORE the gate, so the gate never runs from code nobody compared, and with no condition and no allowed failure.
+    The release workflow names the verifier nowhere else outside a comment."""
+    import yaml
+
+    text = WORKFLOW.read_text(encoding="utf-8")
+    genannt = [nr for nr, zeile in enumerate(text.splitlines(), 1)
+               if "scripts/verify_pre_tag_receipt.py" in zeile and not zeile.strip().startswith("#")]
+    schritt = [nr for nr, cmd in _run_lines(text) if cmd == AUSSEN]
+    assert len(schritt) == 1 and genannt == schritt, (genannt, schritt)
+    jobs = yaml.safe_load(text)["jobs"]
+    halter = [n for n, job in jobs.items() for s in job.get("steps") or [] if (s.get("run") or "").strip() == AUSSEN]
+    assert len(halter) == 1, halter
+    steps = jobs[halter[0]]["steps"]
+    aussen = [i for i, s in enumerate(steps) if (s.get("run") or "").strip() == AUSSEN]
+    tor = [i for i, s in enumerate(steps) if (s.get("run") or "").strip().startswith("python scripts/pre_tag_audit_gate.py ")]
+    assert len(aussen) == 1 and len(tor) == 1 and aussen[0] < tor[0], f"verifier {aussen}, gate {tor}"
+    s = steps[aussen[0]]
+    assert "if" not in s and not s.get("continue-on-error", False), s
 
 
 def _oberste_glieder(ausdruck: str) -> tuple[list[str], bool]:

@@ -28,11 +28,13 @@ foreign instance inside the signed body — so this script cannot COMPOSE one: i
 ``tree_digest`` is the same quantity a pre-tag receipt binds, narrowed for the deliberately-mutable
 release-evidence files: sha256 over the sorted ``git ls-tree -r HEAD`` lines EXCLUDING exactly the
 paths in :data:`MUTABLE_EVIDENCE_RELS` — the artifacts a release run writes AS PART of measuring
-them — and the pre-tag receipt, by the one pattern ``pre_tag_receipt_lib._RECEIPT_MUSTER`` that the
-receipt's own ``subject_tree_digest`` excludes it with (owner choice A on card OA-c04430c2ea,
-2026-10-26; see :func:`ist_quittungspfad`). Every path matching that receipt pattern is excluded, including receipt paths for other
-versions. The transition from the bound candidate to a later evidence commit separately permits
-only the canonical receipt path of the candidate's version, beside ``MUTABLE_EVIDENCE_RELS``.
+them — and the pre-tag receipt, by the one rule the receipt's own ``subject_tree_digest`` excludes it
+with (owner choice A on card OA-c04430c2ea, 2026-10-26): since lesson 2 (Codex on pull request 541,
+round lx4, P0 2) that is only the receipt of the version the tree declares in ``pyproject.toml``, as a
+regular file of mode 100644, and the audit output it binds (see :func:`_ausnahmen`). A receipt of
+another version stays in the digest. The transition from the bound candidate to a later evidence
+commit separately permits only the canonical receipt path of the candidate's version, beside
+``MUTABLE_EVIDENCE_RELS``.
 Everything outside those digest exclusions under ``audit_artifacts/`` (including the trust anchor
 and the class ledger) IS part of the bound tree (deep gate 2026-09-05, NACHTRAG2 Teil C
 Auflage C3: "audit_artifacts nicht pauschal aus dem Baumdigest ausschliessen" — a whole-directory
@@ -195,21 +197,23 @@ def ist_ausgabepfad(pfad: str) -> bool:
     return _receipt_lib().ist_ausgabepfad(pfad)
 
 
-def _gebundene_ausgaben(repo: Path) -> set:
-    """The audit outputs of HEAD that a trusted signature on the receipt beside them binds by their bytes,
-    as text paths: the same rule `pre_tag_receipt_lib.subject_tree_digest` applies, taken from that
-    library (ONE RULE FOR BOTH BINDINGS, see `_quittungsmuster`)."""
+def _ausnahmen(repo: Path) -> set:
+    """The paths of HEAD the receipt's digest leaves out besides the mutable evidence, as text paths: the
+    receipt of the version the tree declares and the audit output a trusted signature on it binds. Taken from
+    `pre_tag_receipt_lib.ausnahmen_des_baums`, the measurement `subject_tree_digest` makes (ONE RULE FOR BOTH
+    BINDINGS, see `_quittungsmuster`). Since lesson 2 (Codex on pull request 541, round lx4, P0 2) a receipt of
+    another version, under another name or at another mode stays in this digest as it stays in the receipt's."""
     lib = _receipt_lib()
     try:
-        return lib.gebundene_ausgaben_des_baums(repo)
+        return lib.ausnahmen_des_baums(repo)
     except lib.BaumNichtLesbar as e:
         raise SystemExit(f"cannot read the tree in {repo} as the objects its ids name: {e}") from e
 
 
 def tree_digest(repo: Path, *, exclude: tuple[str, ...] = MUTABLE_EVIDENCE_RELS) -> str:
     """The quantity the gate recomputes: sha256 over sorted, RECURSIVE `git ls-tree HEAD`, minus
-    exactly the paths in ``exclude`` (see :data:`MUTABLE_EVIDENCE_RELS`) and every path matching the
-    pre-tag receipt pattern, for any version (see :func:`ist_quittungspfad`) — never a whole directory.
+    exactly the paths in ``exclude`` (see :data:`MUTABLE_EVIDENCE_RELS`), the receipt of the version the
+    tree declares and the audit output it binds (see :func:`_ausnahmen`) — never a whole directory.
 
     A tree that names a path twice on any level gets no digest (R13-3, external review round 13):
     the sorted lines of two entries of one name are the same for both orders, while `git show` and a
@@ -233,10 +237,9 @@ def tree_digest(repo: Path, *, exclude: tuple[str, ...] = MUTABLE_EVIDENCE_RELS)
                              "and a checkout read two contents there, and no digest stands for both")
         gesehen.add(pfad)
     suffixe = tuple(f"\t{p}" for p in exclude)
-    quittung = _quittungsmuster()
-    ausgaben = _gebundene_ausgaben(repo)
+    ausnahmen = _ausnahmen(repo)
     zeilen = [ln for ln in alle if ln.split(" ", 2)[1:2] != ["tree"] and not ln.endswith(suffixe)
-              and not quittung.search(ln) and ln.partition("\t")[2] not in ausgaben]
+              and ln.partition("\t")[2] not in ausnahmen]
     return hashlib.sha256("\n".join(sorted(zeilen)).encode("utf-8")).hexdigest()
 
 

@@ -272,6 +272,9 @@ class TestQuittungsMusterIstAnDieWurzelVerankert:
         git("config", "user.name", "t")
         (tmp_path / "src").mkdir()
         (tmp_path / "src" / "x.py").write_text("x = 1\n", encoding="utf-8")
+        # The tree declares 6.0.0: since lesson 2 only the receipt of the version a tree declares leaves its
+        # digest (Codex on pull request 541, round lx4, P0 2), so the control below needs the declaration.
+        (tmp_path / "pyproject.toml").write_text('[project]\nversion = "6.0.0"\n', encoding="utf-8")
         git("add", "-A")
         git("commit", "-qm", "basis")
         return git

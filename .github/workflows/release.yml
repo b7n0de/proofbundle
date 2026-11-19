@@ -104,6 +104,17 @@ jobs:
         # so without this the signed-receipt check fails ModuleNotFoundError and fail-closed rejects.
         run: python -m pip install "cryptography>=42"
 
+      - name: Outside verifier — this checkout is the tagged commit, and its receipt verifies as a reader outside sees it (from 6.6.1)
+        # LESSON 2, CODEX ON PULL REQUEST 541, ROUND LX4, P0 3 (owner choice B, 19 November 2026). The gate and the
+        # step below run from the files of this checkout. The third-party verifier first compares every file under
+        # scripts/ and src/ with the blobs of the commit and refuses a checkout that differs, before it loads any of
+        # them; then it verifies the receipt the way RELEASE.md tells a reader outside to. It runs FIRST, so that the
+        # gate does not run from code nobody compared with the commit. `-I` keeps PYTHONPATH and the script's
+        # directory off the import path. A tag of an earlier release runs its own workflow file.
+        # NOT ITS OWN EVIDENCE: the pull request that adds this step was judged by the gate as it stood then and by a
+        # witness outside, not by this step.
+        run: python -I scripts/verify_pre_tag_receipt.py --repo . --commit "$GITHUB_SHA" --version "${GITHUB_REF_NAME#v}"
+
       - name: Pre-tag adversarial audit gate (Front-Load F7 — the audit ran for THIS release)
         # The six-lens / master-prompt-v2 adversarial audit is a gate before EVERY tag, not only the
         # audit-candidate (Loek's decoy-parent finding landed AFTER 3.3.0 shipped). This step fails

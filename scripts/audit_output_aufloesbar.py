@@ -55,6 +55,13 @@ The text reading above stays for `--receipt`, where older receipts were built ov
 A gate that verifies no receipt is NICHT_MESSBAR here: this step answers only for receipts the gate
 accepted, and the gate's own step has already failed the release in that case.
 
+The code that judges is the held commit's (Codex on pull request 541, round lx4, P0 3): when this file lies
+in the judged checkout, its own bytes must be the commit's, and the gate, the receipt library and the
+readiness module run from the commit's blobs (`_kette_aus_dem_commit`); the package `proofbundle` comes from
+the commit as well (`pre_tag_receipt_lib.paket_aus_commit`). This module and the library it imports at its
+start run from disk; release.yml runs the outside verifier before the gate, which compares them with the
+commit.
+
 Exit: 0 AUFLOESBAR · 1 NICHT_AUFLOESBAR · 2 NICHT_MESSBAR
 """
 from __future__ import annotations
@@ -157,11 +164,60 @@ def aufloesbar(receipt: dict, repo: Path, *, roh: bool = False, rev: str = "HEAD
     return aus
 
 
-def _gate():
-    """`pre_tag_audit_gate`, loaded BY PATH from this file's directory, as the gate loads its own
-    library: a plain import would take whatever the judged tree puts first on `sys.path`."""
+#: The scripts of the release chain this step runs, besides itself: the gate, the receipt library the gate loads by
+#: path, and the readiness module the library loads by path. All lie beside this file.
+_KETTE = ("pre_tag_audit_gate.py", "pre_tag_receipt_lib.py", "sign_readiness_artifact.py")
+
+
+def _kette_aus_dem_commit(repo: Path, commit: str) -> Path:
+    """The directory to load the chain from: this file's own directory, or a fresh one holding the chain as the held
+    commit carries it.
+
+    THE CODE THAT JUDGES IS THE COMMIT'S (Codex on pull request 541, round lx4, P0 3; owner choice B, 19 November
+    2026). The step ran the gate, the library and the readiness module from the files on disk, so whoever could write
+    the checkout while the release ran could hand the step a gate that verifies a forged receipt, with HEAD and every
+    blob it read unchanged. When this file lies in the judged checkout, the code it runs is code of that checkout:
+    its own bytes must be the blob the held commit carries at its path (a mismatch raises, and the step reports
+    NICHT_MESSBAR), and the other three are written from the commit's blobs, each checked against its id, into a new
+    directory that only this process created, and loaded from there. A step that lies outside the judged checkout (a
+    test tree judged with this repository's tools) runs its own directory, as before: that code is not the judged
+    tree's. The package `proofbundle` is served from the commit separately (`pre_tag_receipt_lib.paket_aus_commit`)."""
+    import atexit  # noqa: PLC0415
+    import shutil  # noqa: PLC0415
+    import tempfile  # noqa: PLC0415
+    hier = Path(__file__).resolve()
+    try:
+        ordner = hier.parent.relative_to(Path(repo).resolve()).as_posix()
+    except ValueError:
+        return hier.parent
+    eigen = git_file(repo, commit, f"{ordner}/{hier.name}")
+    if eigen is None or eigen[1] != "blob" or eigen[0] not in _REGULAER:
+        raise ValueError(f"the held commit carries no regular file {ordner}/{hier.name}, so the step that runs is "
+                         "not code of the commit")
+    if hier.read_bytes() != eigen[3]:
+        raise ValueError(f"{ordner}/{hier.name} on disk is not the file the held commit carries, so the step that "
+                         "runs is not code of the commit")
+    blobs = {}
+    for name in _KETTE:
+        e = git_file(repo, commit, f"{ordner}/{name}")
+        if e is None or e[1] != "blob" or e[0] not in _REGULAER:
+            raise ValueError(f"the held commit carries no regular file {ordner}/{name}")
+        blobs[name] = e[3]
+    ablage = Path(tempfile.mkdtemp(prefix="audit_output_aufloesbar_kette_"))
+    atexit.register(shutil.rmtree, ablage, ignore_errors=True)
+    for name, inhalt in blobs.items():
+        (ablage / name).write_bytes(inhalt)
+    return ablage
+
+
+def _gate(repo: Path | None = None, commit: str | None = None):
+    """`pre_tag_audit_gate`, loaded BY PATH, as the gate loads its own library: a plain import would take whatever
+    the judged tree puts first on `sys.path`. With `repo` and `commit`, from the directory `_kette_aus_dem_commit`
+    names; without them, from this file's directory."""
     import importlib.util as _ilu  # noqa: PLC0415
-    pfad = Path(__file__).resolve().parent / "pre_tag_audit_gate.py"
+    ordner = (_kette_aus_dem_commit(repo, commit) if repo is not None and commit is not None
+              else Path(__file__).resolve().parent)
+    pfad = ordner / "pre_tag_audit_gate.py"
     spec = _ilu.spec_from_file_location("_pre_tag_audit_gate_for_aufloesbar", pfad)
     if spec is None or spec.loader is None:
         raise ImportError(f"no loader for {pfad}")
@@ -172,13 +228,14 @@ def _gate():
 
 def _im_commit_verifiziert(gate, repo: Path, version: str, urteil: dict, receipt,
                            commit: str = "HEAD") -> tuple[bool, str]:
-    """(ok, reason): does the receipt read from the head commit verify as the gate verifies a receipt?
+    """(ok, reason): does the receipt read from the held commit verify as the gate verifies a receipt?
 
-    `verify_receipt` of the gate's own library, with the trust anchor of the head commit, the version
+    `verify_receipt` of the gate's own library, with the trust anchor of the held commit, the version
     asked about, and the `subject_tree_digest` and `gate_source_digest` of the gate's verdict. The
-    package's signature module is imported from the judged tree's `src`, as the gate does, and the
-    import state of the process is restored afterwards: through the gate's own `_importzustand` when
-    the gate has one, and the search path is put back in every case."""
+    package's signature module is served from the blobs of the held commit (`paket_aus_commit`), never
+    from the checkout's `src` (Codex on pull request 541, round lx4, P0 3), and the import state of the
+    process is restored afterwards: through the gate's own `_importzustand` when the gate has one, and
+    the search path is put back in every case."""
     lib = gate._lib()
     zustand = getattr(gate, "_importzustand", None)
     gesichert = list(sys.path)
@@ -187,13 +244,11 @@ def _im_commit_verifiziert(gate, repo: Path, version: str, urteil: dict, receipt
             zwischenablage = getattr(gate, "_bytecode_cache_elsewhere", None)
             if callable(zwischenablage):
                 zwischenablage()
-            src = str(Path(repo).resolve() / "src")
-            if src not in sys.path:
-                sys.path.insert(0, src)
-            return lib.verify_receipt(receipt, trusted_pubkeys=lib.load_trusted_pubkeys(repo, ref=commit),
-                                      expected_version=version,
-                                      subject_tree_digest=urteil.get("subject_tree_digest"),
-                                      gate_source_digest=urteil.get("gate_source_digest"))
+            with lib.paket_aus_commit(repo, commit):
+                return lib.verify_receipt(receipt, trusted_pubkeys=lib.load_trusted_pubkeys(repo, ref=commit),
+                                          expected_version=version,
+                                          subject_tree_digest=urteil.get("subject_tree_digest"),
+                                          gate_source_digest=urteil.get("gate_source_digest"))
     finally:
         sys.path[:] = gesichert
 
@@ -216,7 +271,7 @@ def fuer_version(repo: Path, version: str, *, gate=None) -> dict:
         return aus
     aus["commit"] = festgehalten
     try:
-        gate = gate or _gate()
+        gate = gate or _gate(repo, festgehalten)
         urteil = gate.evaluate(repo, version)
     except Exception as e:  # noqa: BLE001 — a gate that cannot rule gives no receipt to resolve
         aus.update(zustand="NICHT_MESSBAR",
