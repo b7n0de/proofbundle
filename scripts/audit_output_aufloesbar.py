@@ -60,6 +60,7 @@ Exit: 0 AUFLOESBAR · 1 NICHT_AUFLOESBAR · 2 NICHT_MESSBAR
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import io
 import json
@@ -169,6 +170,33 @@ def _gate():
     return mod
 
 
+def _im_commit_verifiziert(gate, repo: Path, version: str, urteil: dict, receipt) -> tuple[bool, str]:
+    """(ok, reason): does the receipt read from the head commit verify as the gate verifies a receipt?
+
+    `verify_receipt` of the gate's own library, with the trust anchor of the head commit, the version
+    asked about, and the `subject_tree_digest` and `gate_source_digest` of the gate's verdict. The
+    package's signature module is imported from the judged tree's `src`, as the gate does, and the
+    import state of the process is restored afterwards: through the gate's own `_importzustand` when
+    the gate has one, and the search path is put back in every case."""
+    lib = gate._lib()
+    zustand = getattr(gate, "_importzustand", None)
+    gesichert = list(sys.path)
+    try:
+        with (zustand() if callable(zustand) else contextlib.nullcontext()):
+            zwischenablage = getattr(gate, "_bytecode_cache_elsewhere", None)
+            if callable(zwischenablage):
+                zwischenablage()
+            src = str(Path(repo).resolve() / "src")
+            if src not in sys.path:
+                sys.path.insert(0, src)
+            return lib.verify_receipt(receipt, trusted_pubkeys=lib.load_trusted_pubkeys(repo),
+                                      expected_version=version,
+                                      subject_tree_digest=urteil.get("subject_tree_digest"),
+                                      gate_source_digest=urteil.get("gate_source_digest"))
+    finally:
+        sys.path[:] = gesichert
+
+
 def fuer_version(repo: Path, version: str, *, gate=None) -> dict:
     """-> {zustand, version, gate_state, quittungen, grund}: the release step. Every receipt the gate
     verifies for `repo` and `version` must name, in `audit_output_digest`, the raw bytes of a tracked
@@ -205,6 +233,20 @@ def fuer_version(repo: Path, version: str, *, gate=None) -> dict:
         except Exception as e:  # noqa: BLE001
             aus["quittungen"].append({"pfad": rel, "zustand": "NICHT_MESSBAR", "treffer": [],
                                       "grund": f"Quittung nicht lesbar: {type(e).__name__}: {e}"})
+            continue
+        # THE STEP VERIFIES THE BYTES IT RESOLVES (Codex on pull request 541, round lx2, P0 3). The gate
+        # read the receipt from disk, and the comparison above reads the disk a second time, later: a
+        # receipt swapped in between let the gate verify one file and this step resolve the digest of
+        # another, unsigned one. The committed bytes are now verified here, with the trust anchor of the
+        # head commit and the tree and gate digests the gate measured, and only bytes that verify are
+        # resolved. What the gate saw no longer decides what is resolved; it only has to agree.
+        try:
+            ok_c, grund_c = _im_commit_verifiziert(gate, repo, version, urteil, receipt)
+        except Exception as e:  # noqa: BLE001
+            ok_c, grund_c = False, f"{type(e).__name__}: {e}"
+        if not ok_c:
+            aus["quittungen"].append({"pfad": rel, "zustand": "NICHT_MESSBAR", "treffer": [],
+                                      "grund": f"the committed receipt does not verify: {grund_c}"})
             continue
         r = aufloesbar(receipt, repo, roh=True)
         aus["quittungen"].append({"pfad": rel, "zustand": r["zustand"], "digest": r.get("digest"),

@@ -26,12 +26,21 @@ import subprocess
 import sys
 
 import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 VERSION = "6.6.1"
 RECEIPT = "audit_artifacts/661/pre_tag_receipt_v6.6.1.json"
 OUTPUT = "audit_artifacts/661/pre_tag_audit_output_v6.6.1.txt"
 OUTPUT_BYTES = b"28245 passed, 158 skipped in 1234.56s\r\n"
+ANCHOR = "audit_artifacts/pre_tag_trusted_pubkeys.txt"
+#: The key the trust anchor of every test tree names, and a second key it does not name.
+_TRUSTED = Ed25519PrivateKey.generate()
+_STRANGER = Ed25519PrivateKey.generate()
+
+
+def _pub(priv) -> str:
+    return base64.b64encode(priv.public_key().public_bytes_raw()).decode()
 
 
 def _module(name: str, file: str):
@@ -57,8 +66,17 @@ def _commit(repo: pathlib.Path, files: dict, message: str) -> str:
     return _git(repo, "rev-parse", "HEAD")
 
 
-def _receipt_naming(digest: str, version: str = VERSION) -> str:
-    return json.dumps({"version": version, "audit_output_digest": digest}) + "\n"
+def _receipt_naming(digest: str, version: str = VERSION, *, signer=_TRUSTED) -> str:
+    """A receipt naming `digest` for `version`, signed by `signer` over its canonical bytes, or unsigned
+    when `signer` is None. Its tree and gate digests play no part in the exclusion (it would be circular)."""
+    lib = _module("_lib_receipt_naming", "pre_tag_receipt_lib.py")
+    r = {"schema": lib.RECEIPT_SCHEMA, "version": version, "subject_tree_digest": "0" * 64,
+         "gate_source_digest": "0" * 64, "audit_command": "python -m pytest -q", "audit_exit_code": 0,
+         "audit_output_digest": digest, "runner_identity": "test", "produced_at": "2026-11-19T06:00:00Z"}
+    if signer is not None:
+        r["signature"] = base64.b64encode(signer.sign(lib.canonical_bytes(r))).decode()
+        r["signer_pubkey"] = _pub(signer)
+    return json.dumps(r) + "\n"
 
 
 @pytest.fixture
@@ -67,7 +85,7 @@ def tree(tmp_path):
     repo.mkdir()
     _git(repo, "init", "-q")
     c = _commit(repo, {"pyproject.toml": f'[project]\nversion = "{VERSION}"\n', "src/pkg/__init__.py": "",
-                       "audit_artifacts/661/README.md": "page\n"}, "candidate")
+                       "audit_artifacts/661/README.md": "page\n", ANCHOR: _pub(_TRUSTED) + "\n"}, "candidate")
     return repo, c
 
 
@@ -93,13 +111,36 @@ def test_a_bound_output_beside_its_receipt_leaves_both_digests_unchanged(tree):
 @pytest.mark.parametrize("case", [
     "other_bytes", "no_receipt", "receipt_of_other_version", "receipt_version_field", "folder_of_other_version",
     "old_name", "below_src", "symlink", "symlink_text", "receipt_unreadable",
+    "unsigned", "untrusted_key", "no_trusted_key", "other_schema", "mode_100755", "foreign_folder_unsigned",
 ])
 def test_an_output_that_no_receipt_binds_moves_both_digests(tree, case):
-    """[COUNTS] Every way an output can fail to be bound keeps it in the digest."""
+    """[COUNTS] Every way an output can fail to be bound keeps it in the digest.
+
+    `unsigned`, `untrusted_key`, `no_trusted_key`, `other_schema` and `foreign_folder_unsigned` are Codex's P0 1 on
+    pull request 541 (round lx2): a receipt nobody trusted signed bound the output, in any version's folder.
+    `mode_100755` is its P0 2: the excluded line carries the mode, and the signed digest does not."""
     repo, _c = tree
     digest = hashlib.sha256(OUTPUT_BYTES).hexdigest()
     receipt, output = RECEIPT, OUTPUT
-    if case == "other_bytes":
+    if case == "unsigned":
+        files = {receipt: _receipt_naming(digest, signer=None)}
+    elif case == "untrusted_key":
+        files = {receipt: _receipt_naming(digest, signer=_STRANGER)}
+    elif case == "no_trusted_key":
+        files = {receipt: _receipt_naming(digest), ANCHOR: "# no key pinned\n"}
+    elif case == "other_schema":
+        lib = _module("_lib_other_schema", "pre_tag_receipt_lib.py")
+        r = json.loads(_receipt_naming(digest, signer=None))
+        r["schema"] = "b7n0de.something_else.v1"
+        r["signature"] = base64.b64encode(_TRUSTED.sign(lib.canonical_bytes(r))).decode()
+        r["signer_pubkey"] = _pub(_TRUSTED)
+        files = {receipt: json.dumps(r) + "\n"}
+    elif case == "mode_100755":
+        files = {receipt: _receipt_naming(digest)}
+    elif case == "foreign_folder_unsigned":  # the scenario Codex wrote down: another version's folder
+        receipt, output = "audit_artifacts/660/pre_tag_receipt_v6.6.0.json", "audit_artifacts/660/pre_tag_audit_output_v6.6.0.txt"
+        files = {receipt: _receipt_naming(digest, "6.6.0", signer=None)}
+    elif case == "other_bytes":
         files = {receipt: _receipt_naming(hashlib.sha256(b"other bytes").hexdigest())}
     elif case == "no_receipt":
         files = {}
@@ -117,7 +158,11 @@ def test_an_output_that_no_receipt_binds_moves_both_digests(tree, case):
         receipt, output = "src/" + RECEIPT, "src/" + OUTPUT
         files = {receipt: _receipt_naming(digest)}
     elif case == "receipt_unreadable":
-        files = {receipt: '{"version": "6.6.1", "audit_output_digest": "x", "audit_output_digest": "' + digest + '"}\n'}
+        # A SIGNED receipt that names a member twice: read the lax way (the last one wins) it binds the output,
+        # read the one strict way it is refused. Unsigned, it failed at the signature first and no longer told
+        # the two readings apart (measured on the mutant A11).
+        signiert = json.dumps(json.loads(_receipt_naming(digest)))
+        files = {receipt: '{"audit_output_digest": "x", ' + signiert[1:] + "\n"}
     elif case == "symlink_text":  # the receipt names the bytes of the link text, which a checkout never yields
         files = {receipt: _receipt_naming(hashlib.sha256(b"../../outside/record.txt").hexdigest()),
                  "outside/record.txt": OUTPUT_BYTES}
@@ -134,11 +179,56 @@ def test_an_output_that_no_receipt_binds_moves_both_digests(tree, case):
             pytest.skip(f"this file system refuses a symbolic link: {exc}")
         _git(repo, "add", "-A")
         _git(repo, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "-m", "a link")
+    elif case == "mode_100755":
+        (repo / output).parent.mkdir(parents=True, exist_ok=True)
+        (repo / output).write_bytes(OUTPUT_BYTES)
+        _git(repo, "add", "-A")
+        _git(repo, "update-index", "--chmod=+x", output)
+        _git(repo, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "-m", "an executable output")
+        assert _git(repo, "ls-tree", "HEAD", output).startswith("100755 "), "the fixture did not set the mode"
     else:
         _commit(repo, {output: OUTPUT_BYTES}, "an output")
     after = _digests(repo)
     assert after[0] != before[0], f"{case}: the receipt digest did not move"
     assert after[1] != before[1], f"{case}: the readiness digest did not move"
+
+
+def test_a_change_of_mode_of_a_bound_output_moves_both_digests(tree):
+    """[COUNTS] Codex's P0 2 from the other side: the output is bound at 100644, and only its mode changes."""
+    repo, _c = tree
+    _commit(repo, {RECEIPT: _receipt_naming(hashlib.sha256(OUTPUT_BYTES).hexdigest()), OUTPUT: OUTPUT_BYTES},
+            "receipt and output")
+    before = _digests(repo)
+    _git(repo, "update-index", "--chmod=+x", OUTPUT)
+    _git(repo, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "-m", "only the mode")
+    after = _digests(repo)
+    assert after[0] != before[0] and after[1] != before[1], (before, after)
+
+
+def test_a_signed_receipt_of_another_version_binds_its_own_output(tree):
+    """[COUNTS] The positive control of `foreign_folder_unsigned`: a receipt of 6.6.0 that the trusted key
+    signed binds the 6.6.0 output in its own folder, and both bindings stay those of the candidate."""
+    repo, _c = tree
+    before = _digests(repo)
+    _commit(repo, {"audit_artifacts/660/pre_tag_receipt_v6.6.0.json":
+                   _receipt_naming(hashlib.sha256(OUTPUT_BYTES).hexdigest(), "6.6.0"),
+                   "audit_artifacts/660/pre_tag_audit_output_v6.6.0.txt": OUTPUT_BYTES}, "6.6.0 beside")
+    assert _digests(repo) == before
+
+
+def test_without_the_signature_module_the_digest_is_refused_not_guessed(tree, monkeypatch):
+    """[COUNTS] A bound output whose signature cannot be checked leaves no digest, with or without it."""
+    repo, _c = tree
+    _commit(repo, {RECEIPT: _receipt_naming(hashlib.sha256(OUTPUT_BYTES).hexdigest()), OUTPUT: OUTPUT_BYTES},
+            "receipt and output")
+    lib = _module("_lib_no_signature_module", "pre_tag_receipt_lib.py")
+
+    def kein_modul(receipt, trusted):
+        raise ImportError("no module named proofbundle.signature")
+
+    monkeypatch.setattr(lib, "signatur_eines_vertrauten", kein_modul)
+    with pytest.raises(lib.BaumNichtLesbar, match="cannot be checked"):
+        lib.subject_tree_digest(repo)
 
 
 def test_the_path_rule_is_one_rule_in_both_bindings():

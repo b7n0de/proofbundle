@@ -481,8 +481,17 @@ _RECEIPT_MUSTER = _re.compile(
 _AUSGABE_MUSTER = _re.compile(
     r"\A(audit_artifacts/([0-9][0-9A-Za-z.+!_\-]*))/pre_tag_audit_output_v([0-9][0-9A-Za-z.+!_\-]*)\.txt\Z")
 
-#: The modes of a regular file in a tree.
+#: The modes of a regular file in a tree. A receipt beside an output may carry either.
 _REGULAERE_MODI = ("100644", "100755")
+
+#: THE ONE MODE AN EXCLUDED OUTPUT MAY CARRY (Codex on pull request 541, round lx2, P0 2). The signed
+#: digest binds the output's bytes and nothing else, and the excluded listing line carries the mode: an
+#: output left out at `100755` and one at `100644` gave the same tree digest, so a change of mode moved
+#: the tree without moving any binding. An output at any other mode stays in the digest.
+_AUSGABE_MODUS = "100644"
+
+#: The trust anchor of the pre-tag receipt, as a path in the tree. It is never excluded from the digest.
+_SCHLUESSELDATEI = b"audit_artifacts/pre_tag_trusted_pubkeys.txt"
 
 
 def ist_ausgabepfad(pfad: str) -> bool:
@@ -499,18 +508,30 @@ def gebundene_ausgaben(repo, eintraege) -> set:
     is left out only when all of this holds, and otherwise it stays in the digest:
       - it is a regular file at `audit_artifacts/<token>/pre_tag_audit_output_v<version>.txt`, and
         `<token>` is `<version>` without its dots;
+      - its mode is `100644` (`_AUSGABE_MODUS`);
       - a regular file `pre_tag_receipt_v<version>.json` or `pre_tag_receipt_<version>.json` lies in the
-        same folder, is read the one way the gate and the verifier read a receipt (`receipt_json`), names
-        `<version>` as its `version`, and names the SHA-256 of the output's bytes as its
-        `audit_output_digest`.
-    So no file stands in the excluded path without a digest that names its bytes: an output that does not
-    match stays in the digest, and a receipt that bound the tree without it no longer verifies. Whether
-    that receipt is signed by a trusted key is the gate's question, which it asks of every receipt in the
-    version's folder; a receipt that fails it is rejected, and the gate does not pass."""
+        same folder, is read the one way the gate and the verifier read a receipt (`receipt_json`), carries
+        the receipt schema, names `<version>` as its `version`, names the SHA-256 of the output's bytes as
+        its `audit_output_digest`, and carries a signature over its signed fields by a key that the trust
+        anchor of THIS tree (`audit_artifacts/pre_tag_trusted_pubkeys.txt`, itself in the digest) names
+        (`signatur_eines_vertrauten`, the check `verify_receipt` ends with).
+    So no file stands in the excluded path without a trusted signature over a digest that names its bytes.
+
+    THE SIGNATURE IS CHECKED HERE, NOT LEFT TO THE GATE (Codex on pull request 541, round lx2, P0 1). The
+    first form of this rule read the receipt beside the output and checked no signature, on the reasoning
+    that the gate rejects a receipt that does not verify. The gate judges only the folder of the version
+    it is asked about. Under `audit_artifacts/660/` anyone who writes the tree could commit an unsigned
+    receipt naming any digest and an output with those bytes, and both left the digest that the receipt of
+    6.6.1 binds. The owner's choice A says the output is bound by the SIGNED digest; a digest nobody
+    signed binds nothing. The tree digest a receipt binds is not part of this check (it would be circular:
+    the digest is computed without the output), and it need not be: what is excluded is exactly the bytes
+    a trusted key signed for that version. When the signature cannot be checked at all, because the
+    signature module of the package cannot be imported, the digest is refused (`BaumNichtLesbar`), never
+    taken with or without the output by default."""
     nach_pfad = {pfad: (mode, typ, oid) for mode, typ, oid, pfad in eintraege}
     kandidaten = []
     for mode, typ, oid, pfad in eintraege:
-        if typ != "blob" or mode not in _REGULAERE_MODI:
+        if typ != "blob" or mode != _AUSGABE_MODUS:
             continue
         try:
             text = pfad.decode("ascii")
@@ -529,7 +550,16 @@ def gebundene_ausgaben(repo, eintraege) -> set:
             kandidaten.append((pfad, oid, version, quittungen))
     if not kandidaten:
         return set()
-    objekte = git_objects(repo, sorted({(oid, "blob") for _p, oid, _v, qs in kandidaten for oid in [oid, *qs]}))
+    anker = nach_pfad.get(_SCHLUESSELDATEI)
+    anker_oid = anker[2] if anker is not None and anker[1] == "blob" and anker[0] in _REGULAERE_MODI else None
+    gesucht = {(oid, "blob") for _p, oid, _v, qs in kandidaten for oid in [oid, *qs]}
+    if anker_oid is not None:
+        gesucht.add((anker_oid, "blob"))
+    objekte = git_objects(repo, sorted(gesucht))
+    try:
+        vertraut = _schluessel_aus_text(objekte[anker_oid].decode("utf-8")) if anker_oid is not None else []
+    except UnicodeDecodeError:
+        vertraut = []
     gebunden = set()
     for pfad, oid, version, quittungen in kandidaten:
         digest = hashlib.sha256(objekte[oid]).hexdigest()
@@ -538,8 +568,18 @@ def gebundene_ausgaben(repo, eintraege) -> set:
                 rc = receipt_json(objekte[q])
             except ValueError:
                 continue
-            if (isinstance(rc, dict) and rc.get("version") == version
-                    and rc.get("audit_output_digest") == digest):
+            if not (isinstance(rc, dict) and rc.get("schema") == RECEIPT_SCHEMA
+                    and rc.get("version") == version and rc.get("audit_output_digest") == digest):
+                continue
+            try:
+                ok, _grund = signatur_eines_vertrauten(rc, vertraut)
+            except ImportError as fehler:
+                raise BaumNichtLesbar(
+                    f"the output {pfad.decode('ascii')} lies beside a receipt that names its bytes, and "
+                    "whether a trusted key signed that receipt cannot be checked: the signature module of "
+                    f"the package is not importable ({fehler}). The digest would be taken over a guess"
+                ) from fehler
+            if ok:
                 gebunden.add(pfad)
                 break
     return gebunden
@@ -751,6 +791,12 @@ def load_trusted_pubkeys(repo: Path, *, ref: str = "HEAD") -> list[str]:
         text = eintrag[3].decode("utf-8")
     except Exception:  # noqa: BLE001 — not a repository / no git / timeout / not UTF-8 / an object
         return []      # that is not the one its id names -> fail closed
+    return _schluessel_aus_text(text)
+
+
+def _schluessel_aus_text(text: str) -> list[str]:
+    """The keys of a trust anchor file: one per line, blank lines and `#` comments left out. One
+    reading for the gate's anchor and for the anchor `gebundene_ausgaben` reads from the same tree."""
     out = []
     for line in text.splitlines():
         line = line.strip()
@@ -763,12 +809,10 @@ def verify_receipt(receipt: dict, *, trusted_pubkeys: list[str], expected_versio
                    subject_tree_digest: str, gate_source_digest: str) -> "tuple[bool, str]":
     """(ok, reason). ok iff the receipt is a well-formed, SIGNED (by a trusted key) attestation that
     BINDS this exact tree + version + gate source, and records a SUCCESSFUL audit (exit 0)."""
-    from proofbundle._wire_b64 import decode_b64  # noqa: PLC0415
-    from proofbundle.signature import (  # noqa: PLC0415
-        TRUST_ANCHOR_REFUSAL,
-        ed25519_trust_anchor_weakness,
-        verify_ed25519_pinned,
-    )
+    # The signature module is imported FIRST, as before the check moved into its own function: a tree
+    # whose package cannot be imported raises here, before any field is judged.
+    import proofbundle._wire_b64  # noqa: F401, PLC0415
+    import proofbundle.signature  # noqa: F401, PLC0415
     if not isinstance(receipt, dict):
         return False, "receipt is not an object"
     # ── DER ERSATZWERT DARF NICHT BINDBAR SEIN (Gegenlesung 2026-09-07, Fund 1) ────────────────────
@@ -812,6 +856,25 @@ def verify_receipt(receipt: dict, *, trusted_pubkeys: list[str], expected_versio
         return False, "receipt gate_source_digest does not match the gate that is judging"
     if receipt.get("audit_exit_code") != 0:
         return False, f"the recorded audit did not succeed (exit {receipt.get('audit_exit_code')!r})"
+    ok, grund = signatur_eines_vertrauten(receipt, trusted_pubkeys)
+    return (True, "signed, tree-bound, successful-audit receipt verified") if ok else (False, grund)
+
+
+def signatur_eines_vertrauten(receipt: dict, trusted_pubkeys: list[str]) -> "tuple[bool, str]":
+    """(ok, reason): does a key of `trusted_pubkeys` sign the canonical bytes of `receipt`?
+
+    The last step of `verify_receipt`, and the whole check `gebundene_ausgaben` asks before it leaves an
+    audit output out of the tree digest: one function, so the two readers of a signature cannot drift. It
+    judges the signature and the key, nothing about tree, version or exit code. Raises ImportError when the
+    package's signature module cannot be imported; every other failure is (False, reason)."""
+    from proofbundle._wire_b64 import decode_b64  # noqa: PLC0415
+    from proofbundle.signature import (  # noqa: PLC0415
+        TRUST_ANCHOR_REFUSAL,
+        ed25519_trust_anchor_weakness,
+        verify_ed25519_pinned,
+    )
+    if not isinstance(receipt, dict):
+        return False, "receipt is not an object"
     if not trusted_pubkeys:
         return False, ("no trusted signing key pinned (audit_artifacts/pre_tag_trusted_pubkeys.txt "
                        "absent/empty, or not readable as the object its id names) — the gate has "
@@ -839,7 +902,7 @@ def verify_receipt(receipt: dict, *, trusted_pubkeys: list[str], expected_versio
         return False, f"signature check errored (fail-closed): {type(e).__name__}: {e}"
     if not ok:
         return False, "ed25519 signature does not verify over the canonical receipt bytes"
-    return True, "signed, tree-bound, successful-audit receipt verified"
+    return True, "signed by a trusted key over the canonical receipt bytes"
 
 
 def sha256_text(text: str) -> str:

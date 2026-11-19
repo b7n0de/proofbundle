@@ -196,9 +196,9 @@ def ist_ausgabepfad(pfad: str) -> bool:
 
 
 def _gebundene_ausgaben(repo: Path) -> set:
-    """The audit outputs of HEAD that the receipt beside them binds by their bytes, as text paths: the
-    same rule `pre_tag_receipt_lib.subject_tree_digest` applies, taken from that library (ONE RULE FOR
-    BOTH BINDINGS, see `_quittungsmuster`)."""
+    """The audit outputs of HEAD that a trusted signature on the receipt beside them binds by their bytes,
+    as text paths: the same rule `pre_tag_receipt_lib.subject_tree_digest` applies, taken from that
+    library (ONE RULE FOR BOTH BINDINGS, see `_quittungsmuster`)."""
     lib = _receipt_lib()
     try:
         _commit, eintraege = lib.git_tree(repo, "HEAD")

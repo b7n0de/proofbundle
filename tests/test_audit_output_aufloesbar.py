@@ -146,10 +146,29 @@ QUITTUNG = "audit_artifacts/661/pre_tag_receipt_v6.6.1.json"
 #: for the library would ask itself).
 _ECHTES_TOR = A._gate
 AUSGABE = "audit_artifacts/661/audit_output_v6.6.1.txt"
+ANKER = "audit_artifacts/pre_tag_trusted_pubkeys.txt"
+#: The gate source digest the stand-in reports and the receipts below sign.
+TOR_DIGEST = "e" * 64
+
+
+def _schluessel():
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    return Ed25519PrivateKey.generate()
+
+
+#: The key the trust anchor of the release tree names, and one it does not name.
+_VERTRAUT, _FREMD = _schluessel(), _schluessel()
+
+
+def _pub(priv) -> str:
+    import base64
+    return base64.b64encode(priv.public_key().public_bytes_raw()).decode()
 
 
 class _Tor:
-    """A stand-in for `pre_tag_audit_gate`: `evaluate` answers as given, `_lib` is the real library."""
+    """A stand-in for `pre_tag_audit_gate`: `evaluate` answers as given, `_lib` is the real library.
+    The step verifies the committed receipt itself with that library (Codex on PR 541, lx2, P0 3), so
+    the verdict carries the tree and gate digests the real gate reports."""
 
     def __init__(self, urteil):
         self.urteil = urteil
@@ -163,17 +182,22 @@ class _Tor:
         return _ECHTES_TOR()._lib()
 
 
-def _verifiziert(*pfade):
-    return {"ok": True, "state": "verified", "verified_receipts": [{"path": p, "reason": "x"} for p in pfade]}
+def _verifiziert(repo: Path, *pfade, baum: str | None = None):
+    """The verdict of a gate that verified `pfade`, with the tree digest of `repo`'s head unless `baum`."""
+    return {"ok": True, "state": "verified", "verified_receipts": [{"path": p, "reason": "x"} for p in pfade],
+            "subject_tree_digest": baum or _ECHTES_TOR()._lib().subject_tree_digest(repo),
+            "gate_source_digest": TOR_DIGEST}
 
 
 @pytest.fixture()
 def release(tmp_path):
-    """A tree with the audit output of 6.6.1 tracked, in CRLF so that text and bytes differ."""
+    """A tree with the audit output of 6.6.1 tracked, in CRLF so that text and bytes differ, and a
+    trust anchor that names `_VERTRAUT`."""
     repo = tmp_path / "rel"
     (repo / "audit_artifacts" / "661").mkdir(parents=True)
     _git(repo, "init", "-q")
     (repo / AUSGABE).write_bytes(b"28245 passed\r\n158 skipped\r\n")
+    (repo / ANKER).write_text(_pub(_VERTRAUT) + "\n", encoding="utf-8")
     (repo / "README.md").write_text("# rel\n", encoding="utf-8")
     _git(repo, "add", ".")
     _git(repo, "commit", "-q", "-m", "init")
@@ -185,10 +209,24 @@ def _bytes(p: Path) -> str:
     return hashlib.sha256(p.read_bytes()).hexdigest()
 
 
-def _quittung(repo: Path, rel: str, digest: str, *, committen: bool = True) -> None:
-    """A receipt naming `digest`, committed by default: the step reads the receipt from the commit."""
+def _signiert(repo: Path, digest: str, *, signer=_VERTRAUT, tor: str = TOR_DIGEST) -> str:
+    """A receipt for 6.6.1 naming `digest`, bound to the tree of `repo`'s head and to `tor`, signed by
+    `signer` (unsigned when `signer` is None)."""
+    import base64
+    lib = _ECHTES_TOR()._lib()
+    r = {"schema": lib.RECEIPT_SCHEMA, "version": "6.6.1", "subject_tree_digest": lib.subject_tree_digest(repo),
+         "gate_source_digest": tor, "audit_command": "python -m pytest -q", "audit_exit_code": 0,
+         "audit_output_digest": digest, "runner_identity": "test", "produced_at": "2026-11-19T06:00:00Z"}
+    if signer is not None:
+        r["signature"] = base64.b64encode(signer.sign(lib.canonical_bytes(r))).decode()
+        r["signer_pubkey"] = _pub(signer)
+    return json.dumps(r)
+
+
+def _quittung(repo: Path, rel: str, digest: str, *, committen: bool = True, signer=_VERTRAUT) -> None:
+    """A signed receipt naming `digest`, committed by default: the step reads the receipt from the commit."""
     (repo / rel).parent.mkdir(parents=True, exist_ok=True)
-    (repo / rel).write_text(json.dumps({"audit_output_digest": digest}), encoding="utf-8")
+    (repo / rel).write_text(_signiert(repo, digest, signer=signer), encoding="utf-8")
     if committen:
         _git(repo, "add", "--", rel)
         _git(repo, "commit", "-q", "-m", f"receipt {rel}")
@@ -197,7 +235,7 @@ def _quittung(repo: Path, rel: str, digest: str, *, committen: bool = True) -> N
 def test_version_findet_die_verfolgte_ausgabe_ueber_ihre_rohen_bytes(release, monkeypatch, capsys):
     """GREEN CONTROL. The receipt names the digest of the raw bytes of a tracked file."""
     _quittung(release, QUITTUNG, _bytes(release / AUSGABE))
-    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(QUITTUNG)))
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(release, QUITTUNG)))
     r = A.fuer_version(release, "6.6.1")
     assert r["zustand"] == "AUFLOESBAR", r
     assert r["quittungen"][0]["treffer"] == [AUSGABE], "der Treffer muss benannt werden"
@@ -209,7 +247,7 @@ def test_version_eine_nicht_verfolgte_ausgabe_haelt_den_release_an(release, monk
     fluechtig = release / "audit_output_ausserhalb.txt"
     fluechtig.write_bytes(b"nur im Arbeitsbaum\n")
     _quittung(release, QUITTUNG, _bytes(fluechtig))
-    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(QUITTUNG)))
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(release, QUITTUNG)))
     r = A.fuer_version(release, "6.6.1")
     assert r["zustand"] == "NICHT_AUFLOESBAR", r
     assert A.main(["--version", "6.6.1", "--repo", str(release)]) == 1
@@ -222,7 +260,7 @@ def test_version_rechnet_ueber_die_bytes_nicht_ueber_den_text(release, monkeypat
     text = A.sha256_text((release / AUSGABE).read_text(encoding="utf-8", errors="ignore"))
     assert text != _bytes(release / AUSGABE), "die Fixture trennt Text und Bytes nicht"
     _quittung(release, QUITTUNG, text)
-    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(QUITTUNG)))
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(release, QUITTUNG)))
     assert A.fuer_version(release, "6.6.1")["zustand"] == "NICHT_AUFLOESBAR"
     assert A.aufloesbar({"audit_output_digest": text}, release)["zustand"] == "AUFLOESBAR"
 
@@ -245,7 +283,7 @@ def test_version_eine_von_zwei_quittungen_loest_nicht_auf(release, monkeypatch):
     zweite = "audit_artifacts/661/pre_tag_receipt_v6.6.1_b.json"
     _quittung(release, QUITTUNG, _bytes(release / AUSGABE))
     _quittung(release, zweite, "b" * 64)
-    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(QUITTUNG, zweite)))
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(release, QUITTUNG, zweite)))
     r = A.fuer_version(release, "6.6.1")
     assert r["zustand"] == "NICHT_AUFLOESBAR", r
     assert [q["pfad"] for q in r["quittungen"]] == [QUITTUNG, zweite]
@@ -253,7 +291,7 @@ def test_version_eine_von_zwei_quittungen_loest_nicht_auf(release, monkeypatch):
 
 
 def test_version_eine_unlesbare_quittung_ist_NICHT_MESSBAR(release, monkeypatch):
-    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert("audit_artifacts/661/fehlt.json")))
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(release, "audit_artifacts/661/fehlt.json")))
     r = A.fuer_version(release, "6.6.1")
     assert r["zustand"] == "NICHT_MESSBAR", r
 
@@ -280,7 +318,10 @@ def test_version_ein_tor_das_ablehnt_gibt_keine_quittung_frei_auch_mit_verifizie
     """The real gate reports `ok=False` when a rejected receipt lies beside a verified one (DELTA2 N1).
     The step must not then judge the verified receipt as if nothing were wrong."""
     _quittung(release, QUITTUNG, _bytes(release / AUSGABE))
-    urteil = {"ok": False, "state": "rejected", "verified_receipts": [{"path": QUITTUNG, "reason": "x"}]}
+    # The verdict carries the digests the committed receipt binds, so that the receipt WOULD verify and
+    # resolve: only the gate's `ok=False` stops it (without them the step's own check stopped it first,
+    # and a step that ignored `ok` passed this case unnoticed, measured on the mutant M2).
+    urteil = dict(_verifiziert(release, QUITTUNG), ok=False, state="rejected")
     monkeypatch.setattr(A, "_gate", lambda: _Tor(urteil))
     r = A.fuer_version(release, "6.6.1")
     assert r["zustand"] == "NICHT_MESSBAR" and r["gate_state"] == "rejected", r
@@ -306,7 +347,7 @@ def test_version_ein_symlink_auf_eine_datei_ausserhalb_loest_nicht_auf(release, 
     _git(release, "add", "--", "audit_artifacts/661/verweis.txt")
     _git(release, "commit", "-q", "-m", "a link to a record outside the commit")
     _quittung(release, QUITTUNG, _bytes(aussen))
-    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(QUITTUNG)))
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(release, QUITTUNG)))
     r = A.fuer_version(release, "6.6.1")
     assert r["zustand"] == "NICHT_AUFLOESBAR", r
     assert r["quittungen"][0]["treffer"] == [], r
@@ -320,11 +361,11 @@ def test_version_eine_geaenderte_verfolgte_datei_zaehlt_mit_dem_inhalt_des_commi
     committet = _bytes(release / AUSGABE)
     (release / AUSGABE).write_bytes(b"other bytes on disk\n")
     _quittung(release, QUITTUNG, _bytes(release / AUSGABE))
-    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(QUITTUNG)))
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(release, QUITTUNG)))
     assert A.fuer_version(release, "6.6.1")["zustand"] == "NICHT_AUFLOESBAR"
     zweite = "audit_artifacts/661/pre_tag_receipt_v6.6.1_c.json"
     _quittung(release, zweite, committet)
-    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(zweite)))
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(release, zweite)))
     r = A.fuer_version(release, "6.6.1")
     assert r["zustand"] == "AUFLOESBAR" and r["quittungen"][0]["treffer"] == [AUSGABE], r
 
@@ -337,7 +378,7 @@ def test_version_eine_nur_gestagte_datei_loest_nicht_auf(release, monkeypatch):
     _quittung(release, QUITTUNG, _bytes(gestaged), committen=False)
     _git(release, "add", "--", QUITTUNG)
     _git(release, "commit", "-q", "-m", "receipt only", "--", QUITTUNG)
-    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(QUITTUNG)))
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(release, QUITTUNG)))
     r = A.fuer_version(release, "6.6.1")
     assert r["zustand"] == "NICHT_AUFLOESBAR", r
 
@@ -345,7 +386,7 @@ def test_version_eine_nur_gestagte_datei_loest_nicht_auf(release, monkeypatch):
 def test_version_eine_quittung_nur_im_arbeitsbaum_ist_NICHT_MESSBAR(release, monkeypatch):
     """The gate judged a receipt the commit does not carry: there is nothing to resolve for the tag."""
     _quittung(release, QUITTUNG, _bytes(release / AUSGABE), committen=False)
-    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(QUITTUNG)))
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(release, QUITTUNG)))
     r = A.fuer_version(release, "6.6.1")
     assert r["zustand"] == "NICHT_MESSBAR", r
     assert "regular file of the head commit" in r["grund"], r
@@ -356,7 +397,7 @@ def test_version_eine_im_arbeitsbaum_geaenderte_quittung_ist_NICHT_MESSBAR(relea
     read the one on disk, so its verdict is not about the commit."""
     _quittung(release, QUITTUNG, _bytes(release / AUSGABE))
     (release / QUITTUNG).write_text(json.dumps({"audit_output_digest": "c" * 64}), encoding="utf-8")
-    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(QUITTUNG)))
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(release, QUITTUNG)))
     r = A.fuer_version(release, "6.6.1")
     assert r["zustand"] == "NICHT_MESSBAR", r
     assert "not the one the head commit carries" in r["grund"], r
@@ -374,5 +415,90 @@ def test_version_der_text_eines_symlinks_ist_keine_datei_des_commits(release, tm
     _git(release, "commit", "-q", "-m", "a dangling link")
     import hashlib
     _quittung(release, QUITTUNG, hashlib.sha256(b"gibt_es_nicht.txt").hexdigest())
-    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(QUITTUNG)))
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(release, QUITTUNG)))
     assert A.fuer_version(release, "6.6.1")["zustand"] == "NICHT_AUFLOESBAR"
+
+
+# ── THE STEP VERIFIES THE BYTES IT RESOLVES (Codex on pull request 541, round lx2, P0 3) ──────────
+#
+# The gate read the receipt from disk and the step compared disk and commit afterwards, so a receipt
+# swapped in between let the gate verify one file and the step resolve the digest of another. The step
+# now verifies the committed bytes itself. Each case below resolved (AUFLOESBAR) before that.
+
+
+@pytest.mark.parametrize("fall", ["unsigniert", "fremder_schluessel", "anderer_baum", "anderes_tor"])
+def test_version_eine_quittung_im_commit_die_nicht_verifiziert_ist_NICHT_MESSBAR(release, monkeypatch, fall):
+    """[COUNTS] The gate says `verified`, and the committed receipt names the committed output. It is
+    resolved only when the committed bytes verify against the anchor of the commit and the digests of
+    the gate's verdict."""
+    signer = None if fall == "unsigniert" else _FREMD if fall == "fremder_schluessel" else _VERTRAUT
+    _quittung(release, QUITTUNG, _bytes(release / AUSGABE), signer=signer)
+    urteil = _verifiziert(release, QUITTUNG, baum="f" * 64 if fall == "anderer_baum" else None)
+    if fall == "anderes_tor":
+        urteil["gate_source_digest"] = "d" * 64
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(urteil))
+    r = A.fuer_version(release, "6.6.1")
+    assert r["zustand"] == "NICHT_MESSBAR", r
+    assert "does not verify" in r["quittungen"][0]["grund"], r
+
+
+def test_version_der_austausch_zwischen_tor_und_schritt_loest_nicht_auf(release, monkeypatch):
+    """[COUNTS] THE SCENARIO CODEX DESCRIBED, with the real gate. The commit carries an UNSIGNED receipt
+    that names the committed output. While the gate judges, a signed receipt for this tree lies on disk,
+    and it is swapped back to the committed bytes before the step compares disk and commit. The gate
+    verifies, the disk equals the commit again, and only the step's own verification stops it."""
+    import hashlib
+    _quittung(release, QUITTUNG, _bytes(release / AUSGABE), signer=None)
+    committet = (release / QUITTUNG).read_bytes()
+    echt = _ECHTES_TOR()
+    tor = hashlib.sha256((REPO / "scripts" / "pre_tag_audit_gate.py").read_bytes()).hexdigest()
+    (release / QUITTUNG).write_text(_signiert(release, "a" * 64, tor=tor), encoding="utf-8")
+
+    class _Austausch:
+        def evaluate(self, repo, version):
+            urteil = echt.evaluate(repo, version)
+            (release / QUITTUNG).write_bytes(committet)
+            return urteil
+
+        def _lib(self):
+            return echt._lib()
+
+        def _importzustand(self):
+            return echt._importzustand()
+
+        def _bytecode_cache_elsewhere(self):
+            return echt._bytecode_cache_elsewhere()
+
+    monkeypatch.setattr(A, "_gate", lambda: _Austausch())
+    r = A.fuer_version(release, "6.6.1")
+    assert r["gate_state"] == "verified", "the fixture did not make the gate verify the swapped-in receipt"
+    assert r["zustand"] == "NICHT_MESSBAR", r
+    assert "does not verify" in r["quittungen"][0]["grund"], r
+
+
+def test_version_ein_austausch_nach_dem_vergleich_wird_nicht_gelesen(release, monkeypatch):
+    """[COUNTS] The window after the comparison (Codex on PR 541, lx2, P1 7). The step compares the
+    receipt on disk with the committed one and must then judge the committed bytes it already holds. The
+    disk here yields the committed bytes once, for the comparison, and a signed receipt for this tree on
+    any later read. Read again from disk, that receipt would verify and resolve; held from the commit,
+    the unsigned committed receipt does not verify."""
+    import pathlib
+    _quittung(release, QUITTUNG, _bytes(release / AUSGABE), signer=None)
+    committet = (release / QUITTUNG).read_bytes()
+    spaeter = _signiert(release, _bytes(release / AUSGABE)).encode("utf-8")
+    ziel = (release / QUITTUNG).resolve()
+    echt = pathlib.Path.read_bytes
+    gelesen = []
+
+    def read_bytes(self):
+        if self.resolve() == ziel:
+            gelesen.append(1)
+            return committet if len(gelesen) == 1 else spaeter
+        return echt(self)
+
+    monkeypatch.setattr(pathlib.Path, "read_bytes", read_bytes)
+    monkeypatch.setattr(A, "_gate", lambda: _Tor(_verifiziert(release, QUITTUNG)))
+    r = A.fuer_version(release, "6.6.1")
+    assert gelesen, "the step no longer compares the receipt on disk with the committed one"
+    assert r["zustand"] == "NICHT_MESSBAR", r
+    assert "does not verify" in r["quittungen"][0]["grund"], r
