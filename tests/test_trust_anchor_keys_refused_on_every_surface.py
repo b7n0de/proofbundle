@@ -1016,13 +1016,14 @@ class ThePinnedReleaseKeys(unittest.TestCase):
         self.assertGreater(seen, 0, "no pinned key read; this case would measure nothing")
 
 
-# The one key that stays on the bare SPEC section 4a profile, with its reason. Nothing else may.
-# The AGT receipt's signer key stood here until 6.2.0 "like a bundle's key"; it is not one, because
-# nothing pins it, and it goes through the rule now (owner decision D3, SPEC section 4b unchanged).
-IN_BAND = {
-    "bundle.py": "the bundle's own signature.public_key_b64 arrives in the bundle; SPEC section 4a pins "
-                 "its verification profile, and trust in it comes from a policy pin, which has the rule",
-}
+# The keys that stay on the bare SPEC section 4a profile, each with its reason. Since 6.6.1 there is
+# none. The AGT receipt's signer key stood here until 6.2.0 "like a bundle's key"; it is not one, because
+# nothing pins it, and it went through the rule then (owner decision D3). The bundle's own
+# signature.public_key_b64 stood here until 6.6.0, because trust in it comes from a policy pin that has
+# the rule; without a pin, a forgery under a key of small order read "payload signed by stated key"
+# (exit 0) for all fourteen encodings of the eight points (measured 2026-11-19), so it goes through the
+# rule too (owner choice A, 2026-11-19, SPEC section 4b).
+IN_BAND: dict = {}
 
 
 _BARE = "verify_ed25519"
@@ -1122,9 +1123,18 @@ class TheSweep(unittest.TestCase):
                                     "verify_ed25519_pinned or name it in IN_BAND with its reason")
 
     def test_the_sweep_sees_the_named_in_band_uses(self):
-        """Counter-direction: a sweep that finds nothing proves nothing."""
+        """No module but those IN_BAND names reaches the bare primitive, and IN_BAND names none since
+        6.6.1. That the sweep can see such a use at all is pinned by the planted spellings below, and by
+        the planted bare call in bundle.py here, so an empty set here is a measurement, not silence."""
         seen = {rel for rel, _l, spelling in self._uses() if _BARE in spelling}
         self.assertEqual(seen, set(IN_BAND))
+        echt = (SRC / "bundle.py").read_text(encoding="utf-8")
+        alt = echt.replace("sig_ok = verify_ed25519_pinned(pub, raw_sig, payload)",
+                           "sig_ok = verify_ed25519(pub, raw_sig, payload)", 1).replace(
+            "from .signature import TRUST_ANCHOR_REFUSAL,",
+            "from .signature import verify_ed25519, TRUST_ANCHOR_REFUSAL,", 1)
+        self.assertNotEqual(alt, echt, "the bundle.py lines this case plants into moved; it would measure nothing")
+        self.assertTrue(any(_BARE in s for _r, _l, s in _sweep_source("bundle.py", alt)))
 
     def test_the_sweep_catches_every_spelling_lens_3_planted(self):
         planted = {
@@ -1185,11 +1195,12 @@ class TheSweep(unittest.TestCase):
 
 
 # The Rust verifier builds an Ed25519 key in these functions. Each one asks the trust-anchor rule
-# (`schwaeche_eines_vertrauensankers`) in its own body, except the bundle's own in-band key.
+# (`schwaeche_eines_vertrauensankers`) in its own body; since 6.6.1 `verify_bundle` does too, for the
+# bundle's own key, as bundle.py (SPEC section 4b), and RUST_IN_BAND names nothing.
 RUST_MAIN = RUST_DIR / "src" / "main.rs"
 RUST_KEY_SITES_WITH_RULE = {"verify_dsse", "ed25519_schluessel", "verify_sdjwt_issuer",
-                            "verify_trust_pack_threshold"}
-RUST_IN_BAND = {"verify_bundle": "the bundle's own signature.public_key_b64, as bundle.py in IN_BAND"}
+                            "verify_trust_pack_threshold", "verify_bundle"}
+RUST_IN_BAND: dict = {}
 # A local name for the key type: `type VK = VerifyingKey;` or `use ...::VerifyingKey as VK;`. Gate
 # iteration 3, lens C (C3-02) built a key through `VK::from_bytes` and the sweep saw nothing.
 _RUST_ALIAS = re.compile(r"\btype\s+(\w+)\s*=\s*(?:[\w:]*::)?VerifyingKey\s*;|\bVerifyingKey\s+as\s+(\w+)")

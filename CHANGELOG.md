@@ -8,6 +8,10 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
+### Security
+
+- **A bundle whose own Ed25519 key is a point of small order no longer verifies, without a trust policy too.** Until 6.6.0 the bundle's own `signature.public_key_b64` kept the bare SPEC section 4a profile, because trust in it comes from a policy pin that has the trust-anchor rule. Without a pin, a signature made with no private key under such a key read `[PASS] ed25519-signature: payload signed by stated key` with exit 0, in `proofbundle verify`, in `show-eval` and in `pb_verify_rs verify-bundle`, for each of the fourteen 32-byte encodings of the eight points of small order. The verdict still said `SAFE_FOR_AUTOMATION: NO` and `POLICY: NOT_EVALUATED`, but the signature line claimed a signer that does not exist. The bundle's own key now goes through `ed25519_trust_anchor_weakness` in Python and `schwaeche_eines_vertrauensankers` in Rust: the `ed25519-signature` check fails with `public key refused (low-order)` or `public key refused (non-canonical)` and the reason, and the exit is 1. SPEC section 4b drops the exception for the bundle's own key. A bundle signed with an ordinary key verifies exactly as before, and a policy that pins such a key was already refused.
+
 ### Changed
 
 - **An SVR v0.1 statement verifies only with `verifier.id` a URI with a lower-case scheme and `timeCreated` in UTC with `Z`, as in-toto writes TypeURI and Timestamp.** in-toto `spec/v1/field_types.md` writes a TypeURI with a lower-case scheme and a Timestamp in UTC with the designator `Z`, and svr v0.1 types `verifier.id` and `timeCreated` so. A validly signed SVR whose `verifier.id` began `HTTPS:` or whose `timeCreated` carried a numeric offset such as `+01:00` verified, and `proofbundle svr --verify` answered PASS; both are now refused, the command answering malformed with exit 2, and `export_svr_dsse` refuses such a `time_created`. Every SVR a released version wrote carries the lower-case `https` of its verifier id and a time with `Z`, so it keeps verifying.

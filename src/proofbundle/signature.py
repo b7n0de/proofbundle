@@ -294,8 +294,8 @@ def verify_ed25519_pinned(public_key: bytes, signature: bytes, message: bytes) -
     """:func:`verify_ed25519` for a key the CALLER trusts: False when the key is malformed, non-canonical
     or low-order (:func:`ed25519_trust_anchor_weakness`), before any signature arithmetic. Same
     never-raise contract. Every verify path whose key is a trust anchor supplied from outside the
-    signed object goes through here; the in-band key of a bundle, whose trust comes from a policy pin,
-    keeps the plain SPEC §4a check."""
+    signed object goes through here, and since 6.6.1 the in-band key of a bundle does too (SPEC §4b):
+    without a pin, a forgery under a key of small order read as signed by the stated key."""
     # ONE READING (round 12): the key this rule judges is the key the signature is checked under. At
     # cd5d39f4 both read the caller's object, and a `bytes` subclass whose own `__bytes__` answered a
     # sound key to the rule and the identity point to the check passed the rule with a low-order key.

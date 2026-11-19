@@ -473,8 +473,8 @@ fn b64_dsse(s: &str) -> Result<Vec<u8>, String> {
 /// a few tries under the other points of small order), and nobody holds a private key (deep gate Z195,
 /// L1-Z195-01..03). A non-canonical spelling is refused for its encoding: of the nineteen, only y = p
 /// and y = p + 1 also spell points of small order (`grund_der_schwaeche`). A key that passes has exactly
-/// one encoding, so counting distinct key bytes counts distinct points. The in-band key of a bundle keeps
-/// the SPEC section 4a profile and does not come here.
+/// one encoding, so counting distinct key bytes counts distinct points. Since 6.6.1 the in-band key of a
+/// bundle comes here too (SPEC section 4b, `verify_bundle`).
 fn schwaeche_eines_vertrauensankers(schluessel: &[u8; 32]) -> Option<&'static str> {
     // The x-sign bit is not part of y.
     let mut y = *schluessel;
@@ -1118,13 +1118,21 @@ fn verify_bundle(
         .as_slice()
         .try_into()
         .map_err(|_| "public key not 32 bytes")?;
+    // SPEC section 4b (6.6.1): the bundle's own key is judged by the same rule as every other key, as
+    // bundle.py does with `verify_ed25519_pinned`. Until 6.6.0 it kept the bare section 4a profile, and
+    // without a pin a forgery under a key of small order, made with no private key, verified (exit 0) for
+    // all fourteen 32-byte encodings of the eight points (measured 2026-11-19). A refused key verifies
+    // nothing: the same Ok(false) as a signature that does not verify, so the exit stays the one Python gives.
+    if schwaeche_eines_vertrauensankers(&pk_arr).is_some() {
+        return Ok(false);
+    }
     let vk = VerifyingKey::from_bytes(&pk_arr).map_err(|e| format!("bad public key: {e}"))?;
     let sb = b64_strict(sig_b64)?;
     let sa: [u8; 64] = sb
         .as_slice()
         .try_into()
         .map_err(|_| "signature not 64 bytes")?;
-    // ed25519 over the RAW payload bytes (bundle.py: verify_ed25519(pub, raw_sig, payload)).
+    // ed25519 over the RAW payload bytes (bundle.py: verify_ed25519_pinned(pub, raw_sig, payload)).
     if vk.verify(&payload, &Signature::from_bytes(&sa)).is_err() {
         return Ok(false);
     }
