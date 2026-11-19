@@ -1481,7 +1481,6 @@ _OPTIONAL_EXTRAS = {
     "test": {"pytest": "pytest", "hypothesis": "hypothesis", "pyyaml": "yaml", "jsonschema": "jsonschema",
              "sd-jwt": "sd_jwt", "rfc8785": "rfc8785"},
     "inspect": {"inspect-ai": "inspect_ai"},
-    "scitt": {"cbor2": "cbor2"},
     "dev": {"pytest": "pytest", "ruff": "ruff", "jsonschema": "jsonschema", "mypy": "mypy", "build": "build",
             "hypothesis": "hypothesis", "rfc8785": "rfc8785", "sd-jwt": "sd_jwt", "pyyaml": "yaml",
             "inspect-ai": "inspect_ai", "cbor2": "cbor2"},
