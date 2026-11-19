@@ -195,7 +195,8 @@ def _sig_structure(protected_raw: bytes, payload: bytes) -> bytes:
 @_ein_stand(fehler=ValueError)
 def cose_key_thumbprint(public_key: bytes) -> bytes:
     """RFC 9679 COSE Key Thumbprint with SHA-256 of a raw Ed25519 public key: SHA-256 over the deterministic
-    encoding of the OKP key's required parameters {1 (kty): 1 (OKP), -1 (crv): 6 (Ed25519), -2 (x): key}."""
+    encoding of the OKP key's required parameters {1 (kty): 1 (OKP), -1 (crv): 6 (Ed25519), -2 (x): key}. Raises
+    ValueError for a key that is not a bytes value of 32 bytes."""
     raw = plain_bytes(public_key)
     if raw is None or len(raw) != 32:
         raise ValueError("an Ed25519 public key is 32 bytes")
@@ -580,7 +581,9 @@ def receipt_to_statement(receipt: bytes, receipt_key: bytes, signer: Ed25519Priv
     Raises ``ReceiptCoseError`` for anything it cannot write honestly, ``CoseUnavailable`` without the
     ``[scitt]`` extra."""
     if type(alg) is not int or alg != WRITE_ALG:
-        raise ReceiptCoseError(f"this direction writes alg {WRITE_ALG} (Ed25519, RFC 9864) only, not {alg!r}; "
+        # The caller's value is not rendered: its repr is unbounded (an int of 5000 digits raised ValueError, a list
+        # 3000 deep RecursionError, found by the render sweep of main on the merged tree).
+        raise ReceiptCoseError(f"this direction writes alg {WRITE_ALG} (Ed25519, RFC 9864) only, not the value given; "
                                f"{ALG_EDDSA} (EdDSA, RFC 9053) is read, never written: no statement is made")
     if not isinstance(signer, Ed25519PrivateKey):
         raise ReceiptCoseError("the signer must be an Ed25519 private key")

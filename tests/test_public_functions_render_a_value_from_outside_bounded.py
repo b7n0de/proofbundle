@@ -115,6 +115,11 @@ _DOCUMENTED_BUILTIN = {
     # One function, not the module: verify_trace_record never raises in its body, and a module-wide
     # entry would let a planted ValueError there pass as typed (counter-reading 2026-10-22, F-1).
     "proofbundle.adapters.trace_record.jwk_thumbprint": (ValueError,),  # "Raises ValueError otherwise"
+    # Three functions from the branch of PR 356, each documenting its builtin refusal at the function.
+    "proofbundle.receipt_cose.cose_key_thumbprint": (ValueError,),  # "Raises ValueError for a key that is not ..."
+    "proofbundle.signed_eval_receipt.payload_bytes": (ValueError,),  # "Raises ValueError naming the first violation"
+    # "Raises ValueError ... and TypeError for a signer that is not an Ed25519PrivateKey"
+    "proofbundle.signed_eval_receipt.emit_signed_eval_receipt": (ValueError, TypeError),
     # One function again: "Raises ValueError for a scheme or algorithm this reader does not know or an input that
     # is not bytes"; its other refusal, NoVerdict, is a class of the package.
     "proofbundle.scitt_statement_id.match_statement": (ValueError,),

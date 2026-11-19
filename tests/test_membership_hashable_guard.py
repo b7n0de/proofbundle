@@ -1374,6 +1374,10 @@ _OTHER_USES_CLASSIFIED = {
     ("proofbundle/signed_eval_receipt.py", "_payload_violation", "_PAYLOAD_MEMBERS", "BitOr {_OPTIONAL_PAYLOAD_MEMBER}"):
         (1, "passed to is_member: the union of two constants of the module, and is_member reads the issuer's "
          "name before any hashing"),
+    ("proofbundle/receipt_cose.py", "_rule_broken", "_LABELS", "NotEq set(ph)"):
+        (1, "own value: any(type(k) is not int for k in ph) returns before the comparison, so set(ph) hashes only ints"),
+    ("proofbundle/receipt_cose.py", "_rule_broken", "_CLAIMS", "NotEq set(claims)"):
+        (1, "own value: type(claims) is dict and every key an int are checked before, so set(claims) hashes only ints"),
     ("proofbundle/signed_eval_receipt.py", "_procedure", "_RECEIPT_MEMBERS", "NotEq set(r)"):
         (1, "own value: set(r) is the key set of a dict that isinstance(r, dict) checked before, and comparing two "
          "sets of text hashes nothing new"),

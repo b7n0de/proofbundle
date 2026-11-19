@@ -586,8 +586,10 @@ def payload_bytes(payload: Mapping) -> bytes:
 
 @_ein_stand(aussen={"signer": "signierer"}, fehler=ValueError, payload=_abbild_stand)
 def emit_signed_eval_receipt(payload: Mapping, signer: Ed25519PrivateKey, *, key_hint: bool = True) -> bytes:
-    """The receipt bytes for PAYLOAD, signed by SIGNER. The receipt object is written in its RFC 8785 form. The bytes are verified under the signer's key before they are
-    returned, so this producer never hands out a receipt its own verifier refuses."""
+    """The receipt bytes for PAYLOAD, signed by SIGNER. The receipt object is written in its RFC 8785 form. The bytes
+    are verified under the signer's key before they are returned, so this producer never hands out a receipt its own
+    verifier refuses. Raises ValueError naming the first violation of the payload, and TypeError for a signer that is
+    not an Ed25519PrivateKey."""
     # The switch first: it changes what is published (the unsigned key hint), so only an exact bool is
     # read, before anything is computed or signed (`_membership.require_switch`).
     require_switch(key_hint, "key_hint")
