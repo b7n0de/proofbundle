@@ -1151,9 +1151,11 @@ def _forbid_plaintext_in_export(claim: dict) -> None:
 def _refuse_to_vouch_for_a_key_nobody_holds(claim: Any, wo: str) -> None:
     """Refuse to SIGN a statement over a claim whose issuer key the trust-anchor rule refuses.
 
-    SPEC section 4b lets the bundle's own key keep the section 4a profile when a receipt is VERIFIED,
-    because a relying party's trust in it comes from a pin that carries the rule. An export that SIGNS
-    is a different act: proofbundle then vouches, under a real key, for what it read. Measured on
+    Until 6.6.0 SPEC section 4b let the bundle's own key keep the section 4a profile when a receipt
+    was VERIFIED, because a relying party's trust in it comes from a pin that carries the rule; since
+    6.6.1 the bundle's own key goes through the rule too, so such a receipt no longer verifies. This
+    check stays as the exporter's own: an export that SIGNS is a different act, proofbundle then
+    vouches, under a real key, for what it read. Measured on
     053c7800 (lens run 1, out-of-scope finding 3): `export_svr_dsse` signed
     PROOFBUNDLE_SIGNATURE_VALID and PROOFBUNDLE_THRESHOLD_MET over a PASS receipt that nobody signed
     under the identity point, and the SVR verified under the exporter's key. The eval-result and
@@ -2039,9 +2041,10 @@ def export_svr_dsse(bundle: dict, signer, *, time_created: Optional[str] = None,
         raise BundleFormatError(f"SVR export needs a valid eval receipt ({exc})") from exc
     if claim is None:
         raise BundleFormatError("SVR export needs a valid, issuer-bound eval receipt")
-    # BEFORE ANYTHING IS SIGNED. The receipt verified under the section 4a profile, which is right for
-    # a verifier and wrong for a statement proofbundle signs: PROOFBUNDLE_SIGNATURE_VALID under a
-    # small-order key would attest a signature nobody made.
+    # BEFORE ANYTHING IS SIGNED. Until 6.6.0 the receipt verified under the section 4a profile, and
+    # PROOFBUNDLE_SIGNATURE_VALID under a small-order key would have attested a signature nobody made.
+    # Since 6.6.1 the bundle's own key goes through the rule and `decode_eval_claim` refuses such a
+    # receipt first; this check stays as the exporter's own.
     _refuse_to_vouch_for_a_key_nobody_holds(claim, "refusing to emit SVR")
     # The claim is the one decode parsed. The caller's other arguments go into the signed statement,
     # so each is read once, as its plain copy, like the other exporters' (round 8): `policy` was

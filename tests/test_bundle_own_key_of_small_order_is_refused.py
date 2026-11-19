@@ -23,15 +23,18 @@ bundle path the forgeries pass again (measured as mutants on this change).
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import io
 import json
+import base64
 import pathlib
 import subprocess
+import tempfile
 import unittest
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from proofbundle.signature import ed25519_trust_anchor_weakness, verify_ed25519
+from proofbundle.signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness, verify_ed25519
 from proofbundle._wire_b64 import decode_b64
 
 from _pb_verify_rs import binary_or_skip
@@ -143,7 +146,13 @@ class TheFixtures(unittest.TestCase):
         """Counter-direction: each forgery passes the bare section 4a check, so its refusal below is the
         rule's doing and not a broken fixture."""
         forged = _forgeries()
+        # Exactly fourteen files with fourteen different keys, and nothing else in the folder but the two
+        # ordinary bundles (Codex on this change, round r1c: a set of keys allowed a duplicate file).
+        self.assertEqual(len(forged), 14)
         self.assertEqual({_key_of(p) for p in forged}, ENCODINGS)
+        self.assertEqual(sorted(p.name for p in FIXTURES.iterdir()),
+                         sorted([p.name for p in forged] + ["gegenfall_gewoehnlich_falsche_signatur_bundle.json",
+                                                            "kontrolle_gewoehnlich_richtige_signatur_bundle.json"]))
         for path in forged:
             b = json.loads(path.read_text(encoding="utf-8"))
             with self.subTest(fixture=path.name):
@@ -160,10 +169,18 @@ class PythonVerify(unittest.TestCase):
             with self.subTest(fixture=path.name):
                 rc, out, err = _cli("verify", str(path))
                 self.assertEqual(rc, 1, out + err)
-                self.assertIn(f"ed25519-signature: public key refused ({weakness})", out)
+                self.assertIn(f"ed25519-signature: public key refused ({weakness}): "
+                              f"{TRUST_ANCHOR_REFUSAL[weakness]}", out)
                 self.assertNotIn("payload signed by stated key", out)
 
     def test_an_ordinary_key_is_judged_as_before(self):
+        from proofbundle.bundle import verify_bundle
+        kontrolle = json.loads((FIXTURES / "kontrolle_gewoehnlich_richtige_signatur_bundle.json").read_text(encoding="utf-8"))
+        res = verify_bundle(kontrolle)
+        self.assertIs(res.ok, True)
+        self.assertEqual(res.verified_signer_pub, decode_b64(kontrolle["signature"]["public_key_b64"]))
+        self.assertEqual(res.verified_payload_digest,
+                         hashlib.sha256(decode_b64(kontrolle["payload_b64"])).hexdigest())
         rc, out, err = _cli("verify", str(FIXTURES / "kontrolle_gewoehnlich_richtige_signatur_bundle.json"))
         self.assertEqual(rc, 0, out + err)
         self.assertIn("payload signed by stated key", out)
@@ -187,6 +204,67 @@ class RustVerifyBundle(unittest.TestCase):
     def test_an_ordinary_key_is_judged_as_before(self):
         self.assertEqual(self._run(FIXTURES / "kontrolle_gewoehnlich_richtige_signatur_bundle.json"), (0, "OK"))
         self.assertEqual(self._run(FIXTURES / "gegenfall_gewoehnlich_falsche_signatur_bundle.json"), (1, "FAIL"))
+
+
+def _altered(target: pathlib.Path) -> dict:
+    """Eight bundles altered at the signature block, with the exit Python gives each (measured 2026-11-19 at 803ada66
+    with kreis_probe_paritaet_2.sh): a base64 error in the key or the signature is malformed input (2); every
+    defect after decoding is a signature that does not verify (1), whether the key is ordinary or weak."""
+    control = json.loads((FIXTURES / "kontrolle_gewoehnlich_richtige_signatur_bundle.json").read_text(encoding="utf-8"))
+    weak = json.loads((FIXTURES / "ord1_010000_bundle.json").read_text(encoding="utf-8"))
+    b64 = lambda b: base64.b64encode(b).decode()  # noqa: E731
+    pk = decode_b64(control["signature"]["public_key_b64"])
+    sig = decode_b64(control["signature"]["sig_b64"])
+    wsig = decode_b64(weak["signature"]["sig_b64"])
+    no_point = next(enc for enc in (y.to_bytes(32, "little") for y in range(2, 1000))
+                    if _point_with_y(int.from_bytes(enc, "little")) is None)
+    cases = {
+        "control_unchanged": (control, {}, 0),
+        "control_key_31_bytes": (control, {"public_key_b64": b64(pk[:31])}, 1),
+        "control_key_not_a_point": (control, {"public_key_b64": b64(no_point)}, 1),
+        "control_signature_63_bytes": (control, {"sig_b64": b64(sig[:63])}, 1),
+        "control_signature_not_base64": (control, {"sig_b64": "@@@@"}, 2),
+        "weak_unchanged": (weak, {}, 1),
+        "weak_signature_63_bytes": (weak, {"sig_b64": b64(wsig[:63])}, 1),
+        "weak_signature_not_base64": (weak, {"sig_b64": "@@@@"}, 2),
+    }
+    out = {}
+    for name, (base, fields, rc) in cases.items():
+        b = json.loads(json.dumps(base))
+        b["signature"].update(fields)
+        path = target / f"{name}.json"
+        path.write_text(json.dumps(b), encoding="utf-8")
+        out[name] = (path, rc)
+    return out
+
+
+class PythonAndRustGiveTheSameExit(unittest.TestCase):
+    """The review of this change (round r1c) measured four bundles where the two verifiers parted: Rust gave exit 2 for a
+    key or a signature of another length and for a key that is not a point, where Python gives 1, and the first version of
+    this change refused a weak key in Rust before decoding the signature, so a weak key beside a signature that is not
+    base64 gave 1 where Python gives 2. Each case is held at both verifiers, with the exit Python was measured to give."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.cases = _altered(pathlib.Path(cls.tmp.name))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def test_python_gives_the_measured_exit(self):
+        for name, (path, rc) in self.cases.items():
+            with self.subTest(case=name):
+                got, out, err = _cli("verify", str(path))
+                self.assertEqual(got, rc, out + err)
+
+    def test_rust_gives_the_exit_python_gives(self):
+        binary = binary_or_skip()
+        for name, (path, rc) in self.cases.items():
+            with self.subTest(case=name):
+                p = subprocess.run([str(binary), "verify-bundle", str(path)], capture_output=True, text=True, timeout=120)
+                self.assertEqual(p.returncode, rc, p.stdout + p.stderr)
 
 
 if __name__ == "__main__":

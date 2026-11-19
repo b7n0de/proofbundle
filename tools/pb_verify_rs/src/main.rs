@@ -1113,27 +1113,33 @@ fn verify_bundle(
         .get("sig_b64")
         .and_then(|v| v.as_str())
         .ok_or("missing signature.sig_b64")?;
+    // THE ORDER OF bundle.py, AND ITS EXITS. Python decodes the key and then the signature, each as strict
+    // base64, before it judges either; a base64 error in either is malformed input (exit 2) whatever the key
+    // is. Every defect after decoding is a signature that does not verify (exit 1): a key or a signature of
+    // another length, a key that is not a point, and since 6.6.1 a key the trust-anchor rule refuses (SPEC
+    // section 4b; until 6.6.0 the bundle's own key kept the bare section 4a profile, and without a pin a
+    // forgery under a key of small order, made with no private key, verified for all fourteen 32-byte
+    // encodings of the eight points, measured 2026-11-19). This function returned a format error (exit 2)
+    // for a key or a signature of another length and for a key that is not a point, and the first version
+    // of the 6.6.1 change refused a weak key before decoding the signature, so a weak key beside a signature
+    // that is not base64 gave exit 1 where Python gives 2 (review of this change, round r1c; measured with
+    // kreis_probe_paritaet.sh).
     let pk = b64_strict(pub_b64)?;
-    let pk_arr: [u8; 32] = pk
-        .as_slice()
-        .try_into()
-        .map_err(|_| "public key not 32 bytes")?;
-    // SPEC section 4b (6.6.1): the bundle's own key is judged by the same rule as every other key, as
-    // bundle.py does with `verify_ed25519_pinned`. Until 6.6.0 it kept the bare section 4a profile, and
-    // without a pin a forgery under a key of small order, made with no private key, verified (exit 0) for
-    // all fourteen 32-byte encodings of the eight points (measured 2026-11-19). A refused key verifies
-    // nothing: the same Ok(false) as a signature that does not verify, so the exit stays the one Python gives.
-    if schwaeche_eines_vertrauensankers(&pk_arr).is_some() {
-        return Ok(false);
-    }
-    let vk = VerifyingKey::from_bytes(&pk_arr).map_err(|e| format!("bad public key: {e}"))?;
     let sb = b64_strict(sig_b64)?;
-    let sa: [u8; 64] = sb
-        .as_slice()
-        .try_into()
-        .map_err(|_| "signature not 64 bytes")?;
-    // ed25519 over the RAW payload bytes (bundle.py: verify_ed25519_pinned(pub, raw_sig, payload)).
-    if vk.verify(&payload, &Signature::from_bytes(&sa)).is_err() {
+    let unterschrieben = match (
+        <[u8; 32]>::try_from(pk.as_slice()),
+        <[u8; 64]>::try_from(sb.as_slice()),
+    ) {
+        (Ok(pk_arr), Ok(sa)) => {
+            schwaeche_eines_vertrauensankers(&pk_arr).is_none()
+                && VerifyingKey::from_bytes(&pk_arr)
+                    // ed25519 over the RAW payload bytes (bundle.py: verify_ed25519_pinned(pub, raw_sig, payload)).
+                    .map(|vk| vk.verify(&payload, &Signature::from_bytes(&sa)).is_ok())
+                    .unwrap_or(false)
+        }
+        _ => false,
+    };
+    if !unterschrieben {
         return Ok(false);
     }
 

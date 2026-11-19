@@ -2060,6 +2060,21 @@ class ProofbundleDoesNotVouchForAKeyNobodyHolds(unittest.TestCase):
             self.assertFalse(out.exists(), "an SVR was written for a receipt nobody signed")
             self.assertIn("valid, issuer-bound eval receipt", err)
 
+    def test_the_svr_export_keeps_its_own_check_behind_the_receipt_check(self):
+        """Since 6.6.1 the receipt check refuses the forgery first, so the export's own check is reached
+        only past it (Codex on this change, round r1c). `decode_eval_claim` is made to hand over the claim
+        the forgery carries, and the export must still refuse its issuer by name."""
+        from unittest import mock
+        from proofbundle import evalclaim
+        from proofbundle.emit import generate_signer
+        from proofbundle.errors import BundleFormatError
+        from proofbundle.intoto import export_svr_dsse
+        with mock.patch.object(evalclaim, "decode_eval_claim", return_value=self.signed_claim):
+            with self.assertRaises(BundleFormatError) as ctx:
+                export_svr_dsse(self.forged, generate_signer())
+        self.assertIn("refusing to emit SVR", str(ctx.exception))
+        self.assertIn(TRUST_ANCHOR_REFUSAL["low-order"], str(ctx.exception))
+
     def test_the_eval_result_export_refuses_to_vouch(self):
         from proofbundle.emit import generate_signer
         from proofbundle.errors import BundleFormatError

@@ -1129,12 +1129,18 @@ class TheSweep(unittest.TestCase):
         seen = {rel for rel, _l, spelling in self._uses() if _BARE in spelling}
         self.assertEqual(seen, set(IN_BAND))
         echt = (SRC / "bundle.py").read_text(encoding="utf-8")
-        alt = echt.replace("sig_ok = verify_ed25519_pinned(pub, raw_sig, payload)",
-                           "sig_ok = verify_ed25519(pub, raw_sig, payload)", 1).replace(
-            "from .signature import TRUST_ANCHOR_REFUSAL,",
-            "from .signature import verify_ed25519, TRUST_ANCHOR_REFUSAL,", 1)
-        self.assertNotEqual(alt, echt, "the bundle.py lines this case plants into moved; it would measure nothing")
-        self.assertTrue(any(_BARE in s for _r, _l, s in _sweep_source("bundle.py", alt)))
+        # Each of the two lines must be there exactly once, and the sweep must name the planted CALL, not
+        # only the import (Codex on this change, round r1c: with the call line moved, the import alone kept
+        # the case green).
+        aufruf_alt = "sig_ok = verify_ed25519_pinned(pub, raw_sig, payload)"
+        aufruf_neu = "sig_ok = verify_ed25519(pub, raw_sig, payload)"
+        import_alt = "from .signature import TRUST_ANCHOR_REFUSAL,"
+        import_neu = "from .signature import verify_ed25519, TRUST_ANCHOR_REFUSAL,"
+        self.assertEqual(echt.count(aufruf_alt), 1, "the call line of bundle.py moved; this case would plant nothing")
+        self.assertEqual(echt.count(import_alt), 1, "the import line of bundle.py moved; this case would plant nothing")
+        alt = echt.replace(aufruf_alt, aufruf_neu, 1).replace(import_alt, import_neu, 1)
+        zeile = alt[:alt.index(aufruf_neu)].count("\n") + 1
+        self.assertIn(("bundle.py", zeile, f"name {_BARE}"), _sweep_source("bundle.py", alt))
 
     def test_the_sweep_catches_every_spelling_lens_3_planted(self):
         planted = {
