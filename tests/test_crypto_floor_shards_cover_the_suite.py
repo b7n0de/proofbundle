@@ -120,22 +120,64 @@ def stand_in_findings(ids: list[str]) -> list[str]:
             for tid in ids if tid.startswith(MODULE_SKIPPED)]
 
 
-def _skip_test_names(tree: ast.AST) -> set[str]:
-    """The names under which a module binds unittest's SkipTest: `SkipTest` itself and every alias of an import from
-    unittest or one of its modules (`from unittest import SkipTest as S`)."""
-    names = {"SkipTest"}
+_SKIP = "SkipTest"
+
+
+def _skip_test_value(v: ast.AST | None, names: set[str], origins: tuple) -> bool:
+    """Whether an expression is unittest's SkipTest, as far as the source shows: a name bound to it, its attribute on a
+    value that may be unittest or one of its modules (`unittest.SkipTest`, `u.case.SkipTest`), `getattr(<that>,
+    "SkipTest")`, or `vars(<that>)["SkipTest"]` and `<that>.__dict__["SkipTest"]`. The origin is read as for the shared
+    loader above (`_may_be_unittest`), so `other.SkipTest` of a module imported from elsewhere is not it (Codex on pull
+    request 543, round 1, P1)."""
+    ours, theirs, local = origins
+    if isinstance(v, ast.Name):
+        return v.id in names
+    if isinstance(v, ast.Attribute):
+        return v.attr == _SKIP and _may_be_unittest(v.value, ours, theirs, local)
+    if isinstance(v, ast.Call) and isinstance(v.func, ast.Name) and v.func.id == "getattr":
+        return (len(v.args) > 1 and isinstance(v.args[1], ast.Constant) and v.args[1].value == _SKIP
+                and _may_be_unittest(v.args[0], ours, theirs, local))
+    if isinstance(v, ast.Subscript) and isinstance(v.slice, ast.Constant) and v.slice.value == _SKIP:
+        w = v.value
+        if isinstance(w, ast.Call) and isinstance(w.func, ast.Name) and w.func.id == "vars" and w.args:
+            return _may_be_unittest(w.args[0], ours, theirs, local)
+        if isinstance(w, ast.Attribute) and w.attr == "__dict__":
+            return _may_be_unittest(w.value, ours, theirs, local)
+    return False
+
+
+def _skip_test_names(tree: ast.AST, origins: tuple) -> set[str]:
+    """The names under which a module binds unittest's SkipTest: `SkipTest` itself unless it is imported from
+    elsewhere, every alias of an import of it from unittest or one of its modules, and every name assigned a value that
+    is SkipTest, followed to a fixed point (`S = unittest.SkipTest`, then `T = S`; Codex on pull request 543, round 1,
+    P0). An assignment anywhere in the module counts, in the strict direction."""
+    _ours, theirs, _local = origins
+    names = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and str(node.module or "").split(".")[0] == "unittest":
-            names |= {a.asname or a.name for a in node.names if a.name == "SkipTest"}
-    return names
+            names |= {a.asname or a.name for a in node.names if a.name == _SKIP}
+    if _SKIP not in theirs:
+        names.add(_SKIP)
+    while True:
+        new = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                targets, value = node.targets, node.value
+            elif isinstance(node, (ast.AnnAssign, ast.NamedExpr)) and node.value is not None:
+                targets, value = [node.target], node.value
+            else:
+                continue
+            if _skip_test_value(value, names, origins):
+                new |= {t.id for t in targets if isinstance(t, ast.Name)} - names
+        if not new:
+            return names
+        names |= new
 
 
-def _is_skip_test(exc: ast.AST | None, names: set[str]) -> bool:
-    """Whether a raised value is unittest's SkipTest: a name in `names`, or the attribute `SkipTest` of any value
-    (`unittest.SkipTest`, `unittest.case.SkipTest`), called or not."""
+def _is_skip_test(exc: ast.AST | None, names: set[str], origins: tuple) -> bool:
+    """Whether a raised value is unittest's SkipTest (see `_skip_test_value`), called or not."""
     target = exc.func if isinstance(exc, ast.Call) else exc
-    return ((isinstance(target, ast.Name) and target.id in names)
-            or (isinstance(target, ast.Attribute) and target.attr == "SkipTest"))
+    return _skip_test_value(target, names, origins)
 
 
 def module_level_skip_lines(source: str) -> list[int]:
@@ -144,19 +186,23 @@ def module_level_skip_lines(source: str) -> list[int]:
     The load above finds such a module only where the missing dependency makes the raise happen, on the floor and
     nowhere else, so an ordinary run of the suite stays green over it. Read from the source, the raise is found in every
     build (crypto-floor at 3ef175c9: green in every other job, red in part 5 of 5). Import time is the module body and
-    every block in it that runs then: `if`, `try`, `with`, loops, and the body of a class. A function body runs later.
+    every block in it that runs then: `if`, `try` with its `except`, `else` and `finally`, `with`, `for` and `while`
+    with their `else`, every `case` of a `match`, and the body of a class. A function body runs later.
 
-    NOT READ, and named: a raise inside a function that the module calls while it is imported. The load on the floor
-    still finds such a skip where it happens."""
+    NOT READ, and named (Codex on pull request 543, round 1): a raise inside a function that the module calls while it
+    is imported; SkipTest reached through code this reading does not follow, such as a value a call returns, `exec`,
+    `importlib`, or a name bound by a loop target or a `with ... as`; and a raise of a name assigned only through
+    a container or an attribute. Where such a skip happens on the floor, the load above still finds it there."""
     lines: list[int] = []
     tree = ast.parse(source)
-    names = _skip_test_names(tree)
+    origins = _origins(tree)
+    names = _skip_test_names(tree, origins)
 
     def walk(body: list[ast.stmt]) -> None:
         for node in body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
-            if isinstance(node, ast.Raise) and _is_skip_test(node.exc, names):
+            if isinstance(node, ast.Raise) and _is_skip_test(node.exc, names, origins):
                 lines.append(node.lineno)
             for field in ("body", "orelse", "finalbody"):
                 walk(getattr(node, field, None) or [])
@@ -494,6 +540,16 @@ class ThePartitionCheckCatchesWhatItIsFor(unittest.TestCase):
             "import unittest\nwith open('f') as f:\n    raise unittest.SkipTest('x')\n": [3],
             "from unittest import SkipTest as Weg\nraise Weg('x')\n": [2],
             "from unittest.case import SkipTest as Weg\nfor _ in ():\n    pass\nelse:\n    raise Weg\n": [5],
+            # Codex on pull request 543, round 1: an assigned alias, getattr, the namespace of the module, and the blocks
+            # `finally`, the `else` of a `try`, `while` with `else`, and a `case` of a `match`.
+            "import unittest\nS = unittest.SkipTest\nT = S\nraise T('x')\n": [4],
+            "import unittest\nraise getattr(unittest, 'SkipTest')('x')\n": [2],
+            "import unittest as u\nraise vars(u)['SkipTest']\n": [2],
+            "import unittest\nraise unittest.__dict__['SkipTest']('x')\n": [2],
+            "import unittest\ntry:\n    pass\nfinally:\n    raise unittest.SkipTest('x')\n": [5],
+            "import unittest\ntry:\n    pass\nexcept ImportError:\n    pass\nelse:\n    raise unittest.SkipTest('x')\n": [7],
+            "import unittest\nwhile False:\n    pass\nelse:\n    raise unittest.SkipTest('x')\n": [5],
+            "import unittest\nmatch 1:\n    case 1:\n        raise unittest.SkipTest('x')\n": [4],
         }
         for source, lines in found.items():
             with self.subTest(source):
@@ -503,7 +559,12 @@ class ThePartitionCheckCatchesWhatItIsFor(unittest.TestCase):
                        "import unittest\nclass C(unittest.TestCase):\n    def test_x(self):\n"
                        "        raise unittest.SkipTest('x')\n",
                        "import unittest\n@unittest.skip('x')\nclass C(unittest.TestCase):\n    pass\n",
-                       "raise ImportError('x')\n"):
+                       "raise ImportError('x')\n",
+                       # Codex on pull request 543, round 1, P1: a SkipTest of a module imported from elsewhere is
+                       # another exception, by its origin, not by its name.
+                       "import other\nraise other.SkipTest('x')\n",
+                       "from other import SkipTest\nraise SkipTest('x')\n",
+                       "import other\nraise getattr(other, 'SkipTest')('x')\n"):
             with self.subTest(source):
                 self.assertEqual(module_level_skip_lines(source), [])
 
