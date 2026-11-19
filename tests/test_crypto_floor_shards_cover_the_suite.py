@@ -120,11 +120,21 @@ def stand_in_findings(ids: list[str]) -> list[str]:
             for tid in ids if tid.startswith(MODULE_SKIPPED)]
 
 
-def _is_skip_test(exc: ast.AST | None) -> bool:
-    """Whether a raised value is unittest's SkipTest: `SkipTest`, `unittest.SkipTest` or `unittest.case.SkipTest`,
-    called or not."""
+def _skip_test_names(tree: ast.AST) -> set[str]:
+    """The names under which a module binds unittest's SkipTest: `SkipTest` itself and every alias of an import from
+    unittest or one of its modules (`from unittest import SkipTest as S`)."""
+    names = {"SkipTest"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and str(node.module or "").split(".")[0] == "unittest":
+            names |= {a.asname or a.name for a in node.names if a.name == "SkipTest"}
+    return names
+
+
+def _is_skip_test(exc: ast.AST | None, names: set[str]) -> bool:
+    """Whether a raised value is unittest's SkipTest: a name in `names`, or the attribute `SkipTest` of any value
+    (`unittest.SkipTest`, `unittest.case.SkipTest`), called or not."""
     target = exc.func if isinstance(exc, ast.Call) else exc
-    return ((isinstance(target, ast.Name) and target.id == "SkipTest")
+    return ((isinstance(target, ast.Name) and target.id in names)
             or (isinstance(target, ast.Attribute) and target.attr == "SkipTest"))
 
 
@@ -134,14 +144,19 @@ def module_level_skip_lines(source: str) -> list[int]:
     The load above finds such a module only where the missing dependency makes the raise happen, on the floor and
     nowhere else, so an ordinary run of the suite stays green over it. Read from the source, the raise is found in every
     build (crypto-floor at 3ef175c9: green in every other job, red in part 5 of 5). Import time is the module body and
-    every block in it that runs then: `if`, `try`, `with`, loops, and the body of a class. A function body runs later."""
+    every block in it that runs then: `if`, `try`, `with`, loops, and the body of a class. A function body runs later.
+
+    NOT READ, and named: a raise inside a function that the module calls while it is imported. The load on the floor
+    still finds such a skip where it happens."""
     lines: list[int] = []
+    tree = ast.parse(source)
+    names = _skip_test_names(tree)
 
     def walk(body: list[ast.stmt]) -> None:
         for node in body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
-            if isinstance(node, ast.Raise) and _is_skip_test(node.exc):
+            if isinstance(node, ast.Raise) and _is_skip_test(node.exc, names):
                 lines.append(node.lineno)
             for field in ("body", "orelse", "finalbody"):
                 walk(getattr(node, field, None) or [])
@@ -150,7 +165,7 @@ def module_level_skip_lines(source: str) -> list[int]:
             for case in getattr(node, "cases", None) or []:
                 walk(case.body)
 
-    walk(ast.parse(source).body)
+    walk(tree.body)
     return sorted(lines)
 
 
@@ -477,6 +492,8 @@ class ThePartitionCheckCatchesWhatItIsFor(unittest.TestCase):
             "import unittest\nif True:\n    raise unittest.case.SkipTest\n": [3],
             "import unittest\nclass C:\n    raise unittest.SkipTest('x')\n": [3],
             "import unittest\nwith open('f') as f:\n    raise unittest.SkipTest('x')\n": [3],
+            "from unittest import SkipTest as Weg\nraise Weg('x')\n": [2],
+            "from unittest.case import SkipTest as Weg\nfor _ in ():\n    pass\nelse:\n    raise Weg\n": [5],
         }
         for source, lines in found.items():
             with self.subTest(source):
