@@ -2226,10 +2226,7 @@ _LENGTH_32 = {
     ("sdjwt_issue.py", "issue_sd_jwt"): (1, "the holder key; followed by the rule since this fix"),
     ("signature.py", "ed25519_trust_anchor_weakness"): (1, "the rule itself"),
     ("signature.py", "verify_ed25519"): (1, "the SPEC 4a verify profile"),
-    ("signed_eval_receipt.py", "verify_signed_eval_receipt"): (1, "a key that is not 32 bytes fails rule 1 "
-                                                                   "of the draft's profile, which with rule "
-                                                                   "2 refuses non-canonical and small-order "
-                                                                   "keys before any arithmetic"),
+    ("signed_eval_receipt.py", "verify_signed_eval_receipt"): (1, "a key that is not 32 bytes is an input error of the draft's Section 5, and a 32-byte key then meets rules 1 and 2 of its profile, which refuse non-canonical and small-order keys before any arithmetic"),
     ("tlogproof.py", "format_tlog_proof"): (1, "a hash, no key"),
     ("tlogproof.py", "parse_tlog_proof"): (1, "a hash, no key"),
 }

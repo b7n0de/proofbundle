@@ -145,10 +145,14 @@ def test_the_statement_reader_reports_its_nesting_limit():
     assert rc.RESOURCE_LIMIT in rc.STATUSES
 
 
-def _show_eval(tmp_path, raw: bytes, capsys) -> tuple:
+def _show_eval(tmp_path, raw: bytes, capsys, switch: bool = True) -> tuple:
+    """show-eval over RAW under the issuer key; on the explicit ``--format eval-receipt-v1`` switch unless SWITCH is
+    False (the owner choice of 2026-11-01 that PR 467 carries: without the switch every file takes the eval-claim
+    v0.1 path)."""
     path = tmp_path / "receipt.json"
     path.write_bytes(raw)
-    code = main(["show-eval", str(path), "--expect-issuer", "ed25519:" + base64.b64encode(PUB).decode()])
+    code = main(["show-eval", str(path), "--expect-issuer", "ed25519:" + base64.b64encode(PUB).decode()]
+                + (["--format", "eval-receipt-v1"] if switch else []))
     out = capsys.readouterr()
     return code, out.out + out.err
 
@@ -205,17 +209,18 @@ def test_the_dispatch_controls_keep_their_exit_codes(tmp_path, capsys):
     from proofbundle.budget import DEFAULT_BUDGET
     assert _show_eval(tmp_path, _deep_member(63), capsys)[0] == 1
     other = b'"schema":"application/other+json"'
-    assert _show_eval(tmp_path, _deep_member(2000).replace(SCHEMA_MEMBER, other), capsys)[0] == 2
+    assert _show_eval(tmp_path, _deep_member(2000).replace(SCHEMA_MEMBER, other), capsys, switch=False)[0] == 2
     large_other = _large_member(DEFAULT_BUDGET.input_bytes).replace(SCHEMA_MEMBER, other)
     assert ser.names_receipt_type(large_other) is False
     cut = DEFAULT_BUDGET.input_bytes
     assert ser._names_receipt_type_before_cut(_large_member(cut)[:cut]) is True
     assert ser._names_receipt_type_before_cut(large_other[:cut]) is False
     assert ser._names_receipt_type_before_cut(_large_member(cut).replace(b'"schema"', b'"z"', 1)[:cut]) is False
-    assert _show_eval(tmp_path, large_other, capsys)[0] == 2
+    assert _show_eval(tmp_path, large_other, capsys, switch=False)[0] == 2
     path = tmp_path / "large.json"
     path.write_bytes(_large_member(DEFAULT_BUDGET.input_bytes))
-    assert main(["show-eval", str(path), "--expect-issuer", "ed25519:" + base64.b64encode(b"\x00" * 32).decode()]) == 2
+    assert main(["show-eval", str(path), "--expect-issuer", "ed25519:" + base64.b64encode(b"\x00" * 32).decode(),
+                 "--format", "eval-receipt-v1"]) == 2
 
 
 def test_names_receipt_type_answers_for_deep_and_cut_texts_without_raising():

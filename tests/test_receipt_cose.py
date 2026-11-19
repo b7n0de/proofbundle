@@ -21,6 +21,7 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from proofbundle import receipt_cose as rc
+from proofbundle import signed_eval_receipt as ser
 
 REPO = Path(__file__).resolve().parents[1]
 VECTORS = json.loads((REPO / "tests" / "fixtures" / "receipt_cose" / "vectors.json").read_text(encoding="utf-8"))
@@ -352,31 +353,44 @@ def test_cbor2_is_named_only_by_the_scitt_extra():
     assert re.search(r'^scitt = \["cbor2==6\.1\.5"\]$', text, re.M)
 
 
-@needs_cbor2
-@pytest.mark.parametrize("length", [1_000_001, 9_000_001], ids=["longer-than-the-string-budget",
-                                                                 "larger-than-the-input-budget"])
-def test_a_verified_receipt_with_a_long_string_member_gets_its_statement(length):
-    """The model commitment of B is read only for its subject, after the receipt verified: the read refuses a repeated
-    member name and holds no size budget of its own, as before the move of the second reader (lens of 2026-10-18 on
-    5525e209: read through loads_strict, a string member of 1,000,001 characters raised BudgetExceeded in the forward
-    direction, and check_statement called the receipt malformed). Both budgets of loads_strict are crossed, the
-    length of one string and, with 9,000,001 characters, the 8 MiB of the input (second lens of 2026-10-18), so a
-    repair that raised only one of them stays red."""
+def _long_suite_receipt(length: int) -> bytes:
     from proofbundle import signed_eval_receipt as ser
 
     payload = json.loads(DRAFT1["payloads"]["B1"]["text"])
     payload["suite"] = "x" * length
     b = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
-    key = _issuer_key()
-    sig = key.sign(ser.pae(ser.RECEIPT_TYPE, b))
-    receipt = json.dumps({"payload_b64": base64.b64encode(b).decode(), "schema": ser.RECEIPT_TYPE,
-                          "signature": {"alg": "ed25519", "key": base64.b64encode(KEYS["issuer"]).decode(),
-                                        "sig": base64.b64encode(sig).decode()}},
-                         separators=(",", ":"), sort_keys=True).encode()
+    sig = _issuer_key().sign(ser.pae(ser.RECEIPT_TYPE, b))
+    return json.dumps({"payload_b64": base64.b64encode(b).decode(), "schema": ser.RECEIPT_TYPE,
+                       "signature": {"alg": "ed25519", "key": base64.b64encode(KEYS["issuer"]).decode(),
+                                     "sig": base64.b64encode(sig).decode()}},
+                      separators=(",", ":"), sort_keys=True).encode()
+
+
+@needs_cbor2
+def test_a_verified_receipt_with_a_long_string_member_gets_its_statement():
+    """The model commitment of B is read only for its subject, after the receipt verified: the read refuses a repeated
+    member name and holds no size budget of its own, as before the move of the second reader (lens of 2026-10-18 on
+    5525e209). Since the verifier of PR 467 holds the package's budget (`string_len` for every string of the receipt
+    and of B), the longest suite a verified receipt can carry is the one whose payload_b64 stays within that budget;
+    700,000 characters do, and the translator writes and accepts that statement."""
+    receipt = _long_suite_receipt(700_000)
     assert ser.verify_signed_eval_receipt(receipt, KEYS["issuer"]).ok
-    data = rc.receipt_to_statement(receipt, KEYS["issuer"], key, issuer=ISSUER, alg=-19)
+    data = rc.receipt_to_statement(receipt, KEYS["issuer"], _issuer_key(), issuer=ISSUER, alg=-19)
     result = rc.check_statement(data, receipt=receipt, receipt_key=KEYS["issuer"], statement_keys=PAIRS)
     assert (result.status, result.ok) == (rc.ACCEPTED, True), result.detail
+
+
+@needs_cbor2
+@pytest.mark.parametrize("length", [1_000_001, 9_000_001], ids=["longer-than-the-string-budget",
+                                                                 "larger-than-the-input-budget"])
+def test_a_receipt_past_the_budget_is_the_verifiers_resource_limit_and_no_statement(length):
+    """Past the budget the verifier stops at its resource limit (merged tree of PRs 356 and 467): no verdict, and the
+    translator makes no statement and names that limit, never a FAIL of a step."""
+    receipt = _long_suite_receipt(length)
+    verdict = ser.verify_signed_eval_receipt(receipt, KEYS["issuer"])
+    assert (verdict.ok, verdict.resource_limit) == (False, True), verdict
+    with pytest.raises(rc.ReceiptCoseError, match="resource limit"):
+        rc.receipt_to_statement(receipt, KEYS["issuer"], _issuer_key(), issuer=ISSUER, alg=-19)
 
 
 # ---- the second reader, cbor2 in its strict mode -----------------------------------------------------------

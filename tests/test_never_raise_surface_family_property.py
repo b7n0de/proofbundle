@@ -71,6 +71,9 @@ _MODULES = [
     # FOREIGN format the question should be asked by hand least of all: we do not decide what shapes
     # arrive there.
     "adapters.agt_receipt",
+    # 2026-11-01: draft-gruszka-signed-evaluation-receipts-04 (EXPERIMENTAL, behind show-eval --format
+    # eval-receipt-v1). verify_signed_eval_receipt answers with a verdict for any argument.
+    "signed_eval_receipt",
     # 2026-09-25: the scitt-ccf/v1 reader of ADR 0009 (not an anchor type yet). The population guard
     # reported its five surfaces the moment the module existed, which is its job. A FOREIGN binary
     # format again, read from a Transparency Service we do not run: decode_cose_sign1,

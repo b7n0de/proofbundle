@@ -1,40 +1,44 @@
-"""Signed Evaluation Receipts, the format of draft-gruszka-signed-evaluation-receipts-00 (EXPERIMENTAL).
+"""Signed Evaluation Receipts, the format of draft-gruszka-signed-evaluation-receipts-04 (EXPERIMENTAL).
 
 A receipt is one JSON object ``{"schema", "payload_b64", "signature"}``. B, the RFC 8785 bytes of the
 payload, is signed with pure Ed25519 over PAE(type, B), the DSSE pre-authentication encoding with the fixed
 type ``application/vnd.signed-evidence.eval-receipt+json``; the payload schema is
-``https://signed-evidence.org/eval-receipt/v1``. Both stand under signed-evidence.org, the project domain
-chosen on 2026-10-08: the type is a media type name in the vendor tree, and the draft requests no IANA
-action. The names used before 2026-10-08 are gone, and with them every earlier B and signature. The receipt
-carries no inclusion proof (removed from the draft on 2026-10-03): transparency comes from registering a
-receipt in an envelope, not from the receipt.
+``https://signed-evidence.org/eval-receipt/v1``. The receipt carries no inclusion proof: transparency comes
+from registering a receipt in an envelope, not from the receipt.
 
-A SECOND FORMAT, NOT A REPLACEMENT. ``proofbundle/eval-claim/v0.1`` (``evalclaim.py``) stays as it is
-and stays verifiable. Nothing here runs unless a caller names this format: ``emit-eval --format
-eval-receipt-v1`` produces it, and ``show-eval`` reaches it only for a file whose ``schema`` is the
-receipt type.
+A SECOND FORMAT, NOT A REPLACEMENT. ``proofbundle/eval-claim/v0.1`` (``evalclaim.py``) stays as it is and
+stays verifiable. Nothing here runs unless a caller names this format: ``emit-eval --format eval-receipt-v1``
+produces it, and ``show-eval`` reaches it only on the explicit ``--format eval-receipt-v1`` switch or for a
+file whose ``schema`` is the receipt type. The format is EXPERIMENTAL and in no release scope until a reader
+in Rust meets every vector in verdict and step (owner decisions of 2026-10-02 and 2026-11-01,
+``scripts/rust_parity_registry.json``).
 
-WHAT A RECEIPT PROVES. That the holder of the key the Receiver fixed signed B. A receipt does not show
-that it was published or logged, that the score is true, that the run was the only run, or that the named
-model was the one evaluated (the draft's Section 6).
+WHAT A RECEIPT PROVES. That the holder of the key the Receiver fixed signed B. A receipt does not show that
+it was published or logged, that the score is true, that the run was the only run, or that the named model
+was the one evaluated (the draft's Section 6).
 
 THE PROCEDURE IS THE DRAFT'S. ``verify_signed_eval_receipt`` evaluates the eleven steps of the draft's
-Section 5 in order and returns the first one that fails, so this verifier and the draft's vectors agree
-on the step and not only on the verdict (``tests/test_signed_eval_receipt_conformance.py``). The
-signature profile is the draft's Section 4.4, which is stricter than SPEC section 4a: a non-canonical
-encoding of the key or of R, and a key or an R that is not a point of order L (a point of small or of
-mixed order), are refused before the signature equation is checked. With A and R of order L the
-cofactorless and the cofactored equation of RFC 8032 section 5.1.7 accept exactly the same signatures;
-each signature is checked on its own, never by a batch.
+Section 5 in order and returns the first one that fails, so this verifier and the draft's vectors agree on
+the step and not only on the verdict (``tests/test_signed_eval_receipt_conformance.py``). The signature
+profile is the draft's Section 4.4, which is stricter than SPEC section 4a: a non-canonical encoding of the
+key or of R, and a key or an R that is not a point of order L (a point of small or of mixed order), are
+refused before the signature equation is checked. With A and R of order L the cofactorless and the
+cofactored equation of RFC 8032 section 5.1.7 accept exactly the same signatures; each signature is checked
+on its own, never by a batch. The procedure is the one of -00, which -04 keeps with its 66 vectors; the one
+change of -04 is that a verification key that is not exactly 32 octets is an input error.
 
-A RESOURCE LIMIT IS NO VERDICT. A receipt, or a B, that nests arrays and objects deeper than 64 stops the
-procedure: the verdict says ``resource_limit``, with no step, and is neither PASS nor the failure of a step
-(the draft's Section 5). The depth is counted in the text before the text is parsed, as the draft's own
-checkers count it (``MAX_DEPTH`` 64 in ``drafts/ser/examples/check_receipts.py`` and in the checker written
-from the text), so the same bytes stop at the same place on every interpreter. Until 2026-10-17 the
-interpreter's recursion limit decided instead, and CPython 3.12 and later parse and serialize deeper than
-3.11: B 450 deep was a resource limit on 3.11 and a FAIL at step 5 on 3.12 and 3.13. The verifier still never
-raises; a stack the caller has nearly used up still ends as a resource limit, never as an exception.
+NO VERDICT WITHOUT THE STEPS. A verification key that is not exactly 32 octets is an input error: no step
+runs, and the verdict says ``input_error``, with no step. A receipt or a B past this package's structural budget
+(``budget.json_depth`` counted from 1 at the root with scalars, ``json_nodes`` and ``string_len``, as ``_strict_json``
+holds them) stops the procedure: the verdict says ``resource_limit``, with no step. Before a text is parsed, its
+arrays and objects are counted in the text (``_deeper_than_limit``), so a text nested deeper than the budget never
+reaches the parser and no interpreter's recursion limit decides; after parsing, the same budget is walked on the
+value. Neither outcome is PASS nor the failure of a step (the draft's Section 5 and Section 8). The verifier never
+raises.
+
+THE PRODUCER. ``emit_signed_eval_receipt`` writes a receipt by Sections 3 and 4 of -04 and verifies it under the
+signer's own key before returning it; ``salted_commitment`` builds a commitment by Section 3.3. What each signs is
+named at the function.
 
 The Rust verifier in ``tools/pb_verify_rs`` does not know this format; a receipt of it gets no verdict
 there.
@@ -51,14 +55,16 @@ from typing import Any, Mapping, NamedTuple, Optional
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from ._membership import is_member, require_switch
+from .budget import DEFAULT_BUDGET
 from .canonical import _abbild_stand, _ein_stand
+from .dsse import pae as _dsse_pae
 from ._wire_b64 import decode_b64
 from .signature import plain_bytes, verify_ed25519_pinned
 
 RECEIPT_TYPE = "application/vnd.signed-evidence.eval-receipt+json"
 PAYLOAD_SCHEMA = "https://signed-evidence.org/eval-receipt/v1"
 COMMIT_ALG = "sha256-salted-v1"
-DRAFT = "draft-gruszka-signed-evaluation-receipts-00"
+DRAFT = "draft-gruszka-signed-evaluation-receipts-04"
 
 __all__ = ["RECEIPT_TYPE", "PAYLOAD_SCHEMA", "COMMIT_ALG", "DRAFT", "ReceiptVerdict", "pae",
            "payload_bytes", "emit_signed_eval_receipt", "verify_signed_eval_receipt", "names_receipt_type"]
@@ -78,10 +84,10 @@ _DECIMAL_RE = re.compile(r"\A-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?\Z")
 _COMMIT_RE = re.compile(r"\Asha256:[0-9a-f]{64}\Z")
 _TIMESTAMP_RE = re.compile(r"\A([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})Z\Z")
 _MAX_SAFE = 2 ** 53
-#: The deepest nesting of arrays and objects steps 1 and 4 read; a top-level array or object is depth 1. The limit
-#: of the draft's own checkers, counted in the text before it is parsed (``_deeper_than_limit``), so that the parser
-#: and the serializer here never follow more levels than this and no interpreter's recursion limit decides.
-_MAX_DEPTH = 64
+#: The deepest nesting of arrays and objects the text count lets through to the parser; a top-level array or object
+#: is depth 1. It is the package's ``json_depth``: a text past it is past the budget walk as well, since that walk
+#: counts the same containers and the scalars below them too.
+_MAX_DEPTH = DEFAULT_BUDGET.json_depth
 #: The characters the depth count looks at, each matched alone, as in the draft's checker.
 _DEPTH_CHARS = re.compile(r'[\\"\[\]{}]')
 
@@ -95,21 +101,25 @@ _SQRT_M1 = pow(2, (_P - 1) // 4, _P)
 class ReceiptVerdict(NamedTuple):
     """The result of the draft's Section 5: ``ok``, and for a FAIL the first failing ``step`` (1 to 11),
     for step 11 the profile ``rule`` (``"profile 3"``, ``"profile 1, key"`` ...), and a ``reason``. When the
-    procedure stopped at a resource limit, ``resource_limit`` is True, ``ok`` is False and ``step`` is None:
-    no verdict, neither PASS nor FAIL."""
+    verification key was not exactly 32 octets, ``input_error`` is True; when the procedure stopped at a
+    resource limit, ``resource_limit`` is True. In both cases ``ok`` is False and ``step`` is None: no
+    verdict, neither PASS nor FAIL."""
     ok: bool
     step: Optional[int]
     rule: Optional[str]
     reason: str
     payload: Optional[bytes] = None   # B, only when ok
     resource_limit: bool = False
+    input_error: bool = False
 
     @property
     def step_label(self) -> str:
         """The step as the draft's vector table writes it: ``all``, ``4`` or ``11 (profile 2, R)``, and
-        ``resource limit`` for a procedure that stopped at one."""
+        ``input error`` or ``resource limit`` for a procedure that did not run or stopped."""
         if self.ok:
             return "all"
+        if self.input_error:
+            return "input error"
         if self.resource_limit:
             return "resource limit"
         return f"{self.step} ({self.rule})" if self.rule else str(self.step)
@@ -138,6 +148,20 @@ class _Number:
 
 
 # ---- I-JSON (RFC 7493) ----------------------------------------------------------------------------
+class _Repeated(Exception):
+    """A member name that stands twice in one object, compared after unescaping (RFC 8259 Section 8.3)."""
+
+
+def _no_duplicates(items):
+    """The ``object_pairs_hook`` of the I-JSON reader: the pairs as a dict, refused when a name repeats."""
+    seen: dict = {}
+    for name, value in items:
+        if name in seen:
+            raise _Repeated(name)
+        seen[name] = value
+    return seen
+
+
 def _deeper_than_limit(text: str) -> bool:
     """Whether TEXT nests arrays and objects deeper than ``_MAX_DEPTH``, brackets inside strings skipped. Counted
     without recursion and without parsing, so it answers for a text that is no JSON as well."""
@@ -183,31 +207,49 @@ def _ijson(raw: bytes, what: str, step: int) -> Any:
     except UnicodeDecodeError:
         raise _Fail(step, f"{what} is not UTF-8") from None
     if _deeper_than_limit(text):
-        raise _Limit(f"{what} nests arrays and objects deeper than {_MAX_DEPTH}")
-
-    # The name is the one `tests/test_strict_decoding_guard.py` knows as a strict hook: the guard runs this function
-    # on duplicate member names and counts the call below as strict only because the hook refuses each of them.
-    def _reject_duplicate_keys(items):
-        seen: dict = {}
-        for name, value in items:
-            _check_text(name, what, step)
-            if name in seen:
-                raise _Fail(step, f"{what} repeats a member name")
-            seen[name] = value
-        return seen
+        raise _Limit(f"{what} nests deeper than {_MAX_DEPTH} levels")
 
     def no_constant(name):
         raise _Fail(step, f"{what} contains {name}, which is not JSON")
 
     try:
-        value = json.loads(text, object_pairs_hook=_reject_duplicate_keys, parse_int=_Number, parse_float=_Number,
+        value = json.loads(text, object_pairs_hook=_no_duplicates, parse_int=_Number, parse_float=_Number,
                            parse_constant=no_constant)
     except _Fail:
         raise
-    except (RecursionError, MemoryError) as exc:   # the caller's own stack or memory, not the text's depth
-        raise _Limit(f"{what} could not be read here ({type(exc).__name__})") from None
+    except _Repeated:
+        raise _Fail(step, f"{what} repeats a member name") from None
+    except (RecursionError, MemoryError) as exc:
+        raise _Limit(f"{what} nests deeper than this reader's limit ({type(exc).__name__})") from None
     except ValueError as exc:
         raise _Fail(step, f"{what} is not one JSON text ({type(exc).__name__})") from None
+
+    # The package's structural budget first, before any step judges the text, with the axes and the count of
+    # _strict_json: depth (measured at bd1bdf6b, the Python 3.14 of CI parsed 100000 nested lists without a
+    # RecursionError and step 1 failed, where 3.14.8 on another machine raised it), the number of members and items,
+    # and the length of a string, a member name included (Codex thread 4437338037: a `suite` of 1,000,001
+    # characters verified, and loads_strict refused the same B when show-eval rendered it).
+    bound, nodes_cap, text_cap = DEFAULT_BUDGET.json_depth, DEFAULT_BUDGET.json_nodes, DEFAULT_BUDGET.string_len
+    nodes = 0
+    levels = [(value, 1)]
+    while levels:
+        v, depth = levels.pop()
+        if depth > bound:
+            raise _Limit(f"{what} nests deeper than {bound} levels")
+        if isinstance(v, str):
+            if len(v) > text_cap:
+                raise _Limit(f"{what} holds a string of more than {text_cap} characters")
+        elif isinstance(v, dict):
+            nodes += len(v)
+            if nodes > nodes_cap:
+                raise _Limit(f"{what} holds more than {nodes_cap} members and items")
+            for name, x in v.items():
+                levels.extend(((name, depth + 1), (x, depth + 1)))
+        elif isinstance(v, list):
+            nodes += len(v)
+            if nodes > nodes_cap:
+                raise _Limit(f"{what} holds more than {nodes_cap} members and items")
+            levels.extend((x, depth + 1) for x in v)
 
     stack = [value]
     while stack:
@@ -215,6 +257,8 @@ def _ijson(raw: bytes, what: str, step: int) -> Any:
         if isinstance(v, str):
             _check_text(v, what, step)
         elif isinstance(v, dict):
+            for name in v:
+                _check_text(name, what, step)
             stack.extend(v.values())
         elif isinstance(v, list):
             stack.extend(v)
@@ -293,10 +337,9 @@ def _jcs(v: Any) -> str:
 # ---- pieces of the procedure ---------------------------------------------------------------------
 @_ein_stand
 def pae(typ: str, body: bytes) -> bytes:
-    """The DSSE pre-authentication encoding, as the draft's Section 4.1 defines it."""
-    t = typ.encode("utf-8")
-    return b"DSSEv1 " + str(len(t)).encode("ascii") + b" " + t + b" " + str(len(body)).encode("ascii") \
-        + b" " + body
+    """The pre-authentication encoding of the draft's Section 4.1. It is the package's hardened ``dsse.pae``, the
+    same bytes the draft defines (``PAE(type, body) = "DSSEv1" SP LEN(type) SP type SP LEN(body) SP body``)."""
+    return _dsse_pae(typ, body)
 
 
 def _canonical_b64(value: Any, step: int, what: str, length: Optional[int] = None) -> bytes:
@@ -482,15 +525,18 @@ def _procedure(receipt: bytes, key: bytes) -> bytes:
 def verify_signed_eval_receipt(receipt: bytes, key: bytes) -> ReceiptVerdict:
     """Verify receipt BYTES under the verification KEY the Receiver fixed (32 raw bytes), by the draft's
     Section 5. Never raises. Each argument is read once, as the bytes it stores
-    (``signature.plain_bytes``): a receipt that is no bytes value fails at step 1, a key that is no
-    32-byte value fails rule 1 of the profile (its decoding cannot succeed). A receipt that stops the
-    procedure at a resource limit gets a verdict with ``resource_limit`` True and no step: it is neither
-    PASS nor FAIL, and a caller that reads only ``ok`` refuses it."""
+    (``signature.plain_bytes``). A key that is no value of exactly 32 bytes is an input error: no step
+    runs, and the verdict has ``input_error`` True and no step (Section 5 of -04). A 32-byte key that is no
+    canonical point, or not of order L, is no input error and fails step 11. A receipt that is no bytes
+    value fails at step 1. A receipt that stops the procedure at a resource limit gets a verdict with
+    ``resource_limit`` True and no step. Neither of the two is PASS nor FAIL, and a caller that reads only
+    ``ok`` refuses both."""
     raw, pin = plain_bytes(receipt), plain_bytes(key)
+    if pin is None or len(pin) != 32:
+        return ReceiptVerdict(False, None, None, "input error: the verification key is not exactly 32 octets, "
+                              "and no step of Section 5 was run", input_error=True)
     if raw is None:
         return ReceiptVerdict(False, 1, None, "the receipt is not a bytes value")
-    if pin is None or len(pin) != 32:
-        return ReceiptVerdict(False, 11, "profile 1, key", "the verification key is not 32 bytes")
     try:
         b = _procedure(raw, pin)
     except _Fail as f:
