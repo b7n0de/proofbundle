@@ -126,6 +126,33 @@ def test_the_outside_verifier_runs_once_isolated_and_before_the_gate():
     assert "if" not in s and not s.get("continue-on-error", False), s
 
 
+def test_every_python_process_of_the_release_job_reads_bytecode_from_a_fresh_directory():
+    """[COUNTS] Codex on pull request 541, round lx5, P0 2: a `__pycache__/*.pyc` beside a source runs in place of it, git
+    ignores it and the outside verifier skips it. The job of the gate sets PYTHONPYCACHEPREFIX to a directory it makes
+    with `mktemp -d`, refuses an empty or missing one, and does so before its first step that runs Python, with no
+    condition and no allowed failure; no other place of the workflow sets the variable."""
+    import yaml
+
+    text = WORKFLOW.read_text(encoding="utf-8")
+    jobs = yaml.safe_load(text)["jobs"]
+    name = [n for n, job in jobs.items() for s in job.get("steps") or []
+            if (s.get("run") or "").strip().startswith("python scripts/pre_tag_audit_gate.py ")][0]
+    steps = jobs[name]["steps"]
+    setzt = [i for i, s in enumerate(steps) if "PYTHONPYCACHEPREFIX" in (s.get("run") or "")]
+    assert len(setzt) == 1, setzt
+    lauf = steps[setzt[0]]["run"]
+    assert 'd="$(mktemp -d)"' in lauf and 'test -n "$d" && test -d "$d"' in lauf, lauf
+    assert 'echo "PYTHONPYCACHEPREFIX=$d" >> "$GITHUB_ENV"' in lauf, lauf
+    zeilen = [z.strip() for z in lauf.splitlines() if z.strip()]
+    assert zeilen.index('test -n "$d" && test -d "$d"') < zeilen.index('echo "PYTHONPYCACHEPREFIX=$d" >> "$GITHUB_ENV"')
+    python = [i for i, s in enumerate(steps) if re.search(r"(^|\s)python3?(\s|$)", s.get("run") or "")]
+    assert python and setzt[0] < min(python), f"the variable is set at step {setzt[0]}, Python first runs at {min(python)}"
+    assert "if" not in steps[setzt[0]] and not steps[setzt[0]].get("continue-on-error", False)
+    nennungen = [nr for nr, z in enumerate(text.splitlines(), 1)
+                 if "PYTHONPYCACHEPREFIX" in z and not z.strip().startswith("#")]
+    assert len(nennungen) == 1, f"PYTHONPYCACHEPREFIX is named outside a comment on lines {nennungen}"
+
+
 def _oberste_glieder(ausdruck: str) -> tuple[list[str], bool]:
     """(the conjuncts at the top level of a GitHub expression, whether `||` occurs at the top level). Brackets
     nest; a conjunct wrapped in one pair of brackets is unwrapped, so `(a == b)` and `a == b` compare alike."""

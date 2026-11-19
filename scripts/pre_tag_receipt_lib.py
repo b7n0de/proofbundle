@@ -486,9 +486,11 @@ _RECEIPT_MUSTER = _re.compile(
 #: audit output but never both (measured on a throwaway clone at v6.6.0: the gate said `verified`, and
 #: with the 6.6.0 output committed beside the receipt it said `other_tree`). One path form is therefore
 #: left out of the digest, and only when the receipt beside it binds it: see `gebundene_ausgaben`. The
-#: form is new on purpose: no tag and not main carry it (0 of 58 refs, measured 2026-11-18), so no digest
-#: computed so far changes, while the older name `audit_output_v<version>.txt` lies in four tags and stays
-#: in the digest. The pattern is matched against the whole path, and its folder must be the version's.
+#: form is new on purpose: none of the 58 refs measured on 2026-11-18 (the tags and main) carries it, so this
+#: output rule moves none of their digests, while the older name `audit_output_v<version>.txt` lies in four tags
+#: and stays in the digest. The receipt rule of `eigene_quittungen` does move the digest of every tree that carries
+#: receipts of earlier versions (measured at v6.6.0, lesson 2). The pattern is matched against the whole path, and
+#: its folder must be the version's.
 _AUSGABE_MUSTER = _re.compile(
     r"\A(audit_artifacts/([0-9][0-9A-Za-z.+!_\-]*))/pre_tag_audit_output_v([0-9][0-9A-Za-z.+!_\-]*)\.txt\Z")
 

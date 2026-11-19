@@ -82,7 +82,7 @@ def _tree(tmp_path, *, chain: bool = False) -> pathlib.Path:
     shutil.copytree(REPO / "src" / "proofbundle", repo / "src" / "proofbundle",
                     ignore=shutil.ignore_patterns("__pycache__"))
     files = {"pyproject.toml": f'[project]\nversion = "{VERSION}"\n', ANCHOR: _pub(_TRUSTED) + "\n",
-             "audit_artifacts/661/README.md": "page\n"}
+             "audit_artifacts/661/README.md": "page\n", ".gitignore": "__pycache__/\n"}
     if chain:
         files.update({f"scripts/{name}": (REPO / "scripts" / name).read_bytes() for name in CHAIN})
     _commit(repo, files, "candidate")
@@ -104,28 +104,30 @@ def _receipt(repo, *, output: bytes = OUTPUT_BYTES, signer=_TRUSTED, sign_as=Non
     return json.dumps(r, indent=2) + "\n"
 
 
-def _run(*argv) -> dict:
+def _run(*argv, umgebung_dazu: dict | None = None) -> dict:
     """A script of the chain in a fresh interpreter, without PYTHONPATH and without writing bytecode, its JSON answer.
     Every subprocess here runs with `-B`: a `__pycache__` written into the scripts/ of a test tree went into the next
     commit of that tree, and a digest then moved for that reason alone (measured on the mutant B8)."""
-    umgebung = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    umgebung = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "PYTHONPYCACHEPREFIX")}
+    umgebung.update(umgebung_dazu or {})
     r = subprocess.run([sys.executable, "-B", *map(str, argv), "--json"], capture_output=True, text=True, env=umgebung,
                        timeout=300, cwd=str(REPO.parent))
     assert r.stdout.strip(), f"no answer (exit {r.returncode}): {r.stderr[-2000:]}"
     return json.loads(r.stdout)
 
 
-def _gate(repo, *, aus_dem_baum: bool = False) -> dict:
+def _gate(repo, *, aus_dem_baum: bool = False, umgebung_dazu: dict | None = None) -> dict:
     """The gate of this repository, or (`aus_dem_baum`) the copy the judged tree carries under scripts/, which is the
     shape of the release: there the gate lies in the checkout it judges, and `sign_readiness_artifact.py`, loaded by
     the library, puts the `src/` beside it in front of `sys.path` (measured: run from outside the tree, the gate took
     the package of its own repository and never saw the judged tree's disk)."""
     wo = (repo if aus_dem_baum else REPO) / "scripts" / "pre_tag_audit_gate.py"
-    return _run(wo, "--repo", repo, "--version", VERSION)
+    return _run(wo, "--repo", repo, "--version", VERSION, umgebung_dazu=umgebung_dazu)
 
 
-def _step(repo) -> dict:
-    return _run(repo / "scripts" / "audit_output_aufloesbar.py", "--repo", repo, "--version", VERSION)
+def _step(repo, *, umgebung_dazu: dict | None = None) -> dict:
+    return _run(repo / "scripts" / "audit_output_aufloesbar.py", "--repo", repo, "--version", VERSION,
+                umgebung_dazu=umgebung_dazu)
 
 
 # ── THE GATE ─────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -183,6 +185,31 @@ def test_a_gate_planted_on_disk_does_not_judge_for_the_step(tmp_path):
     r = _step(repo)
     assert r["zustand"] == "NICHT_MESSBAR", r
     assert "FORGED" not in json.dumps(r), r
+
+
+def test_a_bytecode_cache_beside_the_library_does_not_run(tmp_path):
+    """[COUNTS] Codex on pull request 541, round lx5, P0 2. A `.pyc` of the receipt library with an unchecked hash lies in
+    the tree's `scripts/__pycache__`, where Python takes it in place of the source and git does not see it. It writes a
+    marker when it runs. The step imports the library at its start: it must take the source, so the marker stays
+    absent and the step still resolves. The gate, run from the tree as well, loads its library by path behind its own
+    bytecode directory (control)."""
+    import importlib.util as ilu
+    import py_compile
+
+    repo = _release(tmp_path)
+    marke = tmp_path / "pyc_ran"
+    gefaelscht = tmp_path / "pre_tag_receipt_lib.py"
+    gefaelscht.write_text((repo / "scripts" / "pre_tag_receipt_lib.py").read_text(encoding="utf-8")
+                          + "\nimport os as _os\nopen(_os.environ['PB_PYC_MARKE'], 'w').write('ran')\n", encoding="utf-8")
+    ziel = repo / "scripts" / "__pycache__" / pathlib.Path(ilu.cache_from_source(str(gefaelscht))).name
+    py_compile.compile(str(gefaelscht), cfile=str(ziel), dfile=str(repo / "scripts" / "pre_tag_receipt_lib.py"),
+                       doraise=True, invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH)
+    assert ziel.is_file() and _git(repo, "status", "--porcelain") == "", "the cache must be invisible to git"
+    r = _step(repo, umgebung_dazu={"PB_PYC_MARKE": str(marke)})
+    assert not marke.exists(), "the step ran a .pyc beside its library instead of the source"
+    assert r["zustand"] == "AUFLOESBAR", r
+    _gate(repo, aus_dem_baum=True, umgebung_dazu={"PB_PYC_MARKE": str(marke)})
+    assert not marke.exists(), "the gate ran a .pyc beside its library instead of the source"
 
 
 def test_a_step_on_disk_that_is_not_the_commit_measures_nothing(tmp_path):

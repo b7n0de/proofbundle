@@ -95,6 +95,20 @@ jobs:
           # shows none of them: measured 2026-09-28, depth 1 exit 2.
           fetch-depth: 0
 
+      - name: Bytecode of this job comes from a fresh directory, never from beside the sources (from 6.6.1)
+        # CODEX ON PULL REQUEST 541, ROUND LX5, P0 2. Python runs a `__pycache__/*.pyc` beside a source in place of that
+        # source, and one written with an unchecked hash without looking at the source at all. git ignores such a cache
+        # and the outside verifier skips `__pycache__`, so it would be no part of what is compared with the commit, and
+        # every script this job runs from the checkout imports modules beside it. So every later Python process of this
+        # job reads and writes bytecode only under a directory made here for this run (`mktemp -d`, a name not known
+        # ahead of time), and an empty or missing directory stops the job instead of falling back to `__pycache__`. The
+        # outside verifier runs with `-I`, which ignores this variable, and keeps its own fresh directory; the gate and
+        # the audit-output step keep theirs as well.
+        run: |
+          d="$(mktemp -d)"
+          test -n "$d" && test -d "$d"
+          echo "PYTHONPYCACHEPREFIX=$d" >> "$GITHUB_ENV"
+
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.12"

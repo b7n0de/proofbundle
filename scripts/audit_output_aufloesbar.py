@@ -75,6 +75,21 @@ import os
 import sys
 from pathlib import Path
 
+# BYTECODE ONLY FROM A FRESH DIRECTORY (Codex on pull request 541, round lx5, P0 2). Run as a script, this file imports
+# the receipt library from its own directory two statements below, and Python runs a `__pycache__/*.pyc` beside a
+# source in place of the source; a `.pyc` written with an unchecked hash is used without looking at the source at all.
+# git ignores such a cache and the outside verifier skips `__pycache__`, so it is no part of what was compared with the
+# commit. Every bytecode lookup of this run therefore goes to a new, empty directory, whatever the environment names,
+# and nothing is written. Imported as a module, the caller's import state is left alone. release.yml sets
+# PYTHONPYCACHEPREFIX for every Python process of the release job as well (the class, not only this file).
+if __name__ == "__main__":
+    import atexit
+    import shutil
+    import tempfile
+    sys.pycache_prefix = tempfile.mkdtemp(prefix="audit_output_aufloesbar_pyc_")
+    sys.dont_write_bytecode = True
+    atexit.register(shutil.rmtree, sys.pycache_prefix, ignore_errors=True)
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pre_tag_receipt_lib import (  # noqa: E402
     BaumNichtLesbar,
