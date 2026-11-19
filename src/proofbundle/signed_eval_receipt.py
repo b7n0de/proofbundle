@@ -61,7 +61,7 @@ from .budget import DEFAULT_BUDGET
 from .canonical import _abbild_stand, _ein_stand
 from .dsse import pae as _dsse_pae
 from ._wire_b64 import decode_b64
-from .signature import plain_bytes, verify_ed25519_pinned
+from .signature import _ed25519_signatur_von, plain_bytes, verify_ed25519_pinned
 
 RECEIPT_TYPE = "application/vnd.signed-evidence.eval-receipt+json"
 PAYLOAD_SCHEMA = "https://signed-evidence.org/eval-receipt/v1"
@@ -616,7 +616,12 @@ def emit_signed_eval_receipt(payload: Mapping, signer: Ed25519PrivateKey, *, key
         raise TypeError("signer must be an Ed25519PrivateKey")
     b = payload_bytes(payload)
     pub = signer.public_key().public_bytes_raw()
-    signature = {"alg": "ed25519", "sig": base64.b64encode(signer.sign(pae(RECEIPT_TYPE, b))).decode("ascii")}
+    # The signer's output is read once as 64 bytes (`signature._ed25519_signatur_von`), the one read of a signer's output
+    # by a producer; anything else is refused before it is written. It changes nothing that is signed.
+    sig = _ed25519_signatur_von(signer.sign(pae(RECEIPT_TYPE, b)))
+    if sig is None:
+        raise ValueError("the signer returned no 64-byte Ed25519 signature")
+    signature = {"alg": "ed25519", "sig": base64.b64encode(sig).decode("ascii")}
     if key_hint:
         signature["key"] = base64.b64encode(pub).decode("ascii")
     receipt = {

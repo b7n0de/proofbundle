@@ -63,7 +63,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from . import _receipt_cose_cbor2 as _second
 from ._strict_json import loads_reject_duplicate_keys
 from .canonical import _ein_stand
-from .signature import ed25519_trust_anchor_weakness, plain_bytes, plain_text
+from .signature import _ed25519_signatur_von, ed25519_trust_anchor_weakness, plain_bytes, plain_text
 from .signed_eval_receipt import (RECEIPT_TYPE, _decode_point, _Fail, _has_order_l, _profile,
                                   verify_signed_eval_receipt)
 
@@ -603,7 +603,9 @@ def receipt_to_statement(receipt: bytes, receipt_key: bytes, signer: Ed25519Priv
     protected = {_ALG: alg, _KID: cose_key_thumbprint(public), _CWT: {_ISS: issuer, _SUB: subject},
                  _HASH_ALG: _SHA256, _PREIMAGE_CTY: RECEIPT_TYPE}
     protected_raw = _enc(protected)
-    signature = signer.sign(_sig_structure(protected_raw, digest))
+    signature = _ed25519_signatur_von(signer.sign(_sig_structure(protected_raw, digest)))
+    if signature is None:
+        raise ReceiptCoseError("the signer returned no 64-byte Ed25519 signature; no statement is made")
     data = _head(6, _TAG_SIGN1) + _enc([protected_raw, {}, digest, signature])
     check = _check(data, receipt=receipt, receipt_key=receipt_key, statement_keys=[(issuer, public)], algs=(alg,))
     if not check.ok:

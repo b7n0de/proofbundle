@@ -165,10 +165,11 @@ def test_the_neutral_element_is_not_of_order_l():
 
 
 def test_normally_made_keys_and_signatures_keep_their_verdict():
-    """The rule refuses only made-up inputs: 64 keys from seeds, each signing its own message, pass all four
-    rules, and the same signature over another message fails rule 4."""
+    """The rule refuses only made-up inputs: 64 keys the library generates, each signing its own message, pass all
+    four rules, and the same signature over another message fails rule 4. Generated, not loaded from a derived seed,
+    so the sdist carries no key-reading path (tests/test_sdist_ohne_signierwerkzeug.py)."""
     for i in range(64):
-        sk = Ed25519PrivateKey.from_private_bytes(hashlib.sha256(b"order-L control %d" % i).digest())
+        sk = Ed25519PrivateKey.generate()
         pub, msg = sk.public_key().public_bytes_raw(), b"message %d" % i
         ser._profile(pub, sk.sign(msg), msg)
         with pytest.raises(ser._Fail) as caught:

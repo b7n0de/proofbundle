@@ -119,7 +119,10 @@ _KEYS = {
     "the mixed-order test key": base64.b64decode("JBz17qgxoLE067Bf5k3hKZ6Pfmfx/iD8IEaped1NGoM="),
 }
 #: The issuer test seed of Appendix A.1 (PURE TEST KEY), and the salts and identifiers of its two commitments.
-_ISSUER_SEED = bytes.fromhex("2365520410748de8778b544410b15792fcf174e0fba4806a8c1afbdbb0946b07")
+#: Written as a literal, as tests/test_signed_eval_receipt_conformance.py writes it: a shipped test builds a throwaway
+#: key from a literal (tests/test_sdist_ohne_signierwerkzeug.py); a test below holds it to the hex of Appendix A.1.
+_ISSUER_SEED = b'#eR\x04\x10t\x8d\xe8w\x8bTD\x10\xb1W\x92\xfc\xf1t\xe0\xfb\xa4\x80j\x8c\x1a\xfb\xdb\xb0\x94k\x07'
+_ISSUER_SEED_HEX = "2365520410748de8778b544410b15792fcf174e0fba4806a8c1afbdbb0946b07"
 _A1_COMMITMENTS = (
     ("2d1845bc523b3c2635ab90af343f33eb", "acme/model-x@2026-09",
      "sha256:904de42562f9a19651e19eb7ab165e4ffe114ce5a2f98e57da5838959684fb0f"),
@@ -309,6 +312,7 @@ class TheRoundTrip(unittest.TestCase):
             ser.emit_signed_eval_receipt(_payload("m", "d"), _Broken())
 
     def test_the_issuer_test_key_reproduces_p1_of_the_file(self):
+        self.assertEqual(_ISSUER_SEED.hex(), _ISSUER_SEED_HEX)
         p1 = next(v for v in _vectors() if v["id"] == "P1")
         b = next(bytes.fromhex(x["hex"]) for x in p1["bytes"] if x["label"] == "B")
         out = ser.emit_signed_eval_receipt(json.loads(b), Ed25519PrivateKey.from_private_bytes(_ISSUER_SEED))
