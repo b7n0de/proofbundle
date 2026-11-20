@@ -130,8 +130,9 @@ Moment ist nicht die Eigenschaft, um die es geht.
 
 ## Wo der Riegel läuft
 
-- CI: `.github/workflows/release-integrity.yml:31` — `python3 scripts/check_version_and_changelog.py --repo .`
-- Release checklist: `RELEASE.md:174`, after the publish `--external --require-external` must be green; before the owner GO, `RELEASE.md:29` checks without the external surfaces
+- CI: `.github/workflows/release-integrity.yml:60` runs `python3 scripts/check_version_and_changelog.py --repo .` on main and on pull requests
+- Release workflow (from 6.6.1): `.github/workflows/release.yml:164` runs the whole gate with `--tag "$GITHUB_REF_NAME"` before the build, check 8 included
+- Release checklist: `RELEASE.md:179`, after the publish `--external --require-external` must be green; before the owner GO, `RELEASE.md:29` checks without the external surfaces
 
 ## Ehrliche Grenzen
 
