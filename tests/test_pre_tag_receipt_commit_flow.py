@@ -11,10 +11,12 @@ ROUND 15 (2026-09-07) NARROWED THAT EXCLUSION, and this test now carries the rea
 whole directory removed the TRUST ANCHORS from the binding as well --
 ``audit_artifacts/pre_tag_trusted_pubkeys.txt`` is the very file the gate reads to decide who may
 sign. A key added to that anchor AFTER signing left ``subject_tree_digest`` byte-identical, so a
-self-signed receipt from a foreign key verified. The exclusion is now the receipt FILE (a pattern,
-since every version writes its own) plus the mutable evidence a release run produces while
-measuring -- never a whole directory, which is the wording ``sign_readiness_artifact.tree_digest``
-had already carried since Auflage C3 while this function still did the opposite.
+self-signed receipt from a foreign key verified. The exclusion is now the receipt FILE plus the
+mutable evidence a release run produces while measuring -- never a whole directory, which is the
+wording ``sign_readiness_artifact.tree_digest`` had already carried since Auflage C3 while this
+function still did the opposite. Since lesson 2 (pull request 541, owner choice B) the receipt FILE
+is only the receipt of the version the tree itself declares in ``pyproject.toml``, under one of
+the two names of the house and at mode 100644; a receipt of any other version is in the digest.
 
 This test proves the REAL produce -> commit -> verify flow end-to-end (subprocess, real scripts,
 real git): a committed receipt verifies, a post-signing dependency injection is REJECTED (the
@@ -171,6 +173,10 @@ def test_nur_der_versions_ordner_ist_eine_quittungsstelle(tmp_path):
 
     Zwei Seiten, sonst waere gruen nichts wert: die ECHTE Quittungsstelle muss weiterhin
     unsichtbar bleiben, die erfundene muss sichtbar werden.
+
+    SINCE LESSON 2 (pull request 541, choice B) the real place of the receipt is only the one of the version
+    the tree names in ``pyproject.toml``. The tree here names 6.0.0, so a receipt of 5.9.0 in its own, correctly
+    named folder lies INSIDE the binding (third side below).
     """
     # `sys` steht oben im Modul. Der Riegel
     # `test_kein_test_haengt_an_einem_fremden_import_nebeneffekt` misst einen Aufruf, dessen
@@ -186,6 +192,7 @@ def test_nur_der_versions_ordner_ist_eine_quittungsstelle(tmp_path):
     (repo / "audit_artifacts" / "600").mkdir(parents=True)
     (repo / "audit_artifacts" / "beliebig").mkdir(parents=True)
     (repo / "datei.txt").write_text("basis\n")
+    (repo / "pyproject.toml").write_text('[project]\nname = "x"\nversion = "6.0.0"\n')
     _git(["init", "-q"], repo)
     _git(["add", "-A"], repo)
     _git(["commit", "-q", "-m", "basis"], repo)
@@ -205,6 +212,16 @@ def test_nur_der_versions_ordner_ist_eine_quittungsstelle(tmp_path):
     assert subject_tree_digest(repo) != vorher, (
         "audit_artifacts/<beliebig>/pre_tag_receipt_*.json faellt aus der Bindung — ein Angreifer "
         "duerfte den Ordnernamen nicht selbst waehlen koennen")
+
+    # THE NEW SIDE (lesson 2): the receipt of ANOTHER version, in the right folder and correctly named, is a file
+    # like any other and moves the digest.
+    vor_fremder = subject_tree_digest(repo)
+    (repo / "audit_artifacts" / "590").mkdir(parents=True)
+    (repo / "audit_artifacts" / "590" / "pre_tag_receipt_v5.9.0.json").write_text('{"c": 3}\n')
+    _git(["add", "-A"], repo)
+    _git(["commit", "-q", "-m", "quittung einer anderen version"], repo)
+    assert subject_tree_digest(repo) != vor_fremder, (
+        "die Quittung einer anderen Version faellt aus der Bindung — seit Lehre 2 nur die der eigenen")
 
     # DIE ZEREMONIE-AUFLAGE, die aus derselben Eigenschaft folgt und deshalb hier festgenagelt wird:
     # ein NACHBAR im selben Versionsordner bewegt den Digest. Bis zur alten Fassung tat er das nicht
@@ -260,23 +277,46 @@ def test_ein_baum_mit_null_eintraegen_ist_kein_digest(tmp_path):
         subject_tree_digest(unterordner)
     assert "as a repository" in str(fehler.value), str(fehler.value)
 
-    # THE ZERO-ENTRY GUARD STILL HAS A CASE: a real repository whose only tracked file is the
-    # receipt, which the digest excludes. `ls-tree` lists one line, the exclusion removes it,
-    # and the digest of nothing must not come back.
-    leer = tmp_path / "nur_quittung"
-    (leer / "audit_artifacts" / "600").mkdir(parents=True)
-    (leer / "audit_artifacts" / "600" / "pre_tag_receipt_v6.0.0.json").write_text('{"a": 1}\n')
+    # THE ZERO-ENTRY GUARD STILL HAS A CASE: a real repository whose only tracked file the digest
+    # excludes. `ls-tree` lists one line, the exclusion removes it, and the digest of nothing must
+    # not come back. SINCE LESSON 2 (pull request 541, owner choice B) a receipt leaves the digest
+    # only beside the `pyproject.toml` that names its version, and that file stays in the digest, so
+    # the case is a file of the mutable evidence set, which leaves the digest on its own.
+    import importlib.util as _ilu
+
+    _spec = _ilu.spec_from_file_location("_sra_null", SCRIPTS / "sign_readiness_artifact.py")
+    _sra = _ilu.module_from_spec(_spec)
+    _spec.loader.exec_module(_sra)
+    beleg = sorted(_sra.MUTABLE_EVIDENCE_RELS)[0]
+    leer = tmp_path / "nur_beleg"
+    (leer / beleg).parent.mkdir(parents=True)
+    (leer / beleg).write_text('{"a": 1}\n')
     _git(["init", "-q"], leer)
     _git(["add", "-A"], leer)
-    _git(["commit", "-q", "-m", "only a receipt"], leer)
+    _git(["commit", "-q", "-m", "only a piece of mutable evidence"], leer)
     with pytest.raises(BaumNichtLesbar) as fehler:
         subject_tree_digest(leer)
     assert "ZERO entries" in str(fehler.value), str(fehler.value)
+
+    # The control of the new rule: a repository whose only tracked file is a receipt declares no
+    # version, so nothing leaves its digest, and the digest is taken over that one file.
+    quittung = tmp_path / "nur_quittung"
+    (quittung / "audit_artifacts" / "600").mkdir(parents=True)
+    (quittung / "audit_artifacts" / "600" / "pre_tag_receipt_v6.0.0.json").write_text('{"a": 1}\n')
+    _git(["init", "-q"], quittung)
+    _git(["add", "-A"], quittung)
+    _git(["commit", "-q", "-m", "only a receipt, no version"], quittung)
+    assert len(subject_tree_digest(quittung)) == 64
 
 
 def test_eine_lokale_version_faellt_aus_der_bindung(tmp_path):
     """PEP 440 kennt `+local` und `1!epoch`. Das Muster muss sie kennen, sonst ist die Quittung
     im eigenen Digest enthalten — zirkulaer, sie kann nie verifizieren.
+
+    SINCE LESSON 2 (pull request 541, choice B) only the receipt of the version the tree names in
+    ``pyproject.toml`` leaves the digest; the tree here names `6.1.0+local`. Neither the gate
+    (`pyproject_version`) nor the library (`eigene_version`) reads an epoch as a version, so such a tree
+    declares no own receipt, and none leaves the digest.
 
     Gemessen 2026-09-07: `6.1.0+local` und `1!6.0.0` fielen NICHT aus dem Ausschluss, weder in der
     alten noch in der ersten verengten Fassung (die Zeichenklasse des DATEINAMENS kannte `+` und `!`
@@ -291,6 +331,7 @@ def test_eine_lokale_version_faellt_aus_der_bindung(tmp_path):
     repo = tmp_path / "r"
     (repo / "audit_artifacts" / "610+local").mkdir(parents=True)
     (repo / "datei.txt").write_text("basis\n")
+    (repo / "pyproject.toml").write_text('[project]\nname = "x"\nversion = "6.1.0+local"\n')
     _git(["init", "-q"], repo)
     _git(["add", "-A"], repo)
     _git(["commit", "-q", "-m", "basis"], repo)

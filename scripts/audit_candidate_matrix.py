@@ -1201,10 +1201,14 @@ def _evidenz_relation_erlaubt(repo: Path, gebunden: str, live: str) -> tuple[boo
         return None, f"git is not usable here ({type(exc).__name__})"
     pfade = {os.fsdecode(n) for n in geaendert.stdout.split(b"\0") if n}
     fremd = sorted(pfade - set(sra.MUTABLE_EVIDENCE_RELS))
-    # Both tree digests exclude every receipt-shaped path. The transition from the candidate
-    # is narrower: only the canonical receipt path of that candidate's version may change.
+    # Both tree digests exclude the receipt of the version the tree declares (since lesson 2,
+    # Codex on pull request 541, round lx4, P0 2). The transition from the candidate is narrower:
+    # only the canonical receipt path of that candidate's version may change.
     # Read that version from the bound commit, never from a mutable working-tree file.
-    quittungen = [p for p in fremd if sra.ist_quittungspfad(p)]
+    # The audit output beside the receipt (owner choice A on card OA-71c0d50067) is the receipt's
+    # companion: the canonical output path of the candidate's version may change as well. Whether the
+    # output is bound is not decided here; an unbound one stays in `tree_digest`, which is compared next.
+    quittungen = [p for p in fremd if sra.ist_quittungspfad(p) or sra.ist_ausgabepfad(p)]
     if quittungen:
         try:
             projekt = subprocess.run(
@@ -1220,13 +1224,15 @@ def _evidenz_relation_erlaubt(repo: Path, gebunden: str, live: str) -> tuple[boo
         version = versionen[0]
         quittung = (f"audit_artifacts/{version.replace('.', '')}/"
                     f"pre_tag_receipt_v{version}.json")
-        fremd = [p for p in fremd if p != quittung]
+        ausgabe = (f"audit_artifacts/{version.replace('.', '')}/"
+                   f"pre_tag_audit_output_v{version}.txt")
+        fremd = [p for p in fremd if p not in (quittung, ausgabe)]
     if fremd:
         return False, ("commits after the bound one touch paths outside the mutable evidence set: "
                        f"{', '.join(fremd[:5])}"
                        + (f" (and {len(fremd) - 5} more)" if len(fremd) > 5 else ""))
     return True, ("HEAD is a later evidence commit: an ancestor relation plus changes confined to "
-                  f"{', '.join(sra.MUTABLE_EVIDENCE_RELS)} and the pre-tag receipt")
+                  f"{', '.join(sra.MUTABLE_EVIDENCE_RELS)}, the pre-tag receipt and its audit output")
 
 
 def _candidate_binding_error(body: dict, repo: Path,

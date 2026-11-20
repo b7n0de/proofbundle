@@ -37,13 +37,22 @@ SCRIPTS = REPO / "scripts"
 #: while its subject digest left the receipt out. `sign_readiness_artifact.tree_digest` now leaves the
 #: receipt out by the same pattern, so both digests of that tree are bab2c96f…. "plain" and "names"
 #: carry no receipt and keep both values: the change reaches the receipt and nothing else.
+#:
+#: MOVED AGAIN, AND BACK (owner choice B, 2026-11-19, pull request 541, lesson 2). Only the receipt of
+#: the version the tree declares in `pyproject.toml` leaves the digest now. The tree "excluded" declares
+#: none, so its receipt is a file like any other, and both digests are c7da9ede…, the readiness value it
+#: had before OA-c04430c2ea. The tree "own_receipt" is the same tree declaring 6.0.0, whose receipt does
+#: leave both digests. Both values were computed with plain git and sha256 over the sorted listing
+#: lines, without the evidence paths and, for "own_receipt", without the receipt; the libraries agree.
 VECTORS = {
     "plain": ("f7b07c572b04dc8a467739482133375ce9a9960731a0924cb60c2543f75b60b6",
               "f7b07c572b04dc8a467739482133375ce9a9960731a0924cb60c2543f75b60b6"),
     "names": ("7d0f763a4f32724a625e01ab69ca475b93eca3c22cb0e6467bfe3e074647cf32",
               "7d0f763a4f32724a625e01ab69ca475b93eca3c22cb0e6467bfe3e074647cf32"),
-    "excluded": ("bab2c96fba851a69d1cbb9fed41126d8bfa35d540e8c5c0ac5d7493d2e7f704c",
-                 "bab2c96fba851a69d1cbb9fed41126d8bfa35d540e8c5c0ac5d7493d2e7f704c"),
+    "excluded": ("c7da9ede6337ebff989fdc19fe9e704a857da20a1494f846426bb8a560a27405",
+                 "c7da9ede6337ebff989fdc19fe9e704a857da20a1494f846426bb8a560a27405"),
+    "own_receipt": ("1d5baf96560aebbe9831ed603bf6b9e664931c2596e237d1ad565aa9d80e72b2",
+                    "1d5baf96560aebbe9831ed603bf6b9e664931c2596e237d1ad565aa9d80e72b2"),
 }
 
 
@@ -273,6 +282,11 @@ class TreesThatNameEachPathOnceKeepTheirDigest(_Base):
                          "audit_artifacts/360/rust_differential_matrix.json": b"{}\n",
                          "audit_artifacts/600/pre_tag_receipt_6.0.0.json": b"{}\n",
                          "audit_artifacts/pre_tag_trusted_pubkeys.txt": b"k\n"},
+            "own_receipt": {"keep.txt": b"k\n", "audit_artifacts/360/fuzz_soak_latest.json": b"{}\n",
+                            "audit_artifacts/360/rust_differential_matrix.json": b"{}\n",
+                            "audit_artifacts/600/pre_tag_receipt_6.0.0.json": b"{}\n",
+                            "audit_artifacts/pre_tag_trusted_pubkeys.txt": b"k\n",
+                            "pyproject.toml": b'[project]\nversion = "6.0.0"\n'},
         }[name]
         repo = self._repo(name, files)
         if name == "plain":

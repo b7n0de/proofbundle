@@ -233,27 +233,52 @@ class TestContract1_NoValidReceiptFails:
 
     def test_a_rejected_receipt_beside_a_valid_one_is_not_verified(self, welt):
         """DELTA2 N1 (2026-11-06): `verified` was decided before `rejected` was looked at, so a
-        genuine receipt carried a broken one committed beside it to VERIFIED, exit 0. The name of
-        the broken one matches the receipt pattern, so it lies outside the tree binding and the
-        genuine receipt stays valid; only the rule of the folder can refuse it."""
+        genuine receipt carried a broken one committed beside it to VERIFIED, exit 0. The broken one
+        stands under the other name of the house for the own version's receipt, so it lies outside
+        the tree binding and the genuine receipt stays valid; only the rule of the folder can refuse
+        it. (Until lesson 2 any name of the receipt pattern lay outside; see the next case.)"""
         repo, env, _priv, _kand, commit = welt
         rc0, res0, roh0 = _verify(repo, env, commit)
         assert rc0 == 0 and res0["verdict"] == "VERIFIED", roh0
+        assert _receipt_path(repo).name == "pre_tag_receipt_5.0.0.json", "precondition: the producer's name"
+        (repo / "audit_artifacts" / "500" / "pre_tag_receipt_v5.0.0.json").write_text("{ kaputt")
+        _git(["add", "audit_artifacts/500/"], repo)
+        _git(["commit", "-q", "-m", "broken neighbour under the other own name"], repo)
+        rc, res, roh = _verify(repo, env, _head(repo))
+        assert rc == 1 and res["verdict"] == "NOT_VERIFIED", roh
+        assert len(res["verified"]) == 1 and len(res["rejected"]) == 1, roh
+        assert "pre_tag_receipt_v5.0.0.json" in res["reason"], roh
+        tor = _run([sys.executable, "scripts/pre_tag_audit_gate.py", "--repo", ".", "--version", "5.0.0", "--json"],
+                   repo, env)
+        urteil = json.loads(tor.stdout)
+        assert (urteil["ok"], urteil["state"]) == (False, "rejected"), tor.stdout[-400:]
+
+    def test_a_broken_neighbour_under_another_name_moves_the_binding(self, welt):
+        """Lesson 2 (pull request 541, owner choice B): only the receipt of the tree's own version, under one
+        of the two names of the house, leaves the digest. A broken file beside it under any other name of the
+        receipt pattern is a committed file like any other, so the genuine receipt binds another tree now, and
+        the broken one is still rejected: not verified, as before, and for one more reason."""
+        repo, env, _priv, _kand, _commit = welt
         (repo / "audit_artifacts" / "500" / "pre_tag_receipt_v5.0.0-zweit.json").write_text("{ kaputt")
         _git(["add", "audit_artifacts/500/"], repo)
         _git(["commit", "-q", "-m", "broken neighbour"], repo)
         rc, res, roh = _verify(repo, env, _head(repo))
         assert rc == 1 and res["verdict"] == "NOT_VERIFIED", roh
-        assert len(res["verified"]) == 1 and len(res["rejected"]) == 1, roh
-        assert "pre_tag_receipt_v5.0.0-zweit.json" in res["reason"], roh
+        assert not res["verified"], roh
+        assert [x["path"] for x in res["rejected"]] == ["audit_artifacts/500/pre_tag_receipt_v5.0.0-zweit.json"], roh
+        assert [x["path"] for x in res["other_tree"]] == ["audit_artifacts/500/" + _receipt_path(repo).name], roh
+        tor = _run([sys.executable, "scripts/pre_tag_audit_gate.py", "--repo", ".", "--version", "5.0.0", "--json"],
+                   repo, env)
+        urteil = json.loads(tor.stdout)
+        assert (urteil["ok"], urteil["state"]) == (False, "rejected"), tor.stdout[-400:]
 
     def test_a_receipt_for_another_tree_beside_a_valid_one_stays_verified(self, welt):
         """Local review of 8a05ceef (2026-11-10, P1): since a rejected receipt outranks a valid one (DELTA2 N1),
         the verifier must tell a genuine receipt of an earlier candidate of the same version from a bad one, as the
         gate does; without that, the receipt of the earlier tree beside the receipt of this commit turned VERIFIED
-        into NOT_VERIFIED where the gate says verified. The earlier receipt keeps a name of the receipt pattern, so
-        it lies outside the binding. The gate on the same checkout is the oracle, and alone the earlier receipt
-        still does not verify."""
+        into NOT_VERIFIED where the gate says verified. Since lesson 2 the earlier receipt, under a name that is not
+        the own version's receipt, lies inside the binding, and the later receipt binds the tree that carries it.
+        The gate on the same checkout is the oracle, and alone the earlier receipt still does not verify."""
         repo, env, _priv, _kand, _commit = welt
         ordner = repo / "audit_artifacts" / "500"
         _receipt_path(repo).rename(ordner / "pre_tag_receipt_v5.0.0-frueher.json")
@@ -374,22 +399,28 @@ class TestContract1_NoValidReceiptFails:
         assert (urteil["ok"], urteil["state"]) == (False, "rejected"), tor.stdout[-400:]
         assert "submodule" in tor.stdout, tor.stdout[-400:]
 
-    def test_a_link_named_like_a_receipt_beside_a_valid_one_is_rejected_by_both_readers(self, welt):
-        """Local review of 9f5d5eec (P2): a committed link `pre_tag_receipt_v5.0.0-alias.json` to the valid receipt lies
+    @pytest.mark.parametrize("name", ["pre_tag_receipt_v5.0.0-alias.json", "pre_tag_receipt_v5.0.0.json"],
+                             ids=["another_name", "the_other_own_name"])
+    def test_a_link_named_like_a_receipt_beside_a_valid_one_is_rejected_by_both_readers(self, welt, name):
+        """Local review of 9f5d5eec (P2): a committed link `pre_tag_receipt_v5.0.0-alias.json` to the valid receipt lay
         outside the binding by its name. The gate read through the link and counted the receipt twice, verified; this
         verifier read the link text from the commit and rejected it, NOT_VERIFIED. Both reject a link now, so the gate
-        on the same checkout, the oracle, gives the same verdict."""
+        on the same checkout, the oracle, gives the same verdict. Since lesson 2 (pull request 541) a link leaves the
+        digest under no name, the own version's receipt names included (only a regular file of mode 100644 does), so
+        the genuine receipt binds another tree beside it."""
         repo, env, _priv, _kand, _commit = welt
         echte = _receipt_path(repo)
-        (echte.parent / "pre_tag_receipt_v5.0.0-alias.json").symlink_to(echte.name)
+        assert echte.name != name, "precondition: the link does not replace the genuine receipt"
+        (echte.parent / name).symlink_to(echte.name)
         _git(["add", "audit_artifacts/500/"], repo)
         _git(["commit", "-q", "-m", "a link beside the receipt"], repo)
-        assert _git(["ls-files", "-s", "audit_artifacts/500/pre_tag_receipt_v5.0.0-alias.json"], repo).startswith(
+        assert _git(["ls-files", "-s", "audit_artifacts/500/" + name], repo).startswith(
             "120000"), "precondition: the link is committed as a link"
         rc, res, roh = _verify(repo, env, _head(repo))
         assert rc == 1 and res["verdict"] == "NOT_VERIFIED", roh
-        assert len(res["verified"]) == 1, roh
-        assert [x["path"] for x in res["rejected"]] == ["audit_artifacts/500/pre_tag_receipt_v5.0.0-alias.json"], roh
+        assert not res["verified"], roh
+        assert [x["path"] for x in res["other_tree"]] == ["audit_artifacts/500/" + echte.name], roh
+        assert [x["path"] for x in res["rejected"]] == ["audit_artifacts/500/" + name], roh
         assert "symbolic link" in res["reason"], res["reason"]
         tor = _run([sys.executable, "scripts/pre_tag_audit_gate.py", "--repo", ".", "--version", "5.0.0", "--json"],
                    repo, env)

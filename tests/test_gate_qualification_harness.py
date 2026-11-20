@@ -352,6 +352,20 @@ def test_every_field_extraction_branch_is_bound():
         "the subscript-branch meta-test strip (32 -> cc31) is gone -- the round-9 WIDERLEGT can reopen.")
 
 
+#: The two functions that hold the rejections of the receipt check. `verify_receipt` ends with
+#: `signatur_eines_vertrauten`, which `gebundene_ausgaben` asks as well (pull request 541, lesson 2).
+_PRETAG_FUNCTIONS = ("verify_receipt", "signatur_eines_vertrauten")
+
+
+def _pretag_functions(src):
+    """{name: FunctionDef} of `_PRETAG_FUNCTIONS` in the receipt library's source."""
+    import ast
+    fns = {n.name: n for n in ast.walk(ast.parse(src))
+           if isinstance(n, ast.FunctionDef) and n.name in _PRETAG_FUNCTIONS}
+    assert sorted(fns) == sorted(_PRETAG_FUNCTIONS), f"the receipt check is not where the pin reads: {sorted(fns)}"
+    return fns
+
+
 def test_every_pretag_rejection_is_bound():
     """Round 12 (fix-the-class; un gegenlesung REJECT on the round-11 regex guard). The round-11 guard
     enumerated verify_receipt's binding checks by REGEX (`receipt.get("X") != `), which a differently-formed
@@ -377,13 +391,21 @@ def test_every_pretag_rejection_is_bound():
     other rejection reads a field OF THE RECEIPT. This one reads an INPUT THE GATE SUPPLIES — the placeholder
     it substitutes when it cannot measure the tree. `_v()` cannot reach it, because `_v` passes the fixed
     valid constants; the case therefore calls `verify_receipt` directly with the placeholder as the
-    expectation."""
+    expectation.
+
+    THE LAST SIX PATHS MOVED INTO `signatur_eines_vertrauten` (pull request 541, lesson 2), so that
+    `gebundene_ausgaben` asks the same signature check before it leaves an audit output out of the digest.
+    The pin read `verify_receipt` alone and counted 8 (cloud circle at c36cb72e). It now counts both
+    functions, and it holds that `verify_receipt` still calls the second: a path counted there binds the
+    receipt check only while the call stands."""
     import ast
     from pathlib import Path
     lib = Path(__file__).resolve().parents[1] / "scripts" / "pre_tag_receipt_lib.py"
-    fn = next(n for n in ast.walk(ast.parse(lib.read_text(encoding="utf-8")))
-              if isinstance(n, ast.FunctionDef) and n.name == "verify_receipt")
-    returns_false = [n for n in ast.walk(fn)
+    fns = _pretag_functions(lib.read_text(encoding="utf-8"))
+    called = {n.func.id for n in ast.walk(fns["verify_receipt"])
+              if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+    assert "signatur_eines_vertrauten" in called, "verify_receipt no longer ends with the signature check"
+    returns_false = [n for fn in fns.values() for n in ast.walk(fn)
                      if isinstance(n, ast.Return) and isinstance(n.value, ast.Tuple) and n.value.elts
                      and isinstance(n.value.elts[0], ast.Constant) and n.value.elts[0].value is False]
     assert len(returns_false) == 14, (
@@ -392,8 +414,9 @@ def test_every_pretag_rejection_is_bound():
         f"and update this pin. AST-based so it is robust to the condition form (subscript / is-None / not-in).")
 
 
-#: Every condition in verify_receipt that refuses, and the harness class that must turn red when it is
-#: switched off. The test below takes the conditions from the AST, so a new one is either here or red.
+#: Every condition in verify_receipt and in signatur_eines_vertrauten that refuses, and the harness class
+#: that must turn red when it is switched off. The test below takes the conditions from the AST of both
+#: functions, so a new one is either here or red.
 _PRETAG_STRIPS = {
     "not isinstance(receipt, dict)": "cc08_bare_or_copied_attestation_line",
     "not isinstance(erwartet, str) or not _IST_SHA256.match(erwartet)": "cc32_pretag_check_coverage",
@@ -413,9 +436,7 @@ _PRETAG_STRIPS = {
 
 def _pretag_rejection_conditions(src):
     import ast
-    fn = next(n for n in ast.walk(ast.parse(src))
-              if isinstance(n, ast.FunctionDef) and n.name == "verify_receipt")
-    return [ast.get_source_segment(src, n.test) for n in ast.walk(fn)
+    return [ast.get_source_segment(src, n.test) for fn in _pretag_functions(src).values() for n in ast.walk(fn)
             if isinstance(n, ast.If) and n.body and isinstance(n.body[0], ast.Return)
             and isinstance(n.body[0].value, ast.Tuple) and n.body[0].value.elts
             and isinstance(n.body[0].value.elts[0], ast.Constant) and n.body[0].value.elts[0].value is False]
@@ -436,7 +457,7 @@ def test_pretag_binding_check_strips_redden_cc32(tmp_path):
     orig = lib.read_text(encoding="utf-8")
     found = _pretag_rejection_conditions(orig)
     assert sorted(found) == sorted(_PRETAG_STRIPS), (
-        f"verify_receipt refuses under {sorted(set(found) - set(_PRETAG_STRIPS))} with no strip here, and "
+        f"the receipt check refuses under {sorted(set(found) - set(_PRETAG_STRIPS))} with no strip here, and "
         f"the table lists {sorted(set(_PRETAG_STRIPS) - set(found))} that it no longer has")
     basis = _verdicts_in_a_fresh_interpreter(sorted(set(_PRETAG_STRIPS.values())), wurzel)
     assert all(v == "True" for v in basis.values()), f"a class is not green before any strip: {basis}"

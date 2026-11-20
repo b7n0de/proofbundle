@@ -417,9 +417,9 @@ class TheGateReportsATypedState(unittest.TestCase):
         gesehen = []
         echt = self.pta._gate_tree_digest     # runs inside the evaluation, after its setup
 
-        def spion(repo):
+        def spion(*a, **kw):  # since lesson 2 the gate passes the commit it holds as well
             gesehen.append((sys.pycache_prefix, sys.dont_write_bytecode))
-            return echt(repo)
+            return echt(*a, **kw)
 
         self.pta._gate_tree_digest = spion
         d = _tree()

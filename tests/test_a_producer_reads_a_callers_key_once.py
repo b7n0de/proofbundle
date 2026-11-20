@@ -676,7 +676,9 @@ _RULE_SITES = {
     ("scripts/gen_findings_register.py", "_signatur_lage"): (1, "verifier of the register it reads"),
     ("scripts/gen_findings_register.py", "assemble"): (1, "PRODUCER, TheAssembleSteps"),
     ("scripts/pre_tag_receipt.py", "assemble_receipt"): (1, "PRODUCER, TheAssembleSteps"),
-    ("scripts/pre_tag_receipt_lib.py", "verify_receipt"): (1, "verifier: a key it decoded itself"),
+    ("scripts/pre_tag_receipt_lib.py", "signatur_eines_vertrauten"): (1, "verifier: a key it decoded "
+                                                                         "itself; the last step of "
+                                                                         "verify_receipt"),
     ("scripts/render_site_data.py", "_check_receipt"): (1, "verifier: a key it decoded itself"),
     ("scripts/sign_readiness_artifact.py", "assemble"): (1, "PRODUCER, TheAssembleSteps"),
     ("src/proofbundle/adapters/agt_receipt.py", "_schwaeche"): (1, "verifier: plain text or bytes the "
