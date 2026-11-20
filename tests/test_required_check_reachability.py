@@ -1885,13 +1885,21 @@ jobs:
         pfad, doc = self._ci()
         _, _, bedingung, _ = G.matrix_werte(doc["jobs"]["test"], pfad.read_text(encoding="utf-8"))
         self.assertTrue(bedingung, "the matrix condition was not readable")
-        env = doc["jobs"]["all-checks-passed"]["steps"][0]["env"]["FULL_MATRIX"]
+        env = _collector_step(doc)["env"]["FULL_MATRIX"]
         kopie = " ".join(str(env).split())
         self.assertTrue(kopie.startswith("${{") and kopie.endswith("}}"))
         kopie = kopie[3:-2].strip()
         self.assertEqual(G.bedingungs_digest(kopie), G.bedingungs_digest(bedingung),
                          f"the collector's copy drifted from the matrix condition:\n"
                          f"  matrix:    {bedingung}\n  collector: {kopie}")
+
+
+def _collector_step(doc) -> dict:
+    """The one step of all-checks-passed that runs something. A step before it may set up the interpreter
+    (setup-python since row 37 of the 6.6.1 workflow card), so the step is found by its `run`, not by its index."""
+    steps = [s for s in doc["jobs"]["all-checks-passed"]["steps"] if "run" in s]
+    assert len(steps) == 1, f"all-checks-passed has {len(steps)} run steps, the contract reads exactly one"
+    return steps[0]
 
 
 class TestTheCollectorScript(unittest.TestCase):
@@ -1907,7 +1915,7 @@ class TestTheCollectorScript(unittest.TestCase):
         pfad = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci.yml"
         if not pfad.is_file():
             raise unittest.SkipTest("ci.yml not readable here")
-        run = G._lade(pfad)["jobs"]["all-checks-passed"]["steps"][0]["run"]
+        run = _collector_step(G._lade(pfad))["run"]
         kopf, _, rest = run.partition("<<'PY'\n")
         body, _, _ = rest.rpartition("\nPY")
         assert "python3 -" in kopf and body.strip(), "the collector step is not the heredoc this test expects"

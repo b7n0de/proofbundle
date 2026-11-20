@@ -72,6 +72,11 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      # A fixed interpreter instead of the python3 of the runner image, which changes with ubuntu-latest
+      # (owner answer A on the workflow card for 6.6.1, row 37).
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.12"
       - name: Wait for test and coverage of ci.yml on this head
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -334,6 +339,12 @@ jobs:
             exit 1
           fi
           echo "mutation-summary OK: $K Shards, $summe von $ERWARTET Operatoren, Vereinigung vollstaendig und paarweise disjunkt"
+      # A fixed interpreter instead of the python3 of the runner image, which changes with ubuntu-latest
+      # (owner answer A on the workflow card for 6.6.1, row 37). Not blocking, as the step below.
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        continue-on-error: true
+        with:
+          python-version: "3.12"
       - name: Wanduhr der Matrix aus den Job-Zeitstempeln
         # DIE ABNAHMEZAHL GEHOERT IN DEN LAUF, nicht in eine Handrechnung. Die Wanduhr wird vom
         # ERSTEN Job-Start bis zum LETZTEN Job-Ende gemessen — sie haengt am laengsten Shard, nicht
