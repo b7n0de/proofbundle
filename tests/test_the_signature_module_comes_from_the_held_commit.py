@@ -212,6 +212,26 @@ def test_a_bytecode_cache_beside_the_library_does_not_run(tmp_path):
     assert not marke.exists(), "the gate ran a .pyc beside its library instead of the source"
 
 
+def test_a_package_planted_under_the_temporary_directory_does_not_run(tmp_path):
+    """[COUNTS] Found by the witness of this pull request before the hand-over (20 November 2026, with a probe). The step
+    writes the chain of the commit into a fresh directory under $TMPDIR, and `sign_readiness_artifact.py`, loaded by the
+    library, puts `parents[1] / "src"` in front of `sys.path`. With the chain directly in the fresh directory that was
+    `$TMPDIR/src`, which any user of the machine can create, and a `cryptography` planted there ran and let a forged
+    receipt resolve. The chain now lies in `scripts/` below the fresh directory: the plant never runs, and a receipt
+    signed by another key than the one it names stays unmeasured."""
+    repo = _tree(tmp_path, chain=True)
+    _commit(repo, {RECEIPT: _receipt(repo, signer=_OTHER, sign_as=_TRUSTED), OUTPUT: OUTPUT_BYTES}, "a forged receipt")
+    tmp = tmp_path / "tmp"
+    paket = tmp / "src" / "cryptography"
+    paket.mkdir(parents=True)
+    marke = tmp_path / "plant_ran"
+    (paket / "__init__.py").write_text("import os\nopen(os.environ['PB_PLANT_MARKE'], 'w').write('ran')\n"
+                                       "raise ImportError('planted')\n", encoding="utf-8")
+    r = _step(repo, umgebung_dazu={"TMPDIR": str(tmp), "PB_PLANT_MARKE": str(marke)})
+    assert not marke.exists(), "a package under $TMPDIR/src ran in the step"
+    assert r["zustand"] == "NICHT_MESSBAR", r
+
+
 def test_a_step_on_disk_that_is_not_the_commit_measures_nothing(tmp_path):
     """[COUNTS] The step compares its own file with the blob the held commit carries at its path."""
     repo = _release(tmp_path)

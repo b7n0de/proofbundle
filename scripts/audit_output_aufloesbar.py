@@ -218,8 +218,16 @@ def _kette_aus_dem_commit(repo: Path, commit: str) -> Path:
         if e is None or e[1] != "blob" or e[0] not in _REGULAER:
             raise ValueError(f"the held commit carries no regular file {ordner}/{name}")
         blobs[name] = e[3]
-    ablage = Path(tempfile.mkdtemp(prefix="audit_output_aufloesbar_kette_"))
-    atexit.register(shutil.rmtree, ablage, ignore_errors=True)
+    wurzel = Path(tempfile.mkdtemp(prefix="audit_output_aufloesbar_kette_"))
+    atexit.register(shutil.rmtree, wurzel, ignore_errors=True)
+    # THE CHAIN LIES ONE LEVEL DOWN (found by the witness of pull request 541 before the hand-over, 20 November 2026,
+    # with a probe). `sign_readiness_artifact.py` puts `parents[1] / "src"` in front of `sys.path` when it is imported.
+    # With the chain directly in the fresh directory, `parents[1]` was the temporary directory itself, and `$TMPDIR/src`
+    # is a directory any user of the machine can create: a `cryptography` planted there ran in this process and let a
+    # forged receipt resolve. Under `<fresh>/scripts`, `parents[1]` is the fresh directory, which only this process
+    # created and which holds no `src`.
+    ablage = wurzel / "scripts"
+    ablage.mkdir()
     for name, inhalt in blobs.items():
         (ablage / name).write_bytes(inhalt)
     return ablage
