@@ -207,9 +207,13 @@ class RustVerifyBundle(unittest.TestCase):
 
 
 def _altered(target: pathlib.Path) -> dict:
-    """Eight bundles altered at the signature block, with the exit Python gives each (measured 2026-11-19 at 803ada66
-    with kreis_probe_paritaet_2.sh): a base64 error in the key or the signature is malformed input (2); every
-    defect after decoding is a signature that does not verify (1), whether the key is ordinary or weak."""
+    """Twelve cases, with the exit Python gives each. Measured 2026-11-19 at 803ada665ed0 with kreis_probe_paritaet_2.sh:
+    six bundles altered at the signature block and two unchanged controls. A base64 error in the key or the signature
+    is malformed input (2); every defect after decoding is a signature that does not verify (1), whether the key is
+    ordinary or weak. Measured 2026-11-20 at bab98cc30c27 with kreis_probe_paritaet_3.sh (review of this change, round
+    r2b): four bundles in which the signature, the own key or the inclusion proof fails and which also carry a
+    structural defect that Python reads after that check. Python records the failed check and reads on, so the defect
+    is malformed input (2)."""
     control = json.loads((FIXTURES / "kontrolle_gewoehnlich_richtige_signatur_bundle.json").read_text(encoding="utf-8"))
     weak = json.loads((FIXTURES / "ord1_010000_bundle.json").read_text(encoding="utf-8"))
     b64 = lambda b: base64.b64encode(b).decode()  # noqa: E731
@@ -218,20 +222,41 @@ def _altered(target: pathlib.Path) -> dict:
     wsig = decode_b64(weak["signature"]["sig_b64"])
     no_point = next(enc for enc in (y.to_bytes(32, "little") for y in range(2, 1000))
                     if _point_with_y(int.from_bytes(enc, "little")) is None)
+
+    def wrong_signature(b):
+        s = bytearray(decode_b64(b["signature"]["sig_b64"]))
+        s[0] ^= 1
+        b["signature"]["sig_b64"] = b64(bytes(s))
+
+    def without_leaf_index(b):
+        del b["merkle"]["leaf_index"]
+
+    def failing_inclusion(b):
+        b["merkle"]["tree_size"] += 1
+
+    def sd_jwt_not_an_object(b):
+        b["sd_jwt_vc"] = 5
+
     cases = {
-        "control_unchanged": (control, {}, 0),
-        "control_key_31_bytes": (control, {"public_key_b64": b64(pk[:31])}, 1),
-        "control_key_not_a_point": (control, {"public_key_b64": b64(no_point)}, 1),
-        "control_signature_63_bytes": (control, {"sig_b64": b64(sig[:63])}, 1),
-        "control_signature_not_base64": (control, {"sig_b64": "@@@@"}, 2),
-        "weak_unchanged": (weak, {}, 1),
-        "weak_signature_63_bytes": (weak, {"sig_b64": b64(wsig[:63])}, 1),
-        "weak_signature_not_base64": (weak, {"sig_b64": "@@@@"}, 2),
+        "control_unchanged": (control, {}, (), 0),
+        "control_key_31_bytes": (control, {"public_key_b64": b64(pk[:31])}, (), 1),
+        "control_key_not_a_point": (control, {"public_key_b64": b64(no_point)}, (), 1),
+        "control_signature_63_bytes": (control, {"sig_b64": b64(sig[:63])}, (), 1),
+        "control_signature_not_base64": (control, {"sig_b64": "@@@@"}, (), 2),
+        "weak_unchanged": (weak, {}, (), 1),
+        "weak_signature_63_bytes": (weak, {"sig_b64": b64(wsig[:63])}, (), 1),
+        "weak_signature_not_base64": (weak, {"sig_b64": "@@@@"}, (), 2),
+        "control_wrong_signature_without_leaf_index": (control, {}, (wrong_signature, without_leaf_index), 2),
+        "weak_without_leaf_index": (weak, {}, (without_leaf_index,), 2),
+        "control_wrong_signature_sd_jwt_not_an_object": (control, {}, (wrong_signature, sd_jwt_not_an_object), 2),
+        "control_failing_inclusion_sd_jwt_not_an_object": (control, {}, (failing_inclusion, sd_jwt_not_an_object), 2),
     }
     out = {}
-    for name, (base, fields, rc) in cases.items():
+    for name, (base, fields, changes, rc) in cases.items():
         b = json.loads(json.dumps(base))
         b["signature"].update(fields)
+        for change in changes:
+            change(b)
         path = target / f"{name}.json"
         path.write_text(json.dumps(b), encoding="utf-8")
         out[name] = (path, rc)
@@ -242,7 +267,12 @@ class PythonAndRustGiveTheSameExit(unittest.TestCase):
     """The review of this change (round r1c) measured four bundles where the two verifiers parted: Rust gave exit 2 for a
     key or a signature of another length and for a key that is not a point, where Python gives 1, and the first version of
     this change refused a weak key in Rust before decoding the signature, so a weak key beside a signature that is not
-    base64 gave 1 where Python gives 2. Each case is held at both verifiers, with the exit Python was measured to give."""
+    base64 gave 1 where Python gives 2. Each case is held at both verifiers, with the exit Python was measured to give.
+
+    Round r2b found the second shape, measured on 6.6.0 as well: Rust stopped at the first check that did not hold, while
+    Python reads the rest of the bundle, so a structural defect after a failed signature or inclusion proof was exit 1
+    there and 2 here. A weak own key with such a defect joined that shape with this change (2 and 2 on 6.6.0). The four
+    cases at the end of `_altered` hold it."""
 
     @classmethod
     def setUpClass(cls):

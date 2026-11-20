@@ -1139,9 +1139,14 @@ fn verify_bundle(
         }
         _ => false,
     };
-    if !unterschrieben {
-        return Ok(false);
-    }
+    // THE VERDICT FALLS AT THE END, AS IN bundle.py (review of this change, round r2b; measured with
+    // kreis_probe_paritaet_3.sh). Python records a check that does not hold and reads on, so a structural
+    // defect after it is malformed input (exit 2) whatever the signature, the inclusion proof, the root or the
+    // tree size said. This function returned Ok(false) at the first such check: a bundle with a wrong signature
+    // and no `merkle.leaf_index` gave exit 1 here and exit 2 in Python, on 6.6.0 as well, and since 6.6.1 a weak
+    // own key with the same defect too (2 and 2 on 6.6.0, 2 and 1 at the first head of this change). Each check
+    // now only lowers the verdict, and the structure is read to the end.
+    let mut gilt = unterschrieben;
 
     let leaf_index = mk
         .get("leaf_index")
@@ -1166,34 +1171,32 @@ fn verify_bundle(
             .and_then(|v| v.as_str())
             .ok_or("missing merkle.root_b64")?,
     )?;
-    let computed = match root_from_inclusion(leaf_index, tree_size, leaf_hash(&payload), &proof) {
-        Ok(r) => r,
-        Err(_) => return Ok(false),
-    };
-    if computed != root {
-        return Ok(false);
+    match root_from_inclusion(leaf_index, tree_size, leaf_hash(&payload), &proof) {
+        Ok(computed) if computed == root => {}
+        _ => gilt = false,
     }
     // relying-party root authentication (P0-A): the stated root is not signed, so a supplied
     // expectation must match bit-exactly.
     if let Some(er) = expected_root {
         if root != b64_strict(er)? {
-            return Ok(false);
+            gilt = false;
         }
     }
     if let Some(ets) = expected_tree_size {
         if ets != ExpectedTreeSize::Exactly(tree_size) {
-            return Ok(false);
+            gilt = false;
         }
     }
-    // optional SD-JWT VC block (issuer authenticity + eval-graft slice; see verify_sdjwt_issuer).
+    // optional SD-JWT VC block (issuer authenticity + eval-graft slice; see verify_sdjwt_issuer). Read
+    // whatever the checks above said, as Python reads `sd_jwt_vc` after a signature that does not verify.
     if let Some(sd) = b.get("sd_jwt_vc") {
         let bundle_payload = strict_parse(&payload).unwrap_or(serde_json::Value::Null);
         let root_b64_str = mk.get("root_b64").and_then(|v| v.as_str()).unwrap_or("");
         if !verify_sdjwt_issuer(sd, &bundle_payload, root_b64_str)? {
-            return Ok(false);
+            gilt = false;
         }
     }
-    Ok(true)
+    Ok(gilt)
 }
 
 // WP-A1 anchor trust: a bundle's own `frozen` block header is producer-controlled and is NEVER trusted
@@ -5026,6 +5029,98 @@ mod tests {
                 "{name}: a failing signature was decided before the header"
             );
         }
+    }
+
+    #[test]
+    fn the_structure_is_read_to_the_end_before_the_verdict() {
+        // Review of 6.6.1, round r2b, measured with kreis_probe_paritaet_3.sh: Python records a check that
+        // does not hold and reads on, so a structural defect after it is malformed (exit 2). This function
+        // returned Ok(false) at the first such check and never saw a later defect.
+        let roh = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../examples/example_bundle.json"
+        ))
+        .expect("examples/example_bundle.json");
+        let gut = strict_parse(&roh).expect("the example parses");
+        assert_eq!(
+            verify_bundle(&gut, None, None),
+            Ok(true),
+            "the example verifies"
+        );
+        let std = base64::engine::general_purpose::STANDARD;
+        let fremde_wurzel = std.encode([0u8; 32]);
+        let mit = |f: &dyn Fn(&mut serde_json::Value)| {
+            let mut v = gut.clone();
+            f(&mut v);
+            v
+        };
+        let falsche_signatur = |v: &mut serde_json::Value| {
+            v["signature"]["sig_b64"] = serde_json::json!(std.encode([0u8; 64]));
+        };
+        let falscher_einschluss = |v: &mut serde_json::Value| {
+            let n = v["merkle"]["tree_size"].as_u64().expect("tree_size");
+            v["merkle"]["tree_size"] = serde_json::json!(n + 1);
+        };
+        let ohne_leaf_index = |v: &mut serde_json::Value| {
+            v["merkle"]
+                .as_object_mut()
+                .expect("merkle")
+                .remove("leaf_index");
+        };
+        let sd_kein_objekt = |v: &mut serde_json::Value| {
+            v["sd_jwt_vc"] = serde_json::json!(5);
+        };
+        // THE COUNTER-DIRECTION: each failed check alone is a verdict, not malformed input.
+        assert_eq!(
+            verify_bundle(&mit(&falsche_signatur), None, None),
+            Ok(false)
+        );
+        assert_eq!(
+            verify_bundle(&mit(&falscher_einschluss), None, None),
+            Ok(false)
+        );
+        assert_eq!(
+            verify_bundle(&gut, Some(fremde_wurzel.as_str()), None),
+            Ok(false)
+        );
+        assert_eq!(
+            verify_bundle(&gut, None, Some(ExpectedTreeSize::Never)),
+            Ok(false)
+        );
+        // Each failed check followed by a structural defect: malformed, as in Python.
+        let nach_der_signatur = mit(&|v| {
+            falsche_signatur(v);
+            ohne_leaf_index(v);
+        });
+        assert!(
+            verify_bundle(&nach_der_signatur, None, None).is_err(),
+            "a missing leaf_index after a failed signature was not seen"
+        );
+        let sd_nach_der_signatur = mit(&|v| {
+            falsche_signatur(v);
+            sd_kein_objekt(v);
+        });
+        assert!(
+            verify_bundle(&sd_nach_der_signatur, None, None).is_err(),
+            "an sd_jwt_vc that is no object after a failed signature was not seen"
+        );
+        let sd_nach_dem_einschluss = mit(&|v| {
+            falscher_einschluss(v);
+            sd_kein_objekt(v);
+        });
+        assert!(
+            verify_bundle(&sd_nach_dem_einschluss, None, None).is_err(),
+            "an sd_jwt_vc that is no object after a failed inclusion proof was not seen"
+        );
+        let sd = mit(&sd_kein_objekt);
+        assert!(
+            verify_bundle(&sd, Some(fremde_wurzel.as_str()), None).is_err(),
+            "an sd_jwt_vc that is no object after a root that does not match was not seen"
+        );
+        assert!(
+            verify_bundle(&sd, None, Some(ExpectedTreeSize::Never)).is_err(),
+            "an sd_jwt_vc that is no object after a tree size that does not match was not seen"
+        );
     }
 
     #[cfg(unix)]
