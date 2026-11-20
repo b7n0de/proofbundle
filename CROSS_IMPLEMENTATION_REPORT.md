@@ -46,7 +46,7 @@ a green run means the Rust verifier computed the SAME value / reached the SAME v
 | duplicate JSON key (parser-differential defense, C1) | — | `strict-parse` | Rust → REJECT (exit 1), independent of Python's `_strict_json` |
 | RFC 6962 Merkle tree head | RFC 6962 | `merkle-root` | byte-identical hex vs Python |
 | native bundle verify exit-code contract (sig + inclusion + root/tree-size) | RFC 6962 / 9162 | `verify-bundle` | same exit code (0/1/2) as the Python CLI, incl. relying-party `--expected-root` / `--expected-tree-size` |
-| trust-pack/v0.1 root-of-trust THRESHOLD (Ed25519 leg only, Finding 11) | proofbundle `trust_pack.py` (TUF-inspired) | `verify-trust-pack-threshold` | same `root_threshold_met` boolean as Python's `verify_trust_pack`, on both a threshold-met and a threshold-NOT-met envelope; DISTINCT-key-material dedup (aliasing defense) reproduced independently. **PARTIAL**, not COVERED — see Pending below for what this slice does NOT check |
+| trust-pack/v0.1 root-of-trust THRESHOLD (Ed25519 leg only, Finding 11) | proofbundle `trust_pack.py` (TUF-inspired) | `verify-trust-pack-threshold` | same `root_threshold_met` boolean as Python's `verify_trust_pack`, on both a threshold-met and a threshold-NOT-met envelope; DISTINCT-key-material dedup (aliasing defense) reproduced independently; the validator's alias rule (no key part, classical or post-quantum, in two keys of the pack, in any role) reproduced over every key, refused as malformed with Python's error text (`tests/test_rust_trust_pack_key_part_alias_parity.py`). **PARTIAL**, not COVERED — see Pending below for what this slice does NOT check |
 | primary payload of a relation surface is its own RFC 8785 serialization, and a relation statement carries `schemaVersion` 0.1.x and a non-empty `statementId` (deep gate 6.6.0 at c3472f6f, L6 Z11) | RFC 8785 + proofbundle `relation_statement.py` | `verify-relation`, `verify-relation-statement` | same exit code as the Python CLI on a canonical control and on each mutant (block 4j) |
 
 The PAE byte rule (`DSSEv1 SP LEN(type) SP type SP LEN(body) SP body`) and the RFC 6962 node rule
@@ -141,7 +141,11 @@ are declared as **not yet reproduced** by the second implementation and remain P
 - `action-outcome/v0.1`, `run-ledger/v0.1`, `verification-summary/v0.1` predicate validation
 - Trust Pack: `mldsa65` / `hybrid-ed25519-mldsa65` root keys (the Ed25519 leg is now PARTIAL, see
   above), `not_expired`, `version_monotone` / `prevVersionDigest` chaining, two-stage rotation
-  authorization, full predicate-shape validation
+  authorization, full predicate-shape validation. Of that validation, two rules hold in Rust over
+  every key: the trust-anchor rule for an Ed25519 key and the alias rule (no key part in two keys).
+  The alias rule was missing until 6.6.1: measured on 18 November 2026 with one Ed25519 root key at
+  threshold 1, a pack whose two other keys share a key part was refused by Python and met its
+  threshold here (`OK`, exit 0).
 - SD-JWT / SD-JWT VC holder key binding and issuer-signature verify
 - Checkpoint signature + witness-quorum trust, atomic root/tree-size trust
 - External anchors (OpenTimestamps / RFC 3161) offline resolution

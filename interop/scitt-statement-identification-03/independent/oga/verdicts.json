@@ -1,0 +1,458 @@
+{
+ "draft_sha256": "9176957ab9f3a4f4daca9dde67b3bcbb812417697f20e813c3ef3102c85bd95c",
+ "frozen_at": "2026-11-12T11:19:16Z",
+ "reader": "sid_axes.py (HORIZON SHIELD), written from the draft text only",
+ "reader_sha256": "e4373b0fbb18b8facb2dd16f7d16a7b5853b775d2ca06deb1ffd20cd15f5731c",
+ "runner_sha256": "839b187b25dee1e5526d2eb342b2b52fca7b3be6d75a69edd42e555eed5559cf",
+ "self_checks": [
+  {
+   "check": "RFC 8032 TEST 1 public key",
+   "ok": true
+  },
+  {
+   "check": "RFC 8032 TEST 1 signature verifies",
+   "ok": true
+  },
+  {
+   "check": "RFC 8032 TEST 1 one flipped bit fails",
+   "ok": true
+  },
+  {
+   "check": "issuer kid = SHA-256(SPKI)",
+   "ok": true
+  },
+  {
+   "check": "auditor kid = SHA-256(SPKI)",
+   "ok": true
+  },
+  {
+   "check": "test_keys.json issuer public key = derived",
+   "ok": true
+  },
+  {
+   "check": "test_keys.json auditor public key = derived",
+   "ok": true
+  },
+  {
+   "check": "reference digest = SHA-256(ToBeSigned of 01)",
+   "ok": true
+  },
+  {
+   "check": "statement 01 signature verifies (4 rules)",
+   "ok": true
+  },
+  {
+   "check": "statement 02 signature verifies (4 rules)",
+   "ok": true
+  },
+  {
+   "check": "statement 03 signature verifies (4 rules)",
+   "ok": true
+  },
+  {
+   "check": "C1 rebuilt from Appendix A: length and SHA-256 as stated",
+   "ok": true
+  },
+  {
+   "check": "C1 case file candidate = rebuilt bytes",
+   "ok": true
+  },
+  {
+   "check": "C1 case file reference = draft reference",
+   "ok": true
+  },
+  {
+   "check": "C1 case file stated key = issuer key derived from seed",
+   "ok": true
+  },
+  {
+   "check": "C2 rebuilt from Appendix A: length and SHA-256 as stated",
+   "ok": true
+  },
+  {
+   "check": "C2 case file candidate = rebuilt bytes",
+   "ok": true
+  },
+  {
+   "check": "C2 case file reference = draft reference",
+   "ok": true
+  },
+  {
+   "check": "C2 case file stated key = issuer key derived from seed",
+   "ok": true
+  },
+  {
+   "check": "C3 rebuilt from Appendix A: length and SHA-256 as stated",
+   "ok": true
+  },
+  {
+   "check": "C3 case file candidate = rebuilt bytes",
+   "ok": true
+  },
+  {
+   "check": "C3 case file reference = draft reference",
+   "ok": true
+  },
+  {
+   "check": "C3 case file stated key = issuer key derived from seed",
+   "ok": true
+  },
+  {
+   "check": "C4 rebuilt from Appendix A: length and SHA-256 as stated",
+   "ok": true
+  },
+  {
+   "check": "C4 case file candidate = rebuilt bytes",
+   "ok": true
+  },
+  {
+   "check": "C4 case file reference = draft reference",
+   "ok": true
+  },
+  {
+   "check": "C4 case file stated key = issuer key derived from seed",
+   "ok": true
+  },
+  {
+   "check": "C5 rebuilt from Appendix A: length and SHA-256 as stated",
+   "ok": true
+  },
+  {
+   "check": "C5 case file candidate = rebuilt bytes",
+   "ok": true
+  },
+  {
+   "check": "C5 case file reference = draft reference",
+   "ok": true
+  },
+  {
+   "check": "C5 case file stated key = issuer key derived from seed",
+   "ok": true
+  },
+  {
+   "check": "C6 rebuilt from Appendix A: length and SHA-256 as stated",
+   "ok": true
+  },
+  {
+   "check": "C6 case file candidate = rebuilt bytes",
+   "ok": true
+  },
+  {
+   "check": "C6 case file reference = draft reference",
+   "ok": true
+  },
+  {
+   "check": "C6 case file stated key = issuer key derived from seed",
+   "ok": true
+  },
+  {
+   "check": "C7 rebuilt from Appendix A: length and SHA-256 as stated",
+   "ok": true
+  },
+  {
+   "check": "C7 case file candidate = rebuilt bytes",
+   "ok": true
+  },
+  {
+   "check": "C7 case file reference = draft reference",
+   "ok": true
+  },
+  {
+   "check": "C7 case file stated key = issuer key derived from seed",
+   "ok": true
+  },
+  {
+   "check": "C7 case file external_aad = draft bytes",
+   "ok": true
+  },
+  {
+   "check": "C8 rebuilt from Appendix A: length and SHA-256 as stated",
+   "ok": true
+  },
+  {
+   "check": "C8 case file candidate = rebuilt bytes",
+   "ok": true
+  },
+  {
+   "check": "C8 case file reference = draft reference",
+   "ok": true
+  },
+  {
+   "check": "C8 case file stated key = issuer key derived from seed",
+   "ok": true
+  },
+  {
+   "check": "C9 rebuilt from Appendix A: length and SHA-256 as stated",
+   "ok": true
+  },
+  {
+   "check": "C9 case file candidate = rebuilt bytes",
+   "ok": true
+  },
+  {
+   "check": "C9 case file reference = draft reference",
+   "ok": true
+  },
+  {
+   "check": "C9 case file stated key = issuer key derived from seed",
+   "ok": true
+  },
+  {
+   "check": "C10 rebuilt from Appendix A: length and SHA-256 as stated",
+   "ok": true
+  },
+  {
+   "check": "C10 case file candidate = rebuilt bytes",
+   "ok": true
+  },
+  {
+   "check": "C10 case file reference = draft reference",
+   "ok": true
+  },
+  {
+   "check": "C10 case file stated key = issuer key derived from seed",
+   "ok": true
+  },
+  {
+   "check": "C11 rebuilt from Appendix A: length and SHA-256 as stated",
+   "ok": true
+  },
+  {
+   "check": "C11 case file candidate = rebuilt bytes",
+   "ok": true
+  },
+  {
+   "check": "C11 case file reference = draft reference",
+   "ok": true
+  },
+  {
+   "check": "C11 case file stated key = issuer key derived from seed",
+   "ok": true
+  },
+  {
+   "check": "C12 rebuilt from Appendix A: length and SHA-256 as stated",
+   "ok": true
+  },
+  {
+   "check": "C12 case file candidate = rebuilt bytes",
+   "ok": true
+  },
+  {
+   "check": "C12 case file reference = draft reference",
+   "ok": true
+  },
+  {
+   "check": "C12 case file stated key = issuer key derived from seed",
+   "ok": true
+  },
+  {
+   "check": "C13 rebuilt from Appendix A: length and SHA-256 as stated",
+   "ok": true
+  },
+  {
+   "check": "C13 case file candidate = rebuilt bytes",
+   "ok": true
+  },
+  {
+   "check": "C13 case file reference = draft reference",
+   "ok": true
+  },
+  {
+   "check": "C13 case file stated key = issuer key derived from seed",
+   "ok": true
+  },
+  {
+   "check": "C14 rebuilt from Appendix A: length and SHA-256 as stated",
+   "ok": true
+  },
+  {
+   "check": "C14 case file candidate = rebuilt bytes",
+   "ok": true
+  },
+  {
+   "check": "C14 case file reference = draft reference",
+   "ok": true
+  },
+  {
+   "check": "C14 case file stated key = issuer key derived from seed",
+   "ok": true
+  }
+ ],
+ "verdicts": {
+  "C1": {
+   "case": {
+    "is_scitt": true,
+    "match": "MATCH",
+    "ref_usable": true,
+    "sig_valid": true
+   },
+   "variants": [
+    {
+     "axes": {
+      "is_scitt": true,
+      "match": "MATCH",
+      "ref_usable": true,
+      "sig_valid": true
+     },
+     "name": "with 32 zero bytes supplied as detached payload"
+    }
+   ]
+  },
+  "C10": {
+   "case": {
+    "is_scitt": true,
+    "match": "INDETERMINATE",
+    "ref_usable": false,
+    "sig_valid": true
+   },
+   "variants": []
+  },
+  "C11": {
+   "case": {
+    "is_scitt": true,
+    "match": "MATCH",
+    "ref_usable": true,
+    "sig_valid": false
+   },
+   "variants": [
+    {
+     "axes": {
+      "is_scitt": true,
+      "match": "MATCH",
+      "ref_usable": true,
+      "sig_valid": false
+     },
+     "name": "with rule 2 left out and the cofactorless equation"
+    },
+    {
+     "axes": {
+      "is_scitt": true,
+      "match": "MATCH",
+      "ref_usable": true,
+      "sig_valid": true
+     },
+     "name": "with rule 2 left out and the cofactored equation"
+    }
+   ]
+  },
+  "C12": {
+   "case": {
+    "is_scitt": true,
+    "match": "MATCH",
+    "ref_usable": true,
+    "sig_valid": true
+   },
+   "variants": []
+  },
+  "C13": {
+   "case": {
+    "is_scitt": true,
+    "match": "INDETERMINATE",
+    "ref_usable": false,
+    "sig_valid": true
+   },
+   "variants": []
+  },
+  "C14": {
+   "case": {
+    "is_scitt": true,
+    "match": "INDETERMINATE",
+    "ref_usable": false,
+    "sig_valid": true
+   },
+   "variants": []
+  },
+  "C2": {
+   "case": {
+    "is_scitt": true,
+    "match": "NO_MATCH",
+    "ref_usable": true,
+    "sig_valid": true
+   },
+   "variants": []
+  },
+  "C3": {
+   "case": {
+    "is_scitt": true,
+    "match": "NO_MATCH",
+    "ref_usable": true,
+    "sig_valid": true
+   },
+   "variants": []
+  },
+  "C4": {
+   "case": {
+    "is_scitt": true,
+    "match": "NO_MATCH",
+    "ref_usable": true,
+    "sig_valid": true
+   },
+   "variants": []
+  },
+  "C5": {
+   "case": {
+    "is_scitt": true,
+    "match": "MATCH",
+    "ref_usable": true,
+    "sig_valid": true
+   },
+   "variants": []
+  },
+  "C6": {
+   "case": {
+    "is_scitt": true,
+    "match": "MATCH",
+    "ref_usable": true,
+    "sig_valid": false
+   },
+   "variants": []
+  },
+  "C7": {
+   "case": {
+    "is_scitt": true,
+    "match": "NO_MATCH",
+    "ref_usable": true,
+    "sig_valid": true
+   },
+   "variants": [
+    {
+     "axes": {
+      "is_scitt": true,
+      "match": "MATCH",
+      "ref_usable": true,
+      "sig_valid": false
+     },
+     "name": "under the fixed empty external_aad rule"
+    }
+   ]
+  },
+  "C8": {
+   "case": {
+    "is_scitt": true,
+    "match": "INDETERMINATE",
+    "ref_usable": true,
+    "sig_valid": null
+   },
+   "variants": [
+    {
+     "axes": {
+      "is_scitt": true,
+      "match": "MATCH",
+      "ref_usable": true,
+      "sig_valid": false
+     },
+     "name": "with the payload of statement 01 supplied as detached payload"
+    }
+   ]
+  },
+  "C9": {
+   "case": {
+    "is_scitt": false,
+    "match": "MATCH",
+    "ref_usable": true,
+    "sig_valid": true
+   },
+   "variants": []
+  }
+ }
+}

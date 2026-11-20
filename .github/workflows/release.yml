@@ -95,6 +95,20 @@ jobs:
           # shows none of them: measured 2026-09-28, depth 1 exit 2.
           fetch-depth: 0
 
+      - name: Bytecode of this job comes from a fresh directory, never from beside the sources (from 6.6.1)
+        # CODEX ON PULL REQUEST 541, ROUND LX5, P0 2. Python runs a `__pycache__/*.pyc` beside a source in place of that
+        # source, and one written with an unchecked hash without looking at the source at all. git ignores such a cache
+        # and the outside verifier skips `__pycache__`, so it would be no part of what is compared with the commit, and
+        # every script this job runs from the checkout imports modules beside it. So every later Python process of this
+        # job reads and writes bytecode only under a directory made here for this run (`mktemp -d`, a name not known
+        # ahead of time), and an empty or missing directory stops the job instead of falling back to `__pycache__`. The
+        # outside verifier runs with `-I`, which ignores this variable, and keeps its own fresh directory; the gate and
+        # the audit-output step keep theirs as well.
+        run: |
+          d="$(mktemp -d)"
+          test -n "$d" && test -d "$d"
+          echo "PYTHONPYCACHEPREFIX=$d" >> "$GITHUB_ENV"
+
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: "3.12"
@@ -104,12 +118,34 @@ jobs:
         # so without this the signed-receipt check fails ModuleNotFoundError and fail-closed rejects.
         run: python -m pip install "cryptography>=42"
 
+      - name: Outside verifier — this checkout is the tagged commit, and its receipt verifies as a reader outside sees it (from 6.6.1)
+        # LESSON 2, CODEX ON PULL REQUEST 541, ROUND LX4, P0 3 (owner choice B, 19 November 2026). The gate and the
+        # step below run from the files of this checkout. The third-party verifier first compares every file under
+        # scripts/ and src/ with the blobs of the commit and refuses a checkout that differs, before it loads any of
+        # them; then it verifies the receipt the way RELEASE.md tells a reader outside to. It runs FIRST, so that the
+        # gate does not run from code nobody compared with the commit. `-I` keeps PYTHONPATH and the script's
+        # directory off the import path. A tag of an earlier release runs its own workflow file.
+        # NOT ITS OWN EVIDENCE: the pull request that adds this step was judged by the gate as it stood then and by a
+        # witness outside, not by this step.
+        run: python -I scripts/verify_pre_tag_receipt.py --repo . --commit "$GITHUB_SHA" --version "${GITHUB_REF_NAME#v}"
+
       - name: Pre-tag adversarial audit gate (Front-Load F7 — the audit ran for THIS release)
         # The six-lens / master-prompt-v2 adversarial audit is a gate before EVERY tag, not only the
         # audit-candidate (Loek's decoy-parent finding landed AFTER 3.3.0 shipped). This step fails
         # the release if the CHANGELOG section for the tag records no adversarial/N-lens audit and no
         # audit_artifacts file names the version — enforcing the discipline the project already follows.
         run: python scripts/pre_tag_audit_gate.py --repo . --version "${GITHUB_REF_NAME#v}" --strict
+
+      - name: Every signed digest resolves at this tag — the audit output is a tracked file (from 6.6.1)
+        # LESSON 2 OF 18 NOVEMBER 2026. An outside reader asked for the audit output of 6.6.0 and
+        # found none: the receipt verified, and its `audit_output_digest` named no tracked file
+        # until pull request 538 put the output into the tree afterwards. The gate above already
+        # recomputes `subject_tree_digest` and `gate_source_digest` from this tree; this step asks
+        # the third digest. For every receipt the gate verifies, the audit output must be a tracked
+        # file whose raw bytes have that digest, as `sha256sum` computes it outside. Before the build,
+        # so nothing is built, attested or uploaded for a tag whose evidence cannot be found.
+        # A tag of an earlier release runs its own workflow file, so this changes no earlier release.
+        run: python scripts/audit_output_aufloesbar.py --repo . --version "${GITHUB_REF_NAME#v}"
 
       - name: Formpruefer ueber Tag-Text und Release-Notiz (Release-Standard 6.0.0, Bedingung 8)
         # WARUM DIESER SCHRITT HIER STEHT. Der Release-Standard nennt einen "Formpruefer und

@@ -220,9 +220,13 @@ def audit_artifact_for(repo: Path, version: str) -> str | None:
     return recs[0] if recs else None
 
 
-def _gate_tree_digest(repo: Path) -> str:
+def _gate_tree_digest(repo: Path, rev: str | None = "HEAD") -> str:
+    """The receipt's tree digest of `rev` (the commit the gate holds), or "unknown" when it cannot be measured or no
+    commit is held; "unknown" is no sha256, so `verify_receipt` refuses to compare against it."""
+    if rev is None:
+        return "unknown"
     try:
-        return _lib().subject_tree_digest(repo)
+        return _lib().subject_tree_digest(repo, rev)
     except Exception:  # noqa: BLE001
         return "unknown"
 
@@ -540,26 +544,41 @@ def _evaluate(repo: Path, version: str | None = None) -> dict:
     if _here not in _sys.path:
         _sys.path.insert(0, _here)
     # P1-A (four-lens review): CI runs this gate as bare ``python pre_tag_audit_gate.py`` with no
-    # PYTHONPATH=src. ``verify_receipt`` imports ``proofbundle.signature`` at call time; without src on
-    # the path that raises ModuleNotFoundError and the receipt loop below has no guard, so the gate
-    # CRASHES on a receipt-present tree instead of ruling on it (local-green -> CI-red). src is the tree
-    # the receipt already binds via subject_tree_digest, so importing it here changes no trust surface;
-    # it only lets the gate run where it previously died. Mirrors audit_candidate_matrix.py's src setup.
+    # PYTHONPATH=src. ``verify_receipt`` imports ``proofbundle.signature`` at call time; without the package
+    # that raises ModuleNotFoundError, and the gate crashed on a receipt-present tree instead of ruling on it.
+    # The repair put ``<repo>/src`` in front of ``sys.path``, and with it whatever lay on disk there: Codex on
+    # pull request 541 (round lx4, P0 3) named the run in which the checkout is written while the gate judges.
+    # Since lesson 2 the package is served from the blobs of the commit this gate holds
+    # (``pre_tag_receipt_lib.paket_aus_eintraegen``); the files under ``src/`` are not read for it.
     _bytecode_cache_elsewhere()
-    _src = str(Path(repo).resolve() / "src")
-    if _src not in _sys.path:
-        _sys.path.insert(0, _src)
-    load_trusted_pubkeys, verify_receipt = _lib().load_trusted_pubkeys, _lib().verify_receipt
+    lib = _lib()
+    load_trusted_pubkeys, verify_receipt = lib.load_trusted_pubkeys, lib.verify_receipt
     version = version or pyproject_version(repo)
     if not version:
         # NOT "absent": the gate could not even determine WHAT it is judging. Unmeasurable is its own
         # state and must never inherit the absence leniency (three states, L5-G6-01).
         return {"ok": False, "state": "not_determinable", "version": None,
                 "reason": "could not read the release version from pyproject.toml"}
-    tree = _gate_tree_digest(repo)
+    # ONE COMMIT FOR THE DIGEST, THE ANCHOR AND THE PACKAGE (lesson 2): HEAD is read once, and the tree digest, the
+    # trust anchor and the signature module all come from that id. A commit that cannot be read leaves the digest
+    # "unknown", no trusted key and no package, so every candidate is refused.
+    try:
+        festgehalten, eintraege = lib.git_tree(repo, "HEAD")
+    except Exception:  # noqa: BLE001 — no readable head is no commit to judge, never a crash
+        festgehalten, eintraege = None, None
+    tree = _gate_tree_digest(repo, festgehalten)
     gate_src = _gate_source_digest()
-    trusted = load_trusted_pubkeys(repo)
+    trusted = load_trusted_pubkeys(repo, ref=festgehalten) if festgehalten is not None else []
     verified, rejected, other_tree, foreign = [], [], [], []
+    with lib.paket_aus_eintraegen(repo, eintraege):
+        _urteile_ueber_kandidaten(repo, version, tree, gate_src, trusted, verify_receipt,
+                                  verified, rejected, other_tree, foreign)
+    return _urteil(repo, version, tree, gate_src, trusted, verified, rejected, other_tree, foreign)
+
+
+def _urteile_ueber_kandidaten(repo, version, tree, gate_src, trusted, verify_receipt,
+                              verified, rejected, other_tree, foreign) -> None:
+    """Judge every candidate under the receipt folder into the four lists (the loop of `_evaluate`)."""
     for rp, rc, unreadable in _receipt_candidates(repo, version):
         if rc is None:
             # L5-G6-01: a present-but-unreadable candidate is REJECTED, never invisible.
@@ -617,6 +636,10 @@ def _evaluate(repo: Path, version: str | None = None) -> dict:
             except Exception:  # noqa: BLE001
                 anderer = False
         (other_tree if anderer else rejected).append({"path": rp, "reason": reason})
+
+
+def _urteil(repo, version, tree, gate_src, trusted, verified, rejected, other_tree, foreign) -> dict:
+    """The verdict of `_evaluate` from the four lists of `_urteile_ueber_kandidaten`."""
     # A REJECTED CANDIDATE OUTRANKS A VERIFIED ONE TOO (DELTA2 N1, 2026-11-06). `ok` was
     # `bool(verified)`, so a genuine receipt carried a broken one beside it to ok=True and
     # state=verified, against the sentence below. One known-bad artefact in the folder is a finding.

@@ -263,24 +263,45 @@ def validate_trust_pack_predicate(predicate: Any, *, strict: bool = False) -> li
                 elif "publicKeyPq" in kv:
                     errors.append(f"keys[{kid!r}].publicKeyPq is only allowed for alg 'hybrid-ed25519-mldsa65'")
 
-    # No key aliasing (Sybil, release-review fix): two keyIds mapping to the SAME 32-byte key material dilute
+    # No key aliasing (Sybil, release-review fix): two keyIds mapping to the SAME key material dilute
     # every threshold — one physical key would count as N signers. checkpoint.py::witness_quorum learned this
     # for witnesses; the higher-stakes root-of-trust must not regress it. Fail-closed at validate time.
+    # EVERY LEG OF EVERY KEY (KR-01, quality lens on the crypto foundation at 53d1eafe, 15.11.2026): the check
+    # compared `publicKey` alone. That field is the ML-DSA key of an `mldsa65` key but the Ed25519 leg of a hybrid
+    # key, whose ML-DSA leg sits in `publicKeyPq`. One ML-DSA key named as an `mldsa65` key and as the PQ leg of a
+    # hybrid, or as the PQ leg of two hybrids, passed here and counted twice toward a threshold; once Ed25519 is
+    # broken, the case hybrids exist for, one ML-DSA secret met a threshold of two (measured with the real
+    # backend). Now no leg, classical or post-quantum, may appear in two keys.
+    # AN UNREADABLE KEY STILL NAMES WHAT IT SHARES (deep gate iteration 3 on the KR-01 fix, 17.11.2026, F4): a key that
+    # `_key_reading` cannot read has no legs, so this check no longer named the key material it shares with another key,
+    # which 6.6.0 did by comparing the decoded `publicKey`. Such a key is read here as 6.6.0 read it. This only adds an
+    # error to a pack that is already invalid through the unreadable key's own error; no count and no pin reads it.
+    def _alias_teile(kv: Any) -> tuple[bytes, ...]:
+        teile = _key_legs(kv)
+        if teile is not None:
+            return teile
+        if not (isinstance(kv, dict) and isinstance(kv.get("publicKey"), str)):
+            return ()
+        try:
+            return (decode_b64(kv["publicKey"]),)
+        except Exception:  # noqa: BLE001 — undecodable, as 6.6.0 skipped it
+            return ()
+
+    # EVERY LEG IS REGISTERED, EACH KEY IS NAMED ONCE (deep gate iteration 3 over the fallback, 17.11.2026, F4): the
+    # loop stopped at a key's first shared leg, so that key's other legs were never registered and a third key sharing
+    # one of them was named nowhere. Now a key registers all its legs and gives at most one error.
     if isinstance(keys, dict):
         _seen_material: dict[str, str] = {}
         for kid, kv in keys.items():
-            if not (isinstance(kv, dict) and isinstance(kv.get("publicKey"), str)):
-                continue
-            try:
-                _mat = decode_b64(kv["publicKey"]).hex()
-            except Exception:  # noqa: BLE001
-                continue
-            if _mat in _seen_material:
-                errors.append(
-                    f"keys[{kid!r}] duplicates the key material of keys[{_seen_material[_mat]!r}] — key "
-                    "aliasing dilutes thresholds (Sybil), fail-closed")
-            else:
-                _seen_material[_mat] = kid
+            _gemeldet = False
+            for _teil in _alias_teile(kv):
+                _mat = _teil.hex()
+                if not _gemeldet and _mat in _seen_material and _seen_material[_mat] != kid:
+                    errors.append(
+                        f"keys[{kid!r}] duplicates the key material of keys[{_seen_material[_mat]!r}] (a classical "
+                        "or post-quantum leg) — key aliasing dilutes thresholds (Sybil), fail-closed")
+                    _gemeldet = True
+                _seen_material.setdefault(_mat, kid)
 
     revoked = predicate.get("revoked", [])
     if "revoked" in predicate and not (isinstance(revoked, list) and all(isinstance(x, str) for x in revoked)):
@@ -541,6 +562,61 @@ def sign_trust_pack(predicate: dict, signers: dict, *, subject_name: str | None 
 # `ok`, which stays the documented self-authentication verdict.
 
 
+def _decoded_leg(b64: Any, length: int) -> bytes | None:
+    """One leg of a key: the bytes its base64 text decodes to, only when they have the length of the leg's
+    algorithm (``_KEY_RAW_LEN``), as the validator demands of a pack's keys. Anything else is no leg."""
+    if not isinstance(b64, str):
+        return None
+    try:
+        raw = decode_b64(b64)
+    except Exception:  # noqa: BLE001 — an unreadable leg is no leg
+        return None
+    return raw if len(raw) == length else None
+
+
+def _key_reading(value: Any) -> tuple[bytes, tuple[bytes, ...]] | None:
+    """ONE READING of one root key, from which both its identity token and its legs come.
+
+    WHY ONE (deep gate iteration 1 on the KR-01 fix at 83fc4355, 17.11.2026, findings F1, F2 and F5): the identity
+    (``_root_key_identity``) and the legs (``_key_legs``) were read from different fields with different strictness.
+    The identity ignored ``publicKeyPq`` on a key that is not hybrid and checked no length; the legs read
+    ``publicKeyPq`` on every key and gave nothing for an unreadable one. So an ``mldsa65`` root key with a stray,
+    unreadable ``publicKeyPq`` had an identity but no legs, and the pin did not see that its ML-DSA key was the PQ
+    leg of a hybrid next to it (F1); two different Ed25519 keys of a caller's old root with the same stray value
+    shared a "leg" and vouched once instead of twice (F2); and a hybrid whose ``publicKeyPq`` decoded to 0 or 100
+    bytes was a declared identity of the pin that can never sign (F5).
+
+    The rule, the same at every place that reads a key (alias check, root count, rotation, pin): a key's legs are
+    ``publicKey`` and, for a ``hybrid-ed25519-mldsa65`` key only, ``publicKeyPq``; each leg counts only when it
+    decodes to the length of its algorithm (Ed25519 32 bytes, ML-DSA-65 1952 bytes). A ``publicKeyPq`` on a key
+    that is not hybrid is no leg, as it was never part of that key's identity. ``alg`` absent is ``ed25519``; an
+    ``alg`` that is not one of ``_KEY_ALGS`` (and not plain text) reads as no key. A bare base64 string is a legacy
+    Ed25519 key. ``None``: the key counts nowhere."""
+    pub_b64: Any
+    pq_b64: Any
+    if isinstance(value, str):
+        alg, pub_b64, pq_b64 = "ed25519", value, None
+    elif isinstance(value, dict):
+        alg = value.get("alg", "ed25519")
+        if type(alg) is not str or alg not in _KEY_ALGS:
+            return None   # R6a-3: an unknown algorithm is rejected closed, never read as its classical leg
+        pub_b64 = value.get("publicKey")
+        pq_b64 = value.get("publicKeyPq") if alg == "hybrid-ed25519-mldsa65" else None
+    else:
+        return None
+    pub = _decoded_leg(pub_b64, _KEY_RAW_LEN["mldsa65"] if alg == "mldsa65" else _KEY_RAW_LEN["ed25519"])
+    if pub is None:
+        return None
+    if alg != "hybrid-ed25519-mldsa65":
+        return alg.encode("ascii") + b"|" + str(len(pub)).encode("ascii") + b":" + pub + b"|", (pub,)
+    pq = _decoded_leg(pq_b64, _KEY_RAW_LEN["mldsa65"])
+    if pq is None:
+        return None   # R6a-3: a hybrid key WITHOUT a readable PQ leg is incomplete — rejected closed, no downgrade
+    token = (alg.encode("ascii") + b"|" + str(len(pub)).encode("ascii") + b":" + pub + b"|"
+             + str(len(pq)).encode("ascii") + b":" + pq)
+    return token, (pub, pq)
+
+
 def _root_key_identity(value: Any) -> bytes | None:
     """Addendum R6a-3 (`KRAXO-CLOUD-R6A-SIEBEN-P1-VOR-CRIT-JSON-01`): the canonical IDENTITY token of ONE root
     key, covering the ALGORITHM and BOTH legs, not the classical ``publicKey`` alone. So a hybrid key and an
@@ -549,40 +625,66 @@ def _root_key_identity(value: Any) -> bytes | None:
     downgrade, docs/predicates/trust-pack.md §roles/keys). Accepts the same shapes as ``prev_root_keys``: a
     bare base64 string (legacy Ed25519-only) or a key object ``{"publicKey", "alg"?, "publicKeyPq"?}``.
 
-    Fail-closed (``None``, counted nowhere, so it can neither be a declared root key nor a pin):
-      - an unknown ``alg`` (never silently reduced to its classical leg);
-      - an unreadable / missing ``publicKey``;
-      - a hybrid key whose ``publicKeyPq`` leg is absent or not decodable (an INCOMPLETE hybrid key).
-    ``alg`` absent defaults to ``ed25519`` (backward compatible with every pre-agility pack and bare-string
-    pin). The token is length-prefixed, so no two distinct ``(alg, publicKey, publicKeyPq)`` triples collide."""
-    alg: str
-    pub_b64: Any
-    pq_b64: Any
-    if isinstance(value, str):
-        alg, pub_b64, pq_b64 = "ed25519", value, None
-    elif isinstance(value, dict):
-        alg = value.get("alg", "ed25519")
-        if alg not in _KEY_ALGS:
-            return None   # R6a-3: an unknown algorithm is rejected closed, never read as its classical leg
-        pub_b64, pq_b64 = value.get("publicKey"), value.get("publicKeyPq")
-    else:
-        return None
-    if not isinstance(pub_b64, str):
-        return None
-    try:
-        pub = decode_b64(pub_b64)
-    except Exception:  # noqa: BLE001 — an unreadable public key is no identity
-        return None
-    pq: bytes | None = None
-    if alg == "hybrid-ed25519-mldsa65":
-        if not isinstance(pq_b64, str):
-            return None   # R6a-3: a hybrid key WITHOUT its PQ leg is incomplete — rejected closed, no downgrade
-        try:
-            pq = decode_b64(pq_b64)
-        except Exception:  # noqa: BLE001 — an undecodable PQ leg is an incomplete hybrid key
-            return None
-    pq_part = b"" if pq is None else str(len(pq)).encode("ascii") + b":" + pq
-    return alg.encode("ascii") + b"|" + str(len(pub)).encode("ascii") + b":" + pub + b"|" + pq_part
+    Read through ``_key_reading``, the one reading that also gives the key's legs. Fail-closed (``None``, counted
+    nowhere, so it can neither be a declared root key nor a pin): an unknown ``alg``; a ``publicKey`` that does not
+    decode to the length of its algorithm; a hybrid key whose ``publicKeyPq`` is absent or does not decode to 1952
+    bytes (an INCOMPLETE hybrid key). The token is length-prefixed, so no two distinct ``(alg, publicKey,
+    publicKeyPq)`` triples collide."""
+    gelesen = _key_reading(value)
+    return None if gelesen is None else gelesen[0]
+
+
+def _key_legs(value: Any) -> tuple[bytes, ...] | None:
+    """KR-01: the raw bytes of every leg of ONE key, read through ``_key_reading``, the same reading that gives the
+    key's identity: ``publicKey``, and ``publicKeyPq`` for a hybrid key only, each at the length of its algorithm.
+    Two keys that share any leg are one signer, whatever their algorithm labels say: an `mldsa65` key and a hybrid
+    whose PQ leg is that key, or two hybrids with one PQ leg. ``None`` for a key that cannot be read (it counts
+    nowhere, and it has no identity either)."""
+    gelesen = _key_reading(value)
+    return None if gelesen is None else gelesen[1]
+
+
+def _revoked_ids(predicate: dict) -> set[str]:
+    """The key ids ``revoked`` names, read as text only (deep gate iteration 2 on the KR-01 fix, 17.11.2026, F3).
+
+    ``set(revoked)`` raised ``TypeError`` out of ``trust_pack_is_pinned`` for an entry that is a list or an object
+    (``revoked=[["x"]]``), before and after the fix. Key ids are text, so an entry that is not text names no key and
+    revokes nothing. The validator still refuses such a list; this reading only keeps a direct call from raising."""
+    return {x for x in _as_list(predicate.get("revoked")) if type(x) is str}
+
+
+def _root_legs_disjoint(predicate: Any) -> bool:
+    """KR-01: True iff no leg is shared by two non-revoked declared root keys. A pin of the root-key set (anchor 3)
+    counts declared identities against the threshold; two identities with one ML-DSA leg are one signer, so such a
+    pack is no pinned root. A key id listed twice in the root role is one key, not two keys that share their legs
+    (Codex round 1 on the KR-01 fix).
+
+    A non-revoked root key that cannot be read makes the answer False (deep gate iteration 2 on the fix, F4): its legs
+    are unknown, so nobody can say they are disjoint from the others. ``_declared_root_material`` refuses the same key
+    the same way."""
+    if not isinstance(predicate, dict):
+        return False
+    keys = _as_dict(predicate.get("keys"))
+    revoked = _revoked_ids(predicate)
+    root = _as_dict(_as_dict(predicate.get("roles")).get("root"))
+    gesehen: set[bytes] = set()
+    bearbeitet: set[str] = set()
+    for kid in _as_list(root.get("keyIds")):
+        if not isinstance(kid, str):
+            return False
+        if kid in revoked or kid in bearbeitet:
+            continue
+        bearbeitet.add(kid)
+        # A key of a pack is an object; a bare text is read as a key only where a caller hands one in (a pin, an old
+        # root). Read here as `_declared_root_material` reads it, so the two never disagree on which key exists.
+        kv = keys.get(kid)
+        teile = _key_legs(kv) if isinstance(kv, dict) else None
+        if not teile:
+            return False
+        if gesehen & set(teile):
+            return False
+        gesehen.update(teile)
+    return True
 
 
 def _declared_root_material(predicate: Any) -> tuple[set[bytes], Any]:
@@ -590,26 +692,36 @@ def _declared_root_material(predicate: Any) -> tuple[set[bytes], Any]:
 
     Mirrors ``verify_trust_pack``'s own root extraction (count distinct KEY MATERIAL, not keyId labels): for
     each non-revoked root keyId, the full normalized identity of ``keys[kid]`` (R6a-3: algorithm + both legs,
-    via ``_root_key_identity``, not ``publicKey`` alone). Fail-closed — an unreadable key, an unknown or
-    incomplete algorithm, a malformed role or a non-int threshold contributes nothing (empty set / ``None``
-    threshold), never a raise. The threshold is returned only as an exact int (``_is_int``), so an int subclass
+    via ``_root_key_identity``, not ``publicKey`` alone). Fail-closed, never a raise: a malformed role or a non-int
+    threshold gives no pin. The threshold is returned only as an exact int (``_is_int``), so an int subclass
     cannot later decide a comparison; a non-int threshold comes back ``None`` and no pin via the root-key anchor
-    can pass."""
+    can pass.
+
+    A DECLARED ROOT KEY THAT CANNOT BE READ REFUSES THE PIN (deep gate iteration 2 on the KR-01 fix, 17.11.2026, F4;
+    owner choice A on the card of that iteration). At the class fix 50ff9201 every such key was left out, so a root of
+    a pinned key ``a`` and a key ``b`` that is no key was pinned at a threshold of one by a pin of ``a`` alone. In the
+    release 6.6.0 that held for a hybrid without its PQ leg, an unknown ``alg``, a ``publicKey`` that is no base64, a
+    key that is not an object and a key id with no entry in ``keys``; a key whose leg had the wrong length (an Ed25519
+    key of 31 bytes, a PQ leg of 100 bytes, an ``mldsa65`` key of 32 bytes) took part in the comparison there like a
+    readable key, so it refused the pin unless the relying party pinned the same bytes (measured on 17.11.2026). A relying party cannot pin what it cannot read, so any non-revoked root key without an identity, or a
+    root key id that is not text, gives the empty set and ``None``, and no pin via the root-key anchor can pass. A
+    revoked key is not read at all."""
     if not isinstance(predicate, dict):
         return set(), None
     keys = _as_dict(predicate.get("keys"))
-    revoked = set(_as_list(predicate.get("revoked")))
+    revoked = _revoked_ids(predicate)
     root = _as_dict(_as_dict(predicate.get("roles")).get("root"))
     material: set[bytes] = set()
     for kid in _as_list(root.get("keyIds")):
-        if not isinstance(kid, str) or kid in revoked:
+        if not isinstance(kid, str):
+            return set(), None
+        if kid in revoked:
             continue
         kv = keys.get(kid)
-        if not isinstance(kv, dict):
-            continue
-        token = _root_key_identity(kv)   # R6a-3: full normalized identity, never the classical leg alone
-        if token is not None:
-            material.add(token)
+        token = _root_key_identity(kv) if isinstance(kv, dict) else None   # R6a-3: full identity, both legs
+        if token is None:
+            return set(), None
+        material.add(token)
     threshold = root.get("threshold")
     return material, (threshold if _is_int(threshold) else None)
 
@@ -655,7 +767,8 @@ def trust_pack_is_pinned(predicate: Any, *, expected_genesis_digest: str | None 
          and the exact value ``build_trust_pack_statement`` writes as the subject digest;
       3. a pinned root-key set — every DECLARED non-revoked root key is in ``expected_root_keys`` AND the
          declared root threshold is a positive int reachable within it, so the pack's root IDENTITY is exactly
-         what the RP pinned (the threshold that authenticated it is then pinned too).
+         what the RP pinned (the threshold that authenticated it is then pinned too). A declared non-revoked root
+         key that cannot be read refuses this anchor (``_declared_root_material``).
 
     One-reading and fail-closed throughout: the digest is read by its characters (``_zeichen_von``), the
     pinned keys through ``_richtlinie_von``; a computation that cannot run (no RFC-8785 canonicaliser) is a
@@ -687,8 +800,10 @@ def trust_pack_is_pinned(predicate: Any, *, expected_genesis_digest: str | None 
         anchor_supplied = True
         pinned_keys = _pinned_root_material(expected_root_keys)
         declared, threshold = _declared_root_material(predicate)
+        # KR-01: the declared identities are counted against the threshold, so they must not share a leg.
         if (pinned_keys and declared and declared <= pinned_keys
-                and type(threshold) is int and threshold >= 1 and len(declared) >= threshold):
+                and type(threshold) is int and threshold >= 1 and len(declared) >= threshold
+                and _root_legs_disjoint(predicate)):
             return True
 
     return False if anchor_supplied else None
@@ -897,7 +1012,7 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
 
     # Threshold-of-root over the EXACT signed bytes.
     keys = _as_dict(predicate.get("keys"))
-    revoked = set(_as_list(predicate.get("revoked")))
+    revoked = _revoked_ids(predicate)   # the validator passed, so this is the list of key ids it checked
     root = _as_dict(_as_dict(predicate.get("roles")).get("root"))
     root_ids = [k for k in _as_list(root.get("keyIds")) if k not in revoked]
     threshold = root.get("threshold")
@@ -908,6 +1023,9 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
     # alg label lives INSIDE the signed predicate, so an attacker cannot relabel a key without invalidating
     # every signature over this pack.
     valid_root: dict[bytes, str] = {}
+    # KR-01: every leg of every counted key. A signer whose classical OR post-quantum leg is already counted adds
+    # nothing (defense-in-depth beyond the validator, which now refuses a shared leg).
+    gezaehlte_teile: set[bytes] = set()
     for entry in _as_list(envelope.get("signatures")):
         if not isinstance(entry, dict):
             continue
@@ -924,11 +1042,13 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
             pub = decode_b64(pub_b64)
         except Exception:  # noqa: BLE001
             continue
-        if pub in valid_root:  # same key material already counted — aliasing cannot inflate the threshold
+        teile = _key_legs(kv)
+        if not teile or gezaehlte_teile & set(teile):  # a leg already counted — aliasing cannot inflate the threshold
             continue
         alg = kv.get("alg", "ed25519")
         if _verify_signature_for_alg(alg, pub, kv.get("publicKeyPq"), entry, msg):
             valid_root[pub] = kid
+            gezaehlte_teile.update(teile)
     r["root_signers"] = sorted(valid_root.values())
     r["root_threshold_met"] = _is_int(threshold) and len(valid_root) >= threshold
     if not r["root_threshold_met"]:
@@ -986,6 +1106,9 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
         # value vouches for nothing (fail-closed), as a non-dict did.
         old_keys = _richtlinie_von(prev_root_keys) or {}
         old_valid: dict[bytes, str] = {}
+        # KR-01: the previous root comes from the caller, not from a validated pack, so the leg check lives here
+        # alone: an old root of two hybrids with one ML-DSA leg vouched with one ML-DSA secret (measured).
+        gezaehlte_alte_teile: set[bytes] = set()
         for entry in _as_list(envelope.get("signatures")):
             if not isinstance(entry, dict):
                 continue
@@ -1011,10 +1134,12 @@ def verify_trust_pack(envelope: dict, *, strict: bool = False, now: datetime | N
                 pub = decode_b64(pub_b64)
             except Exception:  # noqa: BLE001
                 continue
-            if pub in old_valid:
+            alte_teile = _key_legs(_ok)
+            if not alte_teile or gezaehlte_alte_teile & set(alte_teile):
                 continue
             if _verify_signature_for_alg(old_alg, pub, pq_pub_b64, entry, msg):
                 old_valid[pub] = kid
+                gezaehlte_alte_teile.update(alte_teile)
         r["old_root_signers"] = sorted(old_valid.values())
         # prev_root_threshold MUST be a positive int: 0/None/negative would "authorize" a rotation with zero
         # old-root vouches (self-review fix, fail-closed defense-in-depth — a correct caller passes the old

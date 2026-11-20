@@ -289,6 +289,9 @@ proofbundle = ["py.typed", "eee_eval_schema.json", "policies/*.json"]
 
 [tool.ruff]
 line-length = 100
+# Code of another author, kept byte for byte as received, is not judged by our lint rules; its bytes are
+# held by MANIFEST.sha256 of its parent folder instead.
+extend-exclude = ["interop/scitt-statement-identification-03/independent"]
 
 [tool.ruff.lint]
 # THE JUDGE'S CRITERIA ARE OURS, NOT THE VENDOR'S DEFAULT-OF-THE-DAY.
