@@ -1,9 +1,21 @@
 # proofbundle predicates
 
-Each predicate is a vendored in-toto `predicateType` under the `b7n0de.com/proofbundle/predicates/` namespace,
+Each predicate is a vendored in-toto `predicateType` in a namespace hosted by b7n0de.com,
 carried in a DSSE (Ed25519) Statement and verified against the exact signed bytes by a hand-rolled fail-closed
 validator (the JSON Schemas under [`schemas/`](../../schemas/) are docs-only and never gate a verdict). Every
 predicate widens the attestation surface, so each states its **non-claims** as explicitly as its guarantees.
+
+There is no single namespace. The `predicateType` values the code writes, or reads as its own, sit under four
+prefixes, each followed by `<name>/v<version>`.
+
+- `https://b7n0de.com/proofbundle/predicates/` carries decision-receipt, action-outcome, trust-pack,
+  verification-summary, run-ledger, relation-statement and agent-review (v0.1, v0.2 and v0.3).
+- `https://b7n0de.com/attestation/` carries eval-result (v0.1 and v0.2), the vendor form of the shape proposed
+  upstream ([../IN_TOTO_PROFILE.md](../IN_TOTO_PROFILE.md)).
+- `https://b7n0de.com/proofbundle/` carries the self-hosted eval-receipt view, `eval-receipt/v0.1`, written only
+  by the Python function `to_intoto_statement` ([PREDICATE.md](../../PREDICATE.md)).
+- `https://in-toto.io/attestation/` carries the community predicates test-result (v0.1) and svr (v0.1). They are
+  in-toto's types, not ours, and are not listed in the table below.
 
 ## Predicates
 

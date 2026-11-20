@@ -255,6 +255,58 @@ class TestDocsTruth(unittest.TestCase):
         # requested binding (exit 2) since 3.1.2; the help now says what the verifier does.
         self.assertIn("and so does a receipt without a validity object", normalized)
 
+    def test_predicates_readme_names_every_namespace_the_code_writes(self):
+        # CLOUD-NEBENBEFUNDE-DOKU-660-01, finding 1: docs/predicates/README.md said every predicate lives under
+        # `b7n0de.com/proofbundle/predicates/`, while eval-result is `https://b7n0de.com/attestation/...` and
+        # the eval-receipt view is `https://b7n0de.com/proofbundle/eval-receipt/v0.1`. The namespaces are
+        # derived from the code: every module constant named *PREDICATE_TYPE* with an https value, minus its
+        # last two path segments (`<name>/v<version>`). The intro paragraph must name exactly that set, as
+        # backticked `https://.../` tokens, so a namespace can neither be missing nor be claimed without code.
+        pattern = re.compile(r'(?m)^(?:[A-Z][A-Z0-9_]*_)?PREDICATE_TYPE[A-Z0-9_]*\s*=\s*"(https://[^"]+)"')
+        types = set()
+        for path in sorted((REPO / "src" / "proofbundle").rglob("*.py")):
+            types.update(pattern.findall(path.read_text(encoding="utf-8")))
+        from proofbundle import agent_review, decision, intoto
+        anchors = {intoto.PREDICATE_TYPE, intoto.EVAL_RESULT_V02_PREDICATE_TYPE, intoto.SVR_PREDICATE_TYPE,
+                   intoto.TEST_RESULT_PREDICATE_TYPE, decision.DECISION_RECEIPT_PREDICATE_TYPE,
+                   agent_review.AGENT_REVIEW_PREDICATE_TYPE_V03}
+        self.assertLessEqual(anchors, types, "the constant scan misses predicate types the code imports")
+        namespaces = {t.rstrip("/").rsplit("/", 2)[0] + "/" for t in types}
+        text = (REPO / "docs" / "predicates" / "README.md").read_text(encoding="utf-8")
+        intro = text.split("\n## ", 1)[0]
+        claimed = set(re.findall(r"`(https://[^`\s]+/)`", intro))
+        self.assertEqual(claimed, namespaces,
+                         "docs/predicates/README.md intro must name exactly the predicateType namespaces "
+                         f"the code writes; code {sorted(namespaces)}, docs {sorted(claimed)}")
+
+    def test_intoto_module_docstring_names_the_export_profiles_and_default(self):
+        # CLOUD-NEBENBEFUNDE-DOKU-660-01, finding 2: the docstring of proofbundle.intoto described only the
+        # model-id-commitment view, while `proofbundle intoto` writes eval-result with the subject profile
+        # `receipt` by default. The default is read from both export functions and from the CLI help.
+        import inspect
+        from proofbundle import intoto
+        from proofbundle.cli import build_parser
+        import io as _io
+        from contextlib import redirect_stdout as _rs
+        defaults = {inspect.signature(fn).parameters["subject_profile"].default
+                    for fn in (intoto.export_eval_result_dsse, intoto.export_eval_result_v02_dsse)}
+        self.assertEqual(len(defaults), 1, f"the export functions disagree on the default profile: {defaults}")
+        default = defaults.pop()
+        self.assertIn(default, intoto.SUBJECT_PROFILES)
+        buf = _io.StringIO()
+        try:
+            with _rs(buf):
+                build_parser().parse_args(["intoto", "--help"])
+        except SystemExit:
+            pass
+        self.assertIn(f"default: {default}", " ".join(buf.getvalue().split()))
+        doc = " ".join((intoto.__doc__ or "").split())
+        for profile in intoto.SUBJECT_PROFILES:
+            self.assertIn(f"``{profile}``", doc, f"intoto docstring does not name the profile {profile}")
+        self.assertIn(f"``{default}`` (the default", doc, "intoto docstring does not name the default profile")
+        for ptype in intoto.EVAL_RESULT_PREDICATE_TYPES:
+            self.assertIn(ptype, doc, f"intoto docstring does not name {ptype}")
+
 
 if __name__ == "__main__":
     unittest.main()
