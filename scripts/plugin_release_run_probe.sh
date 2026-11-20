@@ -54,6 +54,16 @@ done
 # the output folder as one absolute path, since the third build writes its report from a subshell with working
 # directory / (the Codex review of pull request 478 at b3e3d2eb: a relative --out ended a valid run with exit 1)
 out=$(realpath -m -- "$out")
+# THE INTERPRETER IS CHECKED BEFORE THE FIRST BUILD (owner answer A on the workflow card for 6.6.1, row 17). The
+# generator reads script metadata with tomllib, Python 3.11 or later. Under an older python3 every build ended with
+# exit 2 and the driver reported `run1 build exit 2 (expected 0) UNEXPECTED`, which reads as a fault of the build.
+# The driver names it instead, as NOT MEASURABLE with exit 2, before anything is written.
+pyver=$(python3 -I -c 'import sys; print(".".join(map(str, sys.version_info[:3]))); raise SystemExit(0 if sys.version_info >= (3, 11) else 3)' 2>/dev/null)
+pyrc=$?
+if [ "$pyrc" -ne 0 ]; then
+  echo "NOT MEASURABLE: the generator needs Python 3.11 or later, python3 here is ${pyver:-not runnable} (exit $pyrc)" >&2
+  exit 2
+fi
 mkdir -p "$out"
 [ -z "$(ls -A "$out")" ] || { echo "output folder not empty" >&2; exit 2; }
 work=$(mktemp -d -p "$tmpbase")
