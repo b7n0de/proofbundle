@@ -11,6 +11,111 @@ _dl_spec = importlib.util.spec_from_file_location("doc_link_check", REPO / "scri
 doc_link_check = importlib.util.module_from_spec(_dl_spec)
 _dl_spec.loader.exec_module(doc_link_check)
 
+# --- Future tense about a release that is already out ------------------------------------------------
+# docs/predicates/README.md said "unreleased (planned for 6.3.0)" for eval-result v0.2 after 6.3.0 and
+# 6.4.0 had shipped it. A sentence that promises a version stays true only until that version exists;
+# after that it reads as an open promise for something that shipped, or was skipped. The guard reads a
+# future phrase followed by a version and reports it once that version is at or below the newest release.
+# "since X.Y.Z", "from X.Y.Z on" and "until X.Y.Z" are history and never match.
+_FUTURE_VERSION = re.compile(
+    r"(?i)\b(?:planned\s+(?:for|in)|scheduled\s+(?:for|in)|targeted\s+(?:for|at)|slated\s+for|due\s+in"
+    r"|coming\s+in|will\s+(?:ship|land|arrive|come|follow|appear"
+    r"|be\s+(?:released|added|removed|shipped|built|fixed|available))\s+(?:in|with)"
+    r"|(?:ships?|lands?)\s+in|deferred\s+to|follows?\s+in|go(?:es)?\s+to"
+    r"|geplant\s+f(?:ü|ue)r|kommt\s+in|erscheint\s+in|folgt\s+in)"
+    r"[\s(`\"']*(?:proofbundle\s+)?v?(\d+\.\d+\.\d+)(?![\d.]*\d)")
+# A pointer to the changelog's "Unreleased" section goes stale with the next release: the entry moves
+# under a version heading and the pointer names a section that no longer holds it.
+_UNRELEASED_POINTER = re.compile(r"CHANGELOG(?:\.md)?`?\s*[\"“]Unreleased[\"”]")
+_CHANGELOG_HEADING = re.compile(r"(?m)^## \[(\d+\.\d+\.\d+)\]")
+_RECORD_NAME = re.compile(r"^(?:RESTRISIKO_(\d)(\d)(\d)(?:_.*)?|(\d+\.\d+\.\d+))\.md$")
+
+
+def _vt(v: str) -> tuple:
+    return tuple(int(x) for x in v.split("."))
+
+
+def _source_version(repo: Path) -> str:
+    m = re.search(r'(?m)^version\s*=\s*"([^"]+)"', (repo / "pyproject.toml").read_text(encoding="utf-8"))
+    return m.group(1)
+
+
+def _released_versions(repo: Path) -> set:
+    """The released versions, read from CHANGELOG.md, so the guard needs no git and no tags.
+
+    The section of the source version is the release in preparation; it counts as released only when
+    the clone carries its tag. Without git, or without tags, it counts as not released, which can only
+    leave a sentence about that one version unreported until the next bump, never report a false one.
+    """
+    import subprocess
+    source = _source_version(repo)
+    released = {v for v in _CHANGELOG_HEADING.findall((repo / "CHANGELOG.md").read_text(encoding="utf-8"))
+                if _vt(v) < _vt(source)}
+    try:
+        tag = subprocess.run(["git", "-C", str(repo), "tag", "-l", f"v{source}"], capture_output=True,
+                             text=True, timeout=30).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        tag = ""
+    if tag == f"v{source}":
+        released.add(source)
+    return released
+
+
+def _is_closed_record(rel: str, released: set) -> bool:
+    """A record of a release that is out: its future sentences were true on the day it was written.
+
+    RESTRISIKO_<xyz>*.md and docs/release_scope/<x.y.z>.md belong to the release they name. Once it
+    is out they are history like CHANGELOG.md; the record of the release in preparation stays read.
+    """
+    parent = rel.rpartition("/")[0]
+    if parent not in ("", "docs/release_scope"):
+        return False
+    m = _RECORD_NAME.match(rel.rpartition("/")[2])
+    if not m:
+        return False
+    version = m.group(4) or f"{m.group(1)}.{m.group(2)}.{m.group(3)}"
+    return version in released
+
+
+def _future_tense_scope(repo: Path, released: set) -> list:
+    """The shipped and linked text: README and the other top-level documents, docs/, examples/,
+    schemas/ and src/ (docstrings, comments and the CLI help all live in the .py files).
+
+    Left out, each for its reason: CHANGELOG.md, release_notes/ and audit_artifacts/ are history and
+    are not rewritten; docs/upstream/ mirrors texts of other projects; plugins/ carries its own version
+    line (0.x), which this guard does not read, and so does docs/release_scope/plugin-*.md; the records
+    of releases that are out (above).
+    """
+    out = []
+    for p in sorted(repo.glob("*.md")):
+        if p.name != "CHANGELOG.md" and not _is_closed_record(p.name, released):
+            out.append(p)
+    for top, suffixes in (("docs", (".md", ".json")), ("examples", (".md", ".json", ".py", ".txt")),
+                          ("schemas", (".md", ".json")), ("src", (".py",))):
+        for p in sorted((repo / top).rglob("*")):
+            rel = p.relative_to(repo).as_posix()
+            if (p.is_file() and p.suffix in suffixes and not rel.startswith("docs/upstream/")
+                    and not rel.startswith("docs/release_scope/plugin-")
+                    and "__pycache__" not in rel and not _is_closed_record(rel, released)):
+                out.append(p)
+    return out
+
+
+def _future_tense_findings(texts, released: set) -> list:
+    """Each finding as "path:line: phrase (why)". `texts` is a list of (path label, text)."""
+    newest = max(_vt(v) for v in released)
+    found = []
+    for label, text in texts:
+        for m in _FUTURE_VERSION.finditer(text):
+            if _vt(m.group(1)) <= newest:
+                state = "released" if m.group(1) in released else "skipped, a later release is out"
+                line = text.count("\n", 0, m.start()) + 1
+                found.append(f"{label}:{line}: {' '.join(m.group(0).split())!r} ({m.group(1)} {state})")
+        for m in _UNRELEASED_POINTER.finditer(text):
+            line = text.count("\n", 0, m.start()) + 1
+            found.append(f"{label}:{line}: {m.group(0)!r} (the entry has moved under a version heading)")
+    return found
+
 
 class TestDocsTruth(unittest.TestCase):
     def test_readme_carries_no_hardcoded_test_count(self):
@@ -86,6 +191,41 @@ class TestDocsTruth(unittest.TestCase):
         self.assertNotIn("draft-15", sdjwt_issue)
         enclave_doc = (REPO / "docs" / "EXPERIMENTAL_ENCLAVE.md").read_text(encoding="utf-8")
         self.assertNotIn("2.0.0b1", enclave_doc, "EXPERIMENTAL_ENCLAVE.md pins a stale beta install")
+
+    def test_no_future_tense_about_a_released_version(self):
+        # "planned for 6.3.0" next to a predicate that 6.3.0 shipped (docs/predicates/README.md, read
+        # after 6.4.0). The class: a future phrase about a version that is out or was skipped, and a
+        # pointer to the changelog's "Unreleased" section for an entry that has since been released.
+        released = _released_versions(REPO)
+        self.assertGreater(len(released), 0, "no released version read from CHANGELOG.md")
+        files = _future_tense_scope(REPO, released)
+        self.assertGreater(len(files), 0, "the guard read no file, which is not a green result")
+        texts = [(p.relative_to(REPO).as_posix(), p.read_text(encoding="utf-8", errors="replace"))
+                 for p in files]
+        found = _future_tense_findings(texts, released)
+        self.assertEqual(found, [], "future tense about a released version:\n" + "\n".join(found))
+
+    def test_future_tense_guard_catches_a_planted_line(self):
+        # The guard proves it reads: a planted line about a released version is reported, a line about
+        # the release in preparation or a later one is not, and history ("since") is never reported.
+        released = {"6.2.1", "6.3.0", "6.4.0"}
+        planted = [("PLANTED.md", "x\n| `p/v9` | unreleased (planned for 6.3.0) | y |\n"),
+                   ("PLANTED.py", '"""Removal is scheduled\nfor 6.2.2."""\n'),
+                   ("PLANTED2.md", 'see CHANGELOG.md "Unreleased" for it\n')]
+        found = _future_tense_findings(planted, released)
+        self.assertEqual(len(found), 3, found)
+        self.assertTrue(found[0].startswith("PLANTED.md:2: "), found)
+        self.assertIn("skipped", found[1])
+        quiet = [("OK.md", "planned for 6.5.0, scheduled for 6.6.0, since 6.3.0, until 6.2.0, "
+                           "from 6.0.0 on, planned for 6.3.0.1\n")]
+        self.assertEqual(_future_tense_findings(quiet, released), [])
+
+    def test_a_shipped_subject_profile_is_not_described_as_deferred(self):
+        # Found by hand with the class above, no version in the sentence: the intoto.py module docstring
+        # called full model-artifact digests deferred, while `--subject-profile public-model` writes a
+        # disclosed model's real sha256 since 2.0.0. Pinned so the sentence cannot come back.
+        intoto_src = (REPO / "src" / "proofbundle" / "intoto.py").read_text(encoding="utf-8")
+        self.assertNotIn("Full artifact digests come only once a model artifact", intoto_src)
 
     def test_non_claims_covers_decision_authorization_boundary(self):
         # WP-N2(c): NON_CLAIMS.md must state the decision boundary — a verified ALLOW is a record,

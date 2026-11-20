@@ -7,8 +7,9 @@ HONESTY (important): the `subject.digest` here is a SALTED COMMITMENT to the mod
 content hash of an artifact. Placing it under the standard `sha256` key would suggest an artifact hash
 and mislead generic in-toto verifiers. in-toto permits arbitrary digest keys, so we use a unique custom
 key `proofbundleModelCommitV1`; the `subject.name` is the descriptive `model-id-commitment`; and the
-predicate mirrors the note in `subject_digest_note`. Full artifact digests come only once a model artifact
-exists (deferred, see the roadmap).
+predicate mirrors the note in `subject_digest_note`. A disclosed model artifact is named by its real sha256
+through the `public-model` subject profile of `proofbundle intoto` (since 2.0.0); this view keeps the
+commitment.
 """
 from __future__ import annotations
 
