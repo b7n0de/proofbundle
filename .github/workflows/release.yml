@@ -147,6 +147,17 @@ jobs:
         # A tag of an earlier release runs its own workflow file, so this changes no earlier release.
         run: python scripts/audit_output_aufloesbar.py --repo . --version "${GITHUB_REF_NAME#v}"
 
+      - name: Version gate with the tag, which must fall on the date of its CHANGELOG section (from 6.6.1)
+        # FINDING A8-1, OWNER ANSWER A ON THE RELEASE PATH (20 November 2026). Before this step the
+        # version gate ran on main and on pull requests only, never on the tag it guards. With --tag it
+        # holds the seven checks of the tree and check 8: the tag must be annotated, name the source
+        # version and carry a tagger date that falls in UTC on the date `## [<version>] - YYYY-MM-DD`
+        # names in the tree the tag points to. Measured on 65bd4b7a: a local tag v6.5.0 dated
+        # 2026-11-06 over the heading 2026-11-08 passed every step above the build. Before the build
+        # and before any upload, so a wrong date stops the release here. A tag of an earlier release
+        # runs its own workflow file, so this changes no earlier release.
+        run: python scripts/check_version_and_changelog.py --repo . --tag "$GITHUB_REF_NAME"
+
       - name: Formpruefer ueber Tag-Text und Release-Notiz (Release-Standard 6.0.0, Bedingung 8)
         # WARUM DIESER SCHRITT HIER STEHT. Der Release-Standard nennt einen "Formpruefer und
         # Benennungs-Gate ueber Release-Notiz und Tag-Text". GEMESSEN am 2026-09-07: es gab keinen.

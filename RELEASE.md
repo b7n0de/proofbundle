@@ -165,6 +165,11 @@ after the merge (see *Release ordering* above).
       audit belongs in the release-prep PR, not after the merge).
 - [ ] On the **merged** target-branch HEAD (never the feature branch), confirm CI is green, then
       `git tag vX.Y.Z` there and push the tag.
+      **From 6.6.1 the tag falls in UTC on the date its `## [X.Y.Z] - YYYY-MM-DD` section names.**
+      `release.yml` runs `scripts/check_version_and_changelog.py --tag vX.Y.Z` before the build, and
+      its check 8 compares the tagger date of the annotated tag, in UTC, with that heading in the
+      tree the tag points to. The signed receipt binds that tree, so the date is set when the
+      candidate is prepared, and the release plan names the day of the tag in UTC.
 - [ ] Watch the `build-and-attest` job: note the printed attested wheel/sdist sha256.
 - [ ] Approve the `pypi` environment when prompted (required reviewer).
 - [ ] Confirm the `publish-pypi` **digest gate** passed (published == attested) in the job log.
