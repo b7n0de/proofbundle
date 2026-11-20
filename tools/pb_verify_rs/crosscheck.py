@@ -809,9 +809,11 @@ def main() -> int:
                                     f"reads it")
             # DIE MENGE, nicht nur die Werte (LAUF12-L1): jede Achse, die Python auf einem Pfad
             # durchsetzt, den dieser Binary AUCH faehrt, muss er kennen. Die uebrigen Python-Achsen
-            # sind Pfade ohne Rust-Entsprechung (Renewal, SD-JWT, Merkle-Pfadlaenge ist durch die
-            # Rekonstruktion selbst begrenzt) — benannt, nicht verschwiegen.
-            _geteilt = {"input_bytes", "json_nodes", "json_depth", "string_len", "signatures", "witnesses"}
+            # sind Pfade ohne Rust-Entsprechung (Renewal, SD-JWT) — benannt, nicht verschwiegen.
+            # `merkle_path` since 6.6.1 (review round r3b): `verify-bundle` reads the steps of an inclusion
+            # proof only up to it, as bundle.py does, where the reconstruction alone bounded them before.
+            _geteilt = {"input_bytes", "json_nodes", "json_depth", "string_len", "signatures", "witnesses",
+                        "merkle_path"}
             _fehlt = sorted(_geteilt - set(rust_budget))
             if _fehlt:
                 failures.append(f"budget axes missing in rust on a shared path: {_fehlt} — a target "

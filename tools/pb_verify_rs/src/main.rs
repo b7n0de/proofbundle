@@ -297,6 +297,11 @@ const BUDGET_STRING_LEN: usize = 1_000_000;
 // Python-Seite vergleicht die Menge, nicht nur die Werte.
 const BUDGET_SIGNATURES: usize = 512;
 const BUDGET_WITNESSES: usize = 256;
+// The steps of an inclusion proof in a bundle (Python `budget.merkle_path`, read by `bundle.py` before
+// it decodes a single step). Review of 6.6.1, round r3b: `verify_bundle` here decoded every step of a
+// proof of any length, so a proof of 257 steps with one that is not base64 was malformed here (exit 2)
+// and a failed inclusion check in Python (exit 1).
+const BUDGET_MERKLE_PATH: usize = 256;
 
 /// Die Achsen, die dieser Binary durchsetzt — EINE Liste, aus der `budget` und die Tests lesen.
 const BUDGET_ACHSEN: &[(&str, usize)] = &[
@@ -306,6 +311,7 @@ const BUDGET_ACHSEN: &[(&str, usize)] = &[
     ("string_len", BUDGET_STRING_LEN),
     ("signatures", BUDGET_SIGNATURES),
     ("witnesses", BUDGET_WITNESSES),
+    ("merkle_path", BUDGET_MERKLE_PATH),
 ];
 
 fn budget_json() -> String {
@@ -951,6 +957,30 @@ fn jws_crit_rejected(header: &serde_json::Value) -> bool {
     true
 }
 
+/// Python's truth value of a JSON value, `bool(x)`: null, false, 0, 0.0, "", [] and {} are false.
+fn py_wahr(v: &serde_json::Value) -> bool {
+    match v {
+        serde_json::Value::Null => false,
+        serde_json::Value::Bool(b) => *b,
+        serde_json::Value::Number(n) => n.as_f64() != Some(0.0),
+        serde_json::Value::String(s) => !s.is_empty(),
+        serde_json::Value::Array(a) => !a.is_empty(),
+        serde_json::Value::Object(o) => !o.is_empty(),
+    }
+}
+
+/// `bundle._require_int` for a field of `merkle`: missing, or a value that is no JSON integer, is malformed
+/// (Err). Any integer is read; a negative one is no index and no size of a tree and comes back as None, which
+/// `verify_bundle` records as a failed inclusion check, as Python's `merkle.verify_inclusion` answers False.
+fn merkle_ganzzahl(mk: &serde_json::Value, key: &str) -> Result<Option<u64>, String> {
+    match mk.get(key) {
+        None => Err(format!("missing merkle.{key}")),
+        Some(v) if v.is_u64() => Ok(v.as_u64()),
+        Some(v) if v.is_i64() => Ok(None),
+        Some(_) => Err(format!("field merkle.{key} must be an integer")),
+    }
+}
+
 fn verify_sdjwt_issuer(
     sd: &serde_json::Value,
     bundle_payload: &serde_json::Value,
@@ -960,8 +990,25 @@ fn verify_sdjwt_issuer(
         .get("compact")
         .and_then(|v| v.as_str())
         .ok_or("sd_jwt_vc.compact must be a string")?;
+    // THE KEY AS bundle.py READS IT, AND BEFORE THE COMPACT FORM (review of 6.6.1, round r3b). Python takes
+    // `sd_jwt_vc.issuer_public_key_b64` when its value is true (`if sd.get(...)`) and decodes it as strict
+    // base64, a defect being malformed (exit 2); a value it reads as false is no key. All that follows is
+    // `sdjwt.verify_sd_jwt`, which never raises: a defect of the compact form, the key or the signature is a
+    // check that does not hold (exit 1). Here a key that was no string counted as no key, the key was decoded
+    // after the compact form, and three defects were malformed: a segment that is not base64url, a key of
+    // another length and a key that is not a point. Since `verify_bundle` reads on after a failed signature,
+    // each of them decided the exit of such a bundle too.
+    let issuer_pk = match sd.get("issuer_public_key_b64") {
+        Some(v) if py_wahr(v) => Some(match v.as_str() {
+            Some(s) => {
+                b64_strict(s).map_err(|e| format!("sd_jwt_vc.issuer_public_key_b64: {e}"))?
+            }
+            None => return Err("field sd_jwt_vc.issuer_public_key_b64 is not valid base64".into()),
+        }),
+        _ => None,
+    };
     // No issuer public key supplied => the disclosures are unauthenticated (bundle.py WP-C2) => reject.
-    let Some(issuer_pub_b64) = sd.get("issuer_public_key_b64").and_then(|v| v.as_str()) else {
+    let Some(pk) = issuer_pk else {
         return Ok(false);
     };
     let parts: Vec<&str> = compact.split('~').collect();
@@ -971,11 +1018,14 @@ fn verify_sdjwt_issuer(
     }
     let (hdr_b64, pl_b64, sig_b64) = (jwt[0], jwt[1], jwt[2]);
     // strict-parse header + payload (a duplicate JSON key here is a parser-differential => reject).
-    let header = match strict_parse(&b64url_nopad(hdr_b64)?) {
+    let (Ok(hdr_roh), Ok(pl_roh)) = (b64url_nopad(hdr_b64), b64url_nopad(pl_b64)) else {
+        return Ok(false);
+    };
+    let header = match strict_parse(&hdr_roh) {
         Ok(h) => h,
         Err(_) => return Ok(false),
     };
-    let payload = match strict_parse(&b64url_nopad(pl_b64)?) {
+    let payload = match strict_parse(&pl_roh) {
         Ok(p) => p,
         Err(_) => return Ok(false),
     };
@@ -993,20 +1043,23 @@ fn verify_sdjwt_issuer(
     if header.get("alg").and_then(|v| v.as_str()) != Some("EdDSA") {
         return Ok(false);
     }
-    // issuer Ed25519 signature over the signing input `header_b64.payload_b64`.
-    let pk = b64_strict(issuer_pub_b64)?;
-    let pk_arr: [u8; 32] = pk
-        .as_slice()
-        .try_into()
-        .map_err(|_| "issuer key not 32 bytes")?;
+    // issuer Ed25519 signature over the signing input `header_b64.payload_b64`. A key of another length or
+    // one that is not a point verifies nothing, as `verify_ed25519_pinned` answers False for it.
+    let Ok(pk_arr) = <[u8; 32]>::try_from(pk.as_slice()) else {
+        return Ok(false);
+    };
     // Python `sdjwt._ISSUER_SIG_VERIFIERS["EdDSA"]` is `verify_ed25519_pinned` (Z195): a weak issuer
     // key authenticates no disclosure, and the part is rejected, not malformed.
     if schwaeche_eines_vertrauensankers(&pk_arr).is_some() {
         return Ok(false);
     }
-    let vk = VerifyingKey::from_bytes(&pk_arr).map_err(|e| format!("bad issuer key: {e}"))?;
+    let Ok(vk) = VerifyingKey::from_bytes(&pk_arr) else {
+        return Ok(false);
+    };
     let signing_input = format!("{hdr_b64}.{pl_b64}");
-    let sig_bytes = b64url_nopad(sig_b64)?;
+    let Ok(sig_bytes) = b64url_nopad(sig_b64) else {
+        return Ok(false);
+    };
     let Ok(sig_arr): Result<[u8; 64], _> = sig_bytes.as_slice().try_into() else {
         return Ok(false);
     };
@@ -1148,31 +1201,42 @@ fn verify_bundle(
     // now only lowers the verdict, and the structure is read to the end.
     let mut gilt = unterschrieben;
 
-    let leaf_index = mk
-        .get("leaf_index")
-        .and_then(|v| v.as_u64())
-        .ok_or("missing merkle.leaf_index")?;
-    let tree_size = mk
-        .get("tree_size")
-        .and_then(|v| v.as_u64())
-        .ok_or("missing merkle.tree_size")?;
+    // WHAT IS READ AFTER A FAILED CHECK IS READ AS bundle.py READS IT (review of this change, round r3b).
+    // Since this function reads on after a check that does not hold, every refusal below decides the exit
+    // of a bundle whose signature did not verify as well, and there it must be Python's: malformed (exit 2)
+    // only where Python raises, a failed check (exit 1) where Python records one. `_require_int` takes any
+    // JSON integer, a negative one too, which then fails the inclusion check; this read `as_u64`, so a
+    // negative index or size was malformed here, exit 2 where Python gives 1, and with a wrong signature
+    // the read-on turned 1 and 1 on 6.6.0 into 1 and 2. A value that is no integer stays malformed.
+    let leaf_index = merkle_ganzzahl(mk, "leaf_index")?;
+    let tree_size = merkle_ganzzahl(mk, "tree_size")?;
     let proof_list = mk
         .get("inclusion_proof_b64")
         .and_then(|v| v.as_array())
         .ok_or("missing merkle.inclusion_proof_b64")?;
+    // The path budget before the decoding, as in bundle.py: a proof of more than `merkle_path` steps is a
+    // failed inclusion check, refused before any step is read, whatever the steps hold.
+    let ueber_dem_budget = proof_list.len() > BUDGET_MERKLE_PATH;
     let mut proof = Vec::new();
-    for p in proof_list {
-        proof.push(b64_strict(
-            p.as_str().ok_or("inclusion proof entry not a string")?,
-        )?);
+    if !ueber_dem_budget {
+        for p in proof_list {
+            proof.push(b64_strict(
+                p.as_str().ok_or("inclusion proof entry not a string")?,
+            )?);
+        }
     }
     let root = b64_strict(
         mk.get("root_b64")
             .and_then(|v| v.as_str())
             .ok_or("missing merkle.root_b64")?,
     )?;
-    match root_from_inclusion(leaf_index, tree_size, leaf_hash(&payload), &proof) {
-        Ok(computed) if computed == root => {}
+    match (ueber_dem_budget, leaf_index, tree_size) {
+        (false, Some(li), Some(ts)) => {
+            match root_from_inclusion(li, ts, leaf_hash(&payload), &proof) {
+                Ok(computed) if computed == root => {}
+                _ => gilt = false,
+            }
+        }
         _ => gilt = false,
     }
     // relying-party root authentication (P0-A): the stated root is not signed, so a supplied
@@ -1183,13 +1247,14 @@ fn verify_bundle(
         }
     }
     if let Some(ets) = expected_tree_size {
-        if ets != ExpectedTreeSize::Exactly(tree_size) {
+        if tree_size.map(ExpectedTreeSize::Exactly) != Some(ets) {
             gilt = false;
         }
     }
     // optional SD-JWT VC block (issuer authenticity + eval-graft slice; see verify_sdjwt_issuer). Read
     // whatever the checks above said, as Python reads `sd_jwt_vc` after a signature that does not verify.
-    if let Some(sd) = b.get("sd_jwt_vc") {
+    // `null` is no block, as `bundle.get("sd_jwt_vc")` reads it (round r3b: it was malformed here).
+    if let Some(sd) = b.get("sd_jwt_vc").filter(|v| !v.is_null()) {
         let bundle_payload = strict_parse(&payload).unwrap_or(serde_json::Value::Null);
         let root_b64_str = mk.get("root_b64").and_then(|v| v.as_str()).unwrap_or("");
         if !verify_sdjwt_issuer(sd, &bundle_payload, root_b64_str)? {
@@ -4694,6 +4759,7 @@ mod tests {
             "string_len",
             "signatures",
             "witnesses",
+            "merkle_path",
         ] {
             assert!(
                 j.contains(&format!("\"{name}\":")),
@@ -4702,7 +4768,7 @@ mod tests {
         }
         assert_eq!(
             BUDGET_ACHSEN.len(),
-            6,
+            7,
             "eine Achse kam dazu oder fiel weg — bewusst?"
         );
     }
@@ -5121,6 +5187,184 @@ mod tests {
             verify_bundle(&sd, None, Some(ExpectedTreeSize::Never)).is_err(),
             "an sd_jwt_vc that is no object after a tree size that does not match was not seen"
         );
+    }
+
+    /// A named change of a bundle, for the case lists below.
+    type Abwandlung = (&'static str, Box<dyn Fn(&mut serde_json::Value)>);
+
+    /// The example bundle with `f` applied and, when `falsch`, a signature that does not verify.
+    fn abgewandelt(falsch: bool, f: impl Fn(&mut serde_json::Value)) -> serde_json::Value {
+        let roh = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../examples/example_bundle.json"
+        ))
+        .expect("examples/example_bundle.json");
+        let mut v = strict_parse(&roh).expect("the example parses");
+        f(&mut v);
+        if falsch {
+            v["signature"]["sig_b64"] =
+                serde_json::json!(base64::engine::general_purpose::STANDARD.encode([0u8; 64]));
+        }
+        v
+    }
+
+    #[test]
+    fn what_python_records_as_a_failed_check_is_no_format_error_here() {
+        // Review of 6.6.1, round r3b: since `verify_bundle` reads on after a failed signature, each value it
+        // refused as malformed where Python records a failed check decided the exit of such a bundle too,
+        // 2 here and 1 in Python (1 and 1 on 6.6.0, which stopped at the signature).
+        let std = base64::engine::general_purpose::STANDARD;
+        let url = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        let schritt = std.encode([0u8; 32]);
+        let schritte = move |n: usize, letzter: serde_json::Value| {
+            let mut s = vec![serde_json::json!(schritt.clone()); n - 1];
+            s.push(letzter);
+            serde_json::Value::Array(s)
+        };
+        let gut = abgewandelt(false, |_| {});
+        assert_eq!(
+            verify_bundle(&gut, None, None),
+            Ok(true),
+            "the example verifies"
+        );
+        let schluessel = gut["signature"]["public_key_b64"].clone();
+        let kein_punkt = (2u16..1000)
+            .map(|y| {
+                let mut b = [0u8; 32];
+                b[..2].copy_from_slice(&y.to_le_bytes());
+                b
+            })
+            .find(|b| VerifyingKey::from_bytes(b).is_err())
+            .expect("a y that is no point of the curve");
+        let jwt = |sig: &str| {
+            format!(
+                "{}.{}.{sig}",
+                url.encode(br#"{"alg":"EdDSA"}"#),
+                url.encode(b"{}")
+            )
+        };
+        let null64 = url.encode([0u8; 64]);
+        let sd = |compact: String, key: serde_json::Value| {
+            move |v: &mut serde_json::Value| {
+                v["sd_jwt_vc"] = serde_json::json!({"compact": compact.clone(), "issuer_public_key_b64": key.clone()});
+            }
+        };
+        let fehlschlag: Vec<Abwandlung> = vec![
+            (
+                "a negative leaf_index",
+                Box::new(|v: &mut serde_json::Value| {
+                    v["merkle"]["leaf_index"] = serde_json::json!(-1)
+                }),
+            ),
+            (
+                "a negative tree_size",
+                Box::new(|v: &mut serde_json::Value| {
+                    v["merkle"]["tree_size"] = serde_json::json!(-1)
+                }),
+            ),
+            (
+                "a proof over the path budget with a step that is not base64",
+                {
+                    let s = schritte(BUDGET_MERKLE_PATH + 1, serde_json::json!("@@@@"));
+                    Box::new(move |v: &mut serde_json::Value| {
+                        v["merkle"]["inclusion_proof_b64"] = s.clone()
+                    })
+                },
+            ),
+            (
+                "a proof over the path budget with a step that is no string",
+                {
+                    let s = schritte(BUDGET_MERKLE_PATH + 1, serde_json::json!(5));
+                    Box::new(move |v: &mut serde_json::Value| {
+                        v["merkle"]["inclusion_proof_b64"] = s.clone()
+                    })
+                },
+            ),
+            (
+                "an issuer JWT whose segments are not base64url",
+                Box::new(sd("@@@.@@@.@@@".into(), schluessel.clone())),
+            ),
+            (
+                "an issuer key of 31 bytes",
+                Box::new(sd(jwt(&null64), serde_json::json!(std.encode([7u8; 31])))),
+            ),
+            (
+                "an issuer key that is no point",
+                Box::new(sd(jwt(&null64), serde_json::json!(std.encode(kein_punkt)))),
+            ),
+            (
+                "an issuer signature that is not base64url",
+                Box::new(sd(jwt("@@@"), schluessel.clone())),
+            ),
+            (
+                "an empty issuer key",
+                Box::new(sd(jwt(&null64), serde_json::json!(""))),
+            ),
+            // A key that is no string and that Python reads as false is no key; were it read as one, it would be
+            // malformed. The empty string above does not tell the two readings apart, these two do.
+            (
+                "an issuer key of null",
+                Box::new(sd(jwt(&null64), serde_json::Value::Null)),
+            ),
+            (
+                "an issuer key of false",
+                Box::new(sd(jwt(&null64), serde_json::json!(false))),
+            ),
+        ];
+        for (name, f) in &fehlschlag {
+            for falsch in [false, true] {
+                assert_eq!(
+                    verify_bundle(&abgewandelt(falsch, f), None, None),
+                    Ok(false),
+                    "{name}, wrong signature: {falsch}"
+                );
+            }
+        }
+        // `"sd_jwt_vc": null` is no block, as `bundle.get` reads it.
+        let ohne = |v: &mut serde_json::Value| v["sd_jwt_vc"] = serde_json::Value::Null;
+        assert_eq!(
+            verify_bundle(&abgewandelt(false, ohne), None, None),
+            Ok(true)
+        );
+        assert_eq!(
+            verify_bundle(&abgewandelt(true, ohne), None, None),
+            Ok(false)
+        );
+        // THE COUNTER-DIRECTION: what Python raises on stays malformed. At the budget every step is decoded,
+        // and an issuer key Python reads as true is decoded before the compact form is looked at.
+        let formfehler: Vec<Abwandlung> = vec![
+            (
+                "a proof at the path budget with a step that is not base64",
+                {
+                    let s = schritte(BUDGET_MERKLE_PATH, serde_json::json!("@@@@"));
+                    Box::new(move |v: &mut serde_json::Value| {
+                        v["merkle"]["inclusion_proof_b64"] = s.clone()
+                    })
+                },
+            ),
+            (
+                "a leaf_index that is no integer",
+                Box::new(|v: &mut serde_json::Value| {
+                    v["merkle"]["leaf_index"] = serde_json::json!(1.5)
+                }),
+            ),
+            (
+                "an issuer key that is not base64, beside a compact form of one part",
+                Box::new(sd("x".into(), serde_json::json!("@@@@"))),
+            ),
+            (
+                "an issuer key that is no string",
+                Box::new(sd("x".into(), serde_json::json!(5))),
+            ),
+        ];
+        for (name, f) in &formfehler {
+            for falsch in [false, true] {
+                assert!(
+                    verify_bundle(&abgewandelt(falsch, f), None, None).is_err(),
+                    "{name}, wrong signature: {falsch}, was not malformed"
+                );
+            }
+        }
     }
 
     #[cfg(unix)]

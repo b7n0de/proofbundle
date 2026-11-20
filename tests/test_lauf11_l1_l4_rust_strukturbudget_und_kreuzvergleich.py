@@ -130,7 +130,10 @@ class TestBudgetParitaet(unittest.TestCase):
         # setzt Python auf Pfaden durch, die dieser Binary AUCH faehrt (DSSE-Umschlag, Trust Pack) —
         # und er kannte sie nicht. Ein Vergleich, der nur ueber die Achsen laeuft, die Rust nennt,
         # kann eine fehlende Achse nicht sehen; deshalb wird hier die Menge festgehalten.
-        gemeinsam = {"input_bytes", "json_nodes", "json_depth", "string_len", "signatures", "witnesses"}
+        # `merkle_path` joined in 6.6.1 (review round r3b): `verify-bundle` now reads the steps of an
+        # inclusion proof only up to this bound, as bundle.py does.
+        gemeinsam = {"input_bytes", "json_nodes", "json_depth", "string_len", "signatures", "witnesses",
+                     "merkle_path"}
         self.assertEqual(
             set(rust), gemeinsam,
             f"der Binary setzt nicht genau die Achsen der gemeinsamen Pfade durch — fehlt: "

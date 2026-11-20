@@ -34,6 +34,7 @@ import unittest
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from proofbundle.budget import DEFAULT_BUDGET
 from proofbundle.signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness, verify_ed25519
 from proofbundle._wire_b64 import decode_b64
 
@@ -207,13 +208,17 @@ class RustVerifyBundle(unittest.TestCase):
 
 
 def _altered(target: pathlib.Path) -> dict:
-    """Twelve cases, with the exit Python gives each. Measured 2026-11-19 at 803ada665ed0 with kreis_probe_paritaet_2.sh:
-    six bundles altered at the signature block and two unchanged controls. A base64 error in the key or the signature
-    is malformed input (2); every defect after decoding is a signature that does not verify (1), whether the key is
-    ordinary or weak. Measured 2026-11-20 at bab98cc30c27 with kreis_probe_paritaet_3.sh (review of this change, round
-    r2b): four bundles in which the signature, the own key or the inclusion proof fails and which also carry a
-    structural defect that Python reads after that check. Python records the failed check and reads on, so the defect
-    is malformed input (2)."""
+    """The cases with the exit Python gives each. Measured 2026-11-19 at 803ada665ed0 with kreis_probe_paritaet_2.sh: six
+    bundles altered at the signature block and two unchanged controls, the first eight cases. A base64 error in the key or
+    the signature is malformed input (2); every defect after decoding is a signature that does not verify (1), whether
+    the key is ordinary or weak. Measured 2026-11-20 at bab98cc30c27 with kreis_probe_paritaet_3.sh (review of this
+    change, round r2b): the wrong signature and the weak key, each without `merkle.leaf_index`. Python records the failed
+    check and reads on, so the defect is malformed input (2). The two cases with an `sd_jwt_vc` that is no object were
+    not in that probe; they follow from `_require_dict` in bundle.py, and the test below runs them at both verifiers.
+    Measured 2026-11-20 at main 11507531ada6 and at f50ea5ca6827, each with its own pb_verify_rs, with
+    kreis_probe_paritaet_4.sh to _6.sh (round r3b): each value of `read_on`, once with the signature as it is and once
+    with a wrong one, except `false` as the issuer key, which follows from `if sd.get(...)` in bundle.py. With a wrong
+    signature, ten of them gave 1 in both on main and 2 in Rust after the read-on of this change."""
     control = json.loads((FIXTURES / "kontrolle_gewoehnlich_richtige_signatur_bundle.json").read_text(encoding="utf-8"))
     weak = json.loads((FIXTURES / "ord1_010000_bundle.json").read_text(encoding="utf-8"))
     b64 = lambda b: base64.b64encode(b).decode()  # noqa: E731
@@ -237,6 +242,48 @@ def _altered(target: pathlib.Path) -> dict:
     def sd_jwt_not_an_object(b):
         b["sd_jwt_vc"] = 5
 
+    def merkle(field, value):
+        def change(b):
+            b["merkle"][field] = value
+        return change
+
+    def steps(n, last):
+        return merkle("inclusion_proof_b64", [b64(bytes(32))] * (n - 1) + [last])
+
+    url = lambda b: base64.urlsafe_b64encode(b).decode().rstrip("=")  # noqa: E731
+    head_and_body = url(json.dumps({"alg": "EdDSA"}).encode()) + "." + url(b"{}")
+    jwt = lambda sig: f"{head_and_body}.{sig}"  # noqa: E731
+
+    def sd_jwt(compact, key):
+        def change(b):
+            b["sd_jwt_vc"] = {"compact": compact, "issuer_public_key_b64": key}
+        return change
+
+    def sd_jwt_null(b):
+        b["sd_jwt_vc"] = None
+
+    budget = DEFAULT_BUDGET.merkle_path
+    # Round r3b: what Python reads after a failed check and records as one more failed check. Each case with the
+    # signature as it is and with a wrong one; with a wrong one 6.6.0 gave 1 and 1, the read-on of this change 1 and 2.
+    read_on = {
+        "negative_leaf_index": ((merkle("leaf_index", -1),), 1),
+        "negative_tree_size": ((merkle("tree_size", -1),), 1),
+        "proof_over_the_budget_with_a_step_not_base64": ((steps(budget + 1, "@@@@"),), 1),
+        "proof_over_the_budget_with_a_step_no_string": ((steps(budget + 1, 5),), 1),
+        "sd_jwt_null": ((sd_jwt_null,), 0),
+        "issuer_jwt_not_base64url": ((sd_jwt("@@@.@@@.@@@", control["signature"]["public_key_b64"]),), 1),
+        "issuer_key_31_bytes": ((sd_jwt(jwt(url(bytes(64))), b64(bytes(31))),), 1),
+        "issuer_key_not_a_point": ((sd_jwt(jwt(url(bytes(64))), b64(no_point)),), 1),
+        "issuer_signature_not_base64url": ((sd_jwt(jwt("@@@"), control["signature"]["public_key_b64"]),), 1),
+        "issuer_key_empty": ((sd_jwt(jwt(url(bytes(64))), ""),), 1),
+        "issuer_key_null": ((sd_jwt(jwt(url(bytes(64))), None),), 1),
+        "issuer_key_false": ((sd_jwt(jwt(url(bytes(64))), False),), 1),
+        # THE COUNTER-DIRECTION: what Python raises on stays malformed.
+        "proof_at_the_budget_with_a_step_not_base64": ((steps(budget, "@@@@"),), 2),
+        "issuer_key_not_base64_beside_a_compact_form_of_one_part": ((sd_jwt("x", "@@@@"),), 2),
+        "issuer_key_no_string": ((sd_jwt("x", 5),), 2),
+    }
+
     cases = {
         "control_unchanged": (control, {}, (), 0),
         "control_key_31_bytes": (control, {"public_key_b64": b64(pk[:31])}, (), 1),
@@ -251,6 +298,9 @@ def _altered(target: pathlib.Path) -> dict:
         "control_wrong_signature_sd_jwt_not_an_object": (control, {}, (wrong_signature, sd_jwt_not_an_object), 2),
         "control_failing_inclusion_sd_jwt_not_an_object": (control, {}, (failing_inclusion, sd_jwt_not_an_object), 2),
     }
+    for name, (changes, rc) in read_on.items():
+        cases[f"control_{name}"] = (control, {}, changes, rc)
+        cases[f"control_wrong_signature_{name}"] = (control, {}, (wrong_signature,) + changes, 2 if rc == 2 else 1)
     out = {}
     for name, (base, fields, changes, rc) in cases.items():
         b = json.loads(json.dumps(base))
@@ -271,8 +321,12 @@ class PythonAndRustGiveTheSameExit(unittest.TestCase):
 
     Round r2b found the second shape, measured on 6.6.0 as well: Rust stopped at the first check that did not hold, while
     Python reads the rest of the bundle, so a structural defect after a failed signature or inclusion proof was exit 1
-    there and 2 here. A weak own key with such a defect joined that shape with this change (2 and 2 on 6.6.0). The four
-    cases at the end of `_altered` hold it."""
+    there and 2 here. A weak own key with such a defect joined that shape with this change (2 and 2 on 6.6.0). Four
+    cases of `_altered` carry it.
+
+    Round r3b found that reading on reached values Rust refused as malformed where Python records a failed check, a
+    negative merkle integer, a proof over the path budget, `sd_jwt_vc: null` and defects of the SD-JWT issuer part. Each
+    is a case here with both signatures, and so are the values Python refuses as malformed in the same places."""
 
     @classmethod
     def setUpClass(cls):
