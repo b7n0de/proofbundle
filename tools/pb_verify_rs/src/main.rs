@@ -5187,6 +5187,43 @@ mod tests {
             verify_bundle(&sd, None, Some(ExpectedTreeSize::Never)).is_err(),
             "an sd_jwt_vc that is no object after a tree size that does not match was not seen"
         );
+        // THE OTHER ARM OF THE INCLUSION CHECK (cloud circle at 40a4d5f9, 2026-11-20): since round r3b the
+        // inclusion check fails in two arms, a proof that does not reach the root and one that is never computed
+        // (a negative index or size, a path over the budget). The cases above reach only the first, so an early
+        // return put back in the second passed this test. Each value alone is a verdict, and with a structural
+        // defect after it malformed, as in Python.
+        let negativ = |feld: &'static str| {
+            move |v: &mut serde_json::Value| {
+                v["merkle"][feld] = serde_json::json!(-1);
+            }
+        };
+        let schritt = std.encode([0u8; 32]);
+        let nie_berechnet: Vec<Abwandlung> = vec![
+            ("a negative leaf_index", Box::new(negativ("leaf_index"))),
+            ("a negative tree_size", Box::new(negativ("tree_size"))),
+            (
+                "a path over the budget",
+                Box::new(move |v: &mut serde_json::Value| {
+                    v["merkle"]["inclusion_proof_b64"] =
+                        serde_json::json!(vec![schritt.clone(); BUDGET_MERKLE_PATH + 1]);
+                }),
+            ),
+        ];
+        for (name, f) in &nie_berechnet {
+            assert_eq!(
+                verify_bundle(&mit(f.as_ref()), None, None),
+                Ok(false),
+                "{name} alone"
+            );
+            let danach = mit(&|v| {
+                f(v);
+                sd_kein_objekt(v);
+            });
+            assert!(
+                verify_bundle(&danach, None, None).is_err(),
+                "an sd_jwt_vc that is no object after {name} was not seen"
+            );
+        }
     }
 
     /// A named change of a bundle, for the case lists below.

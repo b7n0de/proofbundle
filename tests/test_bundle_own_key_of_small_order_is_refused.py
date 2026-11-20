@@ -297,6 +297,15 @@ def _altered(target: pathlib.Path) -> dict:
         "weak_without_leaf_index": (weak, {}, (without_leaf_index,), 2),
         "control_wrong_signature_sd_jwt_not_an_object": (control, {}, (wrong_signature, sd_jwt_not_an_object), 2),
         "control_failing_inclusion_sd_jwt_not_an_object": (control, {}, (failing_inclusion, sd_jwt_not_an_object), 2),
+        # The other arm of the inclusion check (cloud circle at 40a4d5f9, 2026-11-20): a proof that is never
+        # computed, for a negative index or size or a path over the budget, followed by a structural defect. The
+        # case above reaches only a proof that does not reach the root, so an early return in this arm passed.
+        "control_negative_leaf_index_sd_jwt_not_an_object":
+            (control, {}, (merkle("leaf_index", -1), sd_jwt_not_an_object), 2),
+        "control_negative_tree_size_sd_jwt_not_an_object":
+            (control, {}, (merkle("tree_size", -1), sd_jwt_not_an_object), 2),
+        "control_proof_over_the_budget_sd_jwt_not_an_object":
+            (control, {}, (steps(budget + 1, b64(bytes(32))), sd_jwt_not_an_object), 2),
     }
     for name, (changes, rc) in read_on.items():
         cases[f"control_{name}"] = (control, {}, changes, rc)
@@ -326,7 +335,11 @@ class PythonAndRustGiveTheSameExit(unittest.TestCase):
 
     Round r3b found that reading on reached values Rust refused as malformed where Python records a failed check, a
     negative merkle integer, a proof over the path budget, `sd_jwt_vc: null` and defects of the SD-JWT issuer part. Each
-    is a case here with both signatures, and so are the values Python refuses as malformed in the same places."""
+    is a case here with both signatures, and so are the values Python refuses as malformed in the same places.
+
+    The mutants of the merged head (cloud circle at 40a4d5f9) found an arm of the inclusion check that no case reached
+    with a defect after it, a proof that is never computed for a negative index or size or a path over the budget. Three
+    cases carry it."""
 
     @classmethod
     def setUpClass(cls):
