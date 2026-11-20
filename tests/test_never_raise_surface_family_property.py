@@ -383,10 +383,9 @@ _OUT_OF_SCOPE = frozenset({
     "nested_type_violations",  "ots_upgraded_proof_is_self_contained",
     "outcome_execution_proven",  "pae",
     # signed_eval_receipt: the producers take the caller's own payload and refuse loudly
-    # (`payload_bytes`, `emit_signed_eval_receipt`, ValueError naming the step); `names_receipt_type`
-    # is a dispatch question and answers False for any value; `salted_commitment` (-04 Section 3.3) takes the
-    # Issuer's own identifier and salt and refuses loudly (ValueError).
-    "payload_bytes", "emit_signed_eval_receipt", "names_receipt_type", "salted_commitment",
+    # (`payload_bytes`, `emit_signed_eval_receipt`, ValueError naming the step); `salted_commitment`
+    # (-04 Section 3.3) takes the Issuer's own identifier and salt and refuses loudly (ValueError).
+    "payload_bytes", "emit_signed_eval_receipt", "salted_commitment",
     # receipt_cose: the producer takes the caller's receipt and key and refuses loudly (ReceiptCoseError,
     # CoseUnavailable); the thumbprint hashes a public key the caller gives and raises ValueError for one
     # that is not 32 bytes.

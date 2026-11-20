@@ -753,7 +753,6 @@ _HAND_SEEDS = {
     "proofbundle.signed_eval_receipt.payload_bytes": lambda tmp: [((_ser_payload(),), {})],
     "proofbundle.signed_eval_receipt.emit_signed_eval_receipt": lambda tmp: [((_ser_payload(), _fixed_key("a")),
                                                                               {})],
-    "proofbundle.signed_eval_receipt.names_receipt_type": lambda tmp: [((_ser_call()[0][0],), {})],
     # sha256-salted-v1 of -04 Section 3.3, with the PURE TEST salt of Appendix A.1.
     "proofbundle.signed_eval_receipt.salted_commitment": lambda tmp: [(("acme/model-x@2026-09",
                                                                         bytes.fromhex("2d1845bc523b3c2635ab90af343f33eb")),

@@ -69,7 +69,7 @@ COMMIT_ALG = "sha256-salted-v1"
 DRAFT = "draft-gruszka-signed-evaluation-receipts-04"
 
 __all__ = ["RECEIPT_TYPE", "PAYLOAD_SCHEMA", "COMMIT_ALG", "DRAFT", "ReceiptVerdict", "pae",
-           "payload_bytes", "emit_signed_eval_receipt", "verify_signed_eval_receipt", "names_receipt_type",
+           "payload_bytes", "emit_signed_eval_receipt", "verify_signed_eval_receipt",
            "salted_commitment", "SALT_BYTES"]
 
 _RECEIPT_MEMBERS = frozenset({"schema", "payload_b64", "signature"})
@@ -659,38 +659,6 @@ def salted_commitment(identifier: str, salt: Optional[bytes] = None) -> tuple:
         if raw is None or len(raw) != SALT_BYTES:
             raise ValueError(f"the salt of {COMMIT_ALG} is exactly {SALT_BYTES} bytes")
     return "sha256:" + hashlib.sha256(raw + ident).hexdigest(), raw
-
-
-@_ein_stand
-def names_receipt_type(raw: bytes) -> bool:
-    """True when RAW reads as a JSON object whose schema, after unescaping, is the receipt type. A
-    dispatch question only, asked leniently (a byte order mark, bytes that are not UTF-8, trailing data
-    and a repeated name do not hide the schema), so that such a file reaches the receipt procedure and
-    fails there at the step the draft names, or stops there at a resource limit, instead of being judged
-    as another format. A receipt deeper than ``_MAX_DEPTH`` is still told apart: its top-level members are
-    then read without recursion, by the same count on every interpreter, and the procedure stops it at that
-    limit. It vouches for nothing."""
-    if type(raw) is not bytes:
-        return False
-    text, start = _dispatch_text(raw)
-    if _deeper_than_limit(text):
-        return _names_receipt_type_by_scan(text, start)
-    try:
-        obj, _end = json.JSONDecoder().raw_decode(text, start)
-    except ValueError:
-        return False
-    except (RecursionError, MemoryError):
-        return _names_receipt_type_by_scan(text, start)
-    return isinstance(obj, dict) and obj.get("schema") == RECEIPT_TYPE
-
-
-def _names_receipt_type_before_cut(raw: bytes) -> bool:
-    """``names_receipt_type`` for RAW, the first bytes of a longer file cut at a size limit: the schema is
-    looked for among the top-level members before the cut. For the dispatch of a file that is too large
-    to read; never raises."""
-    if type(raw) is not bytes:
-        return False
-    return _names_receipt_type_by_scan(*_dispatch_text(raw))
 
 
 def _dispatch_text(raw: bytes) -> tuple:

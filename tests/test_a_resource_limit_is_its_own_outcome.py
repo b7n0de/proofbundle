@@ -187,7 +187,6 @@ def _large_member(n: int) -> bytes:
 def test_a_receipt_too_deep_to_tell_its_format_still_reaches_the_receipt_path(tmp_path, capsys, depth):
     """The format is told apart by the schema member. A receipt too deep for the decoder that reads it is
     still a receipt: show-eval reports the resource limit with exit 4, not the eval-claim path's exit 2."""
-    assert ser.names_receipt_type(_deep_member(depth)) is True
     code, text = _show_eval(tmp_path, _deep_member(depth), capsys)
     assert code == 4, text
     assert "resource limit" in text and "eval-receipt-v1" in text and "nesting is too deep" not in text
@@ -211,27 +210,11 @@ def test_the_dispatch_controls_keep_their_exit_codes(tmp_path, capsys):
     other = b'"schema":"application/other+json"'
     assert _show_eval(tmp_path, _deep_member(2000).replace(SCHEMA_MEMBER, other), capsys, switch=False)[0] == 2
     large_other = _large_member(DEFAULT_BUDGET.input_bytes).replace(SCHEMA_MEMBER, other)
-    assert ser.names_receipt_type(large_other) is False
-    cut = DEFAULT_BUDGET.input_bytes
-    assert ser._names_receipt_type_before_cut(_large_member(cut)[:cut]) is True
-    assert ser._names_receipt_type_before_cut(large_other[:cut]) is False
-    assert ser._names_receipt_type_before_cut(_large_member(cut).replace(b'"schema"', b'"z"', 1)[:cut]) is False
     assert _show_eval(tmp_path, large_other, capsys, switch=False)[0] == 2
     path = tmp_path / "large.json"
     path.write_bytes(_large_member(DEFAULT_BUDGET.input_bytes))
     assert main(["show-eval", str(path), "--expect-issuer", "ed25519:" + base64.b64encode(b"\x00" * 32).decode(),
                  "--format", "eval-receipt-v1"]) == 2
-
-
-def test_names_receipt_type_answers_for_deep_and_cut_texts_without_raising():
-    """The dispatch never raises; a deep receipt names the type, a deep text of another schema does not,
-    and a schema inside a nested object is no top-level schema."""
-    assert ser.names_receipt_type(_deep_member(200000)) is True
-    assert ser.names_receipt_type(b'{"a":' + b"[" * 200000 + b"]" * 200000 + b',"schema":"x"}') is False
-    nested = b'{"a":{' + SCHEMA_MEMBER + b'},"b":' + b"[" * 5000 + b"]" * 5000 + b"}"
-    assert ser.names_receipt_type(nested) is False
-    assert ser.names_receipt_type(b"[" * 200000) is False
-    assert ser.names_receipt_type(b'{"x":' + b"[" * 200000) is False
 
 
 @pytest.mark.parametrize("depth", [100, 1500])
@@ -243,7 +226,6 @@ def test_a_deep_receipt_that_is_no_json_is_told_apart_by_the_count(tmp_path, cap
     the limit with exit 4."""
     raw = P1.replace(b'"signature":', b'"x":' + b"[" * depth + b"]" * (depth - 1) + b',"signature":', 1)
     assert raw.index(b'"schema":') < raw.index(b'"x":')   # the schema stands before the member that never closes
-    assert ser.names_receipt_type(raw) is True
     code, text = _show_eval(tmp_path, raw, capsys)
     assert code == 4, text
     assert "resource limit" in text and "eval-receipt-v1" in text
