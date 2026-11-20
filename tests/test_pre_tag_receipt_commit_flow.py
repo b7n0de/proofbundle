@@ -174,9 +174,9 @@ def test_nur_der_versions_ordner_ist_eine_quittungsstelle(tmp_path):
     Zwei Seiten, sonst waere gruen nichts wert: die ECHTE Quittungsstelle muss weiterhin
     unsichtbar bleiben, die erfundene muss sichtbar werden.
 
-    SEIT LEHRE 2 (PR 541, Wahl B) ist die echte Quittungsstelle nur die der Version, die der Baum
-    in ``pyproject.toml`` nennt. Der Baum hier nennt 6.0.0; eine Quittung von 5.9.0 in ihrem
-    eigenen, richtig benannten Ordner liegt darum IN der Bindung (dritte Seite unten).
+    SINCE LESSON 2 (pull request 541, choice B) the real place of the receipt is only the one of the version
+    the tree names in ``pyproject.toml``. The tree here names 6.0.0, so a receipt of 5.9.0 in its own, correctly
+    named folder lies INSIDE the binding (third side below).
     """
     # `sys` steht oben im Modul. Der Riegel
     # `test_kein_test_haengt_an_einem_fremden_import_nebeneffekt` misst einen Aufruf, dessen
@@ -213,8 +213,8 @@ def test_nur_der_versions_ordner_ist_eine_quittungsstelle(tmp_path):
         "audit_artifacts/<beliebig>/pre_tag_receipt_*.json faellt aus der Bindung — ein Angreifer "
         "duerfte den Ordnernamen nicht selbst waehlen koennen")
 
-    # DIE NEUE SEITE (Lehre 2): die Quittung einer ANDEREN Version, im richtigen Ordner und richtig benannt, ist eine
-    # Datei wie jede andere und bewegt den Digest.
+    # THE NEW SIDE (lesson 2): the receipt of ANOTHER version, in the right folder and correctly named, is a file
+    # like any other and moves the digest.
     vor_fremder = subject_tree_digest(repo)
     (repo / "audit_artifacts" / "590").mkdir(parents=True)
     (repo / "audit_artifacts" / "590" / "pre_tag_receipt_v5.9.0.json").write_text('{"c": 3}\n')
@@ -313,10 +313,10 @@ def test_eine_lokale_version_faellt_aus_der_bindung(tmp_path):
     """PEP 440 kennt `+local` und `1!epoch`. Das Muster muss sie kennen, sonst ist die Quittung
     im eigenen Digest enthalten — zirkulaer, sie kann nie verifizieren.
 
-    SEIT LEHRE 2 (PR 541, Wahl B) faellt nur die Quittung der Version heraus, die der Baum in
-    ``pyproject.toml`` nennt; der Baum hier nennt `6.1.0+local`. Eine Epoche liest weder das Tor
-    (`pyproject_version`) noch die Bibliothek (`eigene_version`) als Version, ein solcher Baum
-    erklaert also keine eigene Quittung, und es faellt keine heraus.
+    SINCE LESSON 2 (pull request 541, choice B) only the receipt of the version the tree names in
+    ``pyproject.toml`` leaves the digest; the tree here names `6.1.0+local`. Neither the gate
+    (`pyproject_version`) nor the library (`eigene_version`) reads an epoch as a version, so such a tree
+    declares no own receipt, and none leaves the digest.
 
     Gemessen 2026-09-07: `6.1.0+local` und `1!6.0.0` fielen NICHT aus dem Ausschluss, weder in der
     alten noch in der ersten verengten Fassung (die Zeichenklasse des DATEINAMENS kannte `+` und `!`

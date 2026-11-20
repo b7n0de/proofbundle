@@ -427,13 +427,13 @@ def _pfad_aus_listing(text: str) -> bytes:
     return bytes(raus)
 
 
-#: SEIT LEHRE 2 NUR NOCH DIE PFADFORM, NICHT MEHR DIE AUSNAHME (Codex an PR 541, Runde lx4, P0 2; Owner-Wahl B,
-#: 19.11.2026). Bis dahin fiel JEDER Pfad dieser Form aus dem Digest, in jedem Versionsordner und in jedem Modus,
-#: auch ein Link oder ein Gitlink: `audit_artifacts/660/pre_tag_receipt_v6.6.0.json` liess sich neben einer
-#: gegebenen 6.6.1-Quittung anlegen, aendern oder entfernen, ohne dass sich ihr Digest bewegte, und weder das Tor
-#: noch der Aussenpruefer von 6.6.1 sehen in den Ordner von 6.6.0. Ausgenommen wird jetzt genau die Quittung der
-#: Version, die der Baum selbst in `pyproject.toml` nennt (`eigene_quittungen`); das Muster bleibt als Pfadform fuer
-#: den Uebergang der Audit-Matrix und fuer `sign_readiness_artifact.ist_quittungspfad`.
+#: SINCE LESSON 2 ONLY THE PATH FORM, NO LONGER THE EXCEPTION (Codex on pull request 541, round lx4, P0 2; owner
+#: choice B, 19 November 2026). Until then EVERY path of this form left the digest, in every version folder and at
+#: every mode, a link or a gitlink as well: `audit_artifacts/660/pre_tag_receipt_v6.6.0.json` could be added, changed
+#: or removed beside a given 6.6.1 receipt without moving its digest, and neither the gate nor the outside verifier of
+#: 6.6.1 looks into the folder of 6.6.0. Left out now is exactly the receipt of the version the tree itself names in
+#: `pyproject.toml` (`eigene_quittungen`); the pattern stays as the path form for the transition of the audit matrix
+#: and for `sign_readiness_artifact.ist_quittungspfad`.
 #:
 #: Was diese Bindung ausschliessen MUSS, und nichts darueber hinaus: die Quittung selbst. Sie liegt
 #: in dem Baum, den sie bindet — ohne diesen einen Ausschluss enthielte ihr Digest sich selbst und
