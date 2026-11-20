@@ -45,12 +45,14 @@ _WITH = {"diff": _NAME_SWITCHES, "show": _NAME_SWITCHES, "log": _NAME_SWITCHES,
 #: about what the caller does with the names, and the premise a reason rests on is bound by a case
 #: below where it can be.
 QUOTED_FORM_ALLOWED = {
-    ("scripts/pre_tag_receipt_lib.py", "subject_tree_digest", "ls-tree"):
+    ("scripts/pre_tag_receipt_lib.py", "_messung", "ls-tree"):
         "hashes the listing and opens no name; the quoted form is an injective encoding, so the "
-        "digest stays well defined. The exclusion set is quote-free (bound below), and a receipt "
-        "under a quoted name falls outside the ASCII receipt pattern, so it stays in the digest and "
-        "cannot bind itself: a refusal, never a pass. The grammar is a signed quantity shared with "
-        "sign_readiness_artifact.tree_digest; changing it is a change of the receipt format.",
+        "digest stays well defined, and a listed name is decoded from it only to hold the listing "
+        "against the checked tree objects. What leaves the digest is quote-free: the evidence set "
+        "(bound below), and the receipt and the audit output of the version the tree declares, whose "
+        "paths are built from characters git never quotes. The grammar is a signed quantity shared "
+        "with sign_readiness_artifact.tree_digest; changing it is a change of the receipt format. "
+        "Since pull request 541 the call stands in `_messung`, which subject_tree_digest wraps.",
     ("scripts/sign_readiness_artifact.py", "tree_digest", "ls-tree"):
         "the same digest as pre_tag_receipt_lib.subject_tree_digest, recomputed by the gate, with "
         "core.quotePath=true pinned as there (bound in tests/test_git_paths_are_read_as_git_names_them.py); "
