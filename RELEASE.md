@@ -98,7 +98,7 @@ The order below is the convention, not a suggestion. A release is a fact about `
    A non-blocking CI check (`scripts/branch_base_check.py`) warns when a PR forks from a tag. See
    [CONTRIBUTING.md](CONTRIBUTING.md#branch-base-fork-from-main-never-from-a-release-tag).
 2. **Tag the merged commit on the target branch — never the open feature branch.** Check out the
-   merged `main` (or `release/*`) HEAD, confirm its CI is green, then `git tag vX.Y.Z` there and
+   merged `main` (or `release/*`) HEAD, confirm its CI is green, then `git tag -a vX.Y.Z` there and
    push the tag. Tagging an unmerged feature branch opens a window in which the release workflow
    ships a version to PyPI that `main` does not yet contain: an outside installer gets bytes the
    canonical branch cannot reproduce. This happened once, on **2026-07-05** (v1.9.2 was tagged from
@@ -164,7 +164,7 @@ after the merge (see *Release ordering* above).
       and the version-coupled F7 test requires the record as soon as the version is bumped (so the
       audit belongs in the release-prep PR, not after the merge).
 - [ ] On the **merged** target-branch HEAD (never the feature branch), confirm CI is green, then
-      `git tag vX.Y.Z` there and push the tag.
+      `git tag -a vX.Y.Z` there and push the tag; `release.yml` refuses a lightweight tag.
       **From 6.6.1 the tag falls in UTC on the date its `## [X.Y.Z] - YYYY-MM-DD` section names.**
       `release.yml` runs `scripts/check_version_and_changelog.py --tag vX.Y.Z` before the build, and
       its check 8 compares the tagger date of the annotated tag, in UTC, with that heading in the

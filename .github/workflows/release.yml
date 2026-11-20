@@ -94,6 +94,11 @@ jobs:
           # frozen head, so the ancestor can be more than one commit back, and a clone of depth 1
           # shows none of them: measured 2026-09-28, depth 1 exit 2.
           fetch-depth: 0
+          # NO TOKEN LEFT IN .git/config (from 6.6.1). This is the only job here with `contents: write`,
+          # and it runs code pip installs from the index (cryptography, build, rfc8785) after the
+          # checkout. Every git call in this job is local, none fetches or pushes; the draft goes out
+          # through the API with its own token input. zizmor 1.32.0, audit artipacked.
+          persist-credentials: false
 
       - name: Bytecode of this job comes from a fresh directory, never from beside the sources (from 6.6.1)
         # CODEX ON PULL REQUEST 541, ROUND LX5, P0 2. Python runs a `__pycache__/*.pyc` beside a source in place of that
