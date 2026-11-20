@@ -446,15 +446,17 @@ def test_c5_die_marke_hat_ausser_der_darstellung_nur_test_aufrufer():
     assert len(aufrufer) == 2, f"unerwartete Aufrufmenge: {aufrufer}"
     # `evaluate` wraps `_evaluate` since the gate restores the import state it touched
     # (fix/gate-restores-import-state); the body, and with it the rendering line, moved unchanged.
-    assert sorted(aufrufer) == ["_evaluate", "audit_records_for"], (
+    # Since lesson 2 (pull request 541) `_evaluate` judges the candidates while the package is served from
+    # the held commit, and the verdict, with the rendering line in it, is built after that in `_urteil`.
+    assert sorted(aufrufer) == ["_urteil", "audit_records_for"], (
         f"ein Aufrufer ausserhalb der bekannten zwei Funktionen: {aufrufer} — das ist ein neuer "
         "Befund dieser Klasse, keine Bestaetigung des alten")
-    # The rendering line really stands IN _evaluate() and names its field.
+    # The rendering line really stands IN _urteil() and names its field.
     aufrufe_zeilen = [z.strip() for z in quelle.splitlines() if "_positive_audit_marker(" in z
                       and not z.strip().startswith(("#", '"', "def "))]
     assert any("changelog_ok" in z for z in aufrufe_zeilen), "die darstellende Zeile fehlt"
     # Und der Verdikt-Pfad nennt sie nicht: `ok` wird aus `verified` gebildet.
-    koerper = quelle.split("def _evaluate(", 1)[1]
+    koerper = quelle.split("def _urteil(", 1)[1].split("\ndef ", 1)[0]
     assert "ok = bool(verified)" in koerper
     assert koerper.index("ok = bool(verified)") < koerper.index("changelog_ok = "), \
         "das Verdikt wird nach der Prosa gebildet — dann koennte es an ihr haengen"
