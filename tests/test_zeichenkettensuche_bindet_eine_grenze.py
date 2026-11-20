@@ -114,12 +114,16 @@ def test_ANTI_PARITAET_ohne_stoertext_bleibt_die_zahl_dieselbe():
 #: (Skript, Funktion, nimmt_repo_argument). Die dritte Stelle ist noetig, weil
 #: `audit_candidate_matrix._version_aus_pyproject` sein Repo aus einer Modulkonstante nimmt statt
 #: als Argument — eine Form, die genau deshalb leicht uebersehen wird.
+#: The third field may also be "pattern": `pre_tag_receipt_lib.eigene_version` reads the file from a
+#: listed tree through git, so the case applies its compiled pattern `_VERSION_IN_PYPROJECT` to this
+#: repository's `pyproject.toml`, the reading that decides its answer (pull request 541, lesson 2).
 _VERSIONSLESER = (
     ("check_version_and_changelog", "_pyproject_version", True),
     ("pre_tag_audit_gate", "pyproject_version", True),
     ("findings_register", "_pyproject_version", True),
     ("sign_readiness_artifact", "pyproject_version", True),
     ("audit_candidate_matrix", "_version_aus_pyproject", False),
+    ("pre_tag_receipt_lib", "_VERSION_IN_PYPROJECT", "pattern"),
 )
 
 #: Das Muster, das die Klasse ausmacht: `version` am ZEILENanfang statt in seiner TOML-Sektion.
@@ -135,6 +139,10 @@ def test_alle_versionsleser_sind_sich_ueber_DIESES_repo_einig():
     werte = {}
     for skript, funktion, nimmt_repo in _VERSIONSLESER:
         m = _skript(skript)
+        if nimmt_repo == "pattern":
+            text = (REPO / "pyproject.toml").read_text(encoding="utf-8")
+            werte[skript] = getattr(m, funktion).search(text).group(1)
+            continue
         werte[skript] = getattr(m, funktion)(REPO) if nimmt_repo else getattr(m, funktion)()
     assert len(set(werte.values())) == 1, (
         f"Die Versionsleser widersprechen sich: {werte}. Eine Freigabe, deren Version davon "
