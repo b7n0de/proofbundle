@@ -1107,15 +1107,17 @@ def signatur_eines_vertrauten(receipt: dict, trusted_pubkeys: list[str]) -> "tup
     The last step of `verify_receipt`, and the whole check `gebundene_ausgaben` asks before it leaves an
     audit output out of the tree digest: one function, so the two readers of a signature cannot drift. It
     judges the signature and the key, nothing about tree, version or exit code. Raises ImportError when the
-    package's signature module cannot be imported; every other failure is (False, reason)."""
+    package's signature module cannot be imported; every other failure is (False, reason). `receipt` is an
+    object: both callers check that before they call."""
     from proofbundle._wire_b64 import decode_b64  # noqa: PLC0415
     from proofbundle.signature import (  # noqa: PLC0415
         TRUST_ANCHOR_REFUSAL,
         ed25519_trust_anchor_weakness,
         verify_ed25519_pinned,
     )
-    if not isinstance(receipt, dict):
-        return False, "receipt is not an object"
+    # NO TYPE GUARD OF ITS OWN (cloud circle at c36cb72e): `verify_receipt` refuses a value that is not an
+    # object before it calls this, and `gebundene_ausgaben` skips one. A second guard here could not be
+    # reached, so no test could bind it, and it made the strip anchor of the first one appear twice.
     if not trusted_pubkeys:
         return False, ("no trusted signing key pinned (audit_artifacts/pre_tag_trusted_pubkeys.txt "
                        "absent/empty, or not readable as the object its id names) — the gate has "
