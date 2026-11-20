@@ -279,6 +279,32 @@ class TestDocsTruth(unittest.TestCase):
                          "docs/predicates/README.md intro must name exactly the predicateType namespaces "
                          f"the code writes; code {sorted(namespaces)}, docs {sorted(claimed)}")
 
+    def test_predicates_table_has_a_row_for_every_own_predicate_type(self):
+        # CLOUD-VORLAGE-DOKU-660-01, owner question 19: the table named relation/v0.1 (the profile embedded
+        # in a receipt) but not the standalone predicate relation-statement/v0.1, and called agent-review
+        # v0.2 the current version while the code writes v0.3 since 6.1.0. Every predicateType the code
+        # declares under the two own table prefixes gets a row; in a family, no row but the newest says
+        # "the current version".
+        pattern = re.compile(r'(?m)^(?:[A-Z][A-Z0-9_]*_)?PREDICATE_TYPE[A-Z0-9_]*\s*=\s*"(https://[^"]+)"')
+        prefixes = ("https://b7n0de.com/proofbundle/predicates/", "https://b7n0de.com/attestation/")
+        own = set()
+        for path in sorted((REPO / "src" / "proofbundle").rglob("*.py")):
+            own.update(t[len(p):] for t in pattern.findall(path.read_text(encoding="utf-8"))
+                       for p in prefixes if t.startswith(p))
+        self.assertIn("agent-review/v0.3", own, "the constant scan misses a type the code declares")
+        self.assertIn("eval-result/v0.2", own, "the constant scan misses a type the code declares")
+        text = (REPO / "docs" / "predicates" / "README.md").read_text(encoding="utf-8")
+        table = text.split("\n## Predicates", 1)[1].split("\n## ", 1)[0]
+        rows = {m.group(1): m.group(2) for m in re.finditer(r"(?m)^\| `([^`]+/v\d+\.\d+)` \|(.*)$", table)}
+        missing = sorted(own - set(rows))
+        self.assertEqual(missing, [], f"docs/predicates/README.md has no table row for {missing}")
+        for name in own:
+            family, version = name.rsplit("/v", 1)
+            newer = [o for o in own if o.startswith(family + "/v") and o != name
+                     and tuple(map(int, o.rsplit("/v", 1)[1].split("."))) > tuple(map(int, version.split(".")))]
+            if newer:
+                self.assertNotIn("the current version", rows[name], f"{name} is called current, {newer} exist")
+
     def test_intoto_module_docstring_names_the_export_profiles_and_default(self):
         # CLOUD-NEBENBEFUNDE-DOKU-660-01, finding 2: the docstring of proofbundle.intoto described only the
         # model-id-commitment view, while `proofbundle intoto` writes eval-result with the subject profile
