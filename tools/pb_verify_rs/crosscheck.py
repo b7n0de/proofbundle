@@ -807,9 +807,9 @@ def main() -> int:
                     failures.append(f"budget drift on {dim}: rust={wert} python={py_wert} — the "
                                     f"same document gets two verdicts depending on which verifier "
                                     f"reads it")
-            # DIE MENGE, nicht nur die Werte (LAUF12-L1): jede Achse, die Python auf einem Pfad
-            # durchsetzt, den dieser Binary AUCH faehrt, muss er kennen. Die uebrigen Python-Achsen
-            # sind Pfade ohne Rust-Entsprechung (Renewal, SD-JWT) — benannt, nicht verschwiegen.
+            # THE SET, not only the values (LAUF12-L1): every axis Python enforces on a path this
+            # binary ALSO takes must be known to it. The other Python axes are paths without a Rust
+            # counterpart (renewal, SD-JWT), named here rather than left unsaid.
             # `merkle_path` since 6.6.1 (review round r3b): `verify-bundle` reads the steps of an inclusion
             # proof only up to it, as bundle.py does, where the reconstruction alone bounded them before.
             _geteilt = {"input_bytes", "json_nodes", "json_depth", "string_len", "signatures", "witnesses",
