@@ -540,9 +540,9 @@ def _cmd_emit_eval(args: argparse.Namespace) -> int:
 def _refuse_weak_issuer_pins(pins) -> None:
     """Raise ValueError when an ``--expect-issuer`` pin names a key the trust-anchor rule refuses.
 
-    SPEC section 4b lets the bundle's own key keep the section 4a profile because "trust in it comes
-    from a pin that already carries this rule". ``--expect-issuer`` is that pin on this command, and
-    it did not carry the rule: it was compared as a string with a key the bundle check had accepted
+    Until 6.6.0 SPEC section 4b let the bundle's own key keep the section 4a profile because "trust in
+    it comes from a pin that already carries this rule" (since 6.6.1 that key goes through the rule
+    too). ``--expect-issuer`` is that pin on this command, and it did not carry the rule: it was compared as a string with a key the bundle check had accepted
     under section 4a. Measured on 126ed1dc: a PASS receipt signed by nobody under the identity point
     (signature R = identity, S = 0) and ``--expect-issuer ed25519:<that point>`` gave exit 0 and
     "=> OK". The pin is judged when it is SUPPLIED, before the receipt is read, and a refused pin is

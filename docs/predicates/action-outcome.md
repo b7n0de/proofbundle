@@ -122,7 +122,8 @@ honest outcomes (a refusal is a valid, signable outcome — not an error to hide
 `verify_outcome_receipt` also computes an additive `result["automation"]` (uniform automation-safety verdict,
 `automation_verdict.automation_summary`) and `result["evidence_levels"]` (`assurance.EvidenceLevel`
 classification of the execution-proof digest, optionally strengthened to `CONTENT_RESOLVED` via an
-`evidence_resolver` callable) — see `CHANGELOG.md` "Unreleased". Neither changes any field listed above.
+`evidence_resolver` callable), both added in 3.2.3; see the 3.2.3 section of `CHANGELOG.md`. Neither changes
+any field listed above.
 
 **Finding 16 additions (self-fixable part, additive, NOT wired into the aggregate `ok`):**
 `result["receiver_bound"]` mirrors `evidence_bound` (digest-shape only, over `receiverRefs[]`);
