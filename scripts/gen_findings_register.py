@@ -1004,9 +1004,9 @@ FINDINGS = [
              "triage of a known window in which a repository test is red, not of a defect in "
              "the shipped package. Closed: the window ended when pull request 533, which moves "
              "the plugins' pins to 6.6.0, was merged into main on 2026-11-17 at 02:41:54Z"},
-    # One closing and one addition for release 6.6.1.
+    # One closing and three additions for release 6.6.1.
     # The window of 6.6.0 above has closed; the same window opens again with the tag v6.6.1.
-    # The addition corresponds to the Register entry reference in RESTRISIKO_661.md.
+    # Each addition corresponds to a Register entry reference in RESTRISIKO_661.md.
     {"id": "PIN-CASE-RED-FROM-TAG-UNTIL-PIN-COMMIT-03", "severity": "P3", "status": "open",
      "note": "Recorded in RESTRISIKO_661.md, section 'main may fail the plugin pin case from the "
              "tag until the pin commit'. The plugins pin 6.6.0 in the tree of 6.6.1, landed with "
@@ -1018,6 +1018,30 @@ FINDINGS = [
              "of its own, outside 6.6.1, after 6.6.1 is on PyPI. Expected from the rule the test "
              "states, not measured. Severity P3 is a triage of a known window in which a "
              "repository test is red, not of a defect in the shipped package. Open by design"},
+    {"id": "RUST-SDJWT-ISSUER-ES256-REFUSED-01", "severity": "P3", "status": "open",
+     "note": "Recorded in RESTRISIKO_661.md, section 'Findings of a reading of the signature "
+             "verification paths at bb018ea6'. Python accepts EdDSA and ES256 as the algorithm of "
+             "an SD-JWT issuer (src/proofbundle/sdjwt.py line 69); pb_verify_rs verify-bundle "
+             "accepts only EdDSA (tools/pb_verify_rs/src/main.rs line 1063). Measured on "
+             "2026-11-21 at bb018ea6 with one bundle on the built programs, by one reader, and not "
+             "run again on the release candidate: proofbundle verify ended with exit 0, "
+             "pb_verify_rs verify-bundle with FAIL and exit 1. The Rust verifier refuses here what "
+             "Python accepts; in the fourteen cases of the probe it accepted nothing Python "
+             "refused. Severity P3 is a triage of a difference in which the second implementation "
+             "is the stricter one. Planned for 6.7.0"},
+    {"id": "RUST-TRUST-PACK-PQ-ROOT-NOT-COUNTED-01", "severity": "P3", "status": "open",
+     "note": "Recorded in RESTRISIKO_661.md, section 'The Rust verifier counts only Ed25519 root "
+             "keys of a Trust Pack'. pb_verify_rs verify-trust-pack-threshold skips a root key "
+             "whose alg is mldsa65 or hybrid-ed25519-mldsa65 and names it in its output "
+             "(tools/pb_verify_rs/src/main.rs lines 1659 to 1663); the Python verifier counts it. "
+             "Measured on 2026-11-21 at bb018ea6 on the built programs, by one reader, and not run "
+             "again on the release candidate: for a pack with one such root key at threshold 1, "
+             "Python met the threshold and the Rust verifier ended with FAIL "
+             "root_threshold_met=false signers=0 threshold=1 skipped_non_ed25519=1 and exit 1. The "
+             "Rust verifier refuses here what Python accepts. CROSS_IMPLEMENTATION_REPORT.md lines "
+             "142 to 148 declare these root keys as not reproduced by the second implementation. "
+             "Severity P3 is a triage of a declared gap of the second implementation. No release "
+             "is set for ML-DSA in the Rust verifier"},
 ]
 
 
