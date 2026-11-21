@@ -60,9 +60,11 @@ from .canonical import (_ein_stand, _eine_kopie, _feld_von, _folge_von, _pruefko
 from .errors import ProofBundleError
 from ._wire_b64 import decode_b64, decode_b64_either
 
-#: House convention is `b7n0de.com/proofbundle/predicates/<name>/v<major.minor>` — the external read
-#: proposed a shorter path, but every sibling predicate here uses this one, and an inconsistent id is
-#: a worse defect than a longer string. R2 of the envelope profile means this id is READ, not decoration.
+#: House convention is `b7n0de.com/proofbundle/predicates/<name>/v<major.minor>`. The external read
+#: proposed a shorter path, but the sibling predicates of this family (decision-receipt, action-outcome,
+#: trust-pack, verification-summary, run-ledger, relation-statement) use this one, and an inconsistent
+#: id is a worse defect than a longer string. eval-result and eval-receipt keep their own paths, see
+#: docs/predicates/README.md. R2 of the envelope profile means this id is READ, not decoration.
 AGENT_REVIEW_PREDICATE_TYPE = "https://b7n0de.com/proofbundle/predicates/agent-review/v0.1"
 AGENT_REVIEW_SCHEMA_VERSION = "0.1.0"
 STATEMENT_TYPE = "https://in-toto.io/Statement/v1"

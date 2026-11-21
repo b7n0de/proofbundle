@@ -96,9 +96,9 @@ period as aliases and print a single deprecation line on stderr (no break):
 | `strict-prereg-v1` | `strict-prereg-template-v1` |
 | `decision-receipt-v1` | `decision-receipt-template-v1` |
 
-Update to the canonical name; the aliases will be removed in a future major
-release. `policy list-profiles` shows the canonical names first and marks each
-alias.
+Update to the canonical name. The aliases still resolve, and no release is set
+for removing them. `policy list-profiles` shows the canonical names first and
+marks each alias.
 
 ## Shipped profiles
 
