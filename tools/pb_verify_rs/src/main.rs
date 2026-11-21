@@ -203,7 +203,13 @@ impl<'de> Deserialize<'de> for StrictValue {
 /// KEIN JSON-NACHBAU: gesucht werden Zahl-Token in der Byte-Folge, Zeichenketten werden dabei
 /// uebersprungen (ein Ziffernblock in einem String ist keine Zahl). Die eigentliche Struktur
 /// prueft danach weiterhin serde_json.
-fn ganzzahl_literale_pruefen(bytes: &[u8]) -> Result<(), String> {
+///
+/// The integer literal `-0` (review of pull request 544 at cb219c81): Python reads it as the integer 0,
+/// serde_json reads it as the float -0.0, so a reader that asks for an integer refused it here and not in
+/// Python. The function returns the offset of the minus sign of each such literal, and `strict_parse` reads
+/// a space there. The float literals `-0.0` and `-0e0` are not integer literals and stay floats, as in Python.
+fn ganzzahl_literale_pruefen(bytes: &[u8]) -> Result<Vec<usize>, String> {
+    let mut minus_zero = Vec::new();
     let mut i = 0usize;
     let n = bytes.len();
     while i < n {
@@ -257,13 +263,16 @@ fn ganzzahl_literale_pruefen(bytes: &[u8]) -> Result<(), String> {
         }
         let text =
             std::str::from_utf8(&bytes[start..i]).map_err(|_| "invalid utf-8".to_string())?;
+        if text == "-0" {
+            minus_zero.push(start);
+        }
         match text.parse::<i128>() {
             Ok(v) => pruefe_ganzzahl_domain(v).map_err(|e| e.to_string())?,
             // Mehr Stellen als i128 traegt: erst recht ausserhalb der I-JSON-Domain.
             Err(_) => return Err(DOMAIN_MELDUNG.to_string()),
         }
     }
-    Ok(())
+    Ok(minus_zero)
 }
 
 // ---------------------------------------------------------------------------
@@ -405,8 +414,19 @@ fn strict_parse(bytes: &[u8]) -> Result<serde_json::Value, String> {
             BUDGET_INPUT_BYTES,
         ));
     }
-    ganzzahl_literale_pruefen(bytes)?;
-    let mut de = serde_json::Deserializer::from_slice(bytes);
+    let minus_zero = ganzzahl_literale_pruefen(bytes)?;
+    // A space in place of the minus sign of each integer literal -0 keeps every offset and makes it the
+    // integer 0, as Python reads it. A string is never touched: the scan above skips strings.
+    let eingabe: std::borrow::Cow<[u8]> = if minus_zero.is_empty() {
+        std::borrow::Cow::Borrowed(bytes)
+    } else {
+        let mut kopie = bytes.to_vec();
+        for p in minus_zero {
+            kopie[p] = b' ';
+        }
+        std::borrow::Cow::Owned(kopie)
+    };
+    let mut de = serde_json::Deserializer::from_slice(&eingabe);
     let v = StrictValue::deserialize(&mut de).map_err(|e| e.to_string())?;
     de.end().map_err(|e| e.to_string())?;
     // LAUF11-L1: und die Struktur NACH dem Parsen. `strict_parse` ist der eine Eingang jedes
@@ -4534,6 +4554,27 @@ mod tests {
 
     fn wert(roh: &str) -> Result<serde_json::Value, String> {
         strict_parse(roh.as_bytes())
+    }
+
+    #[test]
+    fn the_integer_literal_minus_zero_is_the_integer_zero() {
+        // Review of pull request 544 at cb219c81: Python reads -0 as the integer 0. The float literals stay
+        // floats, a string stays a string, and -0 as the second element of an array is found as well.
+        let v =
+            wert(r#"{"a":-0,"b":[1,-0],"c":"-0","d":-0.0,"e":-0e0,"f":{"g":-0}}"#).expect("parsed");
+        assert!(v["a"].is_u64() && v["a"].as_u64() == Some(0), "{}", v["a"]);
+        assert!(v["b"][1].is_u64(), "{}", v["b"]);
+        assert_eq!(v["c"], serde_json::json!("-0"));
+        assert!(v["d"].is_f64(), "{}", v["d"]);
+        assert!(v["e"].is_f64(), "{}", v["e"]);
+        assert!(v["f"]["g"].is_u64(), "{}", v["f"]);
+        assert_eq!(
+            merkle_ganzzahl(
+                &serde_json::json!({"leaf_index": v["a"].clone()}),
+                "leaf_index"
+            ),
+            Ok(Some(0))
+        );
     }
 
     #[test]

@@ -28,6 +28,7 @@ import io
 import json
 import base64
 import pathlib
+import re
 import subprocess
 import tempfile
 import unittest
@@ -262,6 +263,13 @@ def _altered(target: pathlib.Path) -> dict:
     def sd_jwt_null(b):
         b["sd_jwt_vc"] = None
 
+    def literal(field, text):
+        # Review of this change at cb219c81: json.dumps never writes the integer literal -0, so these cases are
+        # written at the level of the text. The marker is replaced by the literal itself when the case is written.
+        def change(b):
+            b["merkle"][field] = "@LITERAL@" + text
+        return change
+
     budget = DEFAULT_BUDGET.merkle_path
     # Round r3b: what Python reads after a failed check and records as one more failed check. Each case with the
     # signature as it is and with a wrong one; with a wrong one 6.6.0 gave 1 and 1, the read-on of this change 1 and 2.
@@ -282,6 +290,12 @@ def _altered(target: pathlib.Path) -> dict:
         "proof_at_the_budget_with_a_step_not_base64": ((steps(budget, "@@@@"),), 2),
         "issuer_key_not_base64_beside_a_compact_form_of_one_part": ((sd_jwt("x", "@@@@"),), 2),
         "issuer_key_no_string": ((sd_jwt("x", 5),), 2),
+        # Review at cb219c81, measured there: -0 is the integer 0 in Python (1 and 2 in Rust with either signature);
+        # the float literal -0.0 is malformed in both (2 and 2), and that stays so.
+        "leaf_index_minus_zero": ((literal("leaf_index", "-0"),), 1),
+        "tree_size_minus_zero": ((literal("tree_size", "-0"),), 1),
+        "leaf_index_minus_zero_float": ((literal("leaf_index", "-0.0"),), 2),
+        "tree_size_minus_zero_float": ((literal("tree_size", "-0.0"),), 2),
     }
 
     cases = {
@@ -317,7 +331,7 @@ def _altered(target: pathlib.Path) -> dict:
         for change in changes:
             change(b)
         path = target / f"{name}.json"
-        path.write_text(json.dumps(b), encoding="utf-8")
+        path.write_text(re.sub(r'"@LITERAL@([^"]*)"', r"\1", json.dumps(b)), encoding="utf-8")
         out[name] = (path, rc)
     return out
 
