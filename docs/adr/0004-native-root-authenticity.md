@@ -63,3 +63,11 @@ this non-breaking patch to avoid a half-implemented checkpoint path.
   version, AFTER: a legacy-verifier path, a migration guide, positive and negative cross-impl
   vectors (including the coherent one-leaf rewrap), an independent second-implementation review,
   and an Owner-GO / audit decision — none of which are in scope for 3.1.0.
+
+## Status addendum (6.6.1)
+
+Added later; the text above is left as written. Since this ADR, 4.0.0, 5.0.0 and 6.0.0 were released
+as major versions. None of them carries the signed core (option B): SPEC.md §5 still keeps the Merkle
+root outside the signature input. The signed-core option stays deferred, and no version is set for it.
+The policy toggles `require_checkpoint` and `require_public_log_receipt` and the field
+`expected_log_origin` named in the Decision section were never added to the code under these names.

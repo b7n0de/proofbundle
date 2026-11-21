@@ -544,3 +544,33 @@ def test_a_ca_extended_key_usage_must_permit_code_signing(usage: str, expected_e
     assert out["exit_code"] == expected_exit, out["checks"]
     if expected_exit:
         assert [c["name"] for c in out["checks"] if c["ok"] is not True] == ["certificate-chain"]
+
+
+def _dsse_bundle_with_logged_url_sig(flip_logged: bool = False) -> bytes:
+    """The GitHub v0.3 positive control (dsse 0.0.1) with the logged signature written in the URL-safe
+    alphabet, as Rekor's write path would store a URL-safe envelope sig verbatim (rekor
+    pkg/types/dsse/v0.0.1/entry.go, ``Signature: &sortedSigs[i]``). Rekor's own schema
+    (dsse_v0_0_1_schema.json, ``signatures[].signature``) admits the standard alphabet only."""
+    import base64
+    gen = _generator()
+
+    def body_edit(rekor: dict) -> None:
+        s = rekor["spec"]["signatures"][0]
+        raw = base64.b64decode(s["signature"], validate=True)
+        assert any(ch in s["signature"] for ch in "+/"), "the vector needs a signature whose two alphabets differ"
+        if flip_logged:
+            raw = raw[:-1] + bytes([raw[-1] ^ 0x01])
+        s["signature"] = base64.b64encode(raw).decode("ascii").replace("+", "-").replace("/", "_")
+
+    return gen.bundle(body_edit=body_edit)
+
+
+def test_a_url_safe_logged_dsse_signature_is_refused_as_rekors_schema_refuses_it() -> None:
+    """dsse 0.0.1: the adapter follows Rekor's schema, which admits only the standard alphabet for
+    ``spec.signatures[].signature``. A URL-safe logged signature fails tlog-body, nothing else."""
+    _, kwargs = _case("pos-github-v03-dsse")
+    out = verify_sigstore_bundle(_dsse_bundle_with_logged_url_sig(), **kwargs).as_dict()
+    failed = [c for c in out["checks"] if c["ok"] is not True]
+    assert out["exit_code"] == 1, out["checks"]
+    assert [c["name"] for c in failed] == ["tlog-body"], out["checks"]
+    assert "not canonical standard base64" in json.dumps(failed[0]), failed[0]
