@@ -1,0 +1,702 @@
+{
+ "enforce": [
+  {
+   "action_binding": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76",
+   "action_is_object": true,
+   "expected": "PERMIT",
+   "file": "01-type-form-matches-permit.json",
+   "grants": [
+    {
+     "equal": true,
+     "index": 0,
+     "stated": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76"
+    }
+   ],
+   "id": "aae-enforce-vector-01",
+   "kernel": "enforce_check",
+   "not_applicable": [
+    "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+   ],
+   "sha256_jcs_without_tag": "c8ee0090f970859f3912dcd283836a351eadd79a7cf0641dc973fce7d6290a2d",
+   "trace_action_binding": "PASS"
+  },
+  {
+   "action_binding": "sha256:53279c9ddd3e15d55a3b847295d460db8881b86014fa2c290a6df0712cdccb8a",
+   "action_is_object": true,
+   "expected": "DENY",
+   "file": "02-instance-value-inside-the-action-deny.json",
+   "grants": [
+    {
+     "equal": false,
+     "index": 0,
+     "stated": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76"
+    }
+   ],
+   "id": "aae-enforce-vector-02",
+   "kernel": "enforce_check",
+   "not_applicable": [
+    "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+   ],
+   "sha256_jcs_without_tag": "6725bd7e4cc4862fe36470a86d27c03b84157b75b13ca2dce8f09d30efc005bc"
+  },
+  {
+   "action_binding": "sha256:cd136e36254798ecc411da02b41bc5910d566138916ace45093c231ad4fa18d4",
+   "action_is_object": true,
+   "expected": "DENY",
+   "file": "03-type-field-missing-from-the-action-deny.json",
+   "grants": [
+    {
+     "equal": false,
+     "index": 0,
+     "stated": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76"
+    }
+   ],
+   "id": "aae-enforce-vector-03",
+   "kernel": "enforce_check",
+   "not_applicable": [
+    "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+   ],
+   "sha256_jcs_without_tag": "16a85f2beccc6a8a6ba87232649a70e8be33613779108aa8c0c4e55814871afe"
+  },
+  {
+   "action_binding": "sha256:0b0fee1363a6c76e77ccef7b241b626dc792b36fb818ad6c9fb667e90310ed66",
+   "action_is_object": false,
+   "expected": "DENY",
+   "file": "04-action-is-a-string-deny.json",
+   "grants": [
+    {
+     "equal": false,
+     "index": 0,
+     "stated": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76"
+    }
+   ],
+   "id": "aae-enforce-vector-04",
+   "kernel": "enforce_check",
+   "not_applicable": [
+    "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+   ],
+   "sha256_jcs_without_tag": "08ff0df794e6bfb3eccfdc70bcd6c8b8c5e2b1afd6abdb73cc4cc62fd95a7ce9"
+  },
+  {
+   "action_binding": "sha256:5ebd4a7f5fc727b7b9bd933072180fe944720f347e11b51b010298b03a40fc61",
+   "action_is_object": false,
+   "expected": "DENY",
+   "file": "05-action-is-an-array-deny.json",
+   "grants": [
+    {
+     "equal": false,
+     "index": 0,
+     "stated": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76"
+    }
+   ],
+   "id": "aae-enforce-vector-05",
+   "kernel": "enforce_check",
+   "not_applicable": [
+    "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+   ],
+   "sha256_jcs_without_tag": "b6a1291f55c1731680d28f2c1c792e4e52f5a5526dc4d20f90ab6c9b22909aae"
+  },
+  {
+   "action_binding": "sha256:17f1683f48edebc14885b8a73422d0dcc3fcf60ed55edd6dab19adc59afc8736",
+   "action_is_object": false,
+   "expected": "DENY",
+   "file": "06-action-is-a-number-deny.json",
+   "grants": [
+    {
+     "equal": false,
+     "index": 0,
+     "stated": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76"
+    }
+   ],
+   "id": "aae-enforce-vector-06",
+   "kernel": "enforce_check",
+   "not_applicable": [
+    "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+   ],
+   "sha256_jcs_without_tag": "73475cb40a568e8da8a045ced110137e159f890ac4da883b6b17dc651b3a8049"
+  },
+  {
+   "action_binding": "sha256:5d80304e9faf8f8dc8129767c4d043342c8926863ae71eaf0b3fe594519d0e5f",
+   "action_is_object": false,
+   "expected": "DENY",
+   "file": "07-action-is-null-deny.json",
+   "grants": [
+    {
+     "equal": false,
+     "index": 0,
+     "stated": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76"
+    }
+   ],
+   "id": "aae-enforce-vector-07",
+   "kernel": "enforce_check",
+   "not_applicable": [
+    "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+   ],
+   "sha256_jcs_without_tag": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+  },
+  {
+   "action_binding": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76",
+   "action_is_object": true,
+   "expected": "DENY",
+   "file": "08-grant-without-type_fields-deny.json",
+   "grants": [
+    {
+     "equal": true,
+     "index": 0,
+     "stated": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76"
+    }
+   ],
+   "id": "aae-enforce-vector-08",
+   "kernel": "enforce_check",
+   "not_applicable": [
+    "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+   ],
+   "sha256_jcs_without_tag": "c8ee0090f970859f3912dcd283836a351eadd79a7cf0641dc973fce7d6290a2d"
+  },
+  {
+   "action_binding": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76",
+   "action_is_object": true,
+   "expected": "DENY",
+   "file": "09-type_fields-without-verb-deny.json",
+   "grants": [
+    {
+     "equal": true,
+     "index": 0,
+     "stated": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76"
+    }
+   ],
+   "id": "aae-enforce-vector-09",
+   "kernel": "enforce_check",
+   "not_applicable": [
+    "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+   ],
+   "sha256_jcs_without_tag": "c8ee0090f970859f3912dcd283836a351eadd79a7cf0641dc973fce7d6290a2d"
+  },
+  {
+   "action_binding": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76",
+   "action_is_object": true,
+   "expected": "DENY",
+   "file": "10-duplicate-name-in-type_fields-deny.json",
+   "grants": [
+    {
+     "equal": true,
+     "index": 0,
+     "stated": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76"
+    }
+   ],
+   "id": "aae-enforce-vector-10",
+   "kernel": "enforce_check",
+   "not_applicable": [
+    "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+   ],
+   "sha256_jcs_without_tag": "c8ee0090f970859f3912dcd283836a351eadd79a7cf0641dc973fce7d6290a2d"
+  },
+  {
+   "action_binding": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76",
+   "action_is_object": true,
+   "expected": "PERMIT",
+   "file": "11-exact-holds-permit.json",
+   "grants": [
+    {
+     "equal": true,
+     "index": 0,
+     "stated": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76"
+    }
+   ],
+   "id": "aae-enforce-vector-11",
+   "kernel": "enforce_check",
+   "not_applicable": [
+    "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+   ],
+   "sha256_jcs_without_tag": "c8ee0090f970859f3912dcd283836a351eadd79a7cf0641dc973fce7d6290a2d"
+  },
+  {
+   "action_binding": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76",
+   "action_is_object": true,
+   "expected": "DENY",
+   "file": "12-exact-fails-on-a-vanity-prefix-deny.json",
+   "grants": [
+    {
+     "equal": true,
+     "index": 0,
+     "stated": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76"
+    }
+   ],
+   "id": "aae-enforce-vector-12",
+   "kernel": "enforce_check",
+   "not_applicable": [
+    "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+   ],
+   "sha256_jcs_without_tag": "c8ee0090f970859f3912dcd283836a351eadd79a7cf0641dc973fce7d6290a2d"
+  },
+  {
+   "action_binding": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76",
+   "action_is_object": true,
+   "expected": "PERMIT",
+   "file": "13-enum-holds-permit.json",
+   "grants": [
+    {
+     "equal": true,
+     "index": 0,
+     "stated": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76"
+    }
+   ],
+   "id": "aae-enforce-vector-13",
+   "kernel": "enforce_check",
+   "not_applicable": [
+    "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+   ],
+   "sha256_jcs_without_tag": "c8ee0090f970859f3912dcd283836a351eadd79a7cf0641dc973fce7d6290a2d"
+  },
+  {
+   "action_binding": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76",
+   "action_is_object": true,
+   "expected": "DENY",
+   "file": "14-enum-fails-deny.json",
+   "grants": [
+    {
+     "equal": true,
+     "index": 0,
+     "stated": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76"
+    }
+   ],
+   "id": "aae-enforce-vector-14",
+   "kernel": "enforce_check",
+   "not_applicable": [
+    "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+   ],
+   "sha256_jcs_without_tag": "c8ee0090f970859f3912dcd283836a351eadd79a7cf0641dc973fce7d6290a2d"
+  },
+  {
+   "action_binding": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76",
+   "action_is_object": true,
+   "expected": "PERMIT",
+   "file": "15-range-holds-at-the-upper-bound-permit.json",
+   "grants": [
+    {
+     "equal": true,
+     "index": 0,
+     "stated": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76"
+    }
+   ],
+   "id": "aae-enforce-vector-15",
+   "kernel": "enforce_check",
+   "not_applicable": [
+    "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+   ],
+   "sha256_jcs_without_tag": "c8ee0090f970859f3912dcd283836a351eadd79a7cf0641dc973fce7d6290a2d"
+  },
+  {
+   "action_binding": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76",
+   "action_is_object": true,
+   "expected": "DENY",
+   "file": "16-range-fails-one-over-the-bound-deny.json",
+   "grants": [
+    {
+     "equal": true,
+     "index": 0,
+     "stated": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76"
+    }
+   ],
+   "id": "aae-enforce-vector-16",
+   "kernel": "enforce_check",
+   "not_applicable": [
+    "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+   ],
+   "sha256_jcs_without_tag": "c8ee0090f970859f3912dcd283836a351eadd79a7cf0641dc973fce7d6290a2d"
+  },
+  {
+   "action_binding": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76",
+   "action_is_object": true,
+   "expected": "DENY",
+   "file": "17-unknown-constraint-type-deny.json",
+   "grants": [
+    {
+     "equal": true,
+     "index": 0,
+     "stated": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76"
+    }
+   ],
+   "id": "aae-enforce-vector-17",
+   "kernel": "enforce_check",
+   "not_applicable": [
+    "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+   ],
+   "sha256_jcs_without_tag": "c8ee0090f970859f3912dcd283836a351eadd79a7cf0641dc973fce7d6290a2d"
+  },
+  {
+   "action_binding": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76",
+   "action_is_object": true,
+   "expected": "DENY",
+   "file": "18-field-path-with-an-empty-segment-deny.json",
+   "grants": [
+    {
+     "equal": true,
+     "index": 0,
+     "stated": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76"
+    }
+   ],
+   "id": "aae-enforce-vector-18",
+   "kernel": "enforce_check",
+   "not_applicable": [
+    "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+   ],
+   "sha256_jcs_without_tag": "c8ee0090f970859f3912dcd283836a351eadd79a7cf0641dc973fce7d6290a2d"
+  },
+  {
+   "action_binding": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76",
+   "action_is_object": true,
+   "expected": "PENDING",
+   "file": "19-explicit-hold-pending.json",
+   "grants": [
+    {
+     "equal": true,
+     "index": 0,
+     "stated": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76"
+    }
+   ],
+   "id": "aae-enforce-vector-19",
+   "kernel": "enforce_check",
+   "not_applicable": [
+    "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+   ],
+   "sha256_jcs_without_tag": "c8ee0090f970859f3912dcd283836a351eadd79a7cf0641dc973fce7d6290a2d"
+  },
+  {
+   "action_binding": "sha256:80cac1c6718a94d73569dd6e54f8d176435c5e7f0d7b4a02d34264e715e5dad5",
+   "action_is_object": true,
+   "expected": "DENY",
+   "file": "20-unaddressed-action-is-never-pending-deny.json",
+   "grants": [
+    {
+     "equal": false,
+     "index": 0,
+     "stated": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76"
+    }
+   ],
+   "id": "aae-enforce-vector-20",
+   "kernel": "enforce_check",
+   "not_applicable": [
+    "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+   ],
+   "sha256_jcs_without_tag": "84a2aca6e961c6ea23bfaaf7420933c07a860e112967cd528c50cea4031bae53",
+   "trace_action_binding": "FAIL"
+  },
+  {
+   "action_binding": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76",
+   "action_is_object": true,
+   "expected": "DENY",
+   "file": "21-forbid-outranks-an-allowing-grant-deny.json",
+   "grants": [
+    {
+     "equal": true,
+     "index": 0,
+     "stated": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76"
+    },
+    {
+     "equal": true,
+     "index": 1,
+     "stated": "sha256:8c2938c57c38e44ed13ce9aef8a741bfc6e636fc60857c05c483078aa26cfb76"
+    }
+   ],
+   "id": "aae-enforce-vector-21",
+   "kernel": "enforce_check",
+   "not_applicable": [
+    "verdict: grant selection by type_fields, dispositions and the constraint language of Section 2.5 are not part of the decision receipt of -05",
+    "core_digest: the core holds enforce_version, mandate_digest, transaction_digest, action_digest, the verdict, grant_index, the structured predicate trace without diagnostic reason text, and prev_core_digest; our decisionRef covers a decision payload with other members, so the two digests cover different field sets"
+   ],
+   "sha256_jcs_without_tag": "c8ee0090f970859f3912dcd283836a351eadd79a7cf0641dc973fce7d6290a2d"
+  },
+  {
+   "action_binding": "NOT APPLICABLE",
+   "expected": "RATIFIED",
+   "file": "22-ratified-by-the-issuing-principal.json",
+   "id": "aae-enforce-vector-22",
+   "kernel": "ratify",
+   "not_applicable": [
+    "ratification (Section 6.3 of AAE) has no counterpart in the decision receipt of -05"
+   ]
+  },
+  {
+   "action_binding": "NOT APPLICABLE",
+   "expected": "REJECTED",
+   "file": "23-stranger-with-a-valid-signature-rejected.json",
+   "id": "aae-enforce-vector-23",
+   "kernel": "ratify",
+   "not_applicable": [
+    "ratification (Section 6.3 of AAE) has no counterpart in the decision receipt of -05"
+   ]
+  },
+  {
+   "action_binding": "NOT APPLICABLE",
+   "expected": "RatifyError",
+   "file": "24-a-permit-is-not-ratifiable-caller-error.json",
+   "id": "aae-enforce-vector-24",
+   "kernel": "ratify",
+   "not_applicable": [
+    "ratification (Section 6.3 of AAE) has no counterpart in the decision receipt of -05"
+   ]
+  },
+  {
+   "action_binding": "NOT APPLICABLE",
+   "expected": "RatifyError",
+   "file": "25-chain-link-pointing-elsewhere-caller-error.json",
+   "id": "aae-enforce-vector-25",
+   "kernel": "ratify",
+   "not_applicable": [
+    "ratification (Section 6.3 of AAE) has no counterpart in the decision receipt of -05"
+   ]
+  },
+  {
+   "action_binding": "NOT APPLICABLE",
+   "expected": "RATIFIED",
+   "file": "26-chain-link-set-explicitly-to-the-ratified-record.json",
+   "id": "aae-enforce-vector-26",
+   "kernel": "ratify",
+   "not_applicable": [
+    "ratification (Section 6.3 of AAE) has no counterpart in the decision receipt of -05"
+   ]
+  }
+ ],
+ "native": [
+  {
+   "delegator_aae_hash": "NOT APPLICABLE: not a delegated AAE",
+   "expected": "ACCEPT",
+   "file": "01-valid-root-aae.json",
+   "id": "aae-vector-01",
+   "not_applicable": [
+    "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to the decision-receipt procedure is implemented here."
+   ],
+   "step": 7
+  },
+  {
+   "delegator_aae_hash": "NOT APPLICABLE: not a delegated AAE",
+   "expected": "REJECT",
+   "file": "02-expired-not-after.json",
+   "id": "aae-vector-02",
+   "not_applicable": [
+    "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to the decision-receipt procedure is implemented here."
+   ],
+   "step": 3
+  },
+  {
+   "delegator_aae_hash": "NOT APPLICABLE: not a delegated AAE",
+   "expected": "REJECT",
+   "file": "03-too-early-not-before.json",
+   "id": "aae-vector-03",
+   "not_applicable": [
+    "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to the decision-receipt procedure is implemented here."
+   ],
+   "step": 3
+  },
+  {
+   "delegator_aae_hash": "NOT APPLICABLE: not a delegated AAE",
+   "expected": "REJECT",
+   "file": "04-revocation-endpoint-5xx.json",
+   "id": "aae-vector-04",
+   "not_applicable": [
+    "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to the decision-receipt procedure is implemented here."
+   ],
+   "step": 8
+  },
+  {
+   "delegator_aae_hash": "NOT APPLICABLE: not a delegated AAE",
+   "expected": "REJECT",
+   "file": "05-single-use-replay.json",
+   "id": "aae-vector-05",
+   "not_applicable": [
+    "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to the decision-receipt procedure is implemented here."
+   ],
+   "step": 5
+  },
+  {
+   "delegator_aae_hash": [
+    {
+     "computed": "sha-256:LNpDW2_8dHoKiRXHCaUtyj0Y_6YYHUBqsaBXt5ctelU",
+     "parent": "urn:uuid:00000006-0000-4000-8000-0000000000b1",
+     "result": "equal",
+     "stated": "sha-256:LNpDW2_8dHoKiRXHCaUtyj0Y_6YYHUBqsaBXt5ctelU"
+    },
+    {
+     "computed": "sha-256:YvOiHBirNG51_pO2pHkpajnP7xhllFENkdgSzf9vgRw",
+     "parent": "urn:uuid:00000006-0000-4000-8000-0000000000a0",
+     "result": "equal",
+     "stated": "sha-256:YvOiHBirNG51_pO2pHkpajnP7xhllFENkdgSzf9vgRw"
+    }
+   ],
+   "expected": "ACCEPT",
+   "file": "06-delegation-valid-depth-2.json",
+   "id": "aae-vector-06",
+   "not_applicable": [
+    "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to the decision-receipt procedure is implemented here."
+   ],
+   "step": 9
+  },
+  {
+   "delegator_aae_hash": [
+    {
+     "computed": "sha-256:sV5on5zY029kp28amp8HwZFyAMqU-92SfmRWWzh2Jy8",
+     "parent": "urn:uuid:00000007-0000-4000-8000-0000000000a7",
+     "reason": "delegator_aae_hash is absent (OPTIONAL, Section 3)",
+     "result": "NOT APPLICABLE"
+    }
+   ],
+   "expected": "REJECT",
+   "file": "07-delegation-action-superset.json",
+   "id": "aae-vector-07",
+   "not_applicable": [
+    "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to the decision-receipt procedure is implemented here."
+   ],
+   "step": 9
+  },
+  {
+   "delegator_aae_hash": [
+    {
+     "computed": "sha-256:bDVUO3yG6aJ5KzAyuPi2n2ubWK2y2VDgZ5dlrWNjiFA",
+     "parent": "urn:uuid:00000008-0000-4000-8000-0000000000a8",
+     "reason": "delegator_aae_hash is absent (OPTIONAL, Section 3)",
+     "result": "NOT APPLICABLE"
+    }
+   ],
+   "expected": "REJECT",
+   "file": "08-delegation-constraint-relaxation.json",
+   "id": "aae-vector-08",
+   "not_applicable": [
+    "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to the decision-receipt procedure is implemented here."
+   ],
+   "step": 9
+  },
+  {
+   "delegator_aae_hash": [
+    {
+     "computed": "sha-256:PA8XaE7YDybLdJeTl9zsJIs7vC4REfj6sHTymXTDm0A",
+     "parent": "urn:uuid:00000009-0000-4000-8000-0000000000b9",
+     "reason": "delegator_aae_hash is absent (OPTIONAL, Section 3)",
+     "result": "NOT APPLICABLE"
+    },
+    {
+     "computed": "sha-256:UoquaNYPyC-fqLEIhxBbA7vhzBWP03Ngg3aFYnqSZCg",
+     "parent": "urn:uuid:00000009-0000-4000-8000-0000000000a9",
+     "reason": "delegator_aae_hash is absent (OPTIONAL, Section 3)",
+     "result": "NOT APPLICABLE"
+    }
+   ],
+   "expected": "REJECT",
+   "file": "09-delegation-depth-exceeded.json",
+   "id": "aae-vector-09",
+   "not_applicable": [
+    "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to the decision-receipt procedure is implemented here."
+   ],
+   "step": 9
+  },
+  {
+   "delegator_aae_hash": [
+    {
+     "computed": "sha-256:k453vcmcJDvStvvDioELYYAUCl_TW2aoPnZyrRz4iSQ",
+     "parent": "urn:uuid:0000000a-0000-4000-8000-0000000000b1",
+     "reason": "delegator_aae_hash is absent (OPTIONAL, Section 3)",
+     "result": "NOT APPLICABLE"
+    },
+    {
+     "hash_stated": false,
+     "parents_found": 2,
+     "reason": "the parent 'urn:uuid:0000000a-0000-4000-8000-00000000000a' is not in the vector exactly once",
+     "result": "NOT APPLICABLE"
+    }
+   ],
+   "expected": "REJECT",
+   "file": "10-delegation-cycle-detection.json",
+   "id": "aae-vector-10",
+   "not_applicable": [
+    "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to the decision-receipt procedure is implemented here."
+   ],
+   "step": 9
+  },
+  {
+   "delegator_aae_hash": [
+    {
+     "computed": "sha-256:c9U1oVzJyC-o7pOB-zJmdNjqi4NNB1lXbbyTXkjmk0Q",
+     "parent": "urn:uuid:0000000b-0000-4000-8000-0000000000a0",
+     "result": "equal",
+     "stated": "sha-256:c9U1oVzJyC-o7pOB-zJmdNjqi4NNB1lXbbyTXkjmk0Q"
+    }
+   ],
+   "expected": "REJECT",
+   "file": "11-delegation-cascade-revocation.json",
+   "id": "aae-vector-11",
+   "not_applicable": [
+    "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to the decision-receipt procedure is implemented here."
+   ],
+   "step": 9
+  },
+  {
+   "delegator_aae_hash": "NOT APPLICABLE: not a delegated AAE",
+   "expected": "REJECT",
+   "file": "12-signing-authority-mismatch.json",
+   "id": "aae-vector-12",
+   "not_applicable": [
+    "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to the decision-receipt procedure is implemented here."
+   ],
+   "step": 1
+  },
+  {
+   "delegator_aae_hash": "NOT APPLICABLE: not a delegated AAE",
+   "expected": "REJECT",
+   "file": "13-unrecognized-required-constraint.json",
+   "id": "aae-vector-13",
+   "not_applicable": [
+    "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to the decision-receipt procedure is implemented here."
+   ],
+   "step": 7
+  },
+  {
+   "delegator_aae_hash": "NOT APPLICABLE: not a delegated AAE",
+   "expected": "REJECT",
+   "file": "14-cty-header-wrong.json",
+   "id": "aae-vector-14",
+   "not_applicable": [
+    "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to the decision-receipt procedure is implemented here."
+   ],
+   "step": 2
+  },
+  {
+   "delegator_aae_hash": [
+    {
+     "computed": "sha-256:3sjJiOwARorSF7r_84Mjutg-iDGYKY_VckL83usoSvI",
+     "parent": "urn:uuid:0000000f-0000-4000-8000-0000000000af",
+     "reason": "delegator_aae_hash is absent (OPTIONAL, Section 3)",
+     "result": "NOT APPLICABLE"
+    }
+   ],
+   "expected": "REJECT",
+   "file": "15-currency-mismatch-delegation.json",
+   "id": "aae-vector-15",
+   "not_applicable": [
+    "Not evaluated in this digest-level run. Steps 1 to 8 and the rest of step 9 of Section 5 of AAE are outside the comparison. Only the parent-JWS hash is compared; no mapping of the other AAE checks to the decision-receipt procedure is implemented here."
+   ],
+   "step": 9
+  }
+ ],
+ "read_reference_code": false,
+ "repository": "https://github.com/MoltyCel/aae-conformance-vectors"
+}
