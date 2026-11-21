@@ -2,7 +2,7 @@
 """check_version_and_changelog.py — release-integrity gate for proofbundle.
 
 Closes the "merged but never released / version drift" class (the M2 security fix and the 811-vs-817
-typo both sat unreleased on main because nothing enforced this). Seven checks:
+typo both sat unreleased on main because nothing enforced this). Eight checks:
 
   1. VERSION SINGLE-SOURCING: pyproject.toml, src/proofbundle/__init__.py and CITATION.cff MUST agree.
   2. CHANGELOG DOCUMENTS THE VERSION: the current version has a `## [<version>]` section in CHANGELOG.md,
@@ -23,6 +23,9 @@ typo both sat unreleased on main because nothing enforced this). Seven checks:
   7. VERSION-BOUND LINKS: a README link that names an artefact of the release (its audit directory,
      its residual-risk record, its pre-tag receipt, its release scope) names the artefact of the
      source version, in the part of the link the tag does not carry (see `_VERSIONSGEBUNDENE_VERWEISE`).
+  8. THE TAG FALLS ON THE DATE OF ITS SECTION: where the clone holds the annotated tag v<version>, its
+     tagger date in UTC is the date of the `## [<version>] - YYYY-MM-DD` heading in the tree the tag
+     points to. `--tag <name>` makes it mandatory, as release.yml runs it (see `check_tag_date`).
 
 EVERY NUMBER NAMES ITS OBJECT AND ITS SOURCE. Not "version 0.49.1" but "markdownlint-cli 0.49.1,
 read from package.json". A bare number is real and still says nothing: on 2026-08-07 a single day
@@ -41,14 +44,16 @@ pass nor a failure. Without --require-external it does not fail the run, and it 
 the summary line says what was actually verified. --require-external turns not-measurable into a
 failure and belongs in the release checklist, where "we could not look" must block.
 
-Exit 0 = OK, 1 = violation. stdlib only; checks 1-4 are offline, check 5 needs the network and only
-runs when asked.
+Exit 0 = OK, 1 = violation. stdlib only; checks 1-4 and 6-8 are offline, check 5 needs the network
+and only runs when asked.
 
-Usage: python3 scripts/check_version_and_changelog.py [--repo <path>] [--external] [--require-external]
+Usage: python3 scripts/check_version_and_changelog.py [--repo <path>] [--tag <name>] [--external]
+       [--require-external]
 """
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
 import re
@@ -543,6 +548,121 @@ def check_changelog_opening(repo: Path, version: str) -> list[str]:
             f"semantics change; write that opening paragraph above the first `###`."]
 
 
+# The date of a release heading, read as the plugin pin test reads it (`_DATED` there): ` - YYYY-MM-DD`, optionally a
+# note in brackets as the older headings carry it (`## [5.1.0] - 2026-08-31 (the profile ... · MINOR)`), nothing else.
+# Blanks and tabs only, for the reason `_changelog_headings` gives.
+_DATIERT = re.compile(r"[ \t]+-[ \t]+([0-9]{4})-([0-9]{2})-([0-9]{2})(?:[ \t]+\(.*\))?[ \t]*")
+# The tagger line of a tag object: identity, seconds since the epoch, the offset of the tagger's clock.
+_TAGGER = re.compile(r"^tagger .*> ([0-9]+) ([+-][0-9]{4})$")
+
+
+def _git_bytes(repo: Path, *args: str) -> tuple[int, bytes]:
+    try:
+        r = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, timeout=15)
+        return r.returncode, r.stdout
+    except Exception:  # noqa: BLE001
+        return 1, b""
+
+
+def check_tag_date(repo: Path, version: str, tag: str | None = None) -> tuple[list[str], list[str], str | None]:
+    """Check 8: the tag of the release falls on the date its CHANGELOG section names, in UTC (finding A8-1).
+
+    Returns the problems, the notes and, when the dates agree, the line the summary names.
+
+    WHY. CHANGELOG.md names a date in every release heading. Nothing compared it with the day the tag
+    fell: on the tree of 6.5.0 (heading `2026-11-08`) a local annotated tag dated 2026-11-06 left this gate at
+    exit 0, and release.yml read the section but not its date. Read on 2026-11-07 over the tags v5.0.0 to
+    v6.4.0 of this repository, eight of the nine with a section fell in UTC on another day than its date, and
+    v5.1.0.post1 has no section.
+
+    WHICH DATE. The tagger date of the annotated tag, in UTC. It is part of the tag object, so every run over
+    the same tag reads the same day, a rerun of the release workflow on a later day included, and a tag set
+    shortly before midnight is not judged by when a runner picked it up. The clock of the run is named in a
+    note when it differs, not judged. UTC, because the offset in the tag is the tagger's clock and the heading
+    names no zone.
+
+    WHICH SECTION. The `## [<version>]` heading in CHANGELOG.md of the commit the tag points to, read the way
+    `check_changelog_opening` finds it. A later commit that moves the date does not repair a tag that fell on
+    another day.
+
+    TWO MODES. With `tag` (release.yml passes `$GITHUB_REF_NAME`) the check is mandatory: the tag must name
+    the source version, exist and be annotated. Without it, the tag v<version> is read when the clone holds
+    it; before the tag there is nothing to compare, and a lightweight tag is noted, not judged, since
+    release.yml refuses one on its own and the post-tag drift cases of this gate set lightweight tags.
+    """
+    pflicht = tag is not None
+    name = (tag[len("refs/tags/"):] if tag.startswith("refs/tags/") else tag) if tag is not None else f"v{version}"
+    if pflicht and name != f"v{version}":
+        return ([f"check 8: the release names tag {name}, but the source version is {version}; a tag of "
+                 f"another version cannot be compared with the section `## [{version}]`."], [], None)
+    ref = f"refs/tags/{name}"
+
+    def offen(grund: str) -> tuple[list[str], list[str], str | None]:
+        if pflicht:
+            return [f"check 8: {grund}; the date of the release cannot be compared with CHANGELOG.md."], [], None
+        return [], [f"check 8 (tag date) not judged: {grund}."], None
+
+    rc, _ = _git(repo, "rev-parse", "-q", "--verify", ref)
+    if rc != 0:
+        if pflicht:
+            return offen(f"no tag {name} in this clone")
+        return [], [f"check 8 (tag date) not applicable: no tag {name} in this clone, nothing to compare "
+                    f"before the tag."], None
+    rc, typ = _git(repo, "cat-file", "-t", ref)
+    if rc != 0 or typ != "tag":
+        return offen(f"{name} is a {typ or 'unreadable object'}, not an annotated tag, and carries no tagger date")
+
+    rc, roh = _git_bytes(repo, "cat-file", "tag", ref)
+    kopf = roh.split(b"\n\n", 1)[0].decode("utf-8", "replace").split("\n")
+    felder = {zeile.split(" ", 1)[0]: zeile for zeile in kopf if " " in zeile}
+    ziel = felder.get("object", "").partition(" ")[2]
+    if rc != 0 or felder.get("type") != "type commit" or not ziel:
+        return [f"check 8: tag {name} does not point at a commit ({felder.get('type', 'no type line')}); "
+                f"the tree whose CHANGELOG.md names its date cannot be read."], [], None
+    m = _TAGGER.match(felder.get("tagger", ""))
+    if not m:
+        return [f"check 8: tag {name} carries no readable tagger line, so the day it fell cannot be read."], [], None
+    gefallen = datetime.datetime.fromtimestamp(int(m.group(1)), tz=datetime.timezone.utc)
+
+    rc, inhalt = _git_bytes(repo, "show", f"{ziel}:CHANGELOG.md")
+    if rc != 0:
+        return [f"check 8: the tree of tag {name} ({ziel[:12]}) carries no CHANGELOG.md."], [], None
+    zeilen = re.split(r"\r\n|\r|\n", inhalt.decode("utf-8", "replace"))
+    kopfzeile = re.compile(r"^##[ \t]+\[" + re.escape(version) + r"\](.*)$")
+    verdeckt = _lines_in_code_or_comments(zeilen)
+    treffer = [(i, mm) for i, zeile in enumerate(zeilen) if i not in verdeckt and (mm := kopfzeile.match(zeile))]
+    wo = f"CHANGELOG.md of {name} ({ziel[:12]})"
+    if not treffer:
+        return [f"check 8: {wo} carries no `## [{version}]` section, so there is no date the tag could fall on; "
+                f"a version still under `## [Unreleased]` is not released."], [], None
+    if len(treffer) > 1:
+        return [f"check 8: {wo} carries the `## [{version}]` heading {len(treffer)} times (lines "
+                f"{', '.join(str(i + 1) for i, _ in treffer)}); which date holds cannot be read off."], [], None
+    zeile_nr, mm = treffer[0]
+    d = _DATIERT.fullmatch(mm.group(1))
+    if not d:
+        return [f"check 8: the heading `{zeilen[zeile_nr].strip()}` in {wo}, line {zeile_nr + 1}, names no date "
+                f"in the form ` - YYYY-MM-DD`; the tag {name} has no date to fall on."], [], None
+    try:
+        datum = datetime.date(int(d.group(1)), int(d.group(2)), int(d.group(3)))
+    except ValueError:
+        return [f"check 8: the heading `{zeilen[zeile_nr].strip()}` in {wo}, line {zeile_nr + 1}, names no "
+                f"calendar date."], [], None
+
+    hinweise: list[str] = []
+    if pflicht:
+        heute = datetime.datetime.now(datetime.timezone.utc).date()
+        if heute != datum:
+            hinweise.append(f"check 8: the clock of this run reads {heute.isoformat()} UTC and the section names "
+                            f"{datum.isoformat()}; only the tagger date of {name} is judged.")
+    if gefallen.date() != datum:
+        return [f"check 8: tag {name} fell on {gefallen.date().isoformat()} UTC (tagger date "
+                f"{gefallen.isoformat().replace('+00:00', 'Z')}), but `## [{version}]` in {wo}, line "
+                f"{zeile_nr + 1}, names {datum.isoformat()}. Set the tag on {datum.isoformat()} UTC, or move the "
+                f"date of the section to the day of the tag in a commit before the tag."], hinweise, None
+    return [], hinweise, f"tag {name} falls on {datum.isoformat()} UTC, the date of its section"
+
+
 # CommonMark (0.31.2) and GitHub's table extension, read line by line for the start of a section. A PARAGRAPH IS
 # RECOGNISED FOR WHAT IT IS, not as whatever no other pattern matched: the first form of this check passed a list, a
 # block quote and an HTML block as an opening because none of its five patterns named them (readings of 2026-11-01).
@@ -724,9 +844,11 @@ def _semver_tuple(v: str) -> tuple:
     return haupt + vorab_key + (post_key, dev_key)
 
 
-def check(repo: Path, nicht_gemessen: list[tuple[int, str]] | None = None) -> list[str]:
-    """The problems of checks 1 to 4 and 6. `nicht_gemessen`, when given, receives (check, reason)
-    for each check that could not look, so the summary line names it instead of claiming it."""
+def check(repo: Path, nicht_gemessen: list[tuple[int, str]] | None = None, tag: str | None = None,
+          gemessen: list[str] | None = None) -> list[str]:
+    """The problems of checks 1 to 4 and 6 to 8. `nicht_gemessen`, when given, receives (check, reason)
+    for each check that could not look, so the summary line names it instead of claiming it. `tag` is
+    the release tag of `--tag`, and `gemessen` receives the line check 8 names when the dates agree."""
     problems: list[str] = []
     pv, iv, cv = _pyproject_version(repo), _init_version(repo), _citation_version(repo)
 
@@ -773,6 +895,17 @@ def check(repo: Path, nicht_gemessen: list[tuple[int, str]] | None = None) -> li
         problems.extend(check_tracked_places(repo, version, herkunft))
         problems.extend(check_undeclared_places(repo, nicht_gemessen=nicht_gemessen))
         problems.extend(check_version_bound_links(repo, version, herkunft))
+
+    # 8. The tag falls on the date of its section
+    if version:
+        tag_probleme, tag_hinweise, tag_urteil = check_tag_date(repo, version, tag)
+        problems.extend(tag_probleme)
+        for hinweis in tag_hinweise:
+            print(f"check_version_and_changelog: NOTE {hinweis}")
+        if tag_urteil and gemessen is not None:
+            gemessen.append(tag_urteil)
+    elif tag is not None:
+        problems.append(f"check 8: --tag {tag} was given, but no source version was found to compare it with.")
     return problems
 
 
@@ -1154,10 +1287,14 @@ def main() -> int:
     ap.add_argument("--require-external", action="store_true",
                     help="with --external: treat NICHT MESSBAR as a failure (for the release checklist)")
     ap.add_argument("--timeout", type=float, default=15.0, help="per-request timeout for --external")
+    ap.add_argument("--tag", default=None,
+                    help="the release tag (release.yml passes $GITHUB_REF_NAME): it must exist, be annotated, "
+                         "name the source version and fall in UTC on the date of its CHANGELOG section")
     a = ap.parse_args()
     repo = Path(a.repo).resolve()
     intern_offen: list[tuple[int, str]] = []
-    problems = check(repo, intern_offen)
+    tag_gemessen: list[str] = []
+    problems = check(repo, intern_offen, a.tag, tag_gemessen)
 
     version, herkunft = _source_version(repo)
 
@@ -1195,6 +1332,7 @@ def main() -> int:
         teile.append("no undelivered post-tag drift")
     if 6 not in offen_nr:
         teile.append("no undeclared place claiming a current version")
+    teile.extend(tag_gemessen)
     geprueft = ", ".join(teile)
     if intern_offen:
         geprueft += (f". NOT measured ({NICHT_MESSBAR}): "

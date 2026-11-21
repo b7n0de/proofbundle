@@ -95,6 +95,11 @@ jobs:
           # frozen head, so the ancestor can be more than one commit back, and a clone of depth 1
           # shows none of them: measured 2026-09-28, depth 1 exit 2.
           fetch-depth: 0
+          # NO TOKEN LEFT IN .git/config (from 6.6.1). This is the only job here with `contents: write`,
+          # and it runs code pip installs from the index (cryptography, build, rfc8785) after the
+          # checkout. Every git call in this job is local, none fetches or pushes; the draft goes out
+          # through the API with its own token input. zizmor 1.32.0, audit artipacked.
+          persist-credentials: false
 
       - name: Bytecode of this job comes from a fresh directory, never from beside the sources (from 6.6.1)
         # CODEX ON PULL REQUEST 541, ROUND LX5, P0 2. Python runs a `__pycache__/*.pyc` beside a source in place of that
@@ -147,6 +152,17 @@ jobs:
         # so nothing is built, attested or uploaded for a tag whose evidence cannot be found.
         # A tag of an earlier release runs its own workflow file, so this changes no earlier release.
         run: python scripts/audit_output_aufloesbar.py --repo . --version "${GITHUB_REF_NAME#v}"
+
+      - name: Version gate with the tag, which must fall on the date of its CHANGELOG section (from 6.6.1)
+        # FINDING A8-1, OWNER ANSWER A ON THE RELEASE PATH (20 November 2026). Before this step the
+        # version gate ran on main and on pull requests only, never on the tag it guards. With --tag it
+        # holds the seven checks of the tree and check 8: the tag must be annotated, name the source
+        # version and carry a tagger date that falls in UTC on the date `## [<version>] - YYYY-MM-DD`
+        # names in the tree the tag points to. Measured on 65bd4b7a: a local tag v6.5.0 dated
+        # 2026-11-06 over the heading 2026-11-08 passed every step above the build. Before the build
+        # and before any upload, so a wrong date stops the release here. A tag of an earlier release
+        # runs its own workflow file, so this changes no earlier release.
+        run: python scripts/check_version_and_changelog.py --repo . --tag "$GITHUB_REF_NAME"
 
       - name: Formpruefer ueber Tag-Text und Release-Notiz (Release-Standard 6.0.0, Bedingung 8)
         # WARUM DIESER SCHRITT HIER STEHT. Der Release-Standard nennt einen "Formpruefer und
