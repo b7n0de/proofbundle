@@ -1255,6 +1255,30 @@ class DriverChecks(Base):
         for rel in files:
             self.assertEqual((first / rel).read_bytes(), (second / rel).read_bytes(), rel)
 
+    def test_d6_an_interpreter_below_3_11_is_not_measurable_before_the_first_build(self):
+        """Owner answer A on the workflow card for 6.6.1, row 17: the generator needs tomllib, Python 3.11 or later.
+        Under an older python3 first on PATH every build ended with exit 2 and the driver reported
+        `run1 build exit 2 (expected 0) UNEXPECTED` with exit 1, which reads as a fault of the build. It checks its
+        interpreter before the first build now and ends with one line NOT MEASURABLE and exit 2, writing nothing.
+        A stand-in python3 answers like an interpreter below 3.11 (it prints 3.10.20 and ends with exit 3) and
+        records every call, so the case needs no old Python and runs on every runner with Python 3.11 or later;
+        under 3.10 the module is skipped."""
+        repo, commit = make_repo(self.tmp, split_files())
+        shim = self.tmp / "old-python"
+        shim.mkdir()
+        calls = self.tmp / "calls.txt"
+        stand_in = shim / "python3"
+        stand_in.write_text(f"#!/bin/sh\necho call >> '{calls}'\necho 3.10.20\nexit 3\n", encoding="utf-8")
+        stand_in.chmod(0o755)
+        proc = drive_with(repo, commit, self.out, {"PATH": f"{shim}{os.pathsep}{plugin_env()['PATH']}"})
+        self.assertEqual(proc.returncode, 2, text(proc))
+        lines = [line for line in proc.stderr.decode().splitlines() if line.startswith("NOT MEASURABLE")]
+        self.assertEqual(len(lines), 1, text(proc))
+        self.assertIn("3.11", lines[0])
+        self.assertIn("3.10.20", lines[0])
+        self.assertEqual(calls.read_text(encoding="utf-8").splitlines(), ["call"], "a build ran after the check")
+        self.assertFalse(self.out.exists(), "the driver wrote its output folder before the check")
+
 
 def sign(private_key, data: bytes) -> bytes:
     return base64.b64encode(private_key.sign(data)) + b"\n"

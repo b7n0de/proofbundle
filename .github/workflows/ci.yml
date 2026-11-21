@@ -49,6 +49,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
+      # A fixed interpreter instead of the python3 of the runner image, which changes with ubuntu-latest
+      # (owner answer A on the workflow card for 6.6.1, row 37).
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.12"
       - name: Fetch tags and base branch
         # Through env, not interpolated — the step below already does exactly this with the
         # same two values. A branch name is attacker-influenceable text, and an interpolated
@@ -1044,6 +1049,12 @@ jobs:
             exit 1
           fi
           echo "mutation-summary OK: $K Shards, $summe von $ERWARTET Operatoren, Vereinigung vollstaendig und paarweise disjunkt"
+      # A fixed interpreter instead of the python3 of the runner image, which changes with ubuntu-latest
+      # (owner answer A on the workflow card for 6.6.1, row 37). Not blocking, as the step below.
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        continue-on-error: true
+        with:
+          python-version: "3.12"
       - name: Wanduhr der Matrix aus den Job-Zeitstempeln
         # DIE ABNAHMEZAHL GEHOERT IN DEN LAUF, nicht in eine Handrechnung. Die Wanduhr wird vom
         # ERSTEN Job-Start bis zum LETZTEN Job-Ende gemessen — sie haengt am laengsten Shard, nicht
@@ -1097,6 +1108,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
+      # A fixed interpreter instead of the python3 of the runner image, which changes with ubuntu-latest
+      # (owner answer A on the workflow card for 6.6.1, row 37). The guard parses the
+      # changed files with this interpreter, so it is the version its tests run under (row 35).
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.12"
       - name: Guard self-test (each planted signature class must be caught)
         run: python3 scripts/mutant_signature_guard.py --self-test
       - name: Scan the change range for mutant signatures
@@ -1191,6 +1208,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # A fixed interpreter instead of the python3 of the runner image, which changes with ubuntu-latest
+      # (owner answer A on the workflow card for 6.6.1, row 37).
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: "3.12"
       - name: Every needed job succeeded, on the full matrix
         env:
           NEEDS: ${{ toJSON(needs) }}
