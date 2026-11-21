@@ -1140,10 +1140,24 @@ def _cmd_verify(args: argparse.Namespace) -> int:
         _ts_status = "FAIL"
     else:
         _ts_status = "NOT_REQUESTED"
+    # 6.6.1 (RFC 9942 tree-size thread, Owner-Wahl A auf OA-cd29c2e33d): `actual` stays, and `actualSource`
+    # says whether that value is bound. The same audit path verifies under an interval of tree sizes, so an
+    # unbound `actual` is only the bundle's claim. `checkpoint`: a verified checkpoint names this size (the
+    # --trusted-checkpoint path, whose size became the expectation and passed, or a policy trusted_checkpoints
+    # match at the current time); `expected`: an explicit --expected-tree-size matched; `stated`: anything else,
+    # a mismatch included. Additive: no existing key changes its name or value.
+    _size_bound = _tsc is not None and _tsc.ok is True
+    if (_size_bound and cp_supplied and cp_ok) or _pol_cp_matched:
+        _ts_source = "checkpoint"
+    elif _size_bound:
+        _ts_source = "expected"
+    else:
+        _ts_source = "stated"
     fields["treeSizeExpectation"] = {
         "status": _ts_status,
         "expected": _ets,
         "actual": (bundle.get("merkle") or {}).get("tree_size") if isinstance(bundle, dict) else None,
+        "actualSource": _ts_source,
     }
     # ORIGIN-ERWARTUNG, maschinenlesbar (3.8.0). Ohne dieses Feld traegt `verify --json` die Frage
     # nur in der Prosa des checkpoint-Details, und ein automatischer Verbraucher kann "gepinnt und
