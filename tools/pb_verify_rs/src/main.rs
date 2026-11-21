@@ -1398,7 +1398,10 @@ fn alias_teile(kv: &serde_json::Value) -> Vec<Vec<u8>> {
 // full predicate-shape validation — those remain Python-only (see CROSS_IMPLEMENTATION_REPORT.md /
 // scripts/rust_parity_gate.py PENDING entries for trust_pack.verify_trust_pack). Two rules of that
 // validation hold here over every key of the pack: the trust-anchor rule for an Ed25519 key and the
-// alias rule (no key part in two keys, KR-01).
+// alias rule (no key part in two keys, KR-01). The rules for the values the count reads hold as well:
+// `revoked` is a list of known keyIds, `roles` is an object with a root role, the root role is an
+// object with no field but `keyIds` and `threshold`, it names a non-empty list of known keyIds, and its
+// threshold is an integer from 1 to the number of those keyIds that live keyIds can still meet.
 // Ok(true)/Ok(false) => threshold met/not met (contributes exit 0/1); Err(..) => malformed (exit 2).
 fn verify_trust_pack_threshold(
     envelope: &serde_json::Value,
@@ -1532,23 +1535,65 @@ fn verify_trust_pack_threshold(
             }
         }
     }
-    let revoked: HashSet<String> = predicate
-        .get("revoked")
-        .and_then(|v| v.as_array())
-        .map(|a| {
-            a.iter()
-                .filter_map(|x| x.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
-    let root_role = predicate
-        .get("roles")
+    // THE ROLE RULES OF PYTHON, FOR THE VALUES THIS COUNT READS (review of 6.6.1, finding
+    // PB-661-RUST-TRUSTPACK-SCHWELLE-NULL-01). `revoked` and the `keyIds` and `threshold` of the root
+    // role were read here without the rules `validate_trust_pack_predicate` and `_validate_role` apply
+    // to them. With a threshold of 0 this count met its threshold with no valid signature at all and
+    // exited 0, measured at 6.6.0 and at main; since pull request 544 the literal -0 reads as 0 and
+    // did the same. Python refuses such a pack. A list of revoked or root keyIds with a value that is
+    // no keyId, a keyId not in `keys`, a threshold above the number of root keyIds, or a root role
+    // that can never meet its threshold after revocation also met or failed here where Python refuses
+    // the pack. Each rule now refuses as malformed (exit 2), with Python's own text and in Python's
+    // order. The other rules of the predicate stay Python-only, as the scope above says.
+    let revoked: HashSet<String> = match predicate.get("revoked") {
+        None => HashSet::new(),
+        Some(v) => {
+            let Some(liste) = v.as_array().filter(|a| a.iter().all(|x| x.is_string())) else {
+                return Err("revoked must be a list of keyId strings".to_string());
+            };
+            let mut menge = HashSet::new();
+            for x in liste {
+                let k = x.as_str().unwrap_or_default();
+                if !keys.contains_key(k) {
+                    return Err(format!(
+                        "revoked keyId {} is not present in keys",
+                        py_str_repr(k)
+                    ));
+                }
+                menge.insert(k.to_string());
+            }
+            menge
+        }
+    };
+    // THE ROOT ROLE ITSELF, BEFORE ITS VALUES (reading of pull request 551 on 21 November 2026). Python
+    // refuses `roles` when it is no object or names no root role, and `_validate_role` refuses a role
+    // that is no object and names each field other than `keyIds` and `threshold` before it reads these
+    // two. This count read `keyIds` and `threshold` out of whatever the root role held: the role
+    // `{"keyIds":["r"],"threshold":1,"extra":1}` with a valid signature met its threshold here with
+    // exit 0 and Python refused the pack, and with a threshold of 0 beside the field the two named
+    // different errors. The fields are read in the order they are written (`preserve_order`), as
+    // Python reads them, so the first unknown field is the one Python names first.
+    let Some(rollen) = predicate.get("roles") else {
+        return Err("predicate.roles.root missing".to_string());
+    };
+    let root_role = rollen
+        .as_object()
         .and_then(|r| r.get("root"))
-        .ok_or("predicate.roles.root missing")?;
+        .ok_or("roles must be an object that includes a 'root' role")?;
+    let Some(root_felder) = root_role.as_object() else {
+        return Err("roles.root: must be an object".to_string());
+    };
+    if let Some(fremd) = root_felder
+        .keys()
+        .find(|f| f.as_str() != "keyIds" && f.as_str() != "threshold")
+    {
+        return Err(format!("roles.root: unknown field {}", py_str_repr(fremd)));
+    }
+    const ROOT_KEYIDS_FORM: &str = "roles.root: keyIds must be a non-empty list of key id strings";
     let root_kids = root_role
         .get("keyIds")
         .and_then(|v| v.as_array())
-        .ok_or("predicate.roles.root.keyIds missing")?;
+        .ok_or(ROOT_KEYIDS_FORM)?;
     // Die ROHE Laenge, vor dem Widerruf-Filter — so zaehlt Python (`len(kids)`), und ein Angreifer
     // waehlt die Liste, nicht der Verifizierer.
     if root_kids.len() > BUDGET_WITNESSES {
@@ -1558,15 +1603,48 @@ fn verify_trust_pack_threshold(
             BUDGET_WITNESSES,
         ));
     }
-    let root_ids: HashSet<String> = root_kids
+    let mut root_liste: Vec<&str> = Vec::with_capacity(root_kids.len());
+    for x in root_kids {
+        match x.as_str() {
+            Some(k) if !k.is_empty() => root_liste.push(k),
+            _ => return Err(ROOT_KEYIDS_FORM.to_string()),
+        }
+    }
+    if root_liste.is_empty() {
+        return Err(ROOT_KEYIDS_FORM.to_string());
+    }
+    for k in &root_liste {
+        if !keys.contains_key(*k) {
+            return Err(format!(
+                "roles.root: keyId {} is not present in keys",
+                py_str_repr(k)
+            ));
+        }
+    }
+    // `as_u64` gives nothing for a bool, a float, a negative number or a missing value, as Python's
+    // `_is_int` refuses them; 0 is an integer and fails the floor.
+    let threshold = match root_role.get("threshold").and_then(|v| v.as_u64()) {
+        Some(t) if t >= 1 => t,
+        _ => return Err("roles.root: threshold must be an integer >= 1".to_string()),
+    };
+    if threshold > root_liste.len() as u64 {
+        return Err(format!(
+            "roles.root: threshold ({threshold}) exceeds the number of keyIds ({})",
+            root_liste.len()
+        ));
+    }
+    // Python counts the live keyIds as a list, a keyId named twice counts twice.
+    let lebend = root_liste.iter().filter(|k| !revoked.contains(**k)).count();
+    if (lebend as u64) < threshold {
+        return Err(format!(
+            "roles.root: threshold ({threshold}) can never be met \u{2014} only {lebend} non-revoked keyIds"
+        ));
+    }
+    let root_ids: HashSet<String> = root_liste
         .iter()
-        .filter_map(|x| x.as_str().map(String::from))
-        .filter(|k| !revoked.contains(k))
+        .filter(|k| !revoked.contains(**k))
+        .map(|k| k.to_string())
         .collect();
-    let threshold = root_role
-        .get("threshold")
-        .and_then(|v| v.as_u64())
-        .ok_or("predicate.roles.root.threshold missing")?;
 
     let mut valid_root: HashSet<[u8; 32]> = HashSet::new();
     let mut skipped_non_ed25519: u64 = 0;
@@ -4905,6 +4983,233 @@ mod tests {
         let env = trust_pack_mit_root_keyids(BUDGET_WITNESSES);
         let r = verify_trust_pack_threshold(&env).expect("an der Schranke wurde verweigert");
         assert!(!r.0, "eine Junk-Signatur darf die Schwelle nicht erfuellen");
+    }
+
+    // Review of 6.6.1: a pack with the Ed25519 keys `r` and `d`, the given root role and `revoked` (absent
+    // when None). The signature is junk, so no signature counts; `ersetze` edits the payload as text.
+    fn trust_pack_mit_rolle(
+        root: serde_json::Value,
+        revoked: Option<serde_json::Value>,
+        ersetze: Option<(&str, &str)>,
+    ) -> serde_json::Value {
+        let mut praedikat = serde_json::json!({
+            "keys": {"r": {"publicKey": ed25519_pubkey_b64(0)}, "d": {"publicKey": ed25519_pubkey_b64(1)}},
+            "roles": {"root": root}
+        });
+        if let Some(r) = revoked {
+            praedikat["revoked"] = r;
+        }
+        let statement = serde_json::json!({
+            "_type": INTOTO_STATEMENT_TYPE,
+            "subject": [{"digest": {"sha256": "0".repeat(64)}}],
+            "predicate": praedikat
+        });
+        let mut body =
+            String::from_utf8(serde_json::to_vec(&statement).expect("json")).expect("utf-8");
+        if let Some((alt, neu)) = ersetze {
+            assert_eq!(body.matches(alt).count(), 1, "{body}");
+            body = body.replace(alt, neu);
+        }
+        serde_json::json!({
+            "payloadType": "application/vnd.in-toto+json",
+            "payload": base64::engine::general_purpose::STANDARD.encode(body),
+            "signatures": [{"keyid": "r", "sig": "AA=="}]
+        })
+    }
+
+    #[test]
+    fn the_role_rules_of_python_hold_for_the_values_the_count_reads() {
+        // Review of 6.6.1: at 6.6.0 and at main a threshold of 0 met here with no valid signature (exit
+        // 0) and Python refused the pack. Each case is refused with the first error Python reports for it.
+        let schwelle = "roles.root: threshold must be an integer >= 1";
+        let keyids = "roles.root: keyIds must be a non-empty list of key id strings";
+        let revoked_form = "revoked must be a list of keyId strings";
+        // role, revoked, an edit of the payload text, the error Python reports first
+        type Fall<'a> = (
+            serde_json::Value,
+            Option<serde_json::Value>,
+            Option<(&'a str, &'a str)>,
+            &'a str,
+        );
+        let faelle: Vec<Fall> = vec![
+            (
+                serde_json::json!({"keyIds": ["r"], "threshold": 0}),
+                None,
+                None,
+                schwelle,
+            ),
+            (
+                serde_json::json!({"keyIds": ["r"], "threshold": 7}),
+                None,
+                Some((r#""threshold":7"#, r#""threshold":-0"#)),
+                schwelle,
+            ),
+            (
+                serde_json::json!({"keyIds": ["r"], "threshold": -1}),
+                None,
+                None,
+                schwelle,
+            ),
+            (
+                serde_json::json!({"keyIds": ["r"], "threshold": true}),
+                None,
+                None,
+                schwelle,
+            ),
+            (
+                serde_json::json!({"keyIds": ["r"], "threshold": 1.0}),
+                None,
+                None,
+                schwelle,
+            ),
+            (
+                serde_json::json!({"keyIds": ["r"], "threshold": "1"}),
+                None,
+                None,
+                schwelle,
+            ),
+            (serde_json::json!({"keyIds": ["r"]}), None, None, schwelle),
+            (
+                serde_json::json!({"keyIds": ["r"], "threshold": 2}),
+                None,
+                None,
+                "roles.root: threshold (2) exceeds the number of keyIds (1)",
+            ),
+            (
+                serde_json::json!({"keyIds": ["r", "d"], "threshold": 2}),
+                Some(serde_json::json!(["d"])),
+                None,
+                "roles.root: threshold (2) can never be met \u{2014} only 1 non-revoked keyIds",
+            ),
+            (
+                serde_json::json!({"keyIds": ["r", "x"], "threshold": 1}),
+                None,
+                None,
+                "roles.root: keyId 'x' is not present in keys",
+            ),
+            (
+                serde_json::json!({"keyIds": [], "threshold": 1}),
+                None,
+                None,
+                keyids,
+            ),
+            (serde_json::json!({"threshold": 1}), None, None, keyids),
+            (
+                serde_json::json!({"keyIds": ["r", 5], "threshold": 1}),
+                None,
+                None,
+                keyids,
+            ),
+            (
+                serde_json::json!({"keyIds": ["r", ""], "threshold": 1}),
+                None,
+                None,
+                keyids,
+            ),
+            (
+                serde_json::json!({"keyIds": ["r"], "threshold": 1}),
+                Some(serde_json::json!(["zz"])),
+                None,
+                "revoked keyId 'zz' is not present in keys",
+            ),
+            (
+                serde_json::json!({"keyIds": ["r"], "threshold": 1}),
+                Some(serde_json::json!("r")),
+                None,
+                revoked_form,
+            ),
+            (
+                serde_json::json!({"keyIds": ["r"], "threshold": 1}),
+                Some(serde_json::Value::Null),
+                None,
+                revoked_form,
+            ),
+            (
+                serde_json::json!({"keyIds": ["r"], "threshold": 1}),
+                Some(serde_json::json!([5])),
+                None,
+                revoked_form,
+            ),
+            // The root role itself: a field Python does not know is named before keyIds and threshold
+            // are read, the first one written first, and a role that is no object is refused as one.
+            (
+                serde_json::json!({"keyIds": ["r"], "threshold": 1, "extra": 1}),
+                None,
+                None,
+                "roles.root: unknown field 'extra'",
+            ),
+            (
+                serde_json::json!({"keyIds": ["r"], "threshold": 0, "extra": 1}),
+                None,
+                None,
+                "roles.root: unknown field 'extra'",
+            ),
+            (
+                serde_json::json!({"zz": 1, "keyIds": ["r"], "aa": 2, "threshold": 1}),
+                None,
+                None,
+                "roles.root: unknown field 'zz'",
+            ),
+            (
+                serde_json::json!({"keyIds": ["r"], "threshold": 1, "it's": 1}),
+                None,
+                None,
+                "roles.root: unknown field \"it's\"",
+            ),
+            (
+                serde_json::json!(["r"]),
+                None,
+                None,
+                "roles.root: must be an object",
+            ),
+            (
+                serde_json::Value::Null,
+                None,
+                None,
+                "roles.root: must be an object",
+            ),
+            (
+                serde_json::json!({"keyIds": ["r"], "threshold": 7}),
+                None,
+                Some((
+                    r#""root":{"keyIds":["r"],"threshold":7}"#,
+                    r#""decisionMakers":{"keyIds":["r"],"threshold":1}"#,
+                )),
+                "roles must be an object that includes a 'root' role",
+            ),
+            (
+                serde_json::json!({"keyIds": ["r"], "threshold": 7}),
+                None,
+                Some((
+                    r#""roles":{"root":{"keyIds":["r"],"threshold":7}}"#,
+                    r#""roles":[]"#,
+                )),
+                "roles must be an object that includes a 'root' role",
+            ),
+        ];
+        for (rolle, revoked, ersetze, text) in faelle {
+            let env = trust_pack_mit_rolle(rolle.clone(), revoked.clone(), ersetze);
+            let e = verify_trust_pack_threshold(&env).expect_err(&format!(
+                "role {rolle} revoked {revoked:?} {ersetze:?} reached the count"
+            ));
+            assert_eq!(e, text, "role {rolle} revoked {revoked:?} {ersetze:?}");
+        }
+        // The same pack with rules that hold reaches the count; the junk signature does not meet it, and
+        // a keyId named twice counts twice, as in Python.
+        let r = verify_trust_pack_threshold(&trust_pack_mit_rolle(
+            serde_json::json!({"keyIds": ["r", "d"], "threshold": 1}),
+            Some(serde_json::json!(["d"])),
+            None,
+        ))
+        .expect("a pack whose rules hold was refused");
+        assert_eq!((r.0, r.1, r.2), (false, 0, 1));
+        let r = verify_trust_pack_threshold(&trust_pack_mit_rolle(
+            serde_json::json!({"keyIds": ["r", "r"], "threshold": 2}),
+            None,
+            None,
+        ))
+        .expect("a keyId named twice was refused");
+        assert_eq!((r.0, r.2), (false, 2));
     }
 
     // KR-01: a pack with the Ed25519 root key `r` and the given further keys, root threshold 1.
