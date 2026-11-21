@@ -267,6 +267,8 @@ prune plugins
 prune examples/verdict_contract
 # OUT (2026-11-03): examples/vcon_ai_agent_receipts/ derives private test keys from labels in make_example.py, which tests/test_sdist_ohne_signierwerkzeug.py refuses in the sdist.
 prune examples/vcon_ai_agent_receipts
+# OUT (2026-11-19): examples/revocation_receipt/ rebuilds its receipts from fixed private test keys in make_examples.py (`from_private_bytes`), which tests/test_sdist_ohne_signierwerkzeug.py refuses in the sdist. It is read and run from the repository, like its two siblings above.
+prune examples/revocation_receipt
 global-exclude __pycache__
 global-exclude *.py[cod]
 global-exclude *.so

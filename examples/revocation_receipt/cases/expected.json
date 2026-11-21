@@ -1,0 +1,146 @@
+{
+  "cases": [
+    {
+      "file": "revocation_countersigned.json",
+      "firstNonPass": null,
+      "verdict": "VALID_PROVIDER_CONFIRMED"
+    },
+    {
+      "file": "revocation_customer_only.json",
+      "firstNonPass": "countersignature",
+      "verdict": "VALID_CUSTOMER_ONLY"
+    },
+    {
+      "file": "cases/bad_customer_signature.json",
+      "firstNonPass": "revocation.signature",
+      "verdict": "INVALID"
+    },
+    {
+      "file": "cases/tampered_content.json",
+      "firstNonPass": "revocation.signature",
+      "verdict": "INVALID"
+    },
+    {
+      "file": "cases/stale_subject_digest.json",
+      "firstNonPass": "revocation.statement",
+      "verdict": "INVALID"
+    },
+    {
+      "file": "cases/noncanonical_payload.json",
+      "firstNonPass": "revocation.canonical",
+      "verdict": "INVALID"
+    },
+    {
+      "file": "cases/wrong_payload_type.json",
+      "firstNonPass": "revocation.envelope",
+      "verdict": "INVALID"
+    },
+    {
+      "file": "cases/wrong_statement_type.json",
+      "firstNonPass": "revocation.statement",
+      "verdict": "INVALID"
+    },
+    {
+      "file": "cases/wrong_predicate_type.json",
+      "firstNonPass": "revocation.statement",
+      "verdict": "INVALID"
+    },
+    {
+      "file": "cases/revoker_not_customer.json",
+      "firstNonPass": "revocation.revoker_role",
+      "verdict": "INVALID"
+    },
+    {
+      "file": "cases/revoker_key_mismatch.json",
+      "firstNonPass": "revocation.revoker_key",
+      "verdict": "INVALID"
+    },
+    {
+      "file": "cases/revoked_after_action.json",
+      "firstNonPass": "revocation.covers_action",
+      "verdict": "INVALID"
+    },
+    {
+      "file": "cases/wrong_authority.json",
+      "firstNonPass": "revocation.authority_match",
+      "verdict": "INVALID"
+    },
+    {
+      "file": "cases/wrong_agent.json",
+      "firstNonPass": "revocation.agent_match",
+      "verdict": "INVALID"
+    },
+    {
+      "file": "cases/countersignature_missing.json",
+      "firstNonPass": "countersignature",
+      "verdict": "VALID_CUSTOMER_ONLY"
+    },
+    {
+      "file": "cases/countersignature_foreign_key.json",
+      "firstNonPass": "countersignature.signature",
+      "verdict": "INVALID"
+    },
+    {
+      "file": "cases/countersignature_other_revocation.json",
+      "firstNonPass": "countersignature.binds_revocation",
+      "verdict": "INVALID"
+    },
+    {
+      "file": "cases/countersignature_before_revocation.json",
+      "firstNonPass": "countersignature.time_order",
+      "verdict": "INVALID"
+    },
+    {
+      "file": "cases/countersignature_wrong_role.json",
+      "firstNonPass": "countersignature.acknowledger",
+      "verdict": "INVALID"
+    },
+    {
+      "file": "cases/countersignature_wrong_type.json",
+      "firstNonPass": "countersignature.statement",
+      "verdict": "INVALID"
+    },
+    {
+      "file": "cases/unicode_year_in_receipt.json",
+      "firstNonPass": "countersignature.time_order",
+      "verdict": "INVALID"
+    },
+    {
+      "actionTime": "\u0662\u0660\u0662\u0666-11-25T10:15:00Z",
+      "file": "revocation_countersigned.json",
+      "firstNonPass": "arguments",
+      "verdict": "USAGE_ERROR"
+    },
+    {
+      "authorityDigest": "5ad18961a9784df3fcbb8a8a70ca6875a64df54231376002657abac91792175f\n",
+      "file": "revocation_countersigned.json",
+      "firstNonPass": "arguments",
+      "verdict": "USAGE_ERROR"
+    },
+    {
+      "agentDigest": "b0de8777be13c476276d34c519664d575cfb6d7f9c45c356b978441950ce9707\n",
+      "file": "revocation_countersigned.json",
+      "firstNonPass": "arguments",
+      "verdict": "USAGE_ERROR"
+    },
+    {
+      "customerKey": "cases/identity_key.pub.pem",
+      "file": "cases/forged_revocation_identity_key.json",
+      "firstNonPass": "arguments",
+      "verdict": "USAGE_ERROR"
+    },
+    {
+      "file": "cases/forged_countersignature_identity_key.json",
+      "firstNonPass": "arguments",
+      "providerKey": "cases/identity_key.pub.pem",
+      "verdict": "USAGE_ERROR"
+    }
+  ],
+  "inputs": {
+    "actionTime": "2026-11-25T10:15:00Z",
+    "agentDigest": "b0de8777be13c476276d34c519664d575cfb6d7f9c45c356b978441950ce9707",
+    "authorityDigest": "5ad18961a9784df3fcbb8a8a70ca6875a64df54231376002657abac91792175f",
+    "customerKey": "keys/customer.pub.pem",
+    "providerKey": "keys/provider.pub.pem"
+  }
+}
