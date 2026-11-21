@@ -113,8 +113,11 @@ The order below is the convention, not a suggestion. A release is a fact about `
 
 - [ ] Configure PyPI **Trusted Publishing**: pypi.org → the `proofbundle` project → Settings →
       Publishing → add publisher `b7n0de/proofbundle`, workflow `release.yml`, environment `pypi`.
-- [ ] Create the GitHub **`pypi` Environment** (repo Settings → Environments → `pypi`) and add
-      **required reviewers** — so pushing a `v*` tag cannot publish to PyPI without human approval.
+- [ ] The GitHub **`pypi` Environment** (repo Settings → Environments → `pypi`) admits only tags
+      `v*` and has **no required reviewer** (read on 2026-11-20). Pushing a `v*` tag therefore
+      publishes to PyPI, makes the GitHub Release public, moves Latest and mints the Zenodo DOI with no
+      further approval. The tag push is the release decision: it comes only after the owner's GO on the
+      release plan and the signature on the signing machine.
 - [ ] Enable **branch protection** on `main`: required CI (`test`, `crypto-floor`, `mutation`),
       required review, no force-push. Consider required signed commits.
 - [ ] Verify the README assets exist (`assets/b7n0de-hase-logo.png`, `-dark.png` — the Hase lockup the
@@ -166,7 +169,8 @@ after the merge (see *Release ordering* above).
 - [ ] On the **merged** target-branch HEAD (never the feature branch), confirm CI is green, then
       `git tag vX.Y.Z` there and push the tag.
 - [ ] Watch the `build-and-attest` job: note the printed attested wheel/sdist sha256.
-- [ ] Approve the `pypi` environment when prompted (required reviewer).
+- [ ] There is no approval prompt: the `pypi` environment has no required reviewer, so the tag push
+      above already publishes (see *One-time setup*).
 - [ ] Confirm the `publish-pypi` **digest gate** passed (published == attested) in the job log.
 - [ ] After publish: verify the PyPI page shows the **PEP 740 attestation**, and that the wheel's
       sha256 on PyPI equals the attested subject digest and the `SHA256SUMS` on the GitHub Release.

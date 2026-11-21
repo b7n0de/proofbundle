@@ -34,7 +34,7 @@ from .budget import DEFAULT_BUDGET, render_keys_safe, render_safe
 from .canonical import _ein_stand, _plain_for_jcs, _zeichen_von
 from .errors import BundleFormatError, ProofBundleError, UnsupportedError, VerificationResult
 from .kbjwt import holder_key_from_cnf, split_key_binding, verify_key_binding
-from .signature import verify_ed25519
+from .signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness, verify_ed25519_pinned
 from .sdjwt import canonical_sd_jwt_compact, verify_sd_jwt
 from ._wire_b64 import decode_b64, decode_b64url
 
@@ -520,8 +520,19 @@ def _verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonc
         raise UnsupportedError(f"signature alg {render_safe(alg)} not supported in v0.1")
     pub = _b64d(_require(sig, "public_key_b64", "signature.public_key_b64"), "signature.public_key_b64")
     raw_sig = _b64d(_require(sig, "sig_b64", "signature.sig_b64"), "signature.sig_b64")
-    sig_ok = verify_ed25519(pub, raw_sig, payload)
-    result.add("ed25519-signature", sig_ok, "payload signed by stated key" if sig_ok else "invalid signature")
+    # SPEC section 4b (6.6.1): the bundle's own key is judged by the same rule as every other Ed25519 key.
+    # Until 6.6.0 it kept the bare section 4a profile, because trust in it comes from a policy pin that has
+    # the rule. Without a pin, a forgery under a key of small order, made with no private key, then read
+    # "payload signed by stated key" (exit 0), in Python and in pb_verify_rs alike (measured 2026-11-19 for
+    # all fourteen 32-byte encodings of the eight points). A refused key verifies nothing, as section 4b says
+    # of every refused key; a key of another length stays the "invalid signature" it was.
+    schwaeche = ed25519_trust_anchor_weakness(pub)
+    sig_ok = verify_ed25519_pinned(pub, raw_sig, payload)
+    if schwaeche in ("low-order", "non-canonical"):
+        detail = f"public key refused ({schwaeche}): {TRUST_ANCHOR_REFUSAL[schwaeche]}"
+    else:
+        detail = "payload signed by stated key" if sig_ok else "invalid signature"
+    result.add("ed25519-signature", sig_ok, detail)
     # Nachtrag 46 (Z309, 6.2.0): record WHAT this verification actually verified — the signing key and the
     # payload digest — but ONLY when the signature verified (sig_ok is exactly True). A downstream caller that
     # holds a result and a bundle separately (policy.evaluate_policy) binds the two with these, so a good result

@@ -1,4 +1,4 @@
-"""Standalone lineage profile ``relation-statement/v0.1`` — EXPERIMENTAL (3.5.0).
+"""Standalone lineage profile ``relation-statement/v0.1`` — EXPERIMENTAL (3.6.0).
 
 A relation-statement is an INDEPENDENT, DSSE-signed statement ABOUT a target receipt: a
 retroactive retraction / supersession / amendment that carries EXACTLY ONE typed relationship

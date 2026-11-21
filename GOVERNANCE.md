@@ -19,8 +19,8 @@ pretending to be a foundation.
 
 ## Support expectations
 
-- **Security reports:** see [SECURITY.md](SECURITY.md) — private disclosure, acknowledged within
-  7 days.
+- **Security reports:** private disclosure, acknowledged within 3 business days. The rules are in
+  [SECURITY.md](SECURITY.md), and where this page and SECURITY.md differ, SECURITY.md applies.
 - **Bugs in the verifier's trusted core** (a receipt that verifies but should not, or fails but
   should not): highest priority, treated as a defect in the product's one promise.
 - **Issues and PRs:** best-effort response within 14 days. This is an honest single-maintainer
