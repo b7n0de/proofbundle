@@ -1,0 +1,66 @@
+# Residual risk, release 6.6.1
+
+This file records findings for the 6.6.1 release and their stated status. It does not claim that the release is free of defects. Earlier findings and their recorded status remain documented in [the residual-risk record of 6.6.0](RESTRISIKO_660.md) and the records before it.
+
+Each line names where it comes from, a file and its lines in the tree of this release.
+
+## The record of 6.6.0 in this release
+
+6.6.1 is a patch release. The findings that stay open after 6.6.0 are listed in [the 6.6.0 record](RESTRISIKO_660.md), and this record does not measure them again. Each keeps the state that record gives it until a measurement on the release candidate records another one here. The findings that record assigns to the first cycle after its tag and to 6.7.0 (RESTRISIKO_660.md lines 43, 57, 70, 78 and 82) are not part of 6.6.1.
+
+One entry changes. The 6.6.0 record names `PIN-CASE-RED-FROM-TAG-UNTIL-PIN-COMMIT-02` (RESTRISIKO_660.md line 118). That window closed when pull request 533, which moves the plugins' pins to 6.6.0, was merged into main on 2026-11-17 (plugins/proofbundle/server/proofbundle_mcp.py line 3), and the register of this release records the entry as closed.
+
+Two entries stand beside code that 6.6.1 changes. Neither is measured again here:
+
+- A Trust Pack anchored by its digest alone, in which a second key entry carries the public key of an entry with `executorIds` (RESTRISIKO_660.md line 69). 6.6.1 widens the validator's rule from the public key to every key part (CHANGELOG.md line 20). The 6.6.0 record says that the digest anchor does not run the validator; whether that still holds is not measured here.
+- `pb_verify_rs verify-trust-pack-threshold`, which a review of 6.6.0 named from its source as a command that leaves further words unread (RESTRISIKO_660.md line 43). 6.6.1 changes which packs the command refuses (CHANGELOG.md lines 32 and 33). Whether it refuses a word it does not read is not measured here.
+
+## Open after this release
+
+### Releases through 6.6.0 accept a signature under a weak own key
+
+6.6.1 refuses a bundle whose own Ed25519 key is a point of small order or a non-canonical encoding, in `proofbundle verify`, in `show-eval` and in `pb_verify_rs verify-bundle` (CHANGELOG.md line 19; SPEC.md line 131, section 4b). A release is not changed after it is published: without a trust policy, 6.6.0 and the releases before it read a signature made with no private key under such a key as `[PASS] ed25519-signature: payload signed by stated key` with exit 0, as that CHANGELOG line describes. Their verdict says `SAFE_FOR_AUTOMATION: NO` and `POLICY: NOT_EVALUATED` there; the signature line alone says more than was shown. The finding concerns a key of small order or a non-canonical encoding; no forgery under an ordinary key was shown.
+
+### The tree size and the leaf index of a bundle are stated, not signed
+
+The signature of a bundle covers its payload. The root, the tree size and the leaf index of its `merkle` block are not under it (src/proofbundle/bundle.py lines 597 to 599), and one audit path verifies under a band of tree sizes (src/proofbundle/merkle.py lines 213 to 222). Since 6.6.1 `verify` says so where nothing binds the size: the inclusion line names a stated index and a stated tree size (src/proofbundle/bundle.py line 577), and `verify --json` carries `treeSizeExpectation.actualSource` (CHANGELOG.md lines 24 and 28). The verdict and the exit code do not change. A bundle without a matching `--expected-tree-size` and without a verified `--trusted-checkpoint` still passes, and its pass says that the key signed this payload and that the payload hashes to a leaf under the stated root. It does not say that the size or the index is that of a log.
+
+### Findings of a reading of tree size and consistency at 19cadafc
+
+A reading of the structures that carry a Merkle proof ran on 2026-11-21 at 19cadafc, three merges before the head this release was prepared on. One reader ran its probes, and they are not run again on the release candidate; the lines below are read in the tree of this release. The reader staged the findings by the usual reading of the levels, without a third reader. By the owner's choice of 2026-11-21 the first is closed first in 6.7.0; the others are items for 6.7.0.
+
+- `evaluate_public_transparency` reports `CONSISTENCY` as `PASS` on the caller's word. With `requireConsistencyProof`, a bare `consistency_confirmed=True` gives `PASS` (src/proofbundle/public_transparency.py lines 393 to 394), and so does a typed `ConsistencyVerificationResult` whose `confirmed` is true and whose new side names the checkpoint (lines 374 to 383). `strict_consistency` refuses only the bare boolean (lines 387 to 392). The function computes no consistency proof (lines 234 to 236), and the old side of a typed result is compared with no state the caller holds. Under src/proofbundle nothing calls `merkle.verify_consistency`; it is exported (src/proofbundle/__init__.py lines 33 and 89). The module is marked EXPERIMENTAL (src/proofbundle/public_transparency.py line 1). P2.
+- A policy's `merkle.trusted_roots` pins a root by its bytes, without a tree size (src/proofbundle/policy.py lines 1530 to 1536). Read, not measured with a probe. P3.
+- `restore` of the Merkle accumulator restores an older state the same key signed and cannot tell two states of diverging histories apart. The module says so and leaves continuity to the caller (tools/merkle_accumulator/accumulator.py lines 38 to 42). P3.
+- An RFC 9162 consistency proof does not fix its second tree size: for first sizes 1 to 16 and second sizes up to 32, 368 pairs verified under another second size. This is a property of the proof. It matters where the sizes do not come from a signed source. P3.
+- `pb_verify_rs verify-scitt-consistency-receipt` takes no tree sizes and ends at best with `confirmed_without_tree_sizes`, and its verdict names the gap (tools/pb_verify_rs/src/scitt_consistency.rs lines 12 to 15 and 34). P3.
+
+### The Rust verifier counts only Ed25519 root keys of a Trust Pack
+
+`pb_verify_rs verify-trust-pack-threshold` now applies the role rules and the rule that a key part occurs in one key, and it still counts only Ed25519 root keys toward the threshold (CHANGELOG.md lines 32 and 33). `mldsa65` and hybrid root keys, `not_expired`, the version chain, the two-stage rotation and the full shape of the predicate stay with the Python verifier (CROSS_IMPLEMENTATION_REPORT.md lines 142 to 148).
+
+### Three cases from an outside reading of the own-key fix follow after the tag
+
+An outside reading of pull request 544 gave three further cases and the correction of one docstring: a refused key gives out no verified metadata, and a matching root and tree size do not make a refused key good, in Python and in Rust. They were measured red at v6.6.0 and green on main, and a planted revert of the fix turned them red again. They close two gaps in the test coverage and change no behaviour, and they land as a pull request of their own after the tag. The tree of this release holds the fourteen encodings of the fix as fixtures (tests/fixtures/ed25519_small_order_inband/); the three cases are not in it.
+
+### main may fail the plugin pin case from the tag until the pin commit
+
+Expected from the rule the test states, not measured. `tests/test_plugin_pin_is_the_newest_release.py` accepts pins to the preceding release only while the clone holds no tag of the version of the tree (lines 16 to 22). The plugins pin 6.6.0 in the tree of this release (plugins/proofbundle/server/proofbundle_mcp.py line 3, landed with pull request 533). Once the tag v6.6.1 stands, the same window as in RESTRISIKO_660.md line 118 opens until the commit that moves the pins, a pull request of its own after 6.6.1 is on PyPI. Register entry `PIN-CASE-RED-FROM-TAG-UNTIL-PIN-COMMIT-03`.
+
+### Repository tools
+
+- The `pypi` environment admits only tags `v*` and has no required reviewer, so no further approval stands between the push of the tag and the upload: the tag push is the release decision (RELEASE.md lines 116 to 120).
+- The release workflow stops before the build in two more places, when the audit output its signed receipt names is not a tracked file and when the tag does not fall in UTC on the date of its CHANGELOG section (CHANGELOG.md lines 29 and 35). The second check reads the tag, so it is not applicable before the tag exists; it runs in the workflow of the tag.
+- The release workflows pin the build frontend and the build backend through `PIP_CONSTRAINT` and `.github/build-constraints.txt`; the constraints file is unchanged since 6.6.0 (`git diff --stat v6.6.0 bb018ea6 -- .github/build-constraints.txt` printed nothing, exit 0). The limits RESTRISIKO_660.md line 122 names stay.
+
+### Not measured at this snapshot
+
+The mutation run for 6.6.1 runs at bb018ea6, the last commit before this preparation, in 118 parts of one operator each (`scripts/mutation_check.py --shard i/118`), in separate containers and not on the reference machine. The preparation changes no module that run mutates and no file under `tests/`; under `src` it changes the version line of `src/proofbundle/__init__.py`, which the full suite at the release candidate carries. The run and the pre-tag audit had not reported when this record was written. Their findings are recorded here before the tag.
+
+## What 6.6.1 does not claim
+
+The negative list of docs/NON_CLAIMS.md stands for this release as it stood for 6.6.0 (`git diff --stat v6.6.0 bb018ea6 -- docs/NON_CLAIMS.md` printed nothing, exit 0). A receipt does not prove the semantic truth of a result, fairness, safety, generalization, the right threshold or metric, or that a model or dataset is what its name suggests (lines 20 to 34). It does not replace an audit, in-toto, SLSA or a transparency log (lines 36 to 42). A verified decision receipt is not an authorization token and does not prove that a decision was correct or that an action happened (lines 51 to 64). A verified enclave Attestation Result does not prove that the enclave is genuine (lines 126 to 129).
+
+## What this file does not say
+
+It does not say that the findings above are the only open ones. A finding that is not listed here is not shown to be absent.

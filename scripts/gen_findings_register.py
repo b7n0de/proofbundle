@@ -425,7 +425,7 @@ def _status_aus_abschnitt(text: str, byte_von: int) -> str | None:
 #: genau daran fiel C12.2 am 2026-09-06: ein gueltig signiertes Register auf `3.6.1` entschied ueber
 #: 6.0.0. Wer diese Zahl aendert, aendert auch FINDINGS; ein Register mit neuer Version und alten
 #: Funden waere dieselbe Luege eine Ebene tiefer.
-VERSION = "6.6.0"
+VERSION = "6.6.1"
 
 #: The version the SELECTED v2 line speaks about. The default is the one of the v1 register; line
 #: 610 sets it to its own cut. The v1 path (emit/assemble) stays bound to `VERSION`.
@@ -991,7 +991,7 @@ FINDINGS = [
     # One closing and one addition for release 6.6.0.
     # The window of 6.5.0 above has closed; the same window opens again with the tag v6.6.0.
     # The addition corresponds to the Register entry reference in RESTRISIKO_660.md.
-    {"id": "PIN-CASE-RED-FROM-TAG-UNTIL-PIN-COMMIT-02", "severity": "P3", "status": "open",
+    {"id": "PIN-CASE-RED-FROM-TAG-UNTIL-PIN-COMMIT-02", "severity": "P3", "status": "closed",
      "note": "Recorded in RESTRISIKO_660.md, section 'main may fail the plugin pin case from the "
              "tag until the pin commit'. By the owner choice of 2026-11-12, plugin 0.4.1 follows "
              "the main tag, so the plugins keep pinning 6.5.0 until 6.6.0 is on PyPI. "
@@ -1002,7 +1002,22 @@ FINDINGS = [
              "plugin's pins to 6.6.0 lands. That commit is a pull request of its own, outside "
              "6.6.0. Expected from the rule the test states, not measured. Severity P3 is a "
              "triage of a known window in which a repository test is red, not of a defect in "
-             "the shipped package. Open by design"},
+             "the shipped package. Closed: the window ended when pull request 533, which moves "
+             "the plugins' pins to 6.6.0, was merged into main on 2026-11-17 at 02:41:54Z"},
+    # One closing and one addition for release 6.6.1.
+    # The window of 6.6.0 above has closed; the same window opens again with the tag v6.6.1.
+    # The addition corresponds to the Register entry reference in RESTRISIKO_661.md.
+    {"id": "PIN-CASE-RED-FROM-TAG-UNTIL-PIN-COMMIT-03", "severity": "P3", "status": "open",
+     "note": "Recorded in RESTRISIKO_661.md, section 'main may fail the plugin pin case from the "
+             "tag until the pin commit'. The plugins pin 6.6.0 in the tree of 6.6.1, landed with "
+             "pull request 533. tests/test_plugin_pin_is_the_newest_release.py accepts pins to "
+             "the preceding release only while the clone holds no tag of the version of the "
+             "tree. Once the tag v6.6.1 stands, the case is expected to read 6.6.1 as the newest "
+             "release and to fail on main, in every checkout that holds the tag, until the "
+             "commit that moves the plugins' pins to 6.6.1 lands. That commit is a pull request "
+             "of its own, outside 6.6.1, after 6.6.1 is on PyPI. Expected from the rule the test "
+             "states, not measured. Severity P3 is a triage of a known window in which a "
+             "repository test is red, not of a defect in the shipped package. Open by design"},
 ]
 
 

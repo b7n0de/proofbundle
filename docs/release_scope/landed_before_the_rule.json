@@ -1,0 +1,38 @@
+{
+  "schema": "b7n0de.release_scope_landed_before_the_rule.v1",
+  "why": "The scope file of 6.6.1 was opened as not started after the tag v6.6.0, so these pull requests landed before their rows existed and carry no row identifier in their titles. A merged title is not rewritten; the landing card reads the assignment here.",
+  "zuordnungen": [
+    {
+      "kennung": "PR544",
+      "pr": 544
+    },
+    {
+      "kennung": "PR537",
+      "pr": 537
+    },
+    {
+      "kennung": "PR539",
+      "pr": 539
+    },
+    {
+      "kennung": "PR471",
+      "pr": 471
+    },
+    {
+      "kennung": "PR532",
+      "pr": 532
+    },
+    {
+      "kennung": "PR551",
+      "pr": 551
+    },
+    {
+      "kennung": "PR548",
+      "pr": 548
+    },
+    {
+      "kennung": "PR520",
+      "pr": 520
+    }
+  ]
+}
