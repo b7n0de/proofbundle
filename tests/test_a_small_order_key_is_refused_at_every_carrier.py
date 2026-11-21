@@ -1,9 +1,11 @@
 """A small-order key is refused at every carrier: the AGT signer, the register view, the issuer pin.
 
-WHERE THIS COMES FROM. SPEC section 4b: every Ed25519 key that is not the bundle's own
-`signature.public_key_b64` must be canonical and must not be a point of small order, and the
-bundle's own key may keep the section 4a profile only because "trust in it comes from a pin that
-already carries this rule". #280 applied the rule to about twenty places and left three carriers.
+WHERE THIS COMES FROM. SPEC section 4b: every Ed25519 key must be canonical and must not be a point of
+small order. Until 6.6.0 the bundle's own `signature.public_key_b64` was the one exception, kept on the
+section 4a profile because "trust in it comes from a pin that already carries this rule"; since 6.6.1 it
+goes through the rule too (tests/test_bundle_own_key_of_small_order_is_refused.py), and the show-eval
+case below that relied on the exception is turned round. #280 applied the rule to about twenty places
+and left three carriers.
 Measured on 126ed1dc with the identity point `0100..00` as key and the signature R = identity,
 S = 0, which the section 4a profile accepts for every message:
 
@@ -1806,11 +1808,15 @@ class ShowEvalIssuerPin(unittest.TestCase):
     def tearDownClass(cls):
         cls.tmp.cleanup()
 
-    def test_precondition_the_receipt_nobody_signed_passes_in_the_self_attested_scope(self):
-        """Without a pin the bundle's own key is the SPEC's in-band exception; the pin is the guard."""
-        rc, out, _ = _cli("show-eval", str(self.forged))
-        self.assertEqual(rc, 0)
-        self.assertIn("passed     True", out)
+    def test_the_receipt_nobody_signed_fails_without_a_pin_too(self):
+        """Until 6.6.0 this receipt passed here with exit 0 and "passed     True": without a pin the bundle's
+        own key was the SPEC's in-band exception and the pin the only guard. Since 6.6.1 the bundle's own
+        key is judged by the rule (SPEC section 4b), so the signature check fails without any pin
+        (measured after the change: exit 1, "=> FAILED: not a valid, issuer-bound eval receipt")."""
+        rc, out, err = _cli("show-eval", str(self.forged))
+        self.assertEqual(rc, 1, out + err)
+        self.assertNotIn("passed     True", out)
+        self.assertIn("not a valid, issuer-bound eval receipt", err)
 
     def test_a_small_order_pin_is_refused_typed_and_fail_closed(self):
         rc, out, err = _cli("show-eval", str(self.forged), "--expect-issuer", self.issuer_i1)
@@ -1987,11 +1993,14 @@ class ProducerSelfChecks(unittest.TestCase):
 
 # ── 5. what proofbundle SIGNS itself: no statement over a receipt a key nobody holds "signed" ────────
 #
-# Out-of-scope finding 3 of lens run 1 at 053c7800. SPEC section 4b lets the bundle's own key keep the
-# section 4a profile when a receipt is VERIFIED, because trust in it comes from a pin. An export that
-# SIGNS is different: proofbundle then vouches, under a real key, for what it read. Measured on
+# Out-of-scope finding 3 of lens run 1 at 053c7800. Until 6.6.0 SPEC section 4b let the bundle's own key
+# keep the section 4a profile when a receipt is VERIFIED, because trust in it comes from a pin. An export
+# that SIGNS is different: proofbundle then vouches, under a real key, for what it read. Measured on
 # 053c7800: `export_svr_dsse` signed PROOFBUNDLE_SIGNATURE_VALID and PROOFBUNDLE_THRESHOLD_MET over a
 # PASS receipt signed by nobody under the identity point, and the SVR verified under the real key.
+# Since 6.6.1 the bundle's own key is judged by the rule too, so the forged receipt no longer verifies
+# and the SVR export refuses it at the receipt; the two claim exporters are handed the signed claim,
+# whose issuer is the key nobody holds, and refuse it by their own trust-anchor check.
 
 class ProofbundleDoesNotVouchForAKeyNobodyHolds(unittest.TestCase):
 
@@ -2016,43 +2025,70 @@ class ProofbundleDoesNotVouchForAKeyNobodyHolds(unittest.TestCase):
         cls.forged_path.write_text(json.dumps(cls.forged), encoding="utf-8")
         cls.real_path.write_text(json.dumps(cls.real), encoding="utf-8")
         cls.forged_claim = ec.decode_eval_claim(cls.forged)
+        cls.signed_claim = claim   # the claim the forgery carries; its issuer is the key nobody holds
         cls.real_claim = ec.decode_eval_claim(cls.real)
 
     @classmethod
     def tearDownClass(cls):
         cls.tmp.cleanup()
 
-    def test_precondition_the_forged_receipt_verifies_in_band(self):
+    def test_the_forged_receipt_no_longer_verifies_in_band(self):
+        """Until 6.6.0 this was the precondition: the forgery verified in band (ok True) and decoded to a
+        claim naming I1. Since 6.6.1 the bundle's own key is judged by the rule (SPEC section 4b)."""
         from proofbundle.bundle import verify_bundle
-        self.assertIs(verify_bundle(self.forged).ok, True)
-        self.assertIsNotNone(self.forged_claim, "decode_eval_claim accepts it under section 4a")
-        self.assertEqual(self.forged_claim["issuer"], self.issuer_i1)
+        res = verify_bundle(self.forged)
+        self.assertIs(res.ok, False)
+        sig = next(c for c in res.checks if c.name == "ed25519-signature")
+        self.assertIs(sig.ok, False)
+        self.assertIn("public key refused (low-order)", sig.detail)
+        self.assertIn(TRUST_ANCHOR_REFUSAL["low-order"], sig.detail)
+        self.assertIsNone(self.forged_claim, "decode_eval_claim must not accept a receipt whose key nobody holds")
+        self.assertEqual(self.signed_claim["issuer"], self.issuer_i1)
 
     def test_the_svr_export_refuses_to_vouch(self):
+        """Since 6.6.1 the refusal comes from the receipt check, before the export's own key check."""
         from proofbundle.emit import generate_signer
         from proofbundle.errors import BundleFormatError
         from proofbundle.intoto import export_svr_dsse
         with self.assertRaises(BundleFormatError) as ctx:
             export_svr_dsse(self.forged, generate_signer())
-        self.assertIn(TRUST_ANCHOR_REFUSAL["low-order"], str(ctx.exception))
+        self.assertIn("valid, issuer-bound eval receipt", str(ctx.exception))
         with tempfile.TemporaryDirectory() as d:
             out = Path(d) / "svr.json"
             rc, _o, err = _cli("svr", str(self.forged_path), "--out", str(out), "--new-key", str(Path(d) / "k"))
             self.assertEqual(rc, 2, err)
             self.assertFalse(out.exists(), "an SVR was written for a receipt nobody signed")
-            self.assertIn("refused", err)
+            self.assertIn("valid, issuer-bound eval receipt", err)
+
+    def test_the_svr_export_keeps_its_own_check_behind_the_receipt_check(self):
+        """Since 6.6.1 the receipt check refuses the forgery first, so the export's own check is reached
+        only past it (Codex on this change, round r1c). `decode_eval_claim` is made to hand over the claim
+        the forgery carries, and the export must still refuse its issuer by name."""
+        from unittest import mock
+        from proofbundle import evalclaim
+        from proofbundle.emit import generate_signer
+        from proofbundle.errors import BundleFormatError
+        from proofbundle.intoto import export_svr_dsse
+        with mock.patch.object(evalclaim, "decode_eval_claim", return_value=self.signed_claim):
+            with self.assertRaises(BundleFormatError) as ctx:
+                export_svr_dsse(self.forged, generate_signer())
+        self.assertIn("refusing to emit SVR", str(ctx.exception))
+        self.assertIn(TRUST_ANCHOR_REFUSAL["low-order"], str(ctx.exception))
 
     def test_the_eval_result_export_refuses_to_vouch(self):
         from proofbundle.emit import generate_signer
         from proofbundle.errors import BundleFormatError
         from proofbundle.intoto import export_eval_result_dsse
         with self.assertRaises(BundleFormatError) as ctx:
-            export_eval_result_dsse(self.forged_claim, generate_signer())
+            export_eval_result_dsse(self.signed_claim, generate_signer())
         self.assertIn(TRUST_ANCHOR_REFUSAL["low-order"], str(ctx.exception))
         with tempfile.TemporaryDirectory() as d:
             out = Path(d) / "att.json"
             rc, _o, err = _cli("intoto", str(self.forged_path), "--out", str(out), "--new-key", str(Path(d) / "k"))
-            self.assertEqual(rc, 2, err)
+            # Since 6.6.1 the receipt itself fails verification (exit 1), before the exporter is reached; until
+            # 6.6.0 it verified in band and the exporter refused its issuer (exit 2).
+            self.assertEqual(rc, 1, err)
+            self.assertIn("not a valid, issuer-bound eval receipt", err)
             self.assertFalse(out.exists())
 
     def test_the_test_result_export_refuses_to_vouch(self):
@@ -2060,7 +2096,7 @@ class ProofbundleDoesNotVouchForAKeyNobodyHolds(unittest.TestCase):
         from proofbundle.errors import BundleFormatError
         from proofbundle.intoto import export_intoto_dsse
         with self.assertRaises(BundleFormatError) as ctx:
-            export_intoto_dsse(self.forged_claim, generate_signer())
+            export_intoto_dsse(self.signed_claim, generate_signer())
         self.assertIn(TRUST_ANCHOR_REFUSAL["low-order"], str(ctx.exception))
 
     def test_every_weak_issuer_is_refused_by_name(self):

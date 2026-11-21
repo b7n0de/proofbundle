@@ -9,7 +9,7 @@ happens; it does not add a promise.
 [SECURITY.md](SECURITY.md) states for security fixes, and it is deliberately not a second, softer
 rule for non-security questions — two rules would mean the stricter one is only true on paper.
 
-At the time of writing the current line is **3.x**, and the latest release is the version in
+The current major line is the one of the latest release, and the latest release is the version in
 [`pyproject.toml`](pyproject.toml). This page does not repeat the number: a page that states a
 version becomes a place that goes stale, and `scripts/check_version_and_changelog.py` reports exactly
 that class of drift.

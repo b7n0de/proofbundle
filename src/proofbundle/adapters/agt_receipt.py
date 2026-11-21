@@ -346,7 +346,8 @@ def _ed25519_gueltig(pubkey_hex: str, signatur_hex: str, nutzlast: bytes) -> boo
     0100..00 (the identity point) with the signature R = identity, S = 0 gave `signature` True and
     `ok` True, a receipt nobody signed. And AGT's authorization binds `receipt_payload_hash`, not
     `signer_public_key`, so the same swap under an authorized receipt kept the authorization valid.
-    SPEC section 4b names every key that is not the bundle's own; this one is not.
+    Until 6.6.0 SPEC section 4b named every key that is not the bundle's own, and since 6.6.1 every
+    key; this one was never the bundle's own.
     """
     try:
         schluessel = bytes.fromhex(pubkey_hex)
