@@ -16,6 +16,7 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 ### Changed
 
 - **`interop/acde_01` keeps the instruction and target identity of a malformed receiver record visible, and its README says where the -01 reading stops against revision -02 of the draft.** A receiver record that failed the structural check was accounted `invalid_receiver` with only the reason, so an identity it carried did not appear in the report, which case 7 of the -02 Minimum Conformance Cases asks for; the record keeps its one primary class and now names its identity in that diagnostic and, where it correlates with an expected obligation, in a `MALFORMED_RECEIVER_RECORD` diagnostic of that obligation, which never changes the disposition. `interop/acde_01/tests/check_draft02_cases.py` builds each of the thirty -02 cases from the -02 text: 26 are met, and the README names the four that need a new function or a changed reading of -01 (cases 5, 6, 16 and 22), which the test pins. The directory lies outside the installed package.
+- **docs/NON_CLAIMS.md says that a timestamp shows the stamped bytes existed no later than its time T, not from when a revocation takes effect.** The negative list named time anchors only as optional and a pre-registration time without them as producer-clock testimony; it said nothing about what a trusted timestamp leaves open for revocation. The list now carries that limit, for an RFC 3161 token and an OpenTimestamps proof alike. No verifier changes.
 
 ## [6.6.1] - 2026-11-25
 
