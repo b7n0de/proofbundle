@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+import resource
 import subprocess
 import sys
 import textwrap
@@ -51,6 +52,21 @@ def gate(args: list[str]) -> tuple[int, dict]:
     r = subprocess.run([sys.executable, "-B", str(GATE), *args, "--json"], capture_output=True, text=True,
                        timeout=120)
     return r.returncode, json.loads(r.stdout)
+
+
+def gate_cpu_seconds() -> float:
+    """CPU time of the finished child processes of this process, user and system.
+
+    The "read in time" cases time the gate run alone, and the gate is a child process. Its CPU
+    time is the work of the gate and nothing else; a wall clock also counts the time the gate
+    waited for a core on a full machine. Measured 2026-11-07 on four cores with eight busy loops
+    beside it: the wall clock of the 1500-link chain rose from 8.3-9.2 s to 19.5-20.0 s, and the
+    case failed in 5 of 5 pytest runs at 21.8-23.1 s, while the CPU time of the gate stayed at
+    8.6-8.8 s. The bound is unchanged; the regressions it guards (69 s and 63 s) were CPU work,
+    and a gate that blocks instead of working is caught by the timeout of `gate`.
+    """
+    r = resource.getrusage(resource.RUSAGE_CHILDREN)
+    return r.ru_utime + r.ru_stime
 
 
 def found(report: dict) -> set[tuple[str, str]]:
@@ -567,12 +583,11 @@ def test_CONTROL_a_long_expression_outside_the_core_is_read(tmp_path):
 def test_CONTROL_chains_of_reassigned_names_are_judged_in_time(tmp_path):
     """Each name judged once. The lens measured eight names, each assigned eight times from the next, at 28.8 s on the
     first fix, which followed every assignment again on every path (G-4)."""
-    import time
     lines = ["def f(k, v, make):"] + [f"    n{i} = {f'n{i + 1}' if i < 7 else 'make()'}" for i in range(8)
                                       for _ in range(8)] + ["    setattr(n0, k, v)"]
-    start = time.monotonic()
+    start = gate_cpu_seconds()
     rc, report = gate(build(tmp_path, {"core.py": _HONEST_CORE, "demo.py": "\n".join(lines) + "\n"}))
-    assert time.monotonic() - start < 20
+    assert gate_cpu_seconds() - start < 20
     assert report["verdict"] in ("GREEN", "RED")
 
 
@@ -762,10 +777,9 @@ def test_CONTROL_a_chain_of_literal_attribute_reads_is_read_in_time(tmp_path, ch
     """F-E of the second reading: the literal attribute read of 7046cbfb resolved the receiver of a two-argument
     `__getattribute__` twice, once as a possible getattr and once as the class, so each link doubled the work (twenty
     links took 69 s), and every call of a chain resolved the chain below it again (1500 links, 63 s)."""
-    import time
-    start = time.monotonic()
+    start = gate_cpu_seconds()
     rc, report = gate(build(tmp_path, {"core.py": _HONEST_CORE + f"import os\nx = {chain}\n"}))
-    assert time.monotonic() - start < 20
+    assert gate_cpu_seconds() - start < 20
     assert report["verdict"] in ("GREEN", "RED")
 
 
