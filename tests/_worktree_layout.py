@@ -14,6 +14,7 @@ import sys
 
 import test_plugin_done_check as d
 from _plugin_env import plugin_env
+from _gate_answer import reason_of  # noqa: E402 - D136: the verdict before the reason
 
 G = str(d.GATE)
 CODEX_TEXT = "Under Codex, even with an absolute git -C path"
@@ -88,7 +89,7 @@ def answer(cwd: pathlib.Path, command: str, host: str = "claude") -> tuple[int, 
     proc = subprocess.run([sys.executable, "-I", G, *args], input=event, capture_output=True, text=True,
                           env=plugin_env(), timeout=120, check=False)
     out = json.loads(proc.stdout).get("hookSpecificOutput", {}) if proc.stdout.strip() else {}
-    return proc.returncode, out.get("permissionDecision"), ((out.get("additionalContext") or "") if out.get("permissionDecision") else "")   # D53: the long reason
+    return proc.returncode, out.get("permissionDecision"), (reason_of(out.get("additionalContext") or "", out["permissionDecision"]) if out.get("permissionDecision") else "")   # D53: the long reason
 
 
 def bash(cwd: pathlib.Path, command: str) -> int:

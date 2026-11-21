@@ -58,7 +58,7 @@ import pytest
 
 import proofbundle
 from proofbundle.emit import emit_bundle, generate_signer
-from _gate_answer import Silent, long_text, parsed, run_hook, short_text
+from _gate_answer import Silent, long_text, model_text, parsed, run_hook, short_text
 from _plugin_env import plugin_env, put_stand_in_uv_on_path
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -481,7 +481,7 @@ def test_an_unknown_argument_denies_every_call(shim, tmp_path, args):
     assert set(answer) <= CODEX_TOP_KEYS and set(specific) <= CODEX_SPECIFIC_KEYS
     assert specific["permissionDecision"] == "deny" and "unknown arguments" in long_text(answer)
     # D53: the host is not known, so the answer has the Claude Code form, the long reason in permissionDecisionReason
-    assert specific["permissionDecisionReason"] == long_text(answer)
+    assert specific["permissionDecisionReason"] == model_text(answer)
 
 
 def test_the_codex_hook_entry_blocks_when_the_gate_cannot_run(tmp_path):
