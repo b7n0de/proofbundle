@@ -1261,7 +1261,8 @@ class DriverChecks(Base):
         `run1 build exit 2 (expected 0) UNEXPECTED` with exit 1, which reads as a fault of the build. It checks its
         interpreter before the first build now and ends with one line NOT MEASURABLE and exit 2, writing nothing.
         A stand-in python3 answers like an interpreter below 3.11 (it prints 3.10.20 and ends with exit 3) and
-        records every call, so the case needs no old Python and runs on every runner."""
+        records every call, so the case needs no old Python and runs on every runner with Python 3.11 or later;
+        under 3.10 the module is skipped."""
         repo, commit = make_repo(self.tmp, split_files())
         shim = self.tmp / "old-python"
         shim.mkdir()
