@@ -162,6 +162,15 @@ as it refuses one anywhere else in the bundle. In a bundle the envelope is the p
 reader ignores while another reads it gives the same bytes two meanings. The owner decided so on
 2026-10-26. Vectors: `neg-dsse-envelope-unknown-member`, `neg-dsse-signature-unknown-member`.
 
+The logged signature of a Rekor `dsse` 0.0.1 entry is read in the standard alphabet only, as
+Rekor's schema for `spec.signatures[].signature` (`dsse_v0_0_1_schema.json`) states. Rekor's write
+path stores the envelope's sig string as it was handed and its DSSE verifier takes either alphabet,
+so a body with a URL-safe signature there can be in the log, and this reader fails it with
+`tlog-body`. Whether Rekor's own readers refuse such a stored entry at the schema pattern is read
+from Rekor's source and not measured; until it is, this reader keeps to the schema. The owner
+decided so on 2026-11-20. Test:
+`test_a_url_safe_logged_dsse_signature_is_refused_as_rekors_schema_refuses_it`.
+
 ## What a pass does not say
 
 A pass verifies the attestation's signature under the supplied trust material and checks the

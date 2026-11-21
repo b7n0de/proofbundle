@@ -8,8 +8,9 @@ name: Release
 #
 # Supply-chain hardening: all actions are pinned to full commit SHAs (version in a comment), not
 # tags — after the tj-actions incident (March 2025) a tag can be silently repointed. Dependabot
-# (.github/dependabot.yml) bumps the pin. The `pypi` environment SHOULD have required reviewers
-# configured (repo Settings → Environments → pypi) so a `v*` tag cannot publish unreviewed.
+# (.github/dependabot.yml) bumps the pin. The `pypi` environment admits only tags `v*` and has no
+# required reviewer (read on 2026-11-20): a pushed `v*` tag publishes with no further approval, so
+# the tag push is the release decision (RELEASE.md, One-time setup).
 
 on:
   push:
@@ -454,8 +455,8 @@ jobs:
   publish-pypi:
     # Publishes with PyPI Trusted Publishing (OIDC) — no API token. Requires a one-time human
     # step: configure b7n0de/proofbundle + this workflow as a trusted publisher on pypi.org
-    # (Settings → Publishing) BEFORE the first tag. The `pypi` environment SHOULD require
-    # reviewer approval.
+    # (Settings → Publishing) BEFORE the first tag. The `pypi` environment has no required
+    # reviewer (read on 2026-11-20), so this job starts as soon as build-and-attest succeeds.
     #
     # KORRIGIERT 2026-08-16: hier stand "Until then this job fails cleanly and the Release above
     # still succeeds". Das war vor der Umstellung wahr und ist es seitdem NICHT mehr -- mit
@@ -525,12 +526,11 @@ jobs:
           skip-existing: true
 
   orphan-draft-notice:
-    # WAS SONST STILL PASSIERT WAERE. Faellt `publish-pypi` -- Trusted Publishing noch nicht
-    # eingerichtet, Netzfehler, Digest-Tor, oder die Umgebungs-Freigabe laeuft nach 30 Tagen aus --
-    # dann wird `publish-release` per Default uebersprungen und der fertige Entwurf mit allen
-    # Assets bleibt unbegrenzt liegen, fuer die Oeffentlichkeit unsichtbar und ohne jedes Signal.
-    # Das ist der richtige Endzustand (kein DOI fuer etwas, das nicht auf PyPI liegt), aber er darf
-    # nicht LAUTLOS sein: ein Entwurf, von dem niemand weiss, sieht aus wie ein vergessenes Release.
+    # WHAT WOULD OTHERWISE HAPPEN SILENTLY. If `publish-pypi` fails (Trusted Publishing not set up,
+    # a network error, the digest gate), `publish-release` is skipped by default and the finished
+    # draft with all its assets stays indefinitely, invisible to the public and without any signal.
+    # That is the right end state (no DOI for something that is not on PyPI), but it must not be
+    # SILENT: a draft nobody knows about looks like a forgotten release.
     # KORRIGIERT 2026-08-16 nach einer Gegenlesung. Die erste Fassung hing NUR an `publish-pypi`
     # und war damit blind fuer genau die Zweige, die der neue fail-closed-Riegel in
     # `publish-release` SELBST erzeugt: fehlende Release-ID, leere oder unlesbare Antwort,
@@ -563,18 +563,18 @@ jobs:
   publish-release:
     # DER SCHRITT, DER DEN DOI PRAEGT — und er laeuft jetzt ZULETZT.
     #
-    # `needs: publish-pypi` ist die ganze Aenderung: der Entwurf wird erst oeffentlich, wenn die
-    # Bytes wirklich auf PyPI liegen. Damit faellt der Zenodo-Webhook hinter das Owner-Tor
-    # (environment: pypi, required reviewer) statt davor.
+    # `needs: publish-pypi` is the whole change: the draft turns public only once the bytes are on
+    # PyPI, so the Zenodo webhook fires after the upload and not before.
+    # The `pypi` environment has no required reviewer (read on 2026-11-20): nothing waits between
+    # the tag push and this job but the upload itself, so the tag push decides the release.
     #
-    # WAS PASSIERT, WENN DIE FREIGABE AUSBLEIBT: `publish-pypi` wartet, dieser Job laeuft nie, der
-    # Entwurf bleibt ein Entwurf. Kein DOI, kein oeffentliches Release, kein "Latest", das auf eine
-    # Version zeigt, die es auf PyPI nicht gibt. Tag und Attestierung bleiben — die sind
-    # zurueckziehbar, ein DOI nicht. Genau deshalb steht die Grenze hier und nicht frueher.
+    # IF THE UPLOAD FAILS: this job never runs, and the draft stays a draft. No DOI, no public
+    # release, no "Latest" that points at a version PyPI does not have. The tag and the attestation
+    # stay; those can be withdrawn, a DOI cannot. That is why the boundary is here and not earlier.
     #
-    # EHRLICHE GRENZE: das schuetzt gegen die REIHENFOLGE, nicht gegen ein Versehen beim Freigeben.
-    # Wer die PyPI-Freigabe erteilt, veroeffentlicht damit auch das Release und den DOI. Das ist
-    # gewollt — es ist EINE Entscheidung an EINER Stelle statt zwei an verschiedenen.
+    # HONEST LIMIT: this protects the ORDER, not against a tag pushed by mistake. With no reviewer on
+    # `pypi`, the tag push publishes the release and the DOI as well. It is ONE decision at ONE
+    # place, and it belongs after the owner's GO on the release plan.
     needs: [build-and-attest, publish-pypi]
     runs-on: ubuntu-latest
     timeout-minutes: 20

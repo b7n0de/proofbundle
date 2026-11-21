@@ -100,7 +100,7 @@ auffällt statt still zu driften. Das ist eine gebundene Grenze, keine Vollstän
 Tatsache eine Falschaussage, deshalb stehen sie ausdrücklich **nicht** unter dem Riegel:
 
 - `CHANGELOG.md` — alle `## [X.Y.Z]`-Überschriften und die Prosa darunter
-- `INTEGRATIONS.md:75,91` — „sample-count provenance **since** v3.7.0"
+- `INTEGRATIONS.md:83,99` — „sample-count provenance **since** v3.7.0"
 - `CROSS_IMPLEMENTATION_REPORT.md:88`, `docs/readiness_pack/differential_matrix.md:24`,
   `docs/readiness_pack/rust_parity_scope.md:27` — „56/56 **as of** v3.7.0"
 - `docs/release_scope/3.7.1.md` — Planung der **nächsten** Fassung, keine Aussage über die aktuelle
@@ -131,8 +131,8 @@ Moment ist nicht die Eigenschaft, um die es geht.
 ## Wo der Riegel läuft
 
 - CI: `.github/workflows/release-integrity.yml:60` runs `python3 scripts/check_version_and_changelog.py --repo .` on main and on pull requests
-- Release workflow (from 6.6.1): `.github/workflows/release.yml:164` runs the whole gate with `--tag "$GITHUB_REF_NAME"` before the build, check 8 included
-- Release checklist: `RELEASE.md:179`, after the publish `--external --require-external` must be green; before the owner GO, `RELEASE.md:29` checks without the external surfaces
+- Release workflow (from 6.6.1): `.github/workflows/release.yml:165` runs the whole gate with `--tag "$GITHUB_REF_NAME"` before the build, check 8 included
+- Release checklist: `RELEASE.md:184`, after the publish `--external --require-external` must be green; before the owner GO, `RELEASE.md:29` checks without the external surfaces
 
 ## Ehrliche Grenzen
 

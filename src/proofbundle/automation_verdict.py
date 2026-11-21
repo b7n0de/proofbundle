@@ -11,9 +11,10 @@ somehow invalid) — but it is the WRONG bar for an AUTOMATION decision: a calle
 can walk away believing a receipt was policy-authorized when ``policy_ok`` was actually ``None``
 (never evaluated), because ``None is not False`` is ``True``.
 
-``automation_summary`` does NOT change any existing ``ok`` field (additive, no breaking default flip — see
-CHANGELOG "Unreleased" for the ONE deliberately-deferred breaking piece, the ``bundle.py`` CLI exit-code
-default). It computes a SEPARATE, stricter verdict: ``safeForAutomation`` is true only when policy IS
+``automation_summary`` does NOT change any existing ``ok`` field (additive, no breaking default flip; the
+CHANGELOG section of 3.2.3, which added this module, names under "Deferred" the ONE breaking piece left
+out, the ``bundle.py`` CLI exit-code default, and no later release has built it). It computes a
+SEPARATE, stricter verdict: ``safeForAutomation`` is true only when policy IS
 ``True`` (never merely "not False"), mirroring ``bundle.py``'s own ``policy_ok is True`` bar (P0-B, audit
 2026-07-13). Each of the five ``verify_*`` functions stashes this at ``result["automation"]`` — the old
 ``result["ok"]`` field is untouched.
