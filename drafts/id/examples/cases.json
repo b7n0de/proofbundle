@@ -1,0 +1,320 @@
+{
+  "package": "draft-gruszka-scitt-statement-identification-01 illustrative test cases",
+  "scheme": "SHA-256 over ToBeSigned (RFC 9052 Sections 4.4 and 9), external_aad empty unless stated",
+  "reference_label": -70001,
+  "algorithm": "fully-specified Ed25519 (COSE algorithm -19, RFC 9864); the source package uses EdDSA -8, which RFC 9864 deprecates; identification is over ToBeSigned and is independent of the signature algorithm",
+  "statements": {
+    "01": {
+      "iss": "https://issuer.example",
+      "sub": "pkg:generic/example-widget@1.0.0",
+      "sha256_to_be_signed": "c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc",
+      "sha256_cose_sign1": "9c7253617b9fe51ba25eb0f957dadea493ca03e98c4a81806237757f13d054c6",
+      "bytes": 330,
+      "hex": "d284587ba4013203706170706c69636174696f6e2f6a736f6e0458200e6e86cd20c07df4e95cb4a07a286192d29fc74567b41e726f1c7f7bd202eb5b0fa3017668747470733a2f2f6973737565722e6578616d706c65027820706b673a67656e657269632f6578616d706c652d77696467657440312e302e30061a68ce7b20a058867b226172746966616374223a226578616d706c652d7769646765742d312e302e302e7461722e677a222c226c6963656e7365223a224d4954222c22736861323536223a2236303765366331653663333564636339623737306465356461393262393639373034613336366434363839373261386235356431613063333264623334613732227d58401fb31a6df345f1c1840d878bd4b4acedb6612956916e4b4550c5b6479289ed36f41cb604c8ab743dc2eb9fbda7fecfb896b3d444ba30e591e663093a4eeb8104"
+    },
+    "02": {
+      "iss": "https://auditor.example",
+      "sub": "pkg:generic/example-widget@1.0.0",
+      "refers_to": "01",
+      "sha256_cose_sign1": "c4758ea9ae4d85461a93ee1dbb302fb698c922b1fbcb4139ebc706e3aeccbebd",
+      "bytes": 365,
+      "hex": "d28458aba50132036a746578742f706c61696e045820a2820b29631a0e52ec5dbe41f948a9e5725c6b8d8c0346bd3ef5483cab27de580fa3017768747470733a2f2f61756469746f722e6578616d706c65027820706b673a67656e657269632f6578616d706c652d77696467657440312e302e30061a68ce7b203a0001117081832f6a546f42655369676e65645820c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbca058795468652061727469666163742064696765737420696e20746865207265666572656e6365642073746174656d656e7420776173207265636f6d707574656420616e64206d6174636865732e205468697320617564697420636f7665727320746865207265666572656e636564206279746573206f6e6c792e0a5840702de547d0247fd14444d31f0130c7d9b16c0168f43988c19320e5a6e37264c617a086d8a117a8c4e44ece4fe17da69ae2527db8cbb9a709be4a271047016b03"
+    },
+    "03": {
+      "iss": "https://issuer.example",
+      "sub": "pkg:generic/example-widget@1.0.0",
+      "refers_to": "01",
+      "sha256_cose_sign1": "f5afbb3b0c7d822b00741e5eacd9128b723922bf3cad6ed5a3ab00e884b58e99",
+      "bytes": 450,
+      "hex": "d28458b0a5013203706170706c69636174696f6e2f6a736f6e0458200e6e86cd20c07df4e95cb4a07a286192d29fc74567b41e726f1c7f7bd202eb5b0fa3017668747470733a2f2f6973737565722e6578616d706c65027820706b673a67656e657269632f6578616d706c652d77696467657440312e302e30061a68ce7b203a0001117081832f6a546f42655369676e65645820c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbca058c97b226172746966616374223a226578616d706c652d7769646765742d312e302e302e7461722e677a222c226c6963656e7365223a224170616368652d322e30222c226e6f7465223a22546865206c6963656e736520696e20746865207265666572656e6365642073746174656d656e74207761732077726f6e672e222c22736861323536223a2236303765366331653663333564636339623737306465356461393262393639373034613336366434363839373261386235356431613063333264623334613732227d584032cc26dcf624b14ff15e1f307898d9a287559ca388b78227283e4dee5fea9b04a3fb86cf0b12d553b791a210bff7e7478efe147f99c05f69b0d11e6a0766ae0b"
+    }
+  },
+  "reference_to_01": {
+    "digest_algorithm": "SHA-256 (-16)",
+    "covers": "ToBeSigned",
+    "digest": "c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbc"
+  },
+  "test_keys": {
+    "issuer": {
+      "ed25519_seed_hex": "51bdccce75df50a4bcee21a2f730ccdcd4917a0a4d20dd2ab3d2e5ffad3f6fd3",
+      "kid_hex": "0e6e86cd20c07df4e95cb4a07a286192d29fc74567b41e726f1c7f7bd202eb5b"
+    },
+    "auditor": {
+      "ed25519_seed_hex": "2a8b1161e212cc24681c06e6d7486daa0910253e54903d41ae964aaee2bfc681",
+      "kid_hex": "a2820b29631a0e52ec5dbe41f948a9e5725c6b8d8c0346bd3ef5483cab27de58"
+    }
+  },
+  "test_key_notice": "PURE TEST KEYS derived by SHA-256 from fixed labels. They MUST NOT be used for any real statement.",
+  "cases": [
+    {
+      "id": "C1",
+      "requirement": "A1",
+      "description": "Unchanged reference and candidate (the reference target 01).",
+      "candidate_sha256_cose_sign1": "9c7253617b9fe51ba25eb0f957dadea493ca03e98c4a81806237757f13d054c6",
+      "candidate_bytes": 330,
+      "candidate_hex": "d284587ba4013203706170706c69636174696f6e2f6a736f6e0458200e6e86cd20c07df4e95cb4a07a286192d29fc74567b41e726f1c7f7bd202eb5b0fa3017668747470733a2f2f6973737565722e6578616d706c65027820706b673a67656e657269632f6578616d706c652d77696467657440312e302e30061a68ce7b20a058867b226172746966616374223a226578616d706c652d7769646765742d312e302e302e7461722e677a222c226c6963656e7365223a224d4954222c22736861323536223a2236303765366331653663333564636339623737306465356461393262393639373034613336366434363839373261386235356431613063333264623334613732227d58401fb31a6df345f1c1840d878bd4b4acedb6612956916e4b4550c5b6479289ed36f41cb604c8ab743dc2eb9fbda7fecfb896b3d444ba30e591e663093a4eeb8104",
+      "expected": {
+        "ref_usable": true,
+        "match": "MATCH",
+        "is_scitt": true,
+        "sig_valid": true
+      },
+      "result": {
+        "ref_usable": true,
+        "is_scitt": true,
+        "match": "MATCH",
+        "sig_valid": true
+      },
+      "note": "",
+      "origin": "synthetic"
+    },
+    {
+      "id": "C2",
+      "requirement": "A1",
+      "description": "Same issuer and subject, different statement (03): subject grouping does not select 01.",
+      "candidate_sha256_cose_sign1": "f5afbb3b0c7d822b00741e5eacd9128b723922bf3cad6ed5a3ab00e884b58e99",
+      "candidate_bytes": 450,
+      "candidate_hex": "d28458b0a5013203706170706c69636174696f6e2f6a736f6e0458200e6e86cd20c07df4e95cb4a07a286192d29fc74567b41e726f1c7f7bd202eb5b0fa3017668747470733a2f2f6973737565722e6578616d706c65027820706b673a67656e657269632f6578616d706c652d77696467657440312e302e30061a68ce7b203a0001117081832f6a546f42655369676e65645820c3f5f13764679b9f77918bb52782480bc222be5ae4bce37f51384a6b1faa9dbca058c97b226172746966616374223a226578616d706c652d7769646765742d312e302e302e7461722e677a222c226c6963656e7365223a224170616368652d322e30222c226e6f7465223a22546865206c6963656e736520696e20746865207265666572656e6365642073746174656d656e74207761732077726f6e672e222c22736861323536223a2236303765366331653663333564636339623737306465356461393262393639373034613336366434363839373261386235356431613063333264623334613732227d584032cc26dcf624b14ff15e1f307898d9a287559ca388b78227283e4dee5fea9b04a3fb86cf0b12d553b791a210bff7e7478efe147f99c05f69b0d11e6a0766ae0b",
+      "expected": {
+        "ref_usable": true,
+        "match": "NO_MATCH",
+        "is_scitt": true
+      },
+      "result": {
+        "ref_usable": true,
+        "is_scitt": true,
+        "match": "NO_MATCH",
+        "sig_valid": true
+      },
+      "note": "",
+      "origin": "synthetic"
+    },
+    {
+      "id": "C3",
+      "requirement": "A1",
+      "description": "Changed target payload (re-signed): ToBeSigned differs.",
+      "candidate_sha256_cose_sign1": "63723353fdf05662cfcc618e8b47fd4142dce4a71e84b61a6bdbdde988e837ab",
+      "candidate_bytes": 339,
+      "candidate_hex": "d284587ba4013203706170706c69636174696f6e2f6a736f6e0458200e6e86cd20c07df4e95cb4a07a286192d29fc74567b41e726f1c7f7bd202eb5b0fa3017668747470733a2f2f6973737565722e6578616d706c65027820706b673a67656e657269632f6578616d706c652d77696467657440312e302e30061a68ce7b20a0588f7b226172746966616374223a226578616d706c652d7769646765742d312e302e302e7461722e677a222c226c6963656e7365223a224253442d332d436c61757365222c22736861323536223a2236303765366331653663333564636339623737306465356461393262393639373034613336366434363839373261386235356431613063333264623334613732227d5840a7cd3cb04606ed9a99f7105b489cd67f424fcc0993964eefc170600d37214794ded3d2e84d1309727cb4a9d550ea0729af7a283453794ea2ad0d023d1e824307",
+      "expected": {
+        "ref_usable": true,
+        "match": "NO_MATCH",
+        "is_scitt": true,
+        "sig_valid": true
+      },
+      "result": {
+        "ref_usable": true,
+        "is_scitt": true,
+        "match": "NO_MATCH",
+        "sig_valid": true
+      },
+      "note": "",
+      "origin": "synthetic"
+    },
+    {
+      "id": "C4",
+      "requirement": "A1",
+      "description": "Changed protected header (content type), re-signed: ToBeSigned differs.",
+      "candidate_sha256_cose_sign1": "65eb1e45177add009aef819b438c910aae934c3a05b7966ef73614e11ff07bcc",
+      "candidate_bytes": 330,
+      "candidate_hex": "d284587ba4013203706170706c69636174696f6e2f63626f720458200e6e86cd20c07df4e95cb4a07a286192d29fc74567b41e726f1c7f7bd202eb5b0fa3017668747470733a2f2f6973737565722e6578616d706c65027820706b673a67656e657269632f6578616d706c652d77696467657440312e302e30061a68ce7b20a058867b226172746966616374223a226578616d706c652d7769646765742d312e302e302e7461722e677a222c226c6963656e7365223a224d4954222c22736861323536223a2236303765366331653663333564636339623737306465356461393262393639373034613336366434363839373261386235356431613063333264623334613732227d58406e32c4cb930f0a80529f3c9494ddcf140e0cefa61d5e26a16f8959cbddd6dc3b7555affb55bec79d8cef0a4d710cd16057aa364924e3e7867966bb03e5764c04",
+      "expected": {
+        "ref_usable": true,
+        "match": "NO_MATCH",
+        "is_scitt": true,
+        "sig_valid": true
+      },
+      "result": {
+        "ref_usable": true,
+        "is_scitt": true,
+        "match": "NO_MATCH",
+        "sig_valid": true
+      },
+      "note": "",
+      "origin": "synthetic"
+    },
+    {
+      "id": "C5",
+      "requirement": "A4",
+      "description": "Added one unprotected parameter after signing (tag 18 kept): ToBeSigned and signature unchanged, whole-object digest changes.",
+      "candidate_sha256_cose_sign1": "fbab2b2b1c572ca374458ba2590fa5ca0da056a6ce47666f7220f1bca4250ab8",
+      "candidate_bytes": 355,
+      "candidate_hex": "d284587ba4013203706170706c69636174696f6e2f6a736f6e0458200e6e86cd20c07df4e95cb4a07a286192d29fc74567b41e726f1c7f7bd202eb5b0fa3017668747470733a2f2f6973737565722e6578616d706c65027820706b673a67656e657269632f6578616d706c652d77696467657440312e302e30061a68ce7b20a13a00011171736164646564206166746572207369676e696e6758867b226172746966616374223a226578616d706c652d7769646765742d312e302e302e7461722e677a222c226c6963656e7365223a224d4954222c22736861323536223a2236303765366331653663333564636339623737306465356461393262393639373034613336366434363839373261386235356431613063333264623334613732227d58401fb31a6df345f1c1840d878bd4b4acedb6612956916e4b4550c5b6479289ed36f41cb604c8ab743dc2eb9fbda7fecfb896b3d444ba30e591e663093a4eeb8104",
+      "expected": {
+        "ref_usable": true,
+        "match": "MATCH",
+        "is_scitt": true,
+        "sig_valid": true
+      },
+      "result": {
+        "ref_usable": true,
+        "is_scitt": true,
+        "match": "MATCH",
+        "sig_valid": true
+      },
+      "note": "",
+      "origin": "synthetic"
+    },
+    {
+      "id": "C6",
+      "requirement": "A1",
+      "description": "Same ToBeSigned, signature replaced with one from a different key: matches the ToBeSigned reference, but does not verify under the issuer key.",
+      "candidate_sha256_cose_sign1": "f8bf927260ae6d9c6edadeb79e0295e39dc30341b21b1a61d6cf31b35d778bf8",
+      "candidate_bytes": 330,
+      "candidate_hex": "d284587ba4013203706170706c69636174696f6e2f6a736f6e0458200e6e86cd20c07df4e95cb4a07a286192d29fc74567b41e726f1c7f7bd202eb5b0fa3017668747470733a2f2f6973737565722e6578616d706c65027820706b673a67656e657269632f6578616d706c652d77696467657440312e302e30061a68ce7b20a058867b226172746966616374223a226578616d706c652d7769646765742d312e302e302e7461722e677a222c226c6963656e7365223a224d4954222c22736861323536223a2236303765366331653663333564636339623737306465356461393262393639373034613336366434363839373261386235356431613063333264623334613732227d584015d271c055a0f391bcec610607a951fa312ef917892ff6528dc362a074b63a4867d95424ae1904e7b353bf11fb13e05a276032747c52d7db0ddb953f89e3c60e",
+      "expected": {
+        "ref_usable": true,
+        "match": "MATCH",
+        "is_scitt": true,
+        "sig_valid": false
+      },
+      "result": {
+        "ref_usable": true,
+        "is_scitt": true,
+        "match": "MATCH",
+        "sig_valid": false
+      },
+      "note": "",
+      "origin": "synthetic"
+    },
+    {
+      "id": "C7",
+      "requirement": "A1",
+      "description": "Target signed over a non-empty external_aad. The scheme applies the supplied AAD bytes (given in Appendix A) to both reference matching and signature verification, so the empty-external_aad reference does not match while the signature verifies. The same candidate bytes under the fixed empty-external_aad rule are reported separately in Appendix A. A missing external context is not assumed empty.",
+      "candidate_sha256_cose_sign1": "0a5390069e431e6dd83764ee276b28f69d34986a9e64d82f05ef3322bc66d61c",
+      "candidate_bytes": 330,
+      "candidate_hex": "d284587ba4013203706170706c69636174696f6e2f6a736f6e0458200e6e86cd20c07df4e95cb4a07a286192d29fc74567b41e726f1c7f7bd202eb5b0fa3017668747470733a2f2f6973737565722e6578616d706c65027820706b673a67656e657269632f6578616d706c652d77696467657440312e302e30061a68ce7b20a058867b226172746966616374223a226578616d706c652d7769646765742d312e302e302e7461722e677a222c226c6963656e7365223a224d4954222c22736861323536223a2236303765366331653663333564636339623737306465356461393262393639373034613336366434363839373261386235356431613063333264623334613732227d584057a8f8450fa4e8449619d980fc34d38ad07f02f2c618029be54102abfe430f905522a26a4013dae2ed3e093f199e127dc8e1a558a071192eac406a813ab97f04",
+      "expected": {
+        "ref_usable": true,
+        "match": "NO_MATCH",
+        "is_scitt": true,
+        "sig_valid": true
+      },
+      "result": {
+        "ref_usable": true,
+        "is_scitt": true,
+        "match": "NO_MATCH",
+        "sig_valid": true
+      },
+      "note": "",
+      "origin": "synthetic",
+      "aad_hex": "6374783a6465706c6f796d656e742d3432",
+      "empty_aad_result": {
+        "match": "MATCH",
+        "sig_valid": false
+      }
+    },
+    {
+      "id": "C8",
+      "requirement": "A1",
+      "description": "Detached payload (payload field is nil) and the detached bytes are not supplied: the match is INDETERMINATE, never a success.",
+      "candidate_sha256_cose_sign1": "7ceb07265f8b803a1ff96924da0b3a48b8355ec9daed0a9a31cd36cddaf34fdb",
+      "candidate_bytes": 195,
+      "candidate_hex": "d284587ba4013203706170706c69636174696f6e2f6a736f6e0458200e6e86cd20c07df4e95cb4a07a286192d29fc74567b41e726f1c7f7bd202eb5b0fa3017668747470733a2f2f6973737565722e6578616d706c65027820706b673a67656e657269632f6578616d706c652d77696467657440312e302e30061a68ce7b20a0f65840efdb7c7670bd56d96454ded2a7d92934b75edc092e9e9538aa16dd088ab74c1d2831555b36abf6f9c13549d25eb07951880731bf2b52acd42c4e98237bdbdb0e",
+      "expected": {
+        "ref_usable": true,
+        "match": "INDETERMINATE",
+        "is_scitt": true
+      },
+      "result": {
+        "ref_usable": true,
+        "is_scitt": true,
+        "match": "INDETERMINATE",
+        "sig_valid": null
+      },
+      "note": "detached payload not supplied; a missing input is never a match",
+      "origin": "synthetic"
+    },
+    {
+      "id": "C9",
+      "requirement": "A1/RFC9943-6.1",
+      "description": "Tag 18 removed, nothing else changed: the ToBeSigned digest still matches, but the object is not a tagged COSE_Sign1, so it is not a valid SCITT Signed Statement (RFC 9943 Section 6.1 requires tag 18).",
+      "candidate_sha256_cose_sign1": "c205d745619c3087ad1f83f6c1f7883f4fff616f8f90ecbe64c4aa08854b28e6",
+      "candidate_bytes": 329,
+      "candidate_hex": "84587ba4013203706170706c69636174696f6e2f6a736f6e0458200e6e86cd20c07df4e95cb4a07a286192d29fc74567b41e726f1c7f7bd202eb5b0fa3017668747470733a2f2f6973737565722e6578616d706c65027820706b673a67656e657269632f6578616d706c652d77696467657440312e302e30061a68ce7b20a058867b226172746966616374223a226578616d706c652d7769646765742d312e302e302e7461722e677a222c226c6963656e7365223a224d4954222c22736861323536223a2236303765366331653663333564636339623737306465356461393262393639373034613336366434363839373261386235356431613063333264623334613732227d58401fb31a6df345f1c1840d878bd4b4acedb6612956916e4b4550c5b6479289ed36f41cb604c8ab743dc2eb9fbda7fecfb896b3d444ba30e591e663093a4eeb8104",
+      "expected": {
+        "ref_usable": true,
+        "match": "MATCH",
+        "is_scitt": false,
+        "sig_valid": true
+      },
+      "result": {
+        "ref_usable": true,
+        "is_scitt": false,
+        "match": "MATCH",
+        "sig_valid": true
+      },
+      "note": "",
+      "origin": "synthetic"
+    },
+    {
+      "id": "C10",
+      "requirement": "A1",
+      "candidate_sha256_cose_sign1": "9c7253617b9fe51ba25eb0f957dadea493ca03e98c4a81806237757f13d054c6",
+      "candidate_bytes": 330,
+      "candidate_hex": "d284587ba4013203706170706c69636174696f6e2f6a736f6e0458200e6e86cd20c07df4e95cb4a07a286192d29fc74567b41e726f1c7f7bd202eb5b0fa3017668747470733a2f2f6973737565722e6578616d706c65027820706b673a67656e657269632f6578616d706c652d77696467657440312e302e30061a68ce7b20a058867b226172746966616374223a226578616d706c652d7769646765742d312e302e302e7461722e677a222c226c6963656e7365223a224d4954222c22736861323536223a2236303765366331653663333564636339623737306465356461393262393639373034613336366434363839373261386235356431613063333264623334613732227d58401fb31a6df345f1c1840d878bd4b4acedb6612956916e4b4550c5b6479289ed36f41cb604c8ab743dc2eb9fbda7fecfb896b3d444ba30e591e663093a4eeb8104",
+      "description": "The scheme names SHA-512 (-44), while the reference carries SHA-256 (-16), so ref_usable is False and match is INDETERMINATE; no fallback is performed.",
+      "expected": {
+        "ref_usable": false,
+        "match": "INDETERMINATE",
+        "is_scitt": true,
+        "sig_valid": true
+      },
+      "result": {
+        "ref_usable": false,
+        "is_scitt": true,
+        "match": "INDETERMINATE",
+        "sig_valid": true
+      },
+      "origin": "synthetic"
+    },
+    {
+      "id": "C11",
+      "requirement": "A1",
+      "description": "Statement 01 with its 64 signature bytes replaced: R is a canonical encoding of a point of mixed order, and S is below L. Rule 2 refuses R, so sig_valid is False while the ToBeSigned reference matches. With rule 2 left out, the cofactored equation holds and the cofactorless equation does not.",
+      "candidate_sha256_cose_sign1": "d1e77e708d759c9b393e93708968887df1ef0e56872166877f68d4ff9e43afe1",
+      "candidate_bytes": 330,
+      "candidate_hex": "d284587ba4013203706170706c69636174696f6e2f6a736f6e0458200e6e86cd20c07df4e95cb4a07a286192d29fc74567b41e726f1c7f7bd202eb5b0fa3017668747470733a2f2f6973737565722e6578616d706c65027820706b673a67656e657269632f6578616d706c652d77696467657440312e302e30061a68ce7b20a058867b226172746966616374223a226578616d706c652d7769646765742d312e302e302e7461722e677a222c226c6963656e7365223a224d4954222c22736861323536223a2236303765366331653663333564636339623737306465356461393262393639373034613336366434363839373261386235356431613063333264623334613732227d584095999999999999999999999999999999999999999999999999999999999999992d5ac5acb4933c1790098a56557795abf48a9f65f4636552659e0a89d2a3110d",
+      "expected": {
+        "ref_usable": true,
+        "match": "MATCH",
+        "is_scitt": true,
+        "sig_valid": false
+      },
+      "result": {
+        "ref_usable": true,
+        "is_scitt": true,
+        "match": "MATCH",
+        "sig_valid": false
+      },
+      "note": "",
+      "origin": "synthetic",
+      "without_rule_2": {
+        "cofactorless": false,
+        "cofactored": true
+      }
+    },
+    {
+      "id": "C12",
+      "requirement": "A4",
+      "description": "Statement 01 with the head of its four-element array written with a one-byte length argument (98 04 in place of 84), tag 18 kept and every element unchanged: the outer encoding changes, ToBeSigned and signature do not, and the whole-object digest changes.",
+      "candidate_sha256_cose_sign1": "f868bef38c6bf945c845b1dd327bc82b0cd71493b68fe4c11761fde6f4f6d988",
+      "candidate_bytes": 331,
+      "candidate_hex": "d29804587ba4013203706170706c69636174696f6e2f6a736f6e0458200e6e86cd20c07df4e95cb4a07a286192d29fc74567b41e726f1c7f7bd202eb5b0fa3017668747470733a2f2f6973737565722e6578616d706c65027820706b673a67656e657269632f6578616d706c652d77696467657440312e302e30061a68ce7b20a058867b226172746966616374223a226578616d706c652d7769646765742d312e302e302e7461722e677a222c226c6963656e7365223a224d4954222c22736861323536223a2236303765366331653663333564636339623737306465356461393262393639373034613336366434363839373261386235356431613063333264623334613732227d58401fb31a6df345f1c1840d878bd4b4acedb6612956916e4b4550c5b6479289ed36f41cb604c8ab743dc2eb9fbda7fecfb896b3d444ba30e591e663093a4eeb8104",
+      "expected": {
+        "ref_usable": true,
+        "match": "MATCH",
+        "is_scitt": true,
+        "sig_valid": true
+      },
+      "result": {
+        "ref_usable": true,
+        "is_scitt": true,
+        "match": "MATCH",
+        "sig_valid": true
+      },
+      "note": "",
+      "origin": "synthetic"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+# Package versions the illustrative examples and their cross-check were run with
+# (draft-gruszka-scitt-statement-identification). Measured 2026-10-02.
+#
+# The generator and the matcher use only the Python standard library plus cbor2
+# and cryptography. The cross-check is cryptography-direct: it decodes the
+# COSE_Sign1 with cbor2 and verifies the Ed25519 signature over the Sig_structure
+# with cryptography. The examples sign with the fully-specified Ed25519 algorithm
+# -19 (RFC 9864).
+#
+# pycose 1.1.0 is listed because it is the COSE library present in the run
+# environment and because the test records a measured limit: pycose 1.1.0 cannot
+# decode algorithm -19. No other independent COSE library was available in the run
+# environment, so whether a second COSE library decodes and verifies -19 is NOT
+# MEASURED here.
+cbor2==5.4.6
+cryptography==41.0.7
+pycose==1.1.0
+# cffi is a transitive dependency of cryptography in this environment.
+cffi==2.1.1
