@@ -79,8 +79,13 @@ Merkle root inside the claim. Emission is wrapped so a hook error never fails yo
 
     proofbundle verify proofbundle_receipt_<eval_id>.json
     [PASS] ed25519-signature: payload signed by stated key
-    [PASS] merkle-inclusion: anchored at index 0 of 1
+    [PASS] merkle-inclusion: anchored at stated index 0 of stated tree size 1
     => OK
+
+Without a matching `--expected-tree-size` or a size supplied by a verified `--trusted-checkpoint`, the
+output labels the index and tree size as stated. Some audit paths verify under several tree sizes; the
+empty path in this example verifies only under size 1. Pass `--trusted-checkpoint` and `--checkpoint-vkey`
+to check against the checkpoint's size and root.
 
 Exit code: `0` OK · `1` a check failed · `2` malformed bundle. No network, no account, no server.
 

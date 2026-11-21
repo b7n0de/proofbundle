@@ -1626,9 +1626,17 @@ def _kombi_messung(name: str, bau) -> dict:
     if name in _KOMBI_MESSUNGEN:
         return _KOMBI_MESSUNGEN[name]
     fn, erreicht = bau()
+    # THE SAME BRACKET AS THE SINGLE AXES (owner choice A on line 54, 2026-11-20): the reference
+    # load runs BEFORE and AFTER the costly series, and both series together describe the window in
+    # which the costs arose. Before, the assertion took its factor as the median of a FRESH series
+    # after the measurement, so from another window, the very shape the single axes moved away from
+    # on 2026-09-08 (see `_messung`).
+    klammer_vorher = list(_referenz_werte())
     dauer_max, _ = _zeit_max(fn)
+    klammer = klammer_vorher + list(_referenz_werte())
     speicher = _speicher_peak(fn)
-    m = {"erreicht": erreicht, "dauer_max": dauer_max, "speicher_peak": speicher}
+    m = {"erreicht": erreicht, "dauer_max": dauer_max, "speicher_peak": speicher,
+         "referenz_klammer": klammer}
     _KOMBI_MESSUNGEN[name] = m
     return m
 
@@ -1679,7 +1687,16 @@ class TestKombinierteAchsen:
         """
         m = _kombi_messung(name, bau)
         dauer = m["dauer_max"]
-        faktor = _maschinenfaktor()
+        # THE FACTOR AS FOR THE SINGLE AXES (owner choice A on line 54, 2026-11-20): from the bracket
+        # around the cost measurement and through the same switch `LATTE_AUS_DER_KLAMMER`, not as the
+        # median of a fresh series after the measurement. Do NOT measure afresh here, see
+        # `test_kosten_am_limit_unter_der_obergrenze`.
+        assert "referenz_klammer" in m, (
+            f"{name}: the measurement carries no reference bracket. Either `_kombi_messung` did not lay "
+            f"it, or a fixture fakes `_KOMBI_MESSUNGEN` without it; then use `_klammer_jetzt()`.")
+        klammer = m["referenz_klammer"]
+        faktor = (_maschinenfaktor(klammer) if LATTE_AUS_DER_KLAMMER == "median"
+                  else _faktor_spanne(klammer)[0])
         # DIESELBE KARTE AUF DER NACHBARFLAECHE (Klassen-Sweep, Anker FIX-THE-CLASS): sie misst
         # dieselbe Groesse gegen dieselbe Kalibrierung, und ihr Deckel (1,925) liegt sogar unter
         # dem gemessenen Laeufer-Faktor von rund 2.
@@ -3006,7 +3023,9 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
             name, achsen, bau = KOMBIS[0]
             _KOMBI_MESSUNGEN[name] = {"erreicht": {},
                                       "dauer_max": achsen * GRENZE_S * 1.5,
-                                      "speicher_peak": 0}
+                                      "speicher_peak": 0,
+                                      # measured through the active fake, as for the single axes
+                                      "referenz_klammer": _klammer_jetzt()[0]}
             _REFERENZ_HIER.clear()
             faktor = _maschinenfaktor()
             fall = TestKombinierteAchsen()
@@ -3048,6 +3067,57 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
             f"1,5-fache ihrer Referenzlatte auf einer Maschine mit Faktor {faktor:.2f} — sie liegt "
             f"also INNERHALB. Meldet sie trotzdem, misst die Kombi-Latte die Maschine statt den "
             f"Code, und ein langsamer Laeufer erzeugt einen Befund, den es nicht gibt.")
+
+    def test_der_KOMBI_faktor_gehoert_INS_fenster_der_kosten_nicht_dahinter(self):
+        """THE SAME FINDING ON THE COMBINATION SURFACE (owner choice A on line 54, 2026-11-20).
+
+        Since 2026-09-08 the single axes take their factor from the bracket around the cost measurement
+        (`test_der_faktor_gehoert_INS_fenster_der_kosten_nicht_dahinter`). The combination assertion took
+        it as the median of a FRESH series after the measurement until now. The case replays that
+        deterministically: the costs arose in a QUIET window (bracket at its fast end, factor 1.0) and lie
+        at 1.67 times the reference bound, while the late reference measurement sees a loaded machine
+        (factor 1.8, under the cap). With the late factor the bound is 1.8 times as wide and the real
+        slowdown passes silently under it. With the factor from the bracket, at its fast end as for the
+        single axes (owner card OA-133b901337), it is RED.
+        """
+        ruhe = statistics.median(_REFERENZ_FARMER_S)
+        vorher_k = dict(_KOMBI_MESSUNGEN)
+        vorher_r = list(_REFERENZ_HIER)
+        wieder, _ = self._referenz_kostet([ruhe * 1.8])
+        ausgang = "SILENT PASS"
+        try:
+            name, achsen, bau = KOMBIS[0]
+            _KOMBI_MESSUNGEN[name] = {
+                "erreicht": {}, "speicher_peak": 0,
+                # A REAL slowdown: 1.67 times the reference bound.
+                "dauer_max": achsen * GRENZE_S * 5.0 / 3.0,
+                # The bracket SEES both windows: measured quiet, measured again loaded.
+                "referenz_klammer": [ruhe] * MAX_WIEDERHOLUNGEN + [ruhe * 1.8] * MAX_WIEDERHOLUNGEN,
+            }
+            _REFERENZ_HIER.clear()
+            spaet = _maschinenfaktor()   # what the former assertion would have read
+            fall = TestKombinierteAchsen()
+            try:
+                with _bauhost_marke(None):   # the mark belongs to the CASE, not to the environment
+                    fall.test_kombi_bleibt_unter_der_summe_der_obergrenzen(name, achsen, bau)
+            except Skipped as s:
+                ausgang = f"NOT MEASURABLE: {s}"
+            except AssertionError as a:
+                ausgang = f"RED: {a}"
+        finally:
+            wieder()
+            _KOMBI_MESSUNGEN.clear()
+            _KOMBI_MESSUNGEN.update(vorher_k)
+            _REFERENZ_HIER.clear()
+            _REFERENZ_HIER.extend(vorher_r)
+        assert 5.0 / 3.0 < spaet < _faktor_deckel(ausser=""), (
+            f"PRECONDITION: the late factor must cover the costs AND lie under the cap, otherwise the "
+            f"case checks an abstention instead of the window; it is {spaet:.2f}.")
+        assert ausgang.startswith("RED"), (
+            f"The combination assertion reported {ausgang[:220]!r}. The costs arose in the quiet window "
+            f"(factor 1.0), the bound came from the late, loaded one (factor {spaet:.2f}). The factor "
+            f"then describes a machine on which these costs were never measured, and the real "
+            f"slowdown passes silently under it.")
 
     def test_das_instrument_der_kurvenreihe_wird_von_der_RANDMESSUNG_nicht_ueberschrieben(self):
         """FUND DERSELBEN GEGENLESUNG, Punkt 5 — und er ist heute schon wahr, nicht erst morgen.
@@ -3274,7 +3344,9 @@ class TestDerDeckelIstAbgeleitetUndKeineGetippteZahl:
             # Das Dreifache der Referenzlatte: auch bei Faktor 1,8 klar darueber -> ohne die
             # Bindung ROT, und zwar aus Langsamkeit.
             _KOMBI_MESSUNGEN[name] = {"erreicht": {}, "dauer_max": achsen * GRENZE_S * 3.0,
-                                      "speicher_peak": 0}
+                                      "speicher_peak": 0,
+                                      # measured through the active fake, as for the single axes
+                                      "referenz_klammer": _klammer_jetzt()[0]}
             _REFERENZ_HIER.clear()
             fall = TestKombinierteAchsen()
             with _bauhost_marke("CI"):

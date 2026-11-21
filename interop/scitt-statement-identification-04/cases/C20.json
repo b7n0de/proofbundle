@@ -1,0 +1,56 @@
+{
+ "derivation": [
+  "Statement 01 with S replaced by S + L, R unchanged. Because L*B' is the neutral element, the equation of rule 4 still holds, but rule 3 refuses S, so sig_valid is False while the ToBeSigned reference matches.",
+  "The candidate is statement 01 with the second 32 bytes of its signature, S read as a little-endian integer, replaced by S + L, so that its 64 signature bytes are (hex):"
+ ],
+ "draft": "draft-gruszka-scitt-statement-identification-04",
+ "expected": {
+  "is_scitt": true,
+  "match": "MATCH",
+  "ref_usable": true,
+  "sig_valid": false
+ },
+ "id": "C20",
+ "inputs": {
+  "candidate": {
+   "base64": "0oRYe6QBMgNwYXBwbGljYXRpb24vanNvbgRYIA5uhs0gwH306Vy0oHooYZLSn8dFZ7Qecm8cf3vSAutbD6MBdmh0dHBzOi8vaXNzdWVyLmV4YW1wbGUCeCBwa2c6Z2VuZXJpYy9leGFtcGxlLXdpZGdldEAxLjAuMAYaaM57IKBYhnsiYXJ0aWZhY3QiOiJleGFtcGxlLXdpZGdldC0xLjAuMC50YXIuZ3oiLCJsaWNlbnNlIjoiTUlUIiwic2hhMjU2IjoiNjA3ZTZjMWU2YzM1ZGNjOWI3NzBkZTVkYTkyYjk2OTcwNGEzNjZkNDY4OTcyYThiNTVkMWEwYzMyZGIzNGE3MiJ9WEAfsxpt80XxwYQNh4vUtKzttmEpVpFuS0VQxbZHkontNuHwq2HiDoeVmIiXYIb4rs2Ws9REujDlkeZjCTpO64EU",
+   "length": 330,
+   "sha256": "12ab3564205c348655ea8386430517cd25d56d5b634748e50056eebb9a1fc733"
+  },
+  "detached_payload": null,
+  "external_aad": {
+   "base64": "",
+   "length": 0,
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "reference": {
+   "base64": "gy9qVG9CZVNpZ25lZFggw/XxN2Rnm593kYu1J4JIC8IivlrkvON/UThKax+qnbw=",
+   "length": 47,
+   "sha256": "dadea76ef3137c95552e76c247908376cd69cf1883c49b391feef443ecbdbd42"
+  },
+  "scheme": {
+   "alg": -16,
+   "name": "ToBeSigned"
+  },
+  "stated_key": {
+   "name": "issuer",
+   "public_key": {
+    "base64": "GDHRldF3c/aCQN1T1r0XjSC8qIgB2gEawROg/CJ3bjI=",
+    "length": 32,
+    "sha256": "4a9a8725a3823cb54bd02fbaae487c296c3807e5c0d30c94973705e708e10df9"
+   }
+  }
+ },
+ "requirement": "A1",
+ "source": "Appendix A.3.20, Table 2 of Section 6",
+ "variants": [
+  {
+   "expected": {
+    "sig_valid": true
+   },
+   "name": "with rule 3 left out",
+   "rules": "no-rule-3"
+  }
+ ],
+ "what_it_shows": "S + L (rule 3)"
+}

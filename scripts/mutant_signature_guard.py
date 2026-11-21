@@ -140,6 +140,10 @@ class DiffNotReadable(Exception):
     """The diff lost the count of a hunk: a line in an open hunk is no line of it. Fail closed, exit 2."""
 
 
+class SyntaxTreeNotRead(DiffNotReadable):
+    """Class C could not parse a file of the change under this interpreter. Fail closed, exit 2 (row 35)."""
+
+
 #: The C escapes git writes inside a quoted path, besides octal `\ooo` for a byte.
 _C_ESCAPES = {"a": 7, "b": 8, "t": 9, "n": 10, "v": 11, "f": 12, "r": 13, '"': 34, "\\": 92}
 
@@ -280,14 +284,23 @@ def _class_c_findings(content: str, added: set[int]) -> list[tuple[int, str]]:
     parser refuses a string that begins with U+FEFF, CPython imports the file, and the SyntaxError
     below turned that into "nothing found" over a live mutant; the mark is stripped before parsing.
     A NUL is a ValueError on Python 3.10 and a SyntaxError from 3.11 on, so it is named before either
-    can happen: NOT MEASURABLE, exit 2."""
+    can happen: NOT MEASURABLE, exit 2.
+
+    A SYNTAX ERROR IS NO REASON TO STAY QUIET EITHER (owner answer A on the workflow card for 6.6.1, row 35). Here
+    stood `return []`, "the test/lint gates own that failure". They own it only under the interpreter they run on: a
+    file that uses syntax newer than the interpreter of this guard (`def verify_thing[T](data: T)` under 3.11) is a
+    SyntaxError here and valid code there, and a planted `return True` in it was reported clean with exit 0. A syntax
+    tree that is not read is not measured, so it is named: NOT MEASURABLE, exit 2, unless the lines of the same scan
+    already gave a finding, which blocks with exit 1 and carries this note (see `scan`)."""
     findings: list[tuple[int, str]] = []
     if "\x00" in content:
         raise DiffNotReadable("a NUL byte in the source, so its syntax tree is not read here")
     try:
         tree = ast.parse(content.removeprefix("\ufeff"))
-    except SyntaxError:
-        return []  # unparseable staged state: the test/lint gates own that failure
+    except SyntaxError as exc:
+        version = ".".join(str(part) for part in sys.version_info[:3])
+        raise SyntaxTreeNotRead(f"line {exc.lineno} is a SyntaxError for Python {version}, so its syntax tree is "
+                                "not read here") from None
     git_line = _py2git(content)
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -336,6 +349,7 @@ def _shown(path: str) -> str:
 
 def scan(diff_text: str, *, staged: bool, cwd: Path) -> list[str]:
     findings: list[str] = []
+    not_read: list[str] = []
     for path, added in _added_lines_by_file(diff_text).items():
         if not _SECURITY_PATH.match(path):
             continue
@@ -367,9 +381,19 @@ def scan(diff_text: str, *, staged: bool, cwd: Path) -> list[str]:
             if reason and not _allowlisted(file_lines, lineno):
                 shown_text = text.strip().replace("\r", "\\r")  # a CR in the report would move the line it stands in
                 findings.append(f"{_shown(path)}:{lineno}: {reason}\n    {shown_text}")
-        for lineno, reason in _class_c_findings(content, added_nums):
+        try:
+            class_c = _class_c_findings(content, added_nums)
+        except SyntaxTreeNotRead as exc:
+            not_read.append(f"{_shown(path)}: {exc}")
+            continue
+        for lineno, reason in class_c:
             if not _allowlisted(file_lines, lineno):
                 findings.append(f"{_shown(path)}:{lineno}: {reason}")
+    # A finding blocks with exit 1 and names the files class C did not read; without one, a syntax tree that was not
+    # read is NOT MEASURABLE, exit 2, never clean (row 35).
+    if not_read and not findings:
+        raise SyntaxTreeNotRead("; ".join(not_read))
+    findings.extend(f"{entry} (class C NOT MEASURABLE for this file)" for entry in not_read)
     return findings
 
 

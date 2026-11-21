@@ -327,6 +327,45 @@ class TestTheDecoderKeepsWhatGitDoesNotWrite(unittest.TestCase):
         self.assertEqual(guard._git_path('"b/x\\377"'), "b/x\udcff")
 
 
+class TestASyntaxErrorIsNotMeasurable(_RepoFixture):
+    """Owner answer A on the workflow card for 6.6.1, row 35: class C returned an empty list on a SyntaxError, so a
+    file the guard's interpreter cannot parse was reported clean with exit 0 over a planted `return True`. It is
+    NOT MEASURABLE with exit 2 now, as the NUL byte already was, whatever interpreter the guard runs on."""
+
+    def test_a_file_that_does_not_parse_is_not_measurable_in_both_modes(self):
+        broken = "def verify_thing(data:\n    return True\n"
+        self._stage(broken)
+        r = _guard(self.repo, "--staged")
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("NOT MEASURABLE", r.stdout)
+        self.assertIn("src/proofbundle/guarded.py: line ", r.stdout)
+        base = _git(self.repo, "rev-parse", "HEAD").stdout.strip()
+        _git(self.repo, "commit", "-q", "-m", "mutant")
+        r = _guard(self.repo, "--base", base)
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn("NOT MEASURABLE", r.stdout)
+
+    def test_a_finding_in_the_same_scan_still_blocks_and_names_the_unread_tree(self):
+        """A line finding of class A in a file that does not parse stays a finding with exit 1, as before; the file
+        whose syntax tree was not read is named beside it."""
+        self._stage("\x0cif False:\n        pass\ndef verify_thing(data:\n")
+        r = _guard(self.repo, "--staged")
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("trivial-truth branch", r.stdout)
+        self.assertIn("class C NOT MEASURABLE for this file", r.stdout)
+
+    def test_syntax_newer_than_the_interpreter_is_never_clean(self):
+        """The case of the search over .github (R4): a type parameter list is syntax from Python 3.12 on. Under 3.11
+        the planted `return True` was clean with exit 0, under 3.12 BLOCKED with exit 1. Neither interpreter may
+        say clean now: below 3.12 the answer is NOT MEASURABLE, from 3.12 on the finding."""
+        self._stage("def helper(x):\n    return x\n\n\ndef verify_thing[T](data: T) -> bool:\n    return True\n")
+        r = _guard(self.repo, "--staged")
+        expected = 1 if sys.version_info >= (3, 12) else 2
+        self.assertEqual(r.returncode, expected, r.stdout + r.stderr)
+        self.assertNotIn("clean", r.stdout)
+        self.assertIn("return True" if expected == 1 else "NOT MEASURABLE", r.stdout)
+
+
 class TestSelfTest(unittest.TestCase):
     def test_self_test_passes(self):
         r = subprocess.run([sys.executable, str(SCRIPT), "--self-test"],

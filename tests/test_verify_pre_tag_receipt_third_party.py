@@ -1913,9 +1913,10 @@ class TestReview5Question4:
         behaelter, fremd = self._orte(tmp_path)
         echt_stat = os.stat
         sperre = {"an": False}
+        fremd_s = str(fremd)
 
         def stat_gesperrt(p, *a, **k):
-            if sperre["an"] and p == str(fremd):
+            if sperre["an"] and p == fremd_s:
                 raise PermissionError(13, "Permission denied", p)
             return echt_stat(p, *a, **k)
 
@@ -1926,15 +1927,19 @@ class TestReview5Question4:
             importe.append(name)
             return echt_import(name, *a, **k)
 
+        # Every path string is built BEFORE the spy listens, like both patches: under Python 3.12.3 each `/` of a
+        # `pathlib.Path` runs `import ntpath`, and the three joins of this case gave ['ntpath', 'ntpath', 'ntpath'],
+        # imports of the test and not of the helper (measured 2026-11-20: 3.11.18 none, 3.12.3 one per `/`).
         # Both patches are set BEFORE the spy listens, so it records the helper's imports and not the test's own
         # (pytest's monkeypatch imports `inspect` when it sets an attribute; measured on the first run of this case).
+        b, x, f, fehlt = str(behaelter), str(behaelter / "x"), fremd_s, str(tmp_path / "fehlt" / "x")
         monkeypatch.setattr(mod.os, "stat", stat_gesperrt)
         monkeypatch.setattr(builtins, "__import__", spion)
-        mod._judged_location(str(behaelter / "x"), str(behaelter))
-        mod._judged_location(str(fremd), str(behaelter))
-        mod._judged_location(str(tmp_path / "fehlt" / "x"), str(behaelter))
+        mod._judged_location(x, b)
+        mod._judged_location(f, b)
+        mod._judged_location(fehlt, b)
         sperre["an"] = True
-        offen = mod._judged_location(str(fremd), str(behaelter))
+        offen = mod._judged_location(f, b)
         monkeypatch.undo()
         assert importe == [], importe
         assert offen is True

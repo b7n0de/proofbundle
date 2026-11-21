@@ -1,0 +1,47 @@
+{
+ "derivation": [
+  "The ToBeSigned scheme with alg -44 (SHA-512) and a reference whose digest is SHA-512 over the ToBeSigned of statement 01. The reference is usable, the digests are equal, and the signature verifies.",
+  "The candidate is statement 01 of Appendix A.1, as in C1. The named scheme is the ToBeSigned scheme with alg -44. The reference, [-44, \"ToBeSigned\", digest] with SHA-512 over the ToBeSigned of statement 01 as its digest, is (80 bytes, hex):"
+ ],
+ "draft": "draft-gruszka-scitt-statement-identification-04",
+ "expected": {
+  "is_scitt": true,
+  "match": "MATCH",
+  "ref_usable": true,
+  "sig_valid": true
+ },
+ "id": "C50",
+ "inputs": {
+  "candidate": {
+   "base64": "0oRYe6QBMgNwYXBwbGljYXRpb24vanNvbgRYIA5uhs0gwH306Vy0oHooYZLSn8dFZ7Qecm8cf3vSAutbD6MBdmh0dHBzOi8vaXNzdWVyLmV4YW1wbGUCeCBwa2c6Z2VuZXJpYy9leGFtcGxlLXdpZGdldEAxLjAuMAYaaM57IKBYhnsiYXJ0aWZhY3QiOiJleGFtcGxlLXdpZGdldC0xLjAuMC50YXIuZ3oiLCJsaWNlbnNlIjoiTUlUIiwic2hhMjU2IjoiNjA3ZTZjMWU2YzM1ZGNjOWI3NzBkZTVkYTkyYjk2OTcwNGEzNjZkNDY4OTcyYThiNTVkMWEwYzMyZGIzNGE3MiJ9WEAfsxpt80XxwYQNh4vUtKzttmEpVpFuS0VQxbZHkontNvQctgTIq3Q9wuufvaf+z7iWs9REujDlkeZjCTpO64EE",
+   "length": 330,
+   "sha256": "9c7253617b9fe51ba25eb0f957dadea493ca03e98c4a81806237757f13d054c6"
+  },
+  "detached_payload": null,
+  "external_aad": {
+   "base64": "",
+   "length": 0,
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "reference": {
+   "base64": "gzgralRvQmVTaWduZWRYQAaxX5OU+qNU70dq2DJCn8eTtjcSYSZO9OPc0irAE3ik2iS/WLQ3BqF+z/jPmkXI/WAuaZJ7gLhRCtLNc54hGc0=",
+   "length": 80,
+   "sha256": "3e02bb77f9e4361abd51c9068b8612482a4a29e2f4236f29533ba5607dd3a04b"
+  },
+  "scheme": {
+   "alg": -44,
+   "name": "ToBeSigned"
+  },
+  "stated_key": {
+   "name": "issuer",
+   "public_key": {
+    "base64": "GDHRldF3c/aCQN1T1r0XjSC8qIgB2gEawROg/CJ3bjI=",
+    "length": 32,
+    "sha256": "4a9a8725a3823cb54bd02fbaae487c296c3807e5c0d30c94973705e708e10df9"
+   }
+  }
+ },
+ "requirement": "A1",
+ "source": "Appendix A.3.50, Table 2 of Section 6",
+ "what_it_shows": "SHA-512 reference"
+}
