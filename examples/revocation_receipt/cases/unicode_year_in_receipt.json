@@ -1,0 +1,22 @@
+{
+  "countersignature": {
+    "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJwcmVkaWNhdGUiOnsiYWNrbm93bGVkZ2VyIjp7ImtleUlkIjoic2hhMjU2OmExODExMmIwYjdiNDIyNWZmMzA1MjdlMGY3Y2Y3YTFlMzc0MmY2MzJiMDNiNjVmNDU0MjcwM2MzYTU2NTRkYzkiLCJyb2xlIjoicHJvdmlkZXIifSwicmVjZWl2ZWRBdCI6Itmi2aDZotmlLTExLTI1VDA5OjMwOjA0WiIsInJldm9jYXRpb25EaWdlc3QiOnsiZGlnZXN0IjoiNGExZWZlNTkxMGI1NDQ4ZWFhMTRkYWZmNzZiZTQyYTVhNmI0MTIxM2U5OGJhNTdjZTgwODY5MGNjYTk2Y2ZiMCIsImRpZ2VzdEFsZ29yaXRobSI6Impjcy1zaGEyNTYtdjEifX0sInByZWRpY2F0ZVR5cGUiOiJodHRwczovL3NpZ25lZC1ldmlkZW5jZS5vcmcvcHJlZGljYXRlcy9hdXRob3JpdHktcmV2b2NhdGlvbi1hY2svdjAuMSIsInN1YmplY3QiOlt7ImRpZ2VzdCI6eyJzaGEyNTYiOiI0NDNhYTViZDU4ODNjZTg2Yzc2NTUyYzlhOGVjMTY0MDFmYTgwZDI3ZjMzMGIzY2UwZDNkMjQzNjQyMjZiYWNiIn0sIm5hbWUiOiJyZXZvY2F0aW9uLWFjazpyZXYtZXhhbXBsZS0wMDAxIn1dfQ==",
+    "payloadType": "application/vnd.in-toto+json",
+    "signatures": [
+      {
+        "keyid": "sha256:a18112b0b7b4225ff30527e0f7cf7a1e3742f632b03b65f4542703c3a5654dc9",
+        "sig": "nApZ6m9SolA/yBkURZWlkVBq2UsF/IGxEnclOzTvYP/SB9BKPXp5e2hlAiwNEaZlmg9abWHO26inPIMSQ0dyAQ=="
+      }
+    ]
+  },
+  "revocation": {
+    "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJwcmVkaWNhdGUiOnsiYWdlbnQiOnsiZGlnZXN0IjoiYjBkZTg3NzdiZTEzYzQ3NjI3NmQzNGM1MTk2NjRkNTc1Y2ZiNmQ3ZjljNDVjMzU2Yjk3ODQ0MTk1MGNlOTcwNyIsImRpZ2VzdEFsZ29yaXRobSI6Impjcy1zaGEyNTYtdjEifSwiYXV0aG9yaXR5Ijp7ImRpZ2VzdCI6IjVhZDE4OTYxYTk3ODRkZjNmY2JiOGE4YTcwY2E2ODc1YTY0ZGY1NDIzMTM3NjAwMjY1N2FiYWM5MTc5MjE3NWYiLCJkaWdlc3RBbGdvcml0aG0iOiJqY3Mtc2hhMjU2LXYxIn0sInJldm9jYXRpb25JZCI6InJldi1leGFtcGxlLTAwMDEiLCJyZXZva2VkQXQiOiIyMDI2LTExLTI1VDA5OjMwOjAwWiIsInJldm9rZXIiOnsia2V5SWQiOiJzaGEyNTY6OWNkNzkxYWRmZDFlZTkzMjI3NmM2ZWJhZjQyOGIwZjEyODczODhiODc4Y2QyYzgxNjUwZTU2MmI0YjkyMGNlMCIsInJvbGUiOiJjdXN0b21lciJ9fSwicHJlZGljYXRlVHlwZSI6Imh0dHBzOi8vc2lnbmVkLWV2aWRlbmNlLm9yZy9wcmVkaWNhdGVzL2F1dGhvcml0eS1yZXZvY2F0aW9uL3YwLjEiLCJzdWJqZWN0IjpbeyJkaWdlc3QiOnsic2hhMjU2IjoiOTcyOTEwZmQyM2RhMzM0YjJiMGM0ODI2ZDMzNTMzYjFhNjZkZWVhYjUyN2U2NmMwYjVkNzg1NzJkOTQ1N2QwYSJ9LCJuYW1lIjoicmV2b2NhdGlvbjpyZXYtZXhhbXBsZS0wMDAxIn1dfQ==",
+    "payloadType": "application/vnd.in-toto+json",
+    "signatures": [
+      {
+        "keyid": "sha256:9cd791adfd1ee932276c6ebaf428b0f1287388b878cd2c81650e562b4b920ce0",
+        "sig": "1BeTGPNuXjg+LCgcbk/CK5BYwlYWfzjE8QBltysahdTHcpBQDchpweFnXiIU8xtuyjvhVJCFKlwwqO+h/bnvBQ=="
+      }
+    ]
+  }
+}

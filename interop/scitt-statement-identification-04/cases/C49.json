@@ -1,0 +1,47 @@
+{
+ "derivation": [
+  "The candidate of C17, which is not a statement, under the reference of C13, which is not well-formed. Under an unusable reference match is INDETERMINATE, not NO_MATCH; is_scitt is False and sig_valid is None.",
+  "The candidate is that of C17, and the reference is that of C13."
+ ],
+ "draft": "draft-gruszka-scitt-statement-identification-04",
+ "expected": {
+  "is_scitt": false,
+  "match": "INDETERMINATE",
+  "ref_usable": false,
+  "sig_valid": null
+ },
+ "id": "C49",
+ "inputs": {
+  "candidate": {
+   "base64": "0oNYe6QBMgNwYXBwbGljYXRpb24vanNvbgRYIA5uhs0gwH306Vy0oHooYZLSn8dFZ7Qecm8cf3vSAutbD6MBdmh0dHBzOi8vaXNzdWVyLmV4YW1wbGUCeCBwa2c6Z2VuZXJpYy9leGFtcGxlLXdpZGdldEAxLjAuMAYaaM57IKBYhnsiYXJ0aWZhY3QiOiJleGFtcGxlLXdpZGdldC0xLjAuMC50YXIuZ3oiLCJsaWNlbnNlIjoiTUlUIiwic2hhMjU2IjoiNjA3ZTZjMWU2YzM1ZGNjOWI3NzBkZTVkYTkyYjk2OTcwNGEzNjZkNDY4OTcyYThiNTVkMWEwYzMyZGIzNGE3MiJ9",
+   "length": 264,
+   "sha256": "e93f290f6b71e86a570f32f20dcf2c20440f6e090c9e0dc017a971abdc6f8ef7"
+  },
+  "detached_payload": null,
+  "external_aad": {
+   "base64": "",
+   "length": 0,
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "reference": {
+   "base64": "gy9qVG9CZVNpZ25lZFgfw/XxN2Rnm593kYu1J4JIC8IivlrkvON/UThKax+qnQ==",
+   "length": 46,
+   "sha256": "dd4cac6985ec724db9dbe0f21bf4b5dd7add5dff4a6494e651a59630e0ce4747"
+  },
+  "scheme": {
+   "alg": -16,
+   "name": "ToBeSigned"
+  },
+  "stated_key": {
+   "name": "issuer",
+   "public_key": {
+    "base64": "GDHRldF3c/aCQN1T1r0XjSC8qIgB2gEawROg/CJ3bjI=",
+    "length": 32,
+    "sha256": "4a9a8725a3823cb54bd02fbaae487c296c3807e5c0d30c94973705e708e10df9"
+   }
+  }
+ },
+ "requirement": "A1",
+ "source": "Appendix A.3.49, Table 2 of Section 6",
+ "what_it_shows": "not a statement, unusable reference"
+}

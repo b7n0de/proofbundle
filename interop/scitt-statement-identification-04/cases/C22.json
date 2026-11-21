@@ -1,0 +1,43 @@
+{
+ "derivation": [
+  "The candidate of C7, signed over the external_aad that C7 states, with that external_aad named and not supplied. There is no ToBeSigned, so match is INDETERMINATE and sig_valid is None; the missing external_aad is not replaced by an empty byte string.",
+  "The candidate is that of C7. The case names the external_aad of C7 and does not supply it."
+ ],
+ "draft": "draft-gruszka-scitt-statement-identification-04",
+ "expected": {
+  "is_scitt": true,
+  "match": "INDETERMINATE",
+  "ref_usable": true,
+  "sig_valid": null
+ },
+ "id": "C22",
+ "inputs": {
+  "candidate": {
+   "base64": "0oRYe6QBMgNwYXBwbGljYXRpb24vanNvbgRYIA5uhs0gwH306Vy0oHooYZLSn8dFZ7Qecm8cf3vSAutbD6MBdmh0dHBzOi8vaXNzdWVyLmV4YW1wbGUCeCBwa2c6Z2VuZXJpYy9leGFtcGxlLXdpZGdldEAxLjAuMAYaaM57IKBYhnsiYXJ0aWZhY3QiOiJleGFtcGxlLXdpZGdldC0xLjAuMC50YXIuZ3oiLCJsaWNlbnNlIjoiTUlUIiwic2hhMjU2IjoiNjA3ZTZjMWU2YzM1ZGNjOWI3NzBkZTVkYTkyYjk2OTcwNGEzNjZkNDY4OTcyYThiNTVkMWEwYzMyZGIzNGE3MiJ9WEBXqPhFD6ToRJYZ2YD8NNOK0H8C8sYYApvlQQKr/kMPkFUiompAE9ri7T4JPxmeEn3I4aVYoHEZLqxAaoE6uX8E",
+   "length": 330,
+   "sha256": "0a5390069e431e6dd83764ee276b28f69d34986a9e64d82f05ef3322bc66d61c"
+  },
+  "detached_payload": null,
+  "external_aad": null,
+  "reference": {
+   "base64": "gy9qVG9CZVNpZ25lZFggw/XxN2Rnm593kYu1J4JIC8IivlrkvON/UThKax+qnbw=",
+   "length": 47,
+   "sha256": "dadea76ef3137c95552e76c247908376cd69cf1883c49b391feef443ecbdbd42"
+  },
+  "scheme": {
+   "alg": -16,
+   "name": "ToBeSigned"
+  },
+  "stated_key": {
+   "name": "issuer",
+   "public_key": {
+    "base64": "GDHRldF3c/aCQN1T1r0XjSC8qIgB2gEawROg/CJ3bjI=",
+    "length": 32,
+    "sha256": "4a9a8725a3823cb54bd02fbaae487c296c3807e5c0d30c94973705e708e10df9"
+   }
+  }
+ },
+ "requirement": "A1",
+ "source": "Appendix A.3.22, Table 2 of Section 6",
+ "what_it_shows": "named external_aad not supplied"
+}

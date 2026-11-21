@@ -1,0 +1,47 @@
+{
+ "derivation": [
+  "Statement 01 with an unprotected header of two NaN keys, the half- precision f9 7e00 and the single-precision fa 7fc00000, whose significands are equal after both are zero-extended at the right to 64 bits. They are one key, so the map holds two equal keys and the candidate is not a statement: is_scitt is False, sig_valid is None and match is NO_MATCH.",
+  "The candidate is statement 01 with the 1 byte at offset 127, a0, replaced by the 11 bytes a2f97e0000fa7fc0000000."
+ ],
+ "draft": "draft-gruszka-scitt-statement-identification-04",
+ "expected": {
+  "is_scitt": false,
+  "match": "NO_MATCH",
+  "ref_usable": true,
+  "sig_valid": null
+ },
+ "id": "C46",
+ "inputs": {
+  "candidate": {
+   "base64": "0oRYe6QBMgNwYXBwbGljYXRpb24vanNvbgRYIA5uhs0gwH306Vy0oHooYZLSn8dFZ7Qecm8cf3vSAutbD6MBdmh0dHBzOi8vaXNzdWVyLmV4YW1wbGUCeCBwa2c6Z2VuZXJpYy9leGFtcGxlLXdpZGdldEAxLjAuMAYaaM57IKL5fgAA+n/AAAAAWIZ7ImFydGlmYWN0IjoiZXhhbXBsZS13aWRnZXQtMS4wLjAudGFyLmd6IiwibGljZW5zZSI6Ik1JVCIsInNoYTI1NiI6IjYwN2U2YzFlNmMzNWRjYzliNzcwZGU1ZGE5MmI5Njk3MDRhMzY2ZDQ2ODk3MmE4YjU1ZDFhMGMzMmRiMzRhNzIifVhAH7MabfNF8cGEDYeL1LSs7bZhKVaRbktFUMW2R5KJ7Tb0HLYEyKt0PcLrn72n/s+4lrPURLow5ZHmYwk6TuuBBA==",
+   "length": 340,
+   "sha256": "02661d39fbc6d9d2cec8c9e897cac75469fb6a6cfe8e66a270bd439aa35162c5"
+  },
+  "detached_payload": null,
+  "external_aad": {
+   "base64": "",
+   "length": 0,
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "reference": {
+   "base64": "gy9qVG9CZVNpZ25lZFggw/XxN2Rnm593kYu1J4JIC8IivlrkvON/UThKax+qnbw=",
+   "length": 47,
+   "sha256": "dadea76ef3137c95552e76c247908376cd69cf1883c49b391feef443ecbdbd42"
+  },
+  "scheme": {
+   "alg": -16,
+   "name": "ToBeSigned"
+  },
+  "stated_key": {
+   "name": "issuer",
+   "public_key": {
+    "base64": "GDHRldF3c/aCQN1T1r0XjSC8qIgB2gEawROg/CJ3bjI=",
+    "length": 32,
+    "sha256": "4a9a8725a3823cb54bd02fbaae487c296c3807e5c0d30c94973705e708e10df9"
+   }
+  }
+ },
+ "requirement": "A1",
+ "source": "Appendix A.3.46, Table 2 of Section 6",
+ "what_it_shows": "two NaN keys, one significand"
+}

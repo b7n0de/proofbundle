@@ -1,0 +1,47 @@
+{
+ "derivation": [
+  "Statement 01 with an empty protected header, signed again under the issuer key. An empty protected header is allowed, so the candidate is a statement and its signature verifies, while its ToBeSigned differs from that of 01 and match is NO_MATCH.",
+  "The candidate is statement 01 with the 125 bytes at offset 2 replaced by the 1 byte 40. Its 64 signature bytes are then replaced by a signature under the issuer key over its ToBeSigned (hex):"
+ ],
+ "draft": "draft-gruszka-scitt-statement-identification-04",
+ "expected": {
+  "is_scitt": true,
+  "match": "NO_MATCH",
+  "ref_usable": true,
+  "sig_valid": true
+ },
+ "id": "C33",
+ "inputs": {
+  "candidate": {
+   "base64": "0oRAoFiGeyJhcnRpZmFjdCI6ImV4YW1wbGUtd2lkZ2V0LTEuMC4wLnRhci5neiIsImxpY2Vuc2UiOiJNSVQiLCJzaGEyNTYiOiI2MDdlNmMxZTZjMzVkY2M5Yjc3MGRlNWRhOTJiOTY5NzA0YTM2NmQ0Njg5NzJhOGI1NWQxYTBjMzJkYjM0YTcyIn1YQLES1aKQM6ZWtaEjTfEe27o/OrdUpfuyPBpgUoljxvqaKrjt1KDpQQmtJJBrGeQsE9clQLecOonq1647zx1f5Qs=",
+   "length": 206,
+   "sha256": "2d0fb6e6ccc7375c85f9f476d90cfad7fe308db74d681747a8a9526f692c4914"
+  },
+  "detached_payload": null,
+  "external_aad": {
+   "base64": "",
+   "length": 0,
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "reference": {
+   "base64": "gy9qVG9CZVNpZ25lZFggw/XxN2Rnm593kYu1J4JIC8IivlrkvON/UThKax+qnbw=",
+   "length": 47,
+   "sha256": "dadea76ef3137c95552e76c247908376cd69cf1883c49b391feef443ecbdbd42"
+  },
+  "scheme": {
+   "alg": -16,
+   "name": "ToBeSigned"
+  },
+  "stated_key": {
+   "name": "issuer",
+   "public_key": {
+    "base64": "GDHRldF3c/aCQN1T1r0XjSC8qIgB2gEawROg/CJ3bjI=",
+    "length": 32,
+    "sha256": "4a9a8725a3823cb54bd02fbaae487c296c3807e5c0d30c94973705e708e10df9"
+   }
+  }
+ },
+ "requirement": "A1",
+ "source": "Appendix A.3.33, Table 2 of Section 6",
+ "what_it_shows": "empty protected header"
+}

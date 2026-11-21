@@ -19,9 +19,9 @@ import builtins
 import importlib.util
 import json
 import os
+import resource
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 import pytest
@@ -63,6 +63,18 @@ def gate(args: list[str], timeout: float = 120) -> tuple[int, dict]:
     return r.returncode, json.loads(r.stdout)
 
 
+def gate_cpu_seconds() -> float:
+    """CPU time of the finished child processes of this process, user and system.
+
+    The "read in time" cases time the gate run alone, and the gate is a child process. Its CPU time is the work of
+    the gate; a wall clock also counts the time the gate waited for a core on a full machine. Same reading as in
+    tests/test_core_layer_gate_sees_every_spelling.py (owner choice A on line 52, 2026-11-20). The bounds are
+    unchanged; a gate that blocks instead of working is caught by the `timeout` of `gate`.
+    """
+    r = resource.getrusage(resource.RUSAGE_CHILDREN)
+    return r.ru_utime + r.ru_stime
+
+
 def found(report: dict) -> set[tuple[str, str]]:
     return {(f["rule"], f["operation"]) for f in report["measured"]["findings"]}
 
@@ -83,10 +95,10 @@ def test_F1_a_counter_assigned_again_and_again_is_read_in_time(tmp_path):
     core = "i = 0\n" + "i = i + 1\n" * 10 + "code = 'abcdefghijklmnop'\nVALUE = code[i]\n"
     args = build(tmp_path, {"core.py": core})
     assert run_module(tmp_path, "import probepkg.core as c; print(c.VALUE)") == "k"
-    started = time.monotonic()
+    started = gate_cpu_seconds()
     rc, report = gate(args, timeout=60)
     assert (rc, report["verdict"]) == (0, "GREEN"), report
-    assert time.monotonic() - started < 30
+    assert gate_cpu_seconds() - started < 30
 
 
 def test_F1_a_name_read_deep_first_is_read_again_where_it_is_shallow():
@@ -217,10 +229,10 @@ def test_F5_a_factory_with_many_annotated_inner_functions_is_read_in_time(tmp_pa
                     for i in range(700))
     core = "from __future__ import annotations\nimport typing\ndef factory():\n" + inner + "    return 1\n"
     args = build(tmp_path, {"core.py": core})
-    started = time.monotonic()
+    started = gate_cpu_seconds()
     rc, report = gate(args, timeout=90)
     assert (rc, report["verdict"]) == (0, "GREEN"), report
-    assert time.monotonic() - started < 45
+    assert gate_cpu_seconds() - started < 45
 
 
 # ── F6: the lines of a reviewed change, as `ast` counts them ────────────────────────────────────────────────────

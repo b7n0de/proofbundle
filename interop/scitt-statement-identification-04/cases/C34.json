@@ -1,0 +1,47 @@
+{
+ "derivation": [
+  "Statement 01 with a protected header that encodes an empty array. The protected header of a candidate is empty or encodes one map, so this candidate is not a statement: is_scitt is False, sig_valid is None and match is NO_MATCH.",
+  "The candidate is statement 01 with the 125 bytes at offset 2 replaced by the 2 bytes 4180."
+ ],
+ "draft": "draft-gruszka-scitt-statement-identification-04",
+ "expected": {
+  "is_scitt": false,
+  "match": "NO_MATCH",
+  "ref_usable": true,
+  "sig_valid": null
+ },
+ "id": "C34",
+ "inputs": {
+  "candidate": {
+   "base64": "0oRBgKBYhnsiYXJ0aWZhY3QiOiJleGFtcGxlLXdpZGdldC0xLjAuMC50YXIuZ3oiLCJsaWNlbnNlIjoiTUlUIiwic2hhMjU2IjoiNjA3ZTZjMWU2YzM1ZGNjOWI3NzBkZTVkYTkyYjk2OTcwNGEzNjZkNDY4OTcyYThiNTVkMWEwYzMyZGIzNGE3MiJ9WEAfsxpt80XxwYQNh4vUtKzttmEpVpFuS0VQxbZHkontNvQctgTIq3Q9wuufvaf+z7iWs9REujDlkeZjCTpO64EE",
+   "length": 207,
+   "sha256": "c12a7646b4a7e328072824f77265c986e7af2ec052f38df704ba25b9e655e7c5"
+  },
+  "detached_payload": null,
+  "external_aad": {
+   "base64": "",
+   "length": 0,
+   "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "reference": {
+   "base64": "gy9qVG9CZVNpZ25lZFggw/XxN2Rnm593kYu1J4JIC8IivlrkvON/UThKax+qnbw=",
+   "length": 47,
+   "sha256": "dadea76ef3137c95552e76c247908376cd69cf1883c49b391feef443ecbdbd42"
+  },
+  "scheme": {
+   "alg": -16,
+   "name": "ToBeSigned"
+  },
+  "stated_key": {
+   "name": "issuer",
+   "public_key": {
+    "base64": "GDHRldF3c/aCQN1T1r0XjSC8qIgB2gEawROg/CJ3bjI=",
+    "length": 32,
+    "sha256": "4a9a8725a3823cb54bd02fbaae487c296c3807e5c0d30c94973705e708e10df9"
+   }
+  }
+ },
+ "requirement": "A1",
+ "source": "Appendix A.3.34, Table 2 of Section 6",
+ "what_it_shows": "protected header not a map"
+}
