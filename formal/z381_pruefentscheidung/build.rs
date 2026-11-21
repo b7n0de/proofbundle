@@ -53,8 +53,8 @@ fn plant(src: &str, mutant: &str) -> String {
         // a possible panic: index the decoded public key before its length is checked
         "panic" => replace_exact(
             src,
-            "    let pk = b64_strict(pub_b64)?;\n    let pk_arr: [u8; 32] = pk",
-            "    let pk = b64_strict(pub_b64)?;\n    let _erstes_fehlendes = pk[31];\n    let pk_arr: [u8; 32] = pk",
+            "    let pk = b64_strict(pub_b64)?;\n    let sb = b64_strict(sig_b64)?;",
+            "    let pk = b64_strict(pub_b64)?;\n    let _erstes_fehlendes = pk[31];\n    let sb = b64_strict(sig_b64)?;",
             1,
             "mutant panic",
         ),
