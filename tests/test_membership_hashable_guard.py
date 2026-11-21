@@ -1249,6 +1249,9 @@ _LOOKUPS_CLASSIFIED = {
         (2, "own value: name is an exact str, the one a stand-in class recorded or the one read through the getter of type or str.__str__"),
     ("proofbundle/canonical.py", "_vertrag_angewandt", "_AUSSEN_ERLAUBT", "art"):
         (1, "own value: art is a value of the aussen= contract this package's decorator declares, a string literal"),
+    ("proofbundle/bundle.py", "_verify_bundle", "TRUST_ANCHOR_REFUSAL", "schwaeche"):
+        (1, "guarded: schwaeche is ed25519_trust_anchor_weakness's return, a string literal or None, and the "
+            "lookup runs only when it is \"low-order\" or \"non-canonical\" (6.6.1, SPEC section 4b)"),
     ("proofbundle/checkpoint.py", "_refuse_weak_ed25519_vkey", "TRUST_ANCHOR_REFUSAL", "weakness"):
         (1, "own value: ed25519_trust_anchor_weakness returns a string literal or None, and None returned before it"),
     ("proofbundle/cli.py", "_refuse_weak_issuer_pins", "TRUST_ANCHOR_REFUSAL", "weakness"):

@@ -1285,6 +1285,9 @@ Addendum (owner answer 11 A of Nachtrag 9, 2026-10-27): the plugin moves to 0.4.
 above): both manifests and the server's SERVER_VERSION say 0.4.0. The changes named above land in 0.4.0, which is
 unpublished as well.
 
+Addendum (tag of 2026-11-05): 0.4.0 is no longer unpublished. The tag `proofbundle--v0.4.0` was made on 2026-11-05.
+The addendum above is left as written.
+
 ## D19. Every rejection says what to do
 
 Chosen (smallest variant, 2026-09-30, for the owner's review): every deny and every ask names, in short

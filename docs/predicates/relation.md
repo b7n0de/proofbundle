@@ -305,7 +305,7 @@ cannot mask a regression (the decoy vector falls with the independently-derived 
   and identity indirection (DID/VC controllers, CA chains — the offline contract forbids a
   resolver dependency).
 
-## Standalone profile — `relation-statement/v0.1` (EXPERIMENTAL, since 3.5.0)
+## Standalone profile — `relation-statement/v0.1` (EXPERIMENTAL, since 3.6.0)
 
 The in-receipt edges above express change from the SUCCESSOR's side (a new receipt that carries
 the edge). The standalone profile is the independent case: a DSSE-signed statement OVER a target
@@ -342,7 +342,7 @@ SCITT protected-object-binding draft (`revokes`/`supersedes`); our `retracts` ma
   On this path `relation_signer` judges the key the statement verified under: `pinned` compares that
   key with the pinned set, `same-key` with the key its target verified under. `reject_retracted` and
   `reject_superseded` do not depend on `relation_signer`; when both rules fire, both codes are reported.
-- Rust parity: the independent Rust verifier carries this profile since 3.5.0
+- Rust parity: the independent Rust verifier carries this profile since 3.6.0
   (`verify-relation-statement`); `crosscheck.py` drives the statement vectors differentially and
   asserts Python and Rust land on the same exit class + lineage. Differential agreement on these
   vectors, not a correctness proof of either implementation.

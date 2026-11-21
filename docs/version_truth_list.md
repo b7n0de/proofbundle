@@ -100,7 +100,7 @@ auffällt statt still zu driften. Das ist eine gebundene Grenze, keine Vollstän
 Tatsache eine Falschaussage, deshalb stehen sie ausdrücklich **nicht** unter dem Riegel:
 
 - `CHANGELOG.md` — alle `## [X.Y.Z]`-Überschriften und die Prosa darunter
-- `INTEGRATIONS.md:75,91` — „sample-count provenance **since** v3.7.0"
+- `INTEGRATIONS.md:83,99` — „sample-count provenance **since** v3.7.0"
 - `CROSS_IMPLEMENTATION_REPORT.md:88`, `docs/readiness_pack/differential_matrix.md:24`,
   `docs/readiness_pack/rust_parity_scope.md:27` — „56/56 **as of** v3.7.0"
 - `docs/release_scope/3.7.1.md` — Planung der **nächsten** Fassung, keine Aussage über die aktuelle
