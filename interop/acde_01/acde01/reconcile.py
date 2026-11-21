@@ -505,7 +505,18 @@ def reconcile(run) -> dict:
             cls, d = rclass[rid]
             per_receiver[rid] = {"class": cls, "detail": d}
         else:
-            per_receiver[rid] = {"class": "invalid_receiver", "detail": _diag("MALFORMED", reason=(ic or {}).get("reason"))}
+            # A malformed record occupies exactly one primary class, invalid_receiver; whatever correlatable
+            # identity it carries stays visible as a diagnostic and never confirms anything (-02, case 7).
+            iid, tid = rec.get("instruction_id"), rec.get("target_id")
+            iid = iid if isinstance(iid, str) else None
+            tid = tid if isinstance(tid, str) else None
+            per_receiver[rid] = {"class": "invalid_receiver",
+                                 "detail": _diag("MALFORMED", reason=(ic or {}).get("reason"),
+                                                 instruction_id=iid, target_id=tid)}
+            ob = obl_index.get((iid, tid))
+            if ob is not None:
+                ob["diagnostics"].append(_diag("MALFORMED_RECEIVER_RECORD", record=rid,
+                                               reason=(ic or {}).get("reason")))
     counts_r = {c: sum(1 for v in per_receiver.values() if v["class"] == c) for c in RECEIVER_CLASSES}
     matched_confirming = sum(1 for v in per_receiver.values()
                              if v["class"] == "matched" and v["detail"]["code"] == "CONFIRMING")
