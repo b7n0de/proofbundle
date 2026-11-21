@@ -1399,7 +1399,8 @@ fn alias_teile(kv: &serde_json::Value) -> Vec<Vec<u8>> {
 // scripts/rust_parity_gate.py PENDING entries for trust_pack.verify_trust_pack). Two rules of that
 // validation hold here over every key of the pack: the trust-anchor rule for an Ed25519 key and the
 // alias rule (no key part in two keys, KR-01). The rules for the values the count reads hold as well:
-// `revoked` is a list of known keyIds, the root role names a non-empty list of known keyIds, and its
+// `revoked` is a list of known keyIds, `roles` is an object with a root role, the root role is an
+// object with no field but `keyIds` and `threshold`, it names a non-empty list of known keyIds, and its
 // threshold is an integer from 1 to the number of those keyIds that live keyIds can still meet.
 // Ok(true)/Ok(false) => threshold met/not met (contributes exit 0/1); Err(..) => malformed (exit 2).
 fn verify_trust_pack_threshold(
@@ -1564,10 +1565,30 @@ fn verify_trust_pack_threshold(
             menge
         }
     };
-    let root_role = predicate
-        .get("roles")
+    // THE ROOT ROLE ITSELF, BEFORE ITS VALUES (reading of pull request 551 on 21 November 2026). Python
+    // refuses `roles` when it is no object or names no root role, and `_validate_role` refuses a role
+    // that is no object and names each field other than `keyIds` and `threshold` before it reads these
+    // two. This count read `keyIds` and `threshold` out of whatever the root role held: the role
+    // `{"keyIds":["r"],"threshold":1,"extra":1}` with a valid signature met its threshold here with
+    // exit 0 and Python refused the pack, and with a threshold of 0 beside the field the two named
+    // different errors. The fields are read in the order they are written (`preserve_order`), as
+    // Python reads them, so the first unknown field is the one Python names first.
+    let Some(rollen) = predicate.get("roles") else {
+        return Err("predicate.roles.root missing".to_string());
+    };
+    let root_role = rollen
+        .as_object()
         .and_then(|r| r.get("root"))
-        .ok_or("predicate.roles.root missing")?;
+        .ok_or("roles must be an object that includes a 'root' role")?;
+    let Some(root_felder) = root_role.as_object() else {
+        return Err("roles.root: must be an object".to_string());
+    };
+    if let Some(fremd) = root_felder
+        .keys()
+        .find(|f| f.as_str() != "keyIds" && f.as_str() != "threshold")
+    {
+        return Err(format!("roles.root: unknown field {}", py_str_repr(fremd)));
+    }
     const ROOT_KEYIDS_FORM: &str = "roles.root: keyIds must be a non-empty list of key id strings";
     let root_kids = root_role
         .get("keyIds")
@@ -5108,6 +5129,62 @@ mod tests {
                 Some(serde_json::json!([5])),
                 None,
                 revoked_form,
+            ),
+            // The root role itself: a field Python does not know is named before keyIds and threshold
+            // are read, the first one written first, and a role that is no object is refused as one.
+            (
+                serde_json::json!({"keyIds": ["r"], "threshold": 1, "extra": 1}),
+                None,
+                None,
+                "roles.root: unknown field 'extra'",
+            ),
+            (
+                serde_json::json!({"keyIds": ["r"], "threshold": 0, "extra": 1}),
+                None,
+                None,
+                "roles.root: unknown field 'extra'",
+            ),
+            (
+                serde_json::json!({"zz": 1, "keyIds": ["r"], "aa": 2, "threshold": 1}),
+                None,
+                None,
+                "roles.root: unknown field 'zz'",
+            ),
+            (
+                serde_json::json!({"keyIds": ["r"], "threshold": 1, "it's": 1}),
+                None,
+                None,
+                "roles.root: unknown field \"it's\"",
+            ),
+            (
+                serde_json::json!(["r"]),
+                None,
+                None,
+                "roles.root: must be an object",
+            ),
+            (
+                serde_json::Value::Null,
+                None,
+                None,
+                "roles.root: must be an object",
+            ),
+            (
+                serde_json::json!({"keyIds": ["r"], "threshold": 7}),
+                None,
+                Some((
+                    r#""root":{"keyIds":["r"],"threshold":7}"#,
+                    r#""decisionMakers":{"keyIds":["r"],"threshold":1}"#,
+                )),
+                "roles must be an object that includes a 'root' role",
+            ),
+            (
+                serde_json::json!({"keyIds": ["r"], "threshold": 7}),
+                None,
+                Some((
+                    r#""roles":{"root":{"keyIds":["r"],"threshold":7}}"#,
+                    r#""roles":[]"#,
+                )),
+                "roles must be an object that includes a 'root' role",
             ),
         ];
         for (rolle, revoked, ersetze, text) in faelle {

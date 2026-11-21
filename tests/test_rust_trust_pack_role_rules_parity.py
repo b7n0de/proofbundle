@@ -11,6 +11,10 @@ since pull request 544 Rust reads it as the integer 0, as Python does. A keyId t
 threshold there as well, and a threshold above the keyIds or out of reach after revocation failed it
 (exit 1) where Python refuses the pack.
 
+The root role itself is under the same rules. Measured on 21 November 2026 at `6d295c25`: a root role with
+a field other than `keyIds` and `threshold` and a valid signature met its threshold in Rust (exit 0) while
+Python refused the pack for the unknown field, and beside a threshold of 0 the two named different errors.
+
 Each case below goes through both verifiers as the same bytes. Python must refuse the pack, and Rust must
 refuse it as malformed (exit 2) with the first error Python reports. The controls must agree as well.
 """
@@ -96,6 +100,24 @@ _REFUSED = {
     "revoked is null": ({"keyIds": ["r"], "threshold": 1}, None,
                         (b'"prevVersionDigest":null', b'"prevVersionDigest":null,"revoked":null'), False),
     "a number among the revoked": ({"keyIds": ["r"], "threshold": 1}, [5], None, False),
+    # The root role itself. Python names a field it does not know before it reads keyIds and threshold,
+    # the first one written first, and refuses a role that is no object and a `roles` without a root role.
+    "an unknown field in the root role": ({"keyIds": ["r"], "threshold": 1, "extra": 1}, None, None, False),
+    "an unknown field in the root role, no valid signature": ({"keyIds": ["r"], "threshold": 1, "extra": 1},
+                                                              None, None, True),
+    "an unknown field beside a threshold of 0": ({"keyIds": ["r"], "threshold": 0, "extra": 1}, None, None, False),
+    "two unknown fields, the first one written is named": ({"keyIds": ["r"], "threshold": 7}, None,
+                                                           (b'"threshold":7', b'"threshold":1,"zz":1,"aa":2'),
+                                                           False),
+    "an unknown field with an apostrophe in its name": ({"keyIds": ["r"], "threshold": 1, "it's": 1},
+                                                        None, None, False),
+    "the root role is a list": (["r"], None, None, False),
+    "the root role is null": (None, None, None, False),
+    "roles names no root role": ({"keyIds": ["r"], "threshold": 7}, None,
+                                 (b'"root":{"keyIds":["r"],"threshold":7}',
+                                  b'"decisionMakers":{"keyIds":["r"],"threshold":1}'), False),
+    "roles is a list": ({"keyIds": ["r"], "threshold": 7}, None,
+                        (b'"roles":{"root":{"keyIds":["r"],"threshold":7}}', b'"roles":[]'), False),
 }
 
 # name -> (root role, revoked, wrong signature, Rust exit, Python root_threshold_met)
