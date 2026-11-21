@@ -251,8 +251,8 @@ jobs:
       # RustSec advisory database, warnings (unmaintained, unsound, yanked) included. The step runs in
       # tools/pb_verify_rs because cargo-audit reads its exceptions from .cargo/audit.toml in the
       # directory it runs in (measured with 0.22.2); each exception stands there with its reason and a
-      # review date, never as a flag here. It is the last step, so a red audit does not skip the
-      # crosscheck and the parity report above.
+      # review date, never as a flag here. It comes after the crosscheck and the parity report, so a
+      # red audit does not skip them, and the contracts step below runs even when it is red.
       # --deny warnings refuses unmaintained, unsound and yanked only: an informational "notice"
       # advisory passes it with exit 0, and --deny notice and --deny all are refused by the tool (lens
       # finding F1 on PR 296, measured with 0.22.2). scripts/cargo_audit_gate.py therefore judges
@@ -266,6 +266,17 @@ jobs:
           cargo audit --file Cargo.lock --deny warnings
           python ../../scripts/cargo_audit_gate.py --dir . --no-fetch
           python ../../scripts/cargo_audit_gate.py --dir . --no-fetch --self-test
+      # THE CONTRACTS FOR THE GUARDS ABOVE RUN HERE, and the job is the reason why. They need a BUILT
+      # Rust tree, and measured 2026-09-16 no job had both: `test` and `coverage` run pytest and build
+      # no Rust, `rust-parity` and `audit-candidate-matrix` build Rust and run no pytest. The clippy
+      # case therefore skipped in the whole pipeline and measured nothing, while looking careful doing
+      # it; found by an adversarial lens, not by reading. This job already builds the tree, so the
+      # cases belong here. `tests/test_rust_format_and_lint_are_contracts.py` pins that this step
+      # exists; removing it turns that contract red rather than quietly disarming these. It runs
+      # after the audit and also when an earlier step is red, so neither of the two skips the other.
+      - name: Contracts for the pinned toolchain (need the built tree, so they run in THIS job)
+        if: ${{ !cancelled() }}
+        run: PYTHONPATH=src python -m pytest tests/test_rust_format_and_lint_are_contracts.py -q -rs
 
   test:
     runs-on: ubuntu-latest
