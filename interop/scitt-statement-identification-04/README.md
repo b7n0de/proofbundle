@@ -22,7 +22,7 @@ base_statements.json holds statements 01, 02 and 03 and the reference of Appendi
 
 python3 check_cases.py prints one result block per case and variant and exits with 0 only if every check matches. Each block states the profile under which its sig_valid was computed: profile=sid-ed25519-strict, or, for a variant with a rule left out, that it is outside the profile and which rules it applied; with --cases DIR it reads the case files of another folder. It implements the ToBeSigned scheme of Section 5.1 with the hash functions Section 6 names; a case file that names any other scheme gives UNSUPPORTED. An external_aad or a detached payload given as null is not supplied, and where it is needed, match is INDETERMINATE and sig_valid null. Measured with Python 3.10.12 on Linux: 63 of 63 checks match, 54 cases and 9 variants.
 
-The checker reads Section 6 as its docstring states. One choice is its own and reaches none of the 54 cases: CBOR nested deeper than 200 levels or longer than 1 MiB ends the run with an error instead of a result. No input of the cases is longer than 450 bytes or nests deeper than seven levels, counted as Section 6 states.
+The checker reads Section 6 as its docstring states. One choice is its own and reaches none of the 54 cases: CBOR nested deeper than 200 levels or longer than 1 MiB is not read. A case file with such an input gets no result: its line says MISMATCH with that reason, the other case files are still checked, and the run exits with 1, as it does for a result that differs. No input of the cases is longer than 450 bytes or nests deeper than seven levels, counted as Section 6 states.
 
 ## Adding a use case
 

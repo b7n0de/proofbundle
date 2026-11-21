@@ -36,7 +36,8 @@ What it implements, all from Section 6 and Section 5.1 of the draft:
   "UNSUPPORTED" in place of an object of axes.
 
 Limits of this script, not of the draft: it implements the ToBeSigned scheme of Section 5.1 only; CBOR nested deeper
-than 200 levels and inputs over 1 MiB are not read and end the run with an error, not with a verdict.
+than 200 levels and inputs over 1 MiB are not read. Such a case file gets a MISMATCH line with that reason and no
+verdict, the other case files are still checked, and the exit code is 1.
 """
 import argparse
 import base64
