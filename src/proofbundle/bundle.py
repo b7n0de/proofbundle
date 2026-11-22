@@ -572,15 +572,21 @@ def _verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonc
         # it matches. For distinct entries, fixing the size also fixes the index; inclusion alone does not
         # identify a unique occurrence when entries repeat (a repeated entry can verify under two indices of
         # the same tree). An unbound pair is labelled at the value, not only by the root caveat behind it.
-        size_bound = type(expected_tree_size) is int and expected_tree_size == tree_size
-        anchored = (f"anchored at index {leaf_index} of {tree_size}" if size_bound
-                    else f"anchored at stated index {leaf_index} of stated tree size {tree_size}")
-        result.add(
-            "merkle-inclusion",
-            incl_ok,
-            f"{anchored} (Merkle-consistent under the STATED root)"
-            if incl_ok else "inclusion proof failed",
-        )
+        # The line names both integers, so it is built on the passing path only, as in 6.6.0, and writes them
+        # through the bounded renderer. `_require_int` admits an integer of up to 2,467 digits and a host may
+        # lower the int-to-str limit to 640 digits, so a plain f-string here raised a raw ValueError out of
+        # verify_bundle(dict): for every such bundle while the line was built before the verdict was known,
+        # and on the passing path in 6.6.0 as well (the last leaf of a tree of 2**2200 + 1 entries has an
+        # audit path of one step, so inclusion holds under a tree size of 663 digits).
+        if incl_ok:
+            size_bound = type(expected_tree_size) is int and expected_tree_size == tree_size
+            index_text, size_text = render_safe(leaf_index), render_safe(tree_size)
+            anchored = (f"anchored at index {index_text} of {size_text}" if size_bound
+                        else f"anchored at stated index {index_text} of stated tree size {size_text}")
+            incl_detail = f"{anchored} (Merkle-consistent under the STATED root)"
+        else:
+            incl_detail = "inclusion proof failed"
+        result.add("merkle-inclusion", incl_ok, incl_detail)
         # Addendum R6a-2 (Z309): record the Merkle root this inclusion check passed under (origin-covered),
         # set only on a passing bundle signature AND a passing inclusion. A downstream judge that authenticates
         # a pinned/expected/checkpoint root (policy.evaluate_policy) confirms the result proved inclusion UNDER
@@ -623,13 +629,16 @@ def _verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonc
         # never-raise API. Keep the established fail-closed contract (bool/float/huge/ill-typed -> recorded
         # tree-size FAIL, never a raise) but render the raw expectation ONLY when it is a bounded int; a huge
         # or ill-typed expectation gets a safe generic detail (no str() of the raw value).
+        # The stated tree size goes through the bounded renderer as well: it is an integer `_require_int`
+        # admitted, and under a lowered host limit a plain f-string raised here in each of the three branches.
+        size_text = render_safe(tree_size)
         if size_ok:
-            detail = f"tree_size {tree_size} matches the expected size"
+            detail = f"tree_size {size_text} matches the expected size"
         elif type(expected_tree_size) is int and expected_tree_size.bit_length() <= 8192:
-            detail = (f"tree_size {tree_size} != expected {expected_tree_size} "
+            detail = (f"tree_size {size_text} != expected {render_safe(expected_tree_size)} "
                       "— possible tree-size substitution")
         else:
-            detail = (f"tree_size {tree_size} != expected (ill-typed or out-of-range expectation) "
+            detail = (f"tree_size {size_text} != expected (ill-typed or out-of-range expectation) "
                       "— possible tree-size substitution")
         result.add("tree-size", size_ok, detail)
 
