@@ -8,7 +8,7 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
-## [6.6.1] - 2026-11-23
+## [6.6.1] - 2026-11-24
 
 6.6.1 is a patch release following 6.6.0. A bundle whose own Ed25519 key is a point of small order or a non-canonical encoding no longer verifies, in `proofbundle verify`, in `show-eval` and in `pb_verify_rs verify-bundle`. Every count over the root keys of a Trust Pack counts a key part once. `verify` labels the leaf index and the tree size of a bundle as stated where nothing binds the tree size, and the release workflow stops before the build when the audit output its receipt names is not a tracked file or when the tag does not fall on the date of its changelog section.
 
