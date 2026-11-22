@@ -6,9 +6,9 @@ This page identifies the audit records for 6.6.1 and explains their limits. It d
 
 ## Records
 
-The [findings register](../findings_register_361.json) is maintained separately from this directory. PLACEHOLDER: its canonical body is to be signed for version `6.6.1`; in this tree it is signed for version `6.6.0`. The signed findings-register check reads that register, rather than the counts displayed on this page.
+The [findings register](../findings_register_361.json) is maintained separately from this directory. Its canonical body is signed for version `6.6.1`. The signed findings-register check reads that register, rather than the counts displayed on this page.
 
-PLACEHOLDER: the signed register reports N register entries for version `6.6.1`, with N closed, N open and N open P0 or P1 entries under the maintainer's classifications. Against 6.6.0 it adds PLACEHOLDER, removes PLACEHOLDER and changes the content of PLACEHOLDER. These totals count register entries only. R620-ABA-1 (RESTRISIKO_620.md lines 1579 to 1592) is a P1 by the line of 2026-09-27 that stays open by the owner's choice of 2026-10-01 and is not a register entry, so the statement above does not cover it.
+The signed register reports 45 register entries for version `6.6.1`, with 29 closed, 16 open and no open P0 or P1 entries under the maintainer's classifications. Against 6.6.0 it adds three entries, `PIN-CASE-RED-FROM-TAG-UNTIL-PIN-COMMIT-03`, `RUST-SDJWT-ISSUER-ES256-REFUSED-01` and `RUST-TRUST-PACK-PQ-ROOT-NOT-COUNTED-01`, removes none and changes the content of one, `PIN-CASE-RED-FROM-TAG-UNTIL-PIN-COMMIT-02`, whose window closed with pull request 533. These totals count register entries only. R620-ABA-1 (RESTRISIKO_620.md lines 1579 to 1592) is a P1 by the line of 2026-09-27 that stays open by the owner's choice of 2026-10-01 and is not a register entry, so the statement above does not cover it.
 
 The pre-tag receipt is to be produced from a fresh checkout of the final release-preparation head with `scripts/pre_tag_receipt.py`, version `6.6.1` and `--out audit_artifacts/661/pre_tag_receipt_v6.6.1.json`. The configured audit command runs while the receipt context is produced. Its command and exit status are recorded before signing. Since 6.6.1 the audit output the receipt names is a tracked file beside it, `audit_artifacts/661/pre_tag_audit_output_v6.6.1.txt`, and the release stops before the build when that file is missing or carries other bytes ([RELEASE.md](../../RELEASE.md)). This directory holds no other file named like a receipt.
 
@@ -23,7 +23,7 @@ The pre-tag receipt is to be produced from a fresh checkout of the final release
 | Reference measurement of the budget cost axis | PLACEHOLDER: measured on the reference machine on DATE using the code at COMMIT; the counts of expected axes and combinations that passed and of skipped axes, from [the measurement record](../360/budget_axis_latest.json) |
 | Short soak at the release candidate (C6.2) and Rust differential (C8.2), signed and bound to the candidate | Pending |
 | Full 24-hour soak (C6.3) | Informative since 6.6.0; it runs beside the release and does not withhold readiness |
-| Findings register signed for 6.6.1 | Pending; PLACEHOLDER until its canonical body is signed for version `6.6.1` |
+| Findings register signed for 6.6.1 | Recorded; its canonical body is signed for version `6.6.1` |
 | Paths named twice at the final release head | The final-tree check must be recorded before the pre-tag receipt is produced; its completion is not established by this page. |
 
 ## Verification and limits
