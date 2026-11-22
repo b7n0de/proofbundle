@@ -19,7 +19,7 @@ The pre-tag receipt is to be produced from a fresh checkout of the final release
 | Record | Status in this preparation snapshot |
 |---|---|
 | Final pre-tag audit and signed receipt, with the tracked audit output | Pending |
-| Mutation run | Running at bb018ea6, the last commit before this preparation, in 118 parts of one operator each, in separate containers and not on the reference machine; not finished at this snapshot. The preparation changes no module the run mutates and no file under `tests/` |
+| Mutation run | Running at bb018ea6, the last commit before this preparation: 60 of the 118 operators in four parts on the reference machine, the other 58 one each in separate containers, where the 20 tests bound to the reference machine are skipped and an operator that survives runs again on the reference machine; not finished at this snapshot. Its result is stated in the message of the tag, not in this tree ([the 6.6.1 residual-risk record](../../RESTRISIKO_661.md)). The preparation changes no module the run mutates and no file under `tests/` |
 | Reference measurement of the budget cost axis | PLACEHOLDER: measured on the reference machine on DATE using the code at COMMIT; the counts of expected axes and combinations that passed and of skipped axes, from [the measurement record](../360/budget_axis_latest.json) |
 | Short soak at the release candidate (C6.2) and Rust differential (C8.2), signed and bound to the candidate | Pending |
 | Full 24-hour soak (C6.3) | Informative since 6.6.0; it runs beside the release and does not withhold readiness |
