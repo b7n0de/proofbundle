@@ -106,10 +106,22 @@ def test_a_passing_inclusion_under_an_unwritable_tree_size_gets_a_verdict(lowest
     assert result.ok is False                   # the signature of this bundle is not a valid one
 
 
+def test_a_passing_inclusion_under_a_bound_unwritable_tree_size_gets_a_verdict(lowest_limit):
+    """The bound form of the line: the caller's expected size is the stated one, so the other label is built."""
+    result = verify_bundle(_bundle(_LAST, _LAST + 1, _ROOT_OF_LAST, proof=(_LEFT,)),
+                           expected_tree_size=_LAST + 1)
+    assert [c.ok for c in result.checks if c.name == "merkle-inclusion"] == [True]
+    assert _detail(result, "merkle-inclusion").startswith("anchored at index ")
+    assert [c.ok for c in result.checks if c.name == "tree-size"] == [True]
+
+
+_OUT_OF_RANGE = 2 ** 9000                                  # past int_bits: the third branch names no expectation
 _TREE_SIZE_LINE = [
     ("stated size unwritable, expectation small", _bundle(0, _HUGE, bytes(32)), 5, False),
     ("stated size unwritable, expectation equal", _bundle(0, _HUGE, bytes(32)), _HUGE, True),
     ("stated size small, expectation unwritable", _bundle(0, 1, _LEAF), _HUGE, False),
+    ("stated size unwritable, expectation ill-typed", _bundle(0, _HUGE, bytes(32)), True, False),
+    ("stated size unwritable, expectation out of range", _bundle(0, _HUGE, bytes(32)), _OUT_OF_RANGE, False),
 ]
 
 
