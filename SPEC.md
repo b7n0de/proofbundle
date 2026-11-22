@@ -501,7 +501,7 @@ and without a pinned root the root itself remains unauthenticated.
 
 Since 6.6.1 the object also carries `actualSource: checkpoint|expected|stated`, which says whether `actual`
 is bound. `checkpoint` means a verified signed checkpoint names the same tree size (`--trusted-checkpoint`
-with `--checkpoint-vkey`, or a policy `merkle.trusted_checkpoints` entry at the current time); `expected`
+with `--checkpoint-vkey`, or a policy `merkle.trusted_checkpoints` entry at the current time that names the root of the bundle as well); `expected`
 means an explicit `--expected-tree-size` matched; `stated` means neither, a mismatch included. A `stated`
 size is only the bundle's own claim: the same audit path verifies under an interval of tree sizes, so
 neither the size nor the leaf index is authenticated by inclusion alone. The human `merkle-inclusion` line
