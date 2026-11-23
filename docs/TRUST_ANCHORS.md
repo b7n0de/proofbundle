@@ -61,7 +61,7 @@ example is `examples/trust_policy_strict.json`. What it can pin today, mapping o
 | `merkle.require_authenticated_root` | the stated root MUST be authenticated (matches `--expected-root` or a `trusted_roots` entry); closes the coherent one-leaf rewrap (ADR 0004) | Samples/Merkle |
 | `merkle.trusted_roots` | base64 Merkle roots the relying party trusts out of band; a stated root among them counts as authenticated | Samples/Merkle |
 | `sd_jwt.expected_aud` / `require_nonce` / `require_key_binding_when_cnf_present` / `expected_vct` | RFC 9901 audience / replay / holder binding on the KB-JWT, and the issuer-signed `vct` | Holder key **and a TRUSTED SD-JWT issuer** (`sd_jwt.issuer_key_pin`, or the SD-JWT bound to the signed payload) |
-| `sd_jwt.issuer_key_pin` | the SD-JWT issuer verifying key, pinned by the relying party independently of the bundle (algorithm-prefixed, e.g. `ed25519:<b64>`) | SD-JWT issuer key |
+| `sd_jwt.issuer_key_pin` | the SD-JWT issuer verifying key, pinned by the relying party independently of the bundle (algorithm-prefixed, e.g. `ed25519:<b64>`). Since 6.6.1 a rule of its own: where the bundle carries an SD-JWT, a verifying key other than the pin fails the policy (`policy:sd_jwt_issuer_pinned`) | SD-JWT issuer key |
 | `sd_jwt.max_iat_age_seconds` | freshness of the signed eval-claim timestamp (judged at verify time) | (replay) |
 | `assurance.minimum_level` / `reject_self_attested_without_prereg` | the issuer's signed assurance level and the weakest self-attested-without-pre-registration case | Pre-registration protocol |
 
@@ -87,7 +87,7 @@ policy that pins no signer. In `verify` itself, a PASSING policy that pins no si
   lives outside the bundle's signed payload, so a KB-JWT under an untrusted self-signed SD-JWT carries an
   attacker-chosen audience, nonce and holder binding; without a pin or binding these rules fail closed (the
   Nachtrag 32 Critical fix for `expected_vct`, generalised to the whole class). Set `sd_jwt.issuer_key_pin`
-  whenever you rely on a KB-JWT presentation that is not an eval receipt bound to the bundle.
+  whenever you rely on a KB-JWT presentation that is not an eval receipt bound to the bundle. One of these rules has a branch that reads no issuer trust: `require_key_binding_when_cnf_present` passes with `no cnf holder key bound; KB not required` for an SD-JWT without `cnf` and without a KB-JWT, whoever signed it. There it is the pin itself that refuses a foreign issuer, as a rule of its own since 6.6.1; until 6.6.0 a policy of the pin and that rule passed for such a credential.
 - The SAME issuer-trust gate now also governs the DIRECT paths (Nachtrag 38, Z309 / PR 311 P1): the
   `key_binding_ok` / `audience_ok` / `nonce_ok` fields and the exit code of `verify` (and `verify_bundle` with
   `expected_aud` / `expected_nonce` or `sd_jwt_issuer_key_pin`), not just the policy rules. A KB-JWT verdict —
