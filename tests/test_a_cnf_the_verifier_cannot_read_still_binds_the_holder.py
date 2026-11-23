@@ -17,7 +17,9 @@ presented Disclosure that gives the payload a top-level ``cnf`` is one more ``cn
 it was ignored, with an Ed25519 key too (measured at 6.6.0 by a second session). A Disclosure the holder
 withholds is visible to no verifier, and a property named ``cnf`` inside another object is no confirmation claim.
 
-Only keys generated in this run. Every unreadable form is driven through every surface that reads ``cnf``.
+Only keys generated in this run. Every unreadable form is driven through every surface that reads ``cnf``. The forms
+are those the builder measured and those a second session measured at 6.6.0 from the package index with scripts of
+its own. The digests of the fixed Disclosure further down were computed outside Python.
 """
 from __future__ import annotations
 
@@ -26,6 +28,7 @@ import functools
 import hashlib
 import json
 import os
+import pathlib
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric import ec, ed448, ed25519, rsa, x25519
@@ -64,6 +67,8 @@ def _unreadable_forms() -> dict:
     """Every form of ``cnf`` that is present and that this verifier cannot read as a holder key."""
     holder_x = _raw(_keys()["holder"])
     p256 = ec.generate_private_key(ec.SECP256R1()).public_key().public_numbers()
+    p384 = ec.generate_private_key(ec.SECP384R1()).public_key().public_numbers()
+    k256 = ec.generate_private_key(ec.SECP256K1()).public_key().public_numbers()
     rsa_pub = rsa.generate_private_key(public_exponent=65537, key_size=2048).public_key().public_numbers()
     ed448_x = ed448.Ed448PrivateKey.generate().public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
     x25519_x = x25519.X25519PrivateKey.generate().public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
@@ -90,6 +95,18 @@ def _unreadable_forms() -> dict:
         "cnf-a-string": "holder-key-1",
         "cnf-a-list": [],
         "cnf-false": False,
+        "cnf-a-number": 5,
+        "cnf-a-list-with-a-jwk": [{"jwk": {**okp, "x": _b64u(holder_x)}}],
+        "jwk-ec-p384": {"jwk": {"kty": "EC", "crv": "P-384", "x": _b64u(p384.x.to_bytes(48, "big")),
+                                "y": _b64u(p384.y.to_bytes(48, "big"))}},
+        "jwk-ec-secp256k1": {"jwk": {"kty": "EC", "crv": "secp256k1", "x": _b64u(k256.x.to_bytes(32, "big")),
+                                     "y": _b64u(k256.y.to_bytes(32, "big"))}},
+        "jwk-ed25519-x-in-the-standard-alphabet-with-padding":
+            {"jwk": {**okp, "x": base64.b64encode(holder_x).decode("ascii")}},
+        "jwk-okp-without-crv": {"jwk": {"kty": "OKP", "x": _b64u(holder_x)}},
+        "jwk-kty-ec-with-crv-ed25519": {"jwk": {"kty": "EC", "crv": "Ed25519", "x": _b64u(holder_x)}},
+        "jkt-only": {"jkt": _b64u(hashlib.sha256(holder_x).digest())},
+        "x5t-s256-only": {"x5t#S256": _b64u(hashlib.sha256(holder_x).digest())},
     }
 
 
@@ -112,10 +129,10 @@ def _sd_jwt(cnf=_ABSENT) -> str:
     return f"{header}.{payload}.{signature}~"
 
 
-def _with_key_binding(sd_part: str, signer) -> str:
+def _with_key_binding(sd_part: str, signer, sd_hash_alg: str = "sha256") -> str:
     header = _b64u(json.dumps({"alg": "EdDSA", "typ": "kb+jwt"}).encode())
     payload = _b64u(json.dumps({"iat": _IAT, "aud": "https://rp.example.test", "nonce": "n-1",
-                                "sd_hash": _b64u(hashlib.sha256(sd_part.encode("ascii")).digest())}).encode())
+                                "sd_hash": _b64u(hashlib.new(sd_hash_alg, sd_part.encode("ascii")).digest())}).encode())
     return f"{sd_part}{header}.{payload}.{_b64u(signer.sign(f'{header}.{payload}'.encode('ascii')))}"
 
 
@@ -396,3 +413,134 @@ def test_what_cannot_be_read_at_the_top_level_asks_for_the_binding():
     crowded = {"vct": _VCT, "_sd": [_digest_of(d) for d in crowd]}
     assert kbjwt._cnf_present(crowded, _sd_jwt_from({"_sd": crowded["_sd"]}, crowd)) is True
     assert kbjwt._cnf_present(crowded, _sd_jwt_from({"_sd": crowded["_sd"]}, crowd[:256])) is False
+
+
+# --- a cnf Disclosure under each hash the profile reads, with digests computed outside Python ----------------
+
+# One fixed Disclosure, ["2GLC42sKQveCfGfryNRN9w", "cnf", {"kid": "holder-key-1"}], and the digests of its ASCII text
+# as sha256sum, sha384sum and sha512sum of coreutils printed them on 2026-11-23, written here as base64url.
+_FIXED_CNF_DISCLOSURE = "WyIyR0xDNDJzS1F2ZUNmR2ZyeU5STjl3IiwgImNuZiIsIHsia2lkIjogImhvbGRlci1rZXktMSJ9XQ"
+_FIXED_DIGEST = {
+    "sha-256": "Tbz1JrhFiI-mAM7fot3RxflpXzt3YPEQBuWRTivg4D4",
+    "sha-384": "qAsYJDhPm-bAzOuOaetHCBVFYgfrWaWmUD1IZSlwHtggBXzJ5uZiHlXi5b8_EcoZ",
+    "sha-512": "NpqbdibFi6hg19WBXPZW9D02gLHXKAm6NcCy3lN3BNaBqzkdxbXPwv9eCLGOdBcbdQcLYS3Qds7tT8UF4jke_g",
+}
+_HASHLIB_NAME = {"sha-256": "sha256", "sha-384": "sha384", "sha-512": "sha512"}
+_SD_ALGS = sorted(_FIXED_DIGEST)
+
+
+def _structure(result) -> list:
+    return [c.ok for c in result.checks if c.name == "sd-jwt-disclosures"]
+
+
+def test_the_fixed_disclosure_is_the_cnf_claim_it_is_said_to_be():
+    padded = _FIXED_CNF_DISCLOSURE + "=" * (-len(_FIXED_CNF_DISCLOSURE) % 4)
+    assert json.loads(base64.urlsafe_b64decode(padded)) == ["2GLC42sKQveCfGfryNRN9w", "cnf", {"kid": "holder-key-1"}]
+
+
+@pytest.mark.parametrize("sd_alg", _SD_ALGS)
+def test_a_cnf_disclosure_is_found_under_each_hash_algorithm(sd_alg):
+    claims = {"_sd_alg": sd_alg, "_sd": [_FIXED_DIGEST[sd_alg]]}
+    compact = _sd_jwt_from(claims, [_FIXED_CNF_DISCLOSURE])
+    assert kbjwt._cnf_present({"vct": _VCT, **claims}, compact) is True, sd_alg
+    result = verify_bundle(_bundle(compact))
+    checks = _key_binding_checks(result)
+    assert _structure(result) == [True], (sd_alg, [(c.name, c.ok, c.detail) for c in result.checks])
+    assert result.ok is False and len(checks) == 1 and checks[0][0] is False, (sd_alg, checks)
+    assert "NO Key Binding JWT" in checks[0][1], (sd_alg, checks)
+    third = _keys()["third"]
+    direct = verify_key_binding(_with_key_binding(compact, third, _HASHLIB_NAME[sd_alg]), _raw(third))
+    assert direct["present"] is True and direct["ok"] is False and _UNREADABLE in direct["detail"], (sd_alg, direct)
+
+
+def test_a_cnf_disclosure_is_found_under_the_default_hash_algorithm():
+    claims = {"_sd": [_FIXED_DIGEST["sha-256"]]}                               # no _sd_alg: sha-256
+    compact = _sd_jwt_from(claims, [_FIXED_CNF_DISCLOSURE])
+    assert kbjwt._cnf_present({"vct": _VCT, **claims}, compact) is True
+    checks = _key_binding_checks(verify_bundle(_bundle(compact)))
+    assert len(checks) == 1 and checks[0][0] is False and "NO Key Binding JWT" in checks[0][1], checks
+
+
+@pytest.mark.parametrize("sd_alg", _SD_ALGS)
+def test_a_digest_under_another_hash_algorithm_commits_nothing(sd_alg):
+    """The digest is read under the payload's own ``_sd_alg``. One computed with another hash commits no Disclosure,
+    here as in ``verify_sd_jwt``, which refuses the presentation at the structure check."""
+    for other in sorted(set(_FIXED_DIGEST) - {sd_alg}):
+        claims = {"_sd_alg": sd_alg, "_sd": [_FIXED_DIGEST[other]]}
+        compact = _sd_jwt_from(claims, [_FIXED_CNF_DISCLOSURE])
+        assert kbjwt._cnf_present({"vct": _VCT, **claims}, compact) is False, (sd_alg, other)
+        result = verify_bundle(_bundle(compact))
+        assert result.ok is False and _structure(result) == [False], (sd_alg, other, _structure(result))
+
+
+def test_order_repetition_and_a_segment_in_between_do_not_hide_a_cnf_disclosure():
+    other = _disclosure("given_name", "Ada")
+    claims = {"_sd": [_digest_of(other), _FIXED_DIGEST["sha-256"]]}
+    presentations = {
+        "cnf last": [other, _FIXED_CNF_DISCLOSURE],
+        "cnf first": [_FIXED_CNF_DISCLOSURE, other],
+        "cnf twice": [_FIXED_CNF_DISCLOSURE, other, _FIXED_CNF_DISCLOSURE],
+        "behind a segment shaped like a JWT": [other, "e30.e30.e30", _FIXED_CNF_DISCLOSURE],
+    }
+    for name, presented in presentations.items():
+        compact = _sd_jwt_from(claims, presented)
+        assert kbjwt._cnf_present({"vct": _VCT, **claims}, compact) is True, name
+        result = verify_bundle(_bundle(compact))
+        checks = _key_binding_checks(result)
+        assert result.ok is False, (name, [(c.name, c.ok, c.detail) for c in result.checks])
+        assert len(checks) == 1 and checks[0][0] is False and "NO Key Binding JWT" in checks[0][1], (name, checks)
+
+
+def test_only_text_digests_in_a_list_commit_a_disclosure():
+    with_one = {"_sd": [5, None, ["x"], {"d": 1}, _FIXED_DIGEST["sha-256"]]}
+    assert kbjwt._cnf_present({"vct": _VCT, **with_one}, _sd_jwt_from(with_one, [_FIXED_CNF_DISCLOSURE])) is True
+    for sd in ([5, None, ["x"], {"d": 1}], "digest", {"0": _FIXED_DIGEST["sha-256"]}, None, 5):
+        claims = {"_sd": sd}
+        compact = _sd_jwt_from(claims, [_FIXED_CNF_DISCLOSURE])
+        assert kbjwt._cnf_present({"vct": _VCT, **claims}, compact) is False, sd
+        assert verify_bundle(_bundle(compact)).ok is False, sd                # refused: the Disclosure is not committed
+
+
+def test_more_disclosures_than_the_verifier_accepts_fail_the_bundle():
+    crowd = [_disclosure("claim_%d" % i, i) for i in range(257)]
+    claims = {"_sd": [_digest_of(d) for d in crowd]}
+    result = verify_bundle(_bundle(_sd_jwt_from(claims, crowd)))
+    checks = _key_binding_checks(result)
+    assert result.ok is False and _structure(result) == [False], [(c.name, c.ok, c.detail) for c in result.checks]
+    assert len(checks) == 1 and checks[0][0] is False, checks                  # a binding it cannot rule out
+
+
+# --- what the binding check does not decide -------------------------------------------------------------------
+
+@pytest.mark.parametrize("form", ["jwk-ec-p256", "kid-only", "cnf-null"])
+def test_under_an_issuer_key_that_does_not_verify_the_bundle_fails_at_the_issuer_signature(form):
+    """The binding is judged only over a payload the issuer signature authenticated. Under a key that does not verify
+    it, the bundle fails at the issuer signature and no key-binding check is added, for a readable ``cnf`` too."""
+    for cnf in (_unreadable_forms()[form], _readable_cnf()):
+        sd = {"compact": _sd_jwt(cnf), "issuer_public_key_b64": base64.b64encode(_raw(_keys()["third"])).decode("ascii")}
+        bundle = emit_bundle(b'{"generic":"vc"}', generate_signer(), sd_jwt_vc=sd)
+        result = verify_bundle(bundle)
+        issuer = [c.ok for c in result.checks if c.name == "sd-jwt-issuer-signature"]
+        assert result.ok is False and issuer == [False], (form, [(c.name, c.ok, c.detail) for c in result.checks])
+        assert _key_binding_checks(result) == [], (form, _key_binding_checks(result))
+
+
+def test_a_payload_that_is_no_object_fails_everywhere():
+    header = _b64u(json.dumps({"alg": "EdDSA", "typ": "dc+sd-jwt"}).encode())
+    payload = _b64u(b'["cnf"]')
+    signature = _b64u(_keys()["issuer"].sign(f"{header}.{payload}".encode("ascii")))
+    compact = f"{header}.{payload}.{signature}~"
+    assert verify_bundle(_bundle(compact)).ok is False
+    third = _keys()["third"]
+    verdict = verify_key_binding(_with_key_binding(compact, third), _raw(third))
+    assert verdict["present"] is True and verdict["ok"] is False, verdict
+    assert verdict["detail"] == "malformed KB-JWT or issuer JWT", verdict
+
+
+def test_the_conformance_vector_fails_at_the_key_binding_check_and_nowhere_else():
+    case = (pathlib.Path(__file__).resolve().parent.parent / "conformance" / "bundle"
+            / "sd-jwt-cnf-not-readable-without-key-binding")
+    result = verify_bundle(json.loads((case / "bundle.json").read_text(encoding="utf-8")))
+    failed = [(c.name, c.detail) for c in result.checks if c.ok is False]
+    assert result.ok is False and [name for name, _ in failed] == ["sd-jwt-key-binding"], failed
+    assert "NO Key Binding JWT" in failed[0][1], failed
