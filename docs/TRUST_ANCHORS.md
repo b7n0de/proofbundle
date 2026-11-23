@@ -87,7 +87,7 @@ policy that pins no signer. In `verify` itself, a PASSING policy that pins no si
   lives outside the bundle's signed payload, so a KB-JWT under an untrusted self-signed SD-JWT carries an
   attacker-chosen audience, nonce and holder binding; without a pin or binding these rules fail closed (the
   Nachtrag 32 Critical fix for `expected_vct`, generalised to the whole class). Set `sd_jwt.issuer_key_pin`
-  whenever you rely on a KB-JWT presentation that is not an eval receipt bound to the bundle. One of these rules has a branch that reads no issuer trust: `require_key_binding_when_cnf_present` passes with `no cnf holder key bound; KB not required` for an SD-JWT without `cnf` and without a KB-JWT, whoever signed it. There it is the pin itself that refuses a foreign issuer, as a rule of its own since 6.6.1; until 6.6.0 a policy of the pin and that rule passed for such a credential.
+  whenever you rely on a KB-JWT presentation that is not an eval receipt bound to the bundle. One of these rules has a branch that reads no issuer trust: `require_key_binding_when_cnf_present` passes with `no cnf holder key bound; KB not required` for an SD-JWT in which it finds no `cnf` holder key and that carries no KB-JWT, whoever signed it. There it is the pin itself that refuses a foreign issuer, as a rule of its own since 6.6.1; in 6.6.0 a policy of the pin and that rule passed for such a credential (earlier releases were not measured).
 - The SAME issuer-trust gate now also governs the DIRECT paths (Nachtrag 38, Z309 / PR 311 P1): the
   `key_binding_ok` / `audience_ok` / `nonce_ok` fields and the exit code of `verify` (and `verify_bundle` with
   `expected_aud` / `expected_nonce` or `sd_jwt_issuer_key_pin`), not just the policy rules. A KB-JWT verdict —

@@ -193,7 +193,7 @@ def _placement_problem(payload: dict, by_digest: dict) -> Optional[str]:
     if len(placed) != len(by_digest):
         # Committed by digest and placed nowhere (6.6.1): `_collect_committed_digests` follows an object under `_sd`
         # into that object's own `_sd` and reads a `...` key in any object, and this walk places a Disclosure only
-        # in the `_sd` LIST of an object or at an array element that is exactly `{"...": digest}`. Until 6.6.0 such
+        # in the `_sd` LIST of an object or at an array element that is exactly `{"...": digest}`. In 6.6.0 such
         # a Disclosure passed the structure check and stood at no place a reader could name.
         return ("a disclosure is committed by digest and stands at no place: not in the _sd list of an object and "
                 "not at an array element (RFC 9901 section 7.1, rejected)")

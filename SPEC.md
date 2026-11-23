@@ -343,7 +343,7 @@ issuer's binding: it is used only when the payload carries no `cnf` member.
 A presented Disclosure that gives the payload a top-level `cnf` claim counts as
 such a member the verifier cannot read (it reads `cnf` in the issuer-signed
 payload only). A `cnf` Disclosure the holder withholds is visible to no verifier.
-Until 6.6.0 a `cnf` the verifier could not read was treated as absent.
+6.6.0 treated a `cnf` the verifier could not read as absent.
 `aud`/`nonce` *value* policy and `iat` freshness are
 the relying party's (an offline verifier has no trusted clock); the library
 exposes them and accepts `expected_aud`/`expected_nonce` parameters.

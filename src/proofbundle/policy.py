@@ -1589,7 +1589,7 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     kb = None
     if isinstance(sd, dict) and isinstance(sd.get("compact"), str):
         kb = verify_key_binding(sd["compact"])   # read aud/nonce/iat/present (value binding done in verify_bundle)
-    # 5.0 The issuer pin is a rule of its own (6.6.1). Until 6.6.0 the pin was read only by the rules that trust a
+    # 5.0 The issuer pin is a rule of its own (6.6.1). In 6.6.0 the pin was read only by the rules that trust a
     # value of the SD-JWT (expected_vct, require_nonce, expected_aud and a key binding verdict), so a policy that
     # pinned an issuer and set none of them, or only require_key_binding_when_cnf_present, passed for an SD-JWT
     # without cnf that anyone had signed with a key of their own and named in sd_jwt_vc.issuer_public_key_b64

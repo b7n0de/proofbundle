@@ -696,7 +696,7 @@ def _verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonc
         # bound a `cnf` holder key (proof-of-possession REQUIRED) a presentation with NO KB-JWT is a bearer
         # downgrade — anyone who sees the disclosed SD-JWT could replay it — so that MUST fail. expected_aud/
         # expected_nonce (v1.3) enforce RFC 9901 §7.3 replay/audience binding when the relying party supplies
-        # them. Bundles issued without `cnf` and with no KB-JWT verify exactly as before (backward-compatible).
+        # them. Where `_holder_binding_asked` finds no `cnf` and there is no KB-JWT, this check asks for nothing.
         #
         # The holder-binding check is only MEANINGFUL when the issuer signature was actually verified: the `cnf`
         # holder key is declared INSIDE the issuer-signed JWT, so without a checked issuer signature an attacker
