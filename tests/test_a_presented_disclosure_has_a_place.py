@@ -65,6 +65,7 @@ def _compact(claims: dict, presented) -> str:
 _CNF = _claim("cnf", {"kid": "holder-key-1"})
 _NAME = _claim("given_name", "Ada")
 _ITEM = _element("DE")
+_UNDER_AN_ELLIPSIS = _claim("address", {"...": {"_sd": [_digest(_NAME)]}})
 
 
 def _without_a_place() -> dict:
@@ -79,6 +80,14 @@ def _without_a_place() -> dict:
             {"nationalities": [{"...": _digest(_ITEM), "note": "x"}]}, [_ITEM]),
         "one-placed-and-one-without-a-place": (
             {"_sd": [_digest(_NAME)], "extra": {"...": _digest(_CNF)}}, [_NAME, _CNF]),
+        # A digest as text under one ellipsis key, and an `_sd` list that names it under the OBJECT value of another:
+        # the first makes it count as committed, and a walk that descends into the second would call it placed.
+        "committed-under-one-ellipsis-and-listed-under-the-object-of-another": (
+            {"...": _digest(_NAME), "child": {"...": {"_sd": [_digest(_NAME)]}}}, [_NAME]),
+        "the-same-mixed-form-with-a-cnf-claim": (
+            {"...": _digest(_CNF), "child": {"...": {"_sd": [_digest(_CNF)]}}}, [_CNF]),
+        "the-mixed-form-inside-a-disclosed-claim": (
+            {"_sd": [_digest(_UNDER_AN_ELLIPSIS)], "...": _digest(_NAME)}, [_UNDER_AN_ELLIPSIS, _NAME]),
     }
 
 
@@ -93,6 +102,8 @@ def _with_a_place() -> dict:
         "a-claim-inside-a-disclosed-claim": ({"_sd": [_digest(outer)]}, [outer, inner]),
         "a-digest-nobody-presents": ({"_sd": [_digest(_NAME), _digest(_CNF)]}, [_NAME]),
         "nothing-presented-over-an-sd-that-is-an-object": ({"_sd": {"_sd": [_digest(_NAME)]}}, []),
+        "the-same-disclosure-presented-twice": ({"_sd": [_digest(_NAME)]}, [_NAME, _NAME]),
+        "an-array-placeholder-nobody-presents": ({"nationalities": [{"...": _digest(_ITEM)}, "FR"]}, []),
     }
 
 

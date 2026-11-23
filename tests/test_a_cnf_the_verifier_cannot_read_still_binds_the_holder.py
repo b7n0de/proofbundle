@@ -582,6 +582,21 @@ def test_a_disclosure_presented_over_an_sd_that_is_no_list_asks_for_the_binding(
     assert len(checks) == 1 and checks[0][0] is False, (sd, checks)
 
 
+def test_over_an_sd_that_is_no_list_a_disclosure_placed_elsewhere_asks_for_the_binding_too():
+    """A change this release makes, held here so that it is seen: this helper places no Disclosure. Over a top-level
+    ``_sd`` that is no list it cannot tell where a presented one stands, also one that stands in the ``_sd`` list of
+    a nested object and names no ``cnf``. Before this change the helper asked such a presentation for no binding; it
+    now fails without a Key Binding JWT. A payload whose top-level ``_sd`` is a list is not touched."""
+    other = _disclosure("given_name", "Ada")
+    claims = {"_sd": None, "holder": {"_sd": [_digest_of(other)]}}
+    compact = _sd_jwt_from(claims, [other])
+    assert kbjwt._cnf_present({"vct": _VCT, **claims}, compact) is True
+    result = verify_bundle(_bundle(compact))
+    checks = _key_binding_checks(result)
+    assert _structure(result) == [True], [(c.name, c.ok, c.detail) for c in result.checks]
+    assert result.ok is False and len(checks) == 1 and checks[0][0] is False, checks
+
+
 _NO_CLAIM = {"an-object": b'{"cnf": {"kid": "holder-key-1"}}', "a-list-of-four": b'["salt", "cnf", 1, 2]',
              "a-list-of-two": b'["salt", {"kid": "holder-key-1"}]', "a-name-that-is-no-text": b'["salt", 5, 1]',
              "a-text": b'"cnf"', "an-empty-list": b"[]"}
