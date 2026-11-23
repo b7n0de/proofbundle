@@ -91,6 +91,27 @@ def _without_a_place() -> dict:
     }
 
 
+def _placed_and_again_under_an_ellipsis() -> dict:
+    """(claims, presented): the Disclosure stands at its place, and its digest stands a second time, in the form of
+    a place, below a ``...`` key of an object. 6.6.0 walked below that key and refused the second place; the walk of
+    this release does not, and until this case it lost the second occurrence with it (measured on 2026-11-23:
+    refused at 6.6.0 from the package index, accepted on the tree that prepares 6.6.1)."""
+    return {
+        "in-a-list-under-an-ellipsis-key-of-the-payload": (
+            {"_sd": [_digest(_NAME)], "...": [{"...": _digest(_NAME)}]}, [_NAME]),
+        "in-a-list-under-an-ellipsis-key-of-a-nested-object": (
+            {"_sd": [_digest(_NAME)], "x": {"...": [{"...": _digest(_NAME)}]}}, [_NAME]),
+        "in-an-sd-list-under-an-ellipsis-key": (
+            {"_sd": [_digest(_NAME)], "...": {"_sd": [_digest(_NAME)]}}, [_NAME]),
+        "the-same-with-a-cnf-claim": (
+            {"_sd": [_digest(_CNF)], "...": {"_sd": [_digest(_CNF)]}}, [_CNF]),
+        "an-array-element-placed-and-again-under-an-ellipsis-key": (
+            {"nationalities": [{"...": _digest(_ITEM)}], "x": {"...": [{"...": _digest(_ITEM)}]}}, [_ITEM]),
+        "deeper-below-the-ellipsis-key": (
+            {"_sd": [_digest(_NAME)], "...": {"a": [{"b": {"_sd": [_digest(_NAME)]}}]}}, [_NAME]),
+    }
+
+
 def _with_a_place() -> dict:
     """The controls: every presented Disclosure stands where its digest stands."""
     inner = _claim("street", "Main Street 1")
@@ -118,6 +139,23 @@ def test_a_disclosure_that_stands_nowhere_fails_the_structure_check(form):
 @pytest.mark.parametrize("form", sorted(_without_a_place()))
 def test_a_bundle_with_a_disclosure_that_stands_nowhere_does_not_verify(form):
     claims, presented = _without_a_place()[form]
+    sd = {"compact": _compact(claims, presented), "issuer_public_key_b64": base64.b64encode(_raw()).decode("ascii")}
+    result = verify_bundle(emit_bundle(b'{"generic":"vc"}', generate_signer(), sd_jwt_vc=sd))
+    structure = [c.ok for c in result.checks if c.name == "sd-jwt-disclosures"]
+    assert result.ok is False and structure == [False], (form, [(c.name, c.ok, c.detail) for c in result.checks])
+
+
+@pytest.mark.parametrize("form", sorted(_placed_and_again_under_an_ellipsis()))
+def test_a_second_occurrence_below_an_ellipsis_key_fails_the_structure_check(form):
+    claims, presented = _placed_and_again_under_an_ellipsis()[form]
+    verdict = verify_sd_jwt(_compact(claims, presented), _raw())
+    assert verdict["sig_ok"] is True, (form, verdict)
+    assert verdict["structure_ok"] is False and _NO_PLACE in verdict["detail"], (form, verdict)
+
+
+@pytest.mark.parametrize("form", sorted(_placed_and_again_under_an_ellipsis()))
+def test_a_bundle_with_a_second_occurrence_below_an_ellipsis_key_does_not_verify(form):
+    claims, presented = _placed_and_again_under_an_ellipsis()[form]
     sd = {"compact": _compact(claims, presented), "issuer_public_key_b64": base64.b64encode(_raw()).decode("ascii")}
     result = verify_bundle(emit_bundle(b'{"generic":"vc"}', generate_signer(), sd_jwt_vc=sd))
     structure = [c.ok for c in result.checks if c.name == "sd-jwt-disclosures"]
