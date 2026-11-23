@@ -169,9 +169,10 @@ def test_a_bundle_with_a_readable_cnf_and_without_key_binding_fails_as_before():
 
 
 @pytest.mark.parametrize("form", _FORMS)
-def test_the_policy_rule_never_reads_an_unreadable_cnf_as_no_cnf(form):
+def test_no_policy_judges_a_bundle_that_fails_on_an_unreadable_cnf(form):
     """The bundle fails at ``sd-jwt-key-binding``, so no policy judges it: ``policy_ok`` is None and no rule is
-    evaluated, the key binding rule and its sentence "no cnf holder key bound" among them."""
+    evaluated. This holds what ``verify_bundle`` does. It does not reach the rule ``policy:key_binding_present``,
+    which reads no ``cnf`` where the crypto result carries no key-binding line."""
     bundle = _bundle(_sd_jwt(_unreadable_forms()[form]))
     verdict = evaluate_policy(bundle, verify_bundle(bundle), _POLICY)
     assert verdict.get("policy_ok") is None and verdict.get("checks") == [], (form, verdict)
