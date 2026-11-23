@@ -510,6 +510,23 @@ def test_more_disclosures_than_the_verifier_accepts_fail_the_bundle():
     assert len(checks) == 1 and checks[0][0] is False, checks                  # a binding it cannot rule out
 
 
+def test_exactly_as_many_disclosures_as_the_verifier_accepts_are_read_by_the_bundle():
+    """The limit is 256 Disclosures and the bundle meets it at its public surface: 256 are read and 257 are refused (the
+    test above). Without a ``cnf`` among the 256 no binding is asked for; with one in the last place it is found."""
+    crowd = [_disclosure("claim_%d" % i, i) for i in range(256)]
+    claims = {"_sd": [_digest_of(d) for d in crowd]}
+    result = verify_bundle(_bundle(_sd_jwt_from(claims, crowd)))
+    assert _structure(result) == [True], [(c.name, c.ok, c.detail) for c in result.checks]
+    assert result.ok is True and _key_binding_checks(result) == [], [(c.name, c.ok, c.detail) for c in result.checks]
+    with_cnf = crowd[:255] + [_FIXED_CNF_DISCLOSURE]
+    claims = {"_sd": [_digest_of(d) for d in with_cnf]}
+    result = verify_bundle(_bundle(_sd_jwt_from(claims, with_cnf)))
+    checks = _key_binding_checks(result)
+    assert _structure(result) == [True], [(c.name, c.ok, c.detail) for c in result.checks]
+    assert result.ok is False and len(checks) == 1 and checks[0][0] is False, checks
+    assert "NO Key Binding JWT" in checks[0][1], checks
+
+
 def test_an_sd_alg_that_cannot_be_hashed_never_reaches_the_hash_table():
     """``_cnf_disclosed`` looks ``_sd_alg`` up in a module-level table only after ``is_member`` let it through. A value
     that cannot be hashed, or that names no known algorithm, yields no binding from a Disclosure and raises nothing;
