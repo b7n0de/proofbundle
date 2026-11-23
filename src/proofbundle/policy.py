@@ -31,7 +31,7 @@ from .canonical import (KEIN_ZEITPUNKT, _ein_stand, _plain_for_jcs, _pruefkopie,
                         _zeitpunkt_von)
 from .errors import BundleFormatError, ProofBundleError
 from .evalclaim import ASSURANCE_LEVELS, check_freshness, decode_eval_claim
-from .kbjwt import verify_key_binding
+from .kbjwt import split_key_binding, verify_key_binding
 from .signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness
 from ._wire_b64 import decode_b64
 from .merkle import _inclusion_context_digest
@@ -1616,8 +1616,23 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
                 "a KB-JWT segment is attached but its issuer signature was never verified — cannot "
                 "confirm key binding (fail-closed; supply sd_jwt_vc.issuer_public_key_b64)")
         else:
-            # genuinely no cnf holder key bound and no KB attached → nothing to require, vacuous pass.
-            add("policy:key_binding_present", True, "no cnf holder key bound; KB not required")
+            # No key-binding line in the crypto result and no KB attached. "No cnf holder key bound" is said only
+            # of a payload that was read and binds none: the question the bundle asks (_holder_binding_asked),
+            # asked here again. verify_bundle fails a bundle whose SD-JWT binds a holder key and carries no KB-JWT
+            # before a policy judges it; until 6.6.1 this branch rested on that alone and read no `cnf`.
+            from .bundle import _holder_binding_asked  # noqa: PLC0415
+            if sd is None:
+                asked = None
+            elif isinstance(sd, dict) and isinstance(sd.get("compact"), str):
+                asked = _holder_binding_asked(split_key_binding(sd["compact"])[0])
+            else:
+                asked = "unreadable"
+            if asked is None:
+                add("policy:key_binding_present", True, "no cnf holder key bound; KB not required")
+            else:
+                add("policy:key_binding_present", False,
+                    "the SD-JWT binds a holder key (cnf), or one cannot be ruled out, and the crypto result "
+                    "carries no verified key binding (fail-closed)")
     if sdj.get("require_nonce"):
         # A nonce only means anything when it comes from a VERIFIED key binding (verify-lens L1/L2,
         # HIGH): reading kb["nonce"] straight from an unauthenticated/unsigned KB-JWT was a false PASS.
