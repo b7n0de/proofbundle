@@ -188,6 +188,14 @@ def test_the_policy_rule_still_passes_a_credential_without_cnf():
     assert verdict["policy_ok"] is True and len(rule) == 1 and rule[0]["ok"] is True, verdict
 
 
+def test_the_policy_rule_says_so_where_the_bundle_carries_no_sd_jwt():
+    """No SD-JWT, no payload to read: the rule passes and does not say that a payload binds no holder key."""
+    bundle = emit_bundle(b'{"generic":"vc"}', generate_signer())
+    verdict = evaluate_policy(bundle, verify_bundle(bundle), _POLICY)
+    rule = [(c["ok"], c["detail"]) for c in verdict["checks"] if c["name"] == "policy:key_binding_present"]
+    assert verdict["policy_ok"] is True and rule == [(True, "the bundle carries no SD-JWT; KB not required")], verdict
+
+
 def _as_a_verifier_without_the_rule_would_report(bundle):
     """The result of ``verify_bundle`` without its ``sd-jwt-key-binding`` line, stamped as this process's own: what a
     verifier that had lost the rule would hand to a policy. ``verify_bundle`` itself produces no such result."""
@@ -553,17 +561,52 @@ def test_order_repetition_and_a_segment_in_between_do_not_hide_a_cnf_disclosure(
 def test_only_text_digests_in_a_list_commit_a_disclosure():
     with_one = {"_sd": [5, None, ["x"], {"d": 1}, _FIXED_DIGEST["sha-256"]]}
     assert kbjwt._cnf_present({"vct": _VCT, **with_one}, _sd_jwt_from(with_one, [_FIXED_CNF_DISCLOSURE])) is True
-    for sd in ([5, None, ["x"], {"d": 1}], "digest", {"0": _FIXED_DIGEST["sha-256"]}, None, 5):
-        claims = {"_sd": sd}
-        compact = _sd_jwt_from(claims, [_FIXED_CNF_DISCLOSURE])
-        assert kbjwt._cnf_present({"vct": _VCT, **claims}, compact) is False, sd
-        assert verify_bundle(_bundle(compact)).ok is False, sd                # refused: the Disclosure is not committed
+    claims = {"_sd": [5, None, ["x"], {"d": 1}]}                               # a list without a text digest
+    compact = _sd_jwt_from(claims, [_FIXED_CNF_DISCLOSURE])
+    assert kbjwt._cnf_present({"vct": _VCT, **claims}, compact) is False
+    assert verify_bundle(_bundle(compact)).ok is False                         # refused: the Disclosure is not committed
+
+
+@pytest.mark.parametrize("sd", ["digest", {"0": _FIXED_DIGEST["sha-256"]}, None, 5, {"_sd": [_FIXED_DIGEST["sha-256"]]}],
+                         ids=["a-text", "an-object", "null", "a-number", "an-object-with-an-sd-of-its-own"])
+def test_a_disclosure_presented_over_an_sd_that_is_no_list_asks_for_the_binding(sd):
+    """An ``_sd`` that is no list commits nothing this helper can place. ``verify_sd_jwt`` reads it another way: it
+    follows an object under ``_sd`` into that object's own ``_sd``. Where a Disclosure is presented over such an
+    ``_sd``, the place it stands at cannot be told, so it cannot be told from a ``cnf``."""
+    claims = {"_sd": sd}
+    compact = _sd_jwt_from(claims, [_FIXED_CNF_DISCLOSURE])
+    assert kbjwt._cnf_present({"vct": _VCT, **claims}, compact) is True, sd
+    result = verify_bundle(_bundle(compact))
+    checks = _key_binding_checks(result)
+    assert result.ok is False, (sd, [(c.name, c.ok, c.detail) for c in result.checks])
+    assert len(checks) == 1 and checks[0][0] is False, (sd, checks)
+
+
+_NO_CLAIM = {"an-object": b'{"cnf": {"kid": "holder-key-1"}}', "a-list-of-four": b'["salt", "cnf", 1, 2]',
+             "a-list-of-two": b'["salt", {"kid": "holder-key-1"}]', "a-name-that-is-no-text": b'["salt", 5, 1]',
+             "a-text": b'"cnf"', "an-empty-list": b"[]"}
+
+
+@pytest.mark.parametrize("form", sorted(_NO_CLAIM))
+def test_a_committed_top_level_disclosure_that_is_no_claim_asks_for_the_binding(form):
+    """Committed in the payload's own ``_sd`` and not of the form ``[salt, name, value]`` with a text name: what it
+    names cannot be told, so it cannot be told from a ``cnf``. ``verify_sd_jwt`` refuses each of these at the
+    structure check; the binding is asked for as well."""
+    disclosure = _b64u(_NO_CLAIM[form])
+    claims = {"_sd": [_digest_of(disclosure)]}
+    compact = _sd_jwt_from(claims, [disclosure])
+    assert kbjwt._cnf_present({"vct": _VCT, **claims}, compact) is True, form
+    result = verify_bundle(_bundle(compact))
+    checks = _key_binding_checks(result)
+    assert result.ok is False and _structure(result) == [False], (form, [(c.name, c.ok) for c in result.checks])
+    assert len(checks) == 1 and checks[0][0] is False, (form, checks)
 
 
 def test_an_sd_that_is_no_list_commits_nothing_and_asks_for_no_binding():
-    """Why this one place still answers "no holder key bound": an ``_sd`` that is no list commits no Disclosure, here
-    as in ``verify_sd_jwt``. With nothing presented such a credential verifies, and asking for the binding would fail
-    it for a reason that has nothing to do with a holder key."""
+    """Why this one place still answers "no holder key bound": with nothing presented there is no Disclosure that
+    could give the payload a ``cnf``, whatever ``_sd`` holds. Such a credential verifies, and asking for the binding
+    would fail it for a reason that has nothing to do with a holder key. With a Disclosure presented it is asked for
+    (the test above)."""
     for sd in ("digest", {"0": _FIXED_DIGEST["sha-256"]}, None, 5):
         claims = {"_sd": sd}
         compact = _sd_jwt_from(claims)
@@ -609,9 +652,10 @@ def test_an_sd_alg_that_cannot_be_hashed_never_reaches_the_hash_table():
         compact = _sd_jwt_from(claims, [_FIXED_CNF_DISCLOSURE])
         assert kbjwt._cnf_present({"vct": _VCT, **claims}, compact) is True, sd_alg
         assert kbjwt._cnf_present({"vct": _VCT, **claims}, _sd_jwt_from(claims)) is False, sd_alg
-        uncommitted = {"_sd_alg": sd_alg}
-        with_nothing_committed = _sd_jwt_from(uncommitted, [_FIXED_CNF_DISCLOSURE])
-        assert kbjwt._cnf_present({"vct": _VCT, **uncommitted}, with_nothing_committed) is False, sd_alg
+        for nothing in ({}, {"_sd": []}, {"_sd": [5, None, {"d": 1}]}):         # no text digest at the top level
+            uncommitted = {"_sd_alg": sd_alg, **nothing}
+            with_nothing_committed = _sd_jwt_from(uncommitted, [_FIXED_CNF_DISCLOSURE])
+            assert kbjwt._cnf_present({"vct": _VCT, **uncommitted}, with_nothing_committed) is False, (sd_alg, nothing)
         result = verify_bundle(_bundle(compact))
         checks = _key_binding_checks(result)
         assert result.ok is False and _structure(result) == [False], (sd_alg, _structure(result))
