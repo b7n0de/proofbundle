@@ -318,10 +318,10 @@ read, so it does not read as no claim. A payload that is not UTF-8 or not JSON t
 leading byte order mark, a raw control character inside a string) is no eval claim;
 only case 2 can add the check for it.
 
-Check **sd-jwt-key-binding** (since v1.2, RFC 9901 §4.3): in a bundle whose SD-JWT issuer signature verified, it is performed where the
+Check **sd-jwt-key-binding** (since v1.2, RFC 9901 §4.3): where the issuer signature of the SD-JWT was checked and verified, it is performed where the
 compact serialization carries a trailing Key Binding JWT (a compact form ending
 in `~` carries none), and otherwise where the issuer-signed payload carries a `cnf` member or a presented Disclosure gives it a top-level `cnf` claim (see
-the end of this paragraph; a payload that raises one of the verifier's own errors when read, a duplicated member or an exceeded budget, is treated as carrying one). Without an issuer key it is performed, and **FAILS**, in the `cnf` cases only; under an issuer signature that does not verify it is not performed, and the bundle fails at `sd-jwt-issuer-signature`. The check is **fail-closed** — a present KB-JWT that cannot
+the end of this paragraph; a payload that raises one of the verifier's own errors when read, more Disclosures than the verifier reads, and a Disclosure committed at the top level that it cannot read are treated as carrying one). Where the issuer signature was not checked, because the bundle supplies no issuer key or because the SD-JWT was refused before its signature (not a compact SD-JWT, a header or payload the verifier does not read, a `crit` header, an unknown `_sd_alg`, more than 256 Disclosures), it is performed, and **FAILS**, in those `cnf` cases only, with or without a Key Binding JWT; where the signature was checked and does not verify it is not performed, and the bundle fails at `sd-jwt-issuer-signature`. The check is **fail-closed** — a present KB-JWT that cannot
 be verified fails the bundle; it is never silently ignored. The verifier
 requires: header `typ` = `kb+jwt` and `alg` = `EdDSA`; payload claims `iat`,
 `aud`, `nonce`, `sd_hash` all present; `sd_hash` = base64url(H(US-ASCII of the
@@ -377,7 +377,7 @@ A conforming verifier MUST perform, in this order, and report each result:
    `issuer_public_key_b64` makes **sd-jwt-issuer-signature** FAIL (unsigned →
    unauthenticated); it is not a skipped or warning-only check.
 5. **sd-jwt-key-binding** — only if `sd_jwt_vc` is present AND its compact
-   serialization carries a Key Binding JWT (§6, since v1.2; fail-closed).
+   serialization carries a Key Binding JWT or a `cnf` asks for one, in the branches §6 names (§6, since v1.2; fail-closed).
 6. **sd-jwt-issuer-identity** — only if `sd_jwt_vc` is present, its issuer
    signature verified, and it discloses an `issuer` (§6, WP-C1; fail-closed against
    a forged issuer identity).
