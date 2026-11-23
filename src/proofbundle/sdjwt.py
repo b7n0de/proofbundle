@@ -141,8 +141,8 @@ def _collect_committed_digests(node, out: Set[str]) -> None:
 def _placed_below(node, by_digest: dict) -> bool:
     """Whether the digest of a presented Disclosure stands, in the form of a place, anywhere below ``node``: in the
     ``_sd`` list of an object, or as ``{"...": digest}`` in a list. :func:`_placement_problem` asks this of what
-    stands under a ``...`` key of an object. Nothing there is a place, so a digest in that form is a second occurrence
-    of a Disclosure placed elsewhere, or the only occurrence of one that then stands nowhere. It reads what the walk
+    stands under a ``...`` key of an object. Nothing there is a place: a digest in that form belongs to a Disclosure
+    placed elsewhere, or to one that stands nowhere and may occur below such keys more than once. It reads what the walk
     of 6.6.0 read there and no more: below every key but ``_sd``, and of an ``_sd`` only the text entries of a list,
     so a presentation in which every Disclosure stands at its place is refused here exactly where 6.6.0 refused it
     for a second place. For the values ``verify_sd_jwt`` hands over, parsed JSON, it does not raise."""
@@ -199,8 +199,8 @@ def _placement_problem(payload: dict, by_digest: dict) -> Optional[str]:
             # `...` is reserved (6.6.1): in a list, `{"...": digest}` is the place of an array element and the
             # list branch below reads it; as a key of an object it names no claim, and what stands under it is no
             # place. A walk that descended into it called a Disclosure placed that no reader finds. A digest that
-            # stands there in the form of a place is refused: 6.6.0 descended and counted it as a second place, and
-            # a walk that only looks away accepted a payload 6.6.0 refused (measured on 2026-11-23).
+            # stands there in the form of a place is refused. 6.6.0 descended and counted it as a place: as the only
+            # one the presentation passed, as a further one it was refused, which a walk that only looks away accepted.
             if "..." in node and _placed_below(node["..."], by_digest):
                 return ("a disclosure is committed below a `...` key of an object, which is no place (RFC 9901 "
                         "section 7.1, rejected)")
