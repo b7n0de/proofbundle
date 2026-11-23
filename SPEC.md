@@ -320,7 +320,8 @@ only case 2 can add the check for it.
 
 Check **sd-jwt-key-binding** (since v1.2, RFC 9901 §4.3): performed **iff** the
 compact serialization carries a trailing Key Binding JWT (a compact form ending
-in `~` carries none). The check is **fail-closed** — a present KB-JWT that cannot
+in `~` carries none), or the issuer-signed payload carries a `cnf` member (see
+the end of this paragraph). The check is **fail-closed** — a present KB-JWT that cannot
 be verified fails the bundle; it is never silently ignored. The verifier
 requires: header `typ` = `kb+jwt` and `alg` = `EdDSA`; payload claims `iat`,
 `aud`, `nonce`, `sd_hash` all present; `sd_hash` = base64url(H(US-ASCII of the
@@ -330,7 +331,20 @@ spelling of the issuer signature counts (the holder hashed the spelling it
 received; the two differ in the signature segment only, see above); and the
 KB-JWT signature verifies under the holder key
 from the issuer-signed payload's `cnf.jwk` (RFC 7800, OKP/Ed25519 — the issuer's
-binding is authoritative). `aud`/`nonce` *value* policy and `iat` freshness are
+binding is authoritative). A `cnf` member in the issuer-signed payload asks for
+proof of possession: a presentation without a Key Binding JWT then **FAILS**
+this check (a bearer downgrade), and so does a bundle that supplies no issuer
+key for such an SD-JWT. Since 6.6.1 this holds for every `cnf` member that is
+present, whether or not the verifier can read it. Where it is not an
+OKP/Ed25519 `cnf.jwk` of 32 bytes (another key type, a `kid`, `jku` or `jwe`, a
+malformed value, `null`), possession cannot be checked, so a Key Binding JWT
+**FAILS** as well, and a holder key the caller supplies never replaces the
+issuer's binding: it is used only when the payload carries no `cnf` member.
+A presented Disclosure that gives the payload a top-level `cnf` claim counts as
+such a member the verifier cannot read (it reads `cnf` in the issuer-signed
+payload only). A `cnf` Disclosure the holder withholds is visible to no verifier.
+Until 6.6.0 a `cnf` the verifier could not read was treated as absent.
+`aud`/`nonce` *value* policy and `iat` freshness are
 the relying party's (an offline verifier has no trusted clock); the library
 exposes them and accepts `expected_aud`/`expected_nonce` parameters.
 

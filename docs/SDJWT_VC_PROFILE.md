@@ -42,4 +42,6 @@ nothing to filter because nothing is ever fetched.
 
 A passing profile check attests the credential's type is allowlisted and (optionally) its metadata integrity
 and holder binding hold — **never** that the credential's CLAIMS are true. The issuer-signature trust anchor
-for the SD-JWT itself is a separate concern (the holder key comes from the issuer-signed `cnf.jwk`).
+for the SD-JWT itself is a separate concern (the holder key comes from the issuer-signed `cnf.jwk`; `holder_pubkey` is
+used only when the issuer payload carries no `cnf`, and since 6.6.1 a `cnf` that is not a readable OKP/Ed25519
+`cnf.jwk` fails the binding).
