@@ -8,7 +8,7 @@ that prepares 6.6.1: ``policy_ok`` True for the pin alone and for the pin beside
 ``expected_vct`` and beside ``require_nonce``.
 
 The pin is a rule of its own now: where the bundle carries an SD-JWT, the key that verified it must be the pin
-(``policy:sd_jwt_issuer_pinned``). Without a pin nothing changes, and the ``verify_bundle`` argument
+(``policy:sd_jwt_issuer_pinned``). Without a pin this rule adds nothing, and the ``verify_bundle`` argument
 ``sd_jwt_issuer_key_pin`` still judges a key binding verdict only; both are held here as they are.
 """
 from __future__ import annotations

@@ -721,7 +721,7 @@ def test_a_payload_the_bundle_cannot_read_never_says_that_nothing_is_bound(form,
     compact = _unreadable_payloads()[form]
     sd_part, _kb = kbjwt.split_key_binding(compact)
     assert _issuer_requires_holder_binding(sd_part) is True, form
-    result = verify_bundle(_bundle(compact, with_issuer_key=with_issuer_key))
+    result = verify_bundle(_bundle(compact) if with_issuer_key else _bundle(compact, with_issuer_key=False))
     checks = _key_binding_checks(result)
     assert result.ok is False, (form, [(c.name, c.ok, c.detail) for c in result.checks])
     assert len(checks) == 1 and checks[0][0] is False and _NOT_RULED_OUT in checks[0][1], (form, checks)
@@ -738,11 +738,11 @@ def test_a_readable_cnf_refused_before_the_signature_check_is_not_said_to_lack_a
     """With an issuer key supplied and the SD-JWT refused before its signature check (here: an ``_sd_alg`` no digest
     can be computed under), the detail no longer says that no issuer key was supplied."""
     compact = _sd_jwt_from({"_sd_alg": "sha-1", "cnf": _readable_cnf()})
-    with_key = _key_binding_checks(verify_bundle(_bundle(compact)))
-    assert len(with_key) == 1 and with_key[0][0] is False, with_key
-    assert _NOT_RULED_OUT in with_key[0][1] and "NO issuer key" not in with_key[0][1], with_key
-    without_key = _key_binding_checks(verify_bundle(_bundle(compact, with_issuer_key=False)))
-    assert len(without_key) == 1 and without_key[0][0] is False and "NO issuer key" in without_key[0][1], without_key
+    keyed = _key_binding_checks(verify_bundle(_bundle(compact)))
+    assert len(keyed) == 1 and keyed[0][0] is False, keyed
+    assert _NOT_RULED_OUT in keyed[0][1] and "NO issuer key" not in keyed[0][1], keyed
+    unkeyed = _key_binding_checks(verify_bundle(_bundle(compact, with_issuer_key=False)))
+    assert len(unkeyed) == 1 and unkeyed[0][0] is False and "NO issuer key" in unkeyed[0][1], unkeyed
 
 
 def test_the_conformance_vector_fails_at_the_key_binding_check_and_nowhere_else():
