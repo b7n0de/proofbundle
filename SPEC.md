@@ -204,8 +204,8 @@ SD-JWT is its own issuer signature. Therefore (secure-by-default since revision
 2026-07-11, WP-C1/C2 — a breaking change from the prior null-and-warn behaviour):
 
 Check **sd-jwt-disclosures**: the compact string is well formed and every
-presented disclosure is committed (its digest appears in the issuer-signed
-payload's `_sd` array). This is self-consistency only — it proves nothing about
+presented disclosure is committed (its digest stands at one of the places
+named below). This is self-consistency only — it proves nothing about
 provenance and is forgeable without any key. Committed means placed as RFC 9901 places
 it: an object-property disclosure in the `_sd` array of any object of the issuer-signed
 payload or of a value disclosed in turn, an array-element disclosure as `{"...": digest}`
@@ -321,7 +321,7 @@ only case 2 can add the check for it.
 Check **sd-jwt-key-binding** (since v1.2, RFC 9901 §4.3): where the issuer signature of the SD-JWT was checked and verified, it is performed where the
 compact serialization carries a trailing Key Binding JWT (a compact form ending
 in `~` carries none), and otherwise where the issuer-signed payload carries a `cnf` member or a presented Disclosure gives it a top-level `cnf` claim (see
-the end of this paragraph; a payload that cannot be read as a JSON object is treated as carrying one, and so are, where the payload holds a top-level `_sd` list, more than 256 presented Disclosures, a Disclosure committed in that list that the verifier cannot read or whose form is no claim `[salt, name, value]` with a text name and, where that list holds a digest and a Disclosure is presented, an `_sd_alg` the verifier does not know; over a top-level `_sd` that is no list, any presented Disclosure counts as one too). Where the issuer signature was not checked, because the bundle supplies no issuer key or because the SD-JWT was refused before its signature (not a compact SD-JWT, a header or payload the verifier does not read, a `crit` header, an unknown `_sd_alg`, more than 256 Disclosures), it is performed, and **FAILS**, in those `cnf` cases only, with or without a Key Binding JWT; where the signature was checked and does not verify it is not performed, and the bundle fails at `sd-jwt-issuer-signature`. The check is **fail-closed** — a present KB-JWT that cannot
+the end of this paragraph; a payload that cannot be read as a JSON object is treated as carrying one, and so are, where the payload holds a top-level `_sd` list, more than 256 presented Disclosures, a Disclosure committed in that list that the verifier cannot read or whose form is no claim `[salt, name, value]` with a text name and, where that list holds at least one text entry and a Disclosure is presented, an `_sd_alg` the verifier does not know; over a top-level `_sd` that is no list, any presented Disclosure counts as one too). Where the issuer signature was not checked, because the bundle supplies no issuer key or because the SD-JWT was refused before its signature (not a compact SD-JWT, a header or payload the verifier does not read, a `crit` header, an unknown `_sd_alg`, more than 256 Disclosures), it is performed, and **FAILS**, in those `cnf` cases only, with or without a Key Binding JWT; where the signature was checked and does not verify it is not performed, and the bundle fails at `sd-jwt-issuer-signature`. The check is **fail-closed** — a present KB-JWT that cannot
 be verified fails the bundle; it is never silently ignored. The verifier
 requires: header `typ` = `kb+jwt` and `alg` = `EdDSA`; payload claims `iat`,
 `aud`, `nonce`, `sd_hash` all present; `sd_hash` = base64url(H(US-ASCII of the
@@ -340,7 +340,7 @@ OKP/Ed25519 `cnf.jwk` of 32 bytes (another key type, a `kid`, `jku` or `jwe`, a
 malformed value, `null`), possession cannot be checked, so a Key Binding JWT
 **FAILS** as well, and a holder key the caller supplies never replaces the
 issuer's binding: it is used only when the payload carries no `cnf` member.
-A presented Disclosure that gives the payload a top-level `cnf` claim counts as
+Where the payload carries no `cnf` member itself, a presented Disclosure that gives it a top-level `cnf` claim counts as
 such a member the verifier cannot read (it reads `cnf` in the issuer-signed
 payload only). A `cnf` Disclosure the holder withholds is visible to no verifier.
 6.6.0 treated a `cnf` the verifier could not read as absent.
