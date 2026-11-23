@@ -198,9 +198,9 @@ def _placement_problem(payload: dict, by_digest: dict) -> Optional[str]:
                 stack.append(parsed[2])
             # `...` is reserved (6.6.1): in a list, `{"...": digest}` is the place of an array element and the
             # list branch below reads it; as a key of an object it names no claim, and what stands under it is no
-            # place. A walk that descended into it called a Disclosure placed that no reader finds. A digest that
-            # stands there in the form of a place is refused. 6.6.0 descended and counted it as a place: a further
-            # place was refused there, an only one was no ground to refuse. A walk that only looks away sees neither.
+            # place: descending into it would call a Disclosure placed that no reader finds. The walk does not
+            # descend there. `_placed_below` reads below the key, and where it finds the digest of a presented
+            # Disclosure in the form of a place, the presentation is refused, wherever else that Disclosure stands.
             if "..." in node and _placed_below(node["..."], by_digest):
                 return ("a disclosure is committed below a `...` key of an object, which is no place (RFC 9901 "
                         "section 7.1, rejected)")
