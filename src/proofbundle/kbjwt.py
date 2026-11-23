@@ -22,14 +22,18 @@ RFC 9901 requirements enforced here (verifier side, §4.3):
     and ``(r, n - s)``; the hash is accepted over either (finding D1), so the
     verdict does not depend on which one a relay passed on.
   - the signature is verified with the holder key from the issuer-signed
-    payload's ``cnf.jwk`` (RFC 7800; OKP/Ed25519), or an explicitly supplied
-    holder key. The cnf key wins when both are available — the issuer's binding
-    is the source of truth.
+    payload's ``cnf.jwk`` (RFC 7800; OKP/Ed25519). An explicitly supplied holder
+    key is used only when the issuer payload carries no ``cnf`` member at all.
+    The issuer's binding is the source of truth: a ``cnf`` this verifier cannot
+    read (another key type, a ``kid``, ``jku`` or ``jwe``, a malformed value)
+    fails the check and is never replaced by the supplied key (6.6.1; until
+    6.6.0 such a ``cnf`` was read as no binding at all).
 
 Out of scope, stated honestly: aud/nonce *value* policy is the verifier's
 (pass ``expected_aud`` / ``expected_nonce`` to enforce); no clock-based ``iat``
 freshness window (a pure-offline verifier has no trusted clock); no non-EdDSA
-algorithms; no x5c/kid holder-key resolution.
+algorithms; no x5c/kid holder-key resolution, so a credential whose ``cnf`` names
+its key that way cannot be verified here and is refused.
 """
 
 from __future__ import annotations
@@ -42,7 +46,7 @@ from typing import Optional, Tuple
 from ._strict_json import loads_strict
 from .canonical import _ein_stand, _plain_for_jcs, _zeichen_von
 from .errors import ProofBundleError
-from .sdjwt import _es256_signature_spellings
+from .sdjwt import _MAX_DISCLOSURES, _es256_signature_spellings
 from .signature import _reject_jws_crit, verify_ed25519_pinned
 from ._wire_b64 import decode_b64url
 from ._membership import is_member
@@ -148,6 +152,71 @@ def holder_key_from_cnf(issuer_payload: dict) -> Optional[bytes]:
     return raw if len(raw) == 32 else None
 
 
+def _cnf_present(issuer_payload, sd_part=None) -> bool:
+    """Whether the issuer bound a holder key: the issuer-signed payload carries a ``cnf`` member, whatever it
+    holds, or a Disclosure presented in ``sd_part`` gives it one (:func:`_cnf_disclosed`).
+
+    The one place that tells "the issuer bound a holder key" from "this verifier can read that key"
+    (:func:`holder_key_from_cnf`). RFC 7800 lets an issuer bind a key as a ``jwk`` of any key type, a ``jwe``,
+    a ``kid`` or a ``jku``; this verifier reads an OKP/Ed25519 ``jwk`` of 32 bytes only. Until 6.6.0 the two
+    questions were one, so every other form read as "no binding": a bundle with such a credential and no Key
+    Binding JWT verified, and a Key Binding JWT signed by anyone verified under a holder key the caller
+    supplied (measured at 6.6.0 and at f170c168 for EC P-256, RSA, Ed448, an Ed25519 ``x`` of 31 bytes and a
+    ``cnf`` with only a ``kid``). ``tools/pb_verify_rs`` refused every credential with a ``cnf`` member all
+    along, so the two verifiers disagreed on exactly these bundles.
+
+    A member that is present counts, also as ``null``, an empty object or another type: what the issuer meant
+    cannot be read, and a binding that cannot be read is not a binding that is absent. A payload that is no
+    JSON object carries no member. One that holds a value JSON cannot write cannot be read at all and asks for
+    the binding (fail-closed). Never raises."""
+    if not issubclass(type(issuer_payload), dict):
+        return False
+    # By what the payload stores, as in holder_key_from_cnf: a dict subclass's own `__contains__` never answers.
+    try:
+        issuer_payload = _plain_for_jcs(issuer_payload, ValueError)
+    except ValueError:
+        return True
+    return "cnf" in issuer_payload or _cnf_disclosed(issuer_payload, sd_part)
+
+
+def _cnf_disclosed(issuer_payload: dict, sd_part) -> bool:
+    """Whether a Disclosure presented in ``sd_part`` gives the issuer-signed payload a top-level ``cnf`` claim.
+
+    An issuer can commit ``cnf`` as a selectively disclosable claim: its digest stands in the payload's ``_sd``
+    and the claim itself travels as a Disclosure ``[salt, "cnf", value]``. This verifier reads ``cnf`` in the
+    issuer-signed payload only, so until 6.6.0 it ignored such a Disclosure, also one with an Ed25519 key, and
+    the presentation verified with no Key Binding JWT (measured at 6.6.0 from the package index by a second
+    session, 2026-11-22). A presented ``cnf`` is the issuer's binding wherever it stands; one this verifier does
+    not read asks for the binding and fails it (:func:`_cnf_present`). draft-ietf-oauth-sd-jwt-vc-27, section
+    2.2.2.3, lists ``cnf`` among the claims that MUST NOT be included in Disclosures.
+
+    Top level only: the digest of the Disclosure stands in the payload's own ``_sd``. A property named ``cnf``
+    inside another object is no confirmation claim. A Disclosure the holder withholds is visible to no verifier.
+    More Disclosures than ``sdjwt.verify_sd_jwt`` accepts, or one committed at the top level that cannot be
+    read, ask for the binding (fail-closed). An ``_sd_alg`` this verifier does not know yields False: every
+    caller refuses that presentation before it comes here. Never raises."""
+    top = issuer_payload.get("_sd")
+    if type(sd_part) is not str or not isinstance(top, list):
+        return False
+    sd_alg = issuer_payload.get("_sd_alg", "sha-256")
+    if not is_member(sd_alg, _HASH_ALG):
+        return False
+    disclosures = [d for d in sd_part.split("~")[1:] if d and d.count(".") == 0]
+    if len(disclosures) > _MAX_DISCLOSURES:
+        return True
+    committed = {dg for dg in top if type(dg) is str}
+    for d in disclosures:
+        try:
+            if _b64url_nopad(hashlib.new(_HASH_ALG[sd_alg], d.encode("ascii")).digest()) not in committed:
+                continue
+            parsed = loads_strict(_b64url_decode(d))
+        except (ProofBundleError, ValueError):
+            return True
+        if isinstance(parsed, list) and len(parsed) == 3 and parsed[1] == "cnf":
+            return True
+    return False
+
+
 # Nachtrag 49 K4-02 (`KRAXO-CLOUD-N49-ZEIT-UND-GUELTIGKEIT-01`, Z309): a KB-JWT is a PRESENTATION-freshness
 # proof. When the relying party supplies an evaluation time (`now`, POSIX seconds), the holder's `iat` is judged
 # against it: a conservative default presentation age (5 minutes) bounds replay, and a small skew window absorbs
@@ -175,9 +244,12 @@ def verify_key_binding(
     ``ok`` is only meaningful when ``present`` is True; an absent KB-JWT yields
     ``present=False, ok=False`` and the caller decides whether that is fatal.
 
-    The holder key comes from the issuer-signed payload's ``cnf.jwk`` when
-    available (the issuer's binding is authoritative), else from
-    ``holder_pubkey``. If neither exists the check fails — never skips.
+    The holder key comes from the issuer-signed payload's ``cnf.jwk`` (the
+    issuer's binding is authoritative). ``holder_pubkey`` is used only when the
+    issuer payload carries no ``cnf`` member; a ``cnf`` that is present and that
+    this verifier cannot read fails the check, whatever key is supplied (6.6.1).
+    If neither a readable ``cnf.jwk`` nor a supplied key exists the check fails —
+    never skips.
     """
     result = {"present": False, "ok": False, "detail": "", "aud": None, "nonce": None, "iat": None,
               "fresh": None}
@@ -302,9 +374,18 @@ def verify_key_binding(
         result["detail"] = "KB-JWT nonce does not match the expected nonce"
         return result
 
-    # Signature with the holder key — cnf.jwk is authoritative when present.
+    # Signature with the holder key. The issuer's `cnf` is authoritative: a readable cnf.jwk decides alone, a
+    # `cnf` this verifier cannot read fails the check (6.6.1, `_cnf_present`), and the caller's key is used only
+    # where the issuer bound nothing. Until 6.6.0 an unreadable `cnf` fell through to the caller's key, so a
+    # KB-JWT signed by a third party verified for a credential the issuer had bound to another key.
     key = holder_key_from_cnf(issuer_payload)
     key_source = "cnf.jwk"
+    if key is None and _cnf_present(issuer_payload, sd_part):
+        result["detail"] = ("issuer bound a holder key (cnf) this verifier cannot read (it reads an OKP/Ed25519 "
+                            "cnf.jwk in the issuer-signed payload only) — proof-of-possession cannot be checked, "
+                            "and a supplied holder key "
+                            "never replaces the issuer's binding (fail-closed)")
+        return result
     if key is None:
         key = holder_pubkey
         key_source = "supplied holder key"

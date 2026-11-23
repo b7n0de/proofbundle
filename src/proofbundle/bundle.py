@@ -33,7 +33,7 @@ from ._strict_json import enforce_structural_budget, loads_strict
 from .budget import DEFAULT_BUDGET, render_keys_safe, render_safe
 from .canonical import _ein_stand, _plain_for_jcs, _zeichen_von
 from .errors import BundleFormatError, ProofBundleError, UnsupportedError, VerificationResult
-from .kbjwt import holder_key_from_cnf, split_key_binding, verify_key_binding
+from .kbjwt import _cnf_present, split_key_binding, verify_key_binding
 from .signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness, verify_ed25519_pinned
 from .sdjwt import canonical_sd_jwt_compact, verify_sd_jwt
 from ._wire_b64 import decode_b64, decode_b64url
@@ -78,16 +78,16 @@ def _as_list(v):
 
 
 def _issuer_requires_holder_binding(sd_part: str) -> bool:
-    """True iff the issuer-signed SD-JWT payload carries a usable ``cnf`` holder key (RFC 7800) — i.e. the
-    issuer REQUIRES proof-of-possession. A presentation without a valid Key Binding JWT is then a bearer
-    downgrade and MUST fail. Malformed/absent → False (no cnf ⇒ no binding required, backward-compatible).
-    A DUPLICATE key → True (fail-closed, F12): treating an ambiguous-because-duplicated payload as
-    'no binding required' would be the exact inversion _strict_json.py warns about."""
+    """True iff the issuer-signed SD-JWT payload carries a ``cnf`` member (RFC 7800), readable here or not
+    (6.6.1, ``kbjwt._cnf_present``; until 6.6.0 only a usable OKP/Ed25519 key counted, so a ``cnf`` of another
+    key type or with only a ``kid`` read as "no binding required"). The issuer then REQUIRES proof-of-possession:
+    a presentation without a valid Key Binding JWT is a bearer downgrade and MUST fail. No cnf → False. A
+    DUPLICATE key → True (fail-closed, F12): 'no binding required' would be the inversion _strict_json.py warns of."""
     try:
         issuer_jwt = sd_part.split("~", 1)[0]
         payload_b64 = issuer_jwt.split(".")[1].encode("ascii")
         payload = loads_strict(decode_b64url(payload_b64))
-        return isinstance(payload, dict) and holder_key_from_cnf(payload) is not None
+        return isinstance(payload, dict) and _cnf_present(payload, sd_part)
     except ProofBundleError:
         # adversarial re-audit round 3: catch the BASE ProofBundleError — loads_strict raises a SIBLING
         # BudgetExceeded (a node-heavy issuer payload) that `except BundleFormatError` missed, letting a raw

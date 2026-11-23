@@ -763,6 +763,26 @@ MUTATIONS = [
      '    errors.extend(nested_type_violations(predicate, _NESTED_TYPES))',
      '    pass',
      "outcome: nested value types (traceparent, audience, nonce) not read again", True),
+    # 6.6.1 — a cnf the verifier cannot read still asks for proof of possession. Until 6.6.0 a cnf that was
+    # not an OKP/Ed25519 cnf.jwk read as no binding (measured at 6.6.0 for EC P-256, RSA, Ed448, a 31-byte x
+    # and a cnf with only a kid). Each operator takes one piece of the rule back; at the end of the list, so
+    # the 118 operators before them keep their indices.
+    ('src/proofbundle/kbjwt.py',
+     '    if key is None and _cnf_present(issuer_payload, sd_part):',
+     '    if False:',
+     'kbjwt: a cnf the verifier cannot read falls back to the supplied holder key again', True),
+    ('src/proofbundle/kbjwt.py',
+     '    return "cnf" in issuer_payload or _cnf_disclosed(issuer_payload, sd_part)',
+     '    return holder_key_from_cnf(issuer_payload) is not None',
+     "kbjwt: only a readable Ed25519 cnf.jwk counts as the issuer's binding again", True),
+    ('src/proofbundle/kbjwt.py',
+     '        if isinstance(parsed, list) and len(parsed) == 3 and parsed[1] == "cnf":',
+     '        if False:',
+     'kbjwt: a presented cnf Disclosure is ignored again', True),
+    ('src/proofbundle/bundle.py',
+     '        return isinstance(payload, dict) and _cnf_present(payload, sd_part)',
+     '        return False',
+     'bundle: a cnf in the issuer payload never requires holder binding', True),
 ]
 
 
