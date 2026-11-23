@@ -125,6 +125,15 @@ def _with_a_place() -> dict:
         "nothing-presented-over-an-sd-that-is-an-object": ({"_sd": {"_sd": [_digest(_NAME)]}}, []),
         "the-same-disclosure-presented-twice": ({"_sd": [_digest(_NAME)]}, [_NAME, _NAME]),
         "an-array-placeholder-nobody-presents": ({"nationalities": [{"...": _digest(_ITEM)}, "FR"]}, []),
+        # Below a `...` key the check reads what the walk of 6.6.0 read there, and that walk read nothing below an
+        # `_sd` key but the text entries of an `_sd` list. A second occurrence it never saw passed in 6.6.0 and
+        # passes here (measured on 2026-11-23 at 6.6.0 from the package index).
+        "placed-and-again-below-an-sd-object-under-an-ellipsis-key": (
+            {"_sd": [_digest(_NAME)], "...": {"_sd": {"_sd": [_digest(_NAME)]}}}, [_NAME]),
+        "placed-and-again-below-an-sd-list-of-objects-under-an-ellipsis-key": (
+            {"_sd": [_digest(_NAME)], "...": {"_sd": [{"_sd": [_digest(_NAME)]}]}}, [_NAME]),
+        "an-array-element-placed-and-again-below-an-sd-object-under-an-ellipsis-key": (
+            {"nationalities": [{"...": _digest(_ITEM)}], "x": {"...": {"_sd": {"a": [{"...": _digest(_ITEM)}]}}}}, [_ITEM]),
     }
 
 
