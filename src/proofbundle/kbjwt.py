@@ -197,15 +197,20 @@ def _cnf_disclosed(issuer_payload: dict, sd_part) -> bool:
     read, ask for the binding (fail-closed). So does a presentation that is no text, and an ``_sd_alg`` under
     which no digest can be computed while something is presented and something is committed: no Disclosure can
     then be told from a committed ``cnf``. Without a presentation (``sd_part`` is None) the payload alone was
-    asked. An ``_sd`` that is no list commits nothing, as ``sdjwt.verify_sd_jwt`` reads it. Never raises."""
+    asked. A Disclosure committed in the list whose form is no claim ``[salt, name, value]`` with a text name asks for
+    the binding: what it names cannot be told. An ``_sd`` that is no list commits nothing this helper can place, and
+    ``sdjwt.verify_sd_jwt`` reads it another way (it follows an object under ``_sd`` into that object's own ``_sd``):
+    with nothing presented nothing is asked, with a Disclosure presented the binding is. Never raises."""
     if sd_part is None:
         return False
     if type(sd_part) is not str:
         return True
-    top = issuer_payload.get("_sd")
-    if not isinstance(top, list):
+    if "_sd" not in issuer_payload:
         return False
+    top = issuer_payload["_sd"]
     disclosures = [d for d in sd_part.split("~")[1:] if d and d.count(".") == 0]
+    if not isinstance(top, list):
+        return bool(disclosures)
     if len(disclosures) > _MAX_DISCLOSURES:
         return True
     committed = {dg for dg in top if type(dg) is str}
@@ -220,6 +225,8 @@ def _cnf_disclosed(issuer_payload: dict, sd_part) -> bool:
                 continue
             parsed = loads_strict(_b64url_decode(d))
         except (ProofBundleError, ValueError):
+            return True
+        if not (isinstance(parsed, list) and len(parsed) == 3 and type(parsed[1]) is str):
             return True
         if isinstance(parsed, list) and len(parsed) == 3 and parsed[1] == "cnf":
             return True

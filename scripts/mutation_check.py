@@ -811,13 +811,21 @@ MUTATIONS = [
      '            elif False:\n',
      'bundle: an unreadable issuer payload adds no failing key-binding check again', True),
     ('src/proofbundle/policy.py',
-     '            if asked is None:\n                add("policy:key_binding_present", True, "no cnf holder key bound; KB not required")\n',
-     '            if True:\n                add("policy:key_binding_present", True, "no cnf holder key bound; KB not required")\n',
+     '            elif asked is None:\n                add("policy:key_binding_present", True, "no cnf holder key bound; KB not required")\n',
+     '            elif True:\n                add("policy:key_binding_present", True, "no cnf holder key bound; KB not required")\n',
      'policy: the key binding rule passes without reading the payload again', True),
     ('src/proofbundle/policy.py',
      '    if sdj.get("issuer_key_pin") is not None and isinstance(sd, dict):\n',
      '    if False:\n',
      'policy: an issuer pin is no rule of its own again', True),
+    ('src/proofbundle/kbjwt.py',
+     '    if not isinstance(top, list):\n        return bool(disclosures)\n',
+     '    if not isinstance(top, list):\n        return False\n',
+     'kbjwt: a Disclosure presented over an _sd that is no list asks for no binding again', True),
+    ('src/proofbundle/kbjwt.py',
+     '        if not (isinstance(parsed, list) and len(parsed) == 3 and type(parsed[1]) is str):\n            return True\n',
+     '        if not (isinstance(parsed, list) and len(parsed) == 3 and type(parsed[1]) is str):\n            continue\n',
+     'kbjwt: a committed Disclosure whose form is no claim asks for no binding again', True),
 ]
 
 

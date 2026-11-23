@@ -1635,12 +1635,14 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
             # before a policy judges it; until 6.6.1 this branch rested on that alone and read no `cnf`.
             from .bundle import _holder_binding_asked  # noqa: PLC0415
             if sd is None:
-                asked = None
+                asked = "no-sd-jwt"
             elif isinstance(sd, dict) and isinstance(sd.get("compact"), str):
                 asked = _holder_binding_asked(split_key_binding(sd["compact"])[0])
             else:
                 asked = "unreadable"
-            if asked is None:
+            if asked == "no-sd-jwt":
+                add("policy:key_binding_present", True, "the bundle carries no SD-JWT; KB not required")
+            elif asked is None:
                 add("policy:key_binding_present", True, "no cnf holder key bound; KB not required")
             else:
                 add("policy:key_binding_present", False,
