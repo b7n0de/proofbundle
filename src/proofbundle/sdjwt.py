@@ -142,10 +142,10 @@ def _placed_below(node, by_digest: dict) -> bool:
     """Whether the digest of a presented Disclosure stands, in the form of a place, anywhere below ``node``: in the
     ``_sd`` list of an object, or as ``{"...": digest}`` in a list. :func:`_placement_problem` asks this of what
     stands under a ``...`` key of an object. Nothing there is a place: a digest in that form belongs to a Disclosure
-    placed elsewhere, or to one that stands nowhere and may occur below such keys more than once. It reads what the walk
-    of 6.6.0 read there and no more: below every key but ``_sd``, and of an ``_sd`` only the text entries of a list,
-    so a presentation in which every Disclosure stands at its place is refused here exactly where 6.6.0 refused it
-    for a second place. For the values ``verify_sd_jwt`` hands over, parsed JSON, it does not raise."""
+    placed elsewhere, or to one that stands nowhere and may occur below such keys more than once. It reads below
+    every key but ``_sd``, and of an ``_sd`` only the text entries of a list, as :func:`_placement_problem` reads
+    at every other key; RESTRISIKO_661.md holds the comparison with the release before, with its measurements.
+    For the values ``verify_sd_jwt`` hands over, parsed JSON, it does not raise."""
     stack = [node]
     while stack:
         cur = stack.pop()
@@ -223,8 +223,8 @@ def _placement_problem(payload: dict, by_digest: dict) -> Optional[str]:
     if len(placed) != len(by_digest):
         # Committed by digest and placed nowhere (6.6.1): `_collect_committed_digests` follows an object under `_sd`
         # into that object's own `_sd` and reads a `...` key in any object, and this walk places a Disclosure only
-        # in the `_sd` LIST of an object or at an array element that is exactly `{"...": digest}`. In 6.6.0 such
-        # a Disclosure passed the structure check and stood at no place a reader could name.
+        # in the `_sd` LIST of an object or at an array element that is exactly `{"...": digest}`. A Disclosure
+        # that is counted there and placed nowhere stands at no place a reader could name, so it is refused.
         return ("a disclosure is committed by digest and stands at no place: not in the _sd list of an object and "
                 "not at an array element (RFC 9901 section 7.1, rejected)")
     return None
