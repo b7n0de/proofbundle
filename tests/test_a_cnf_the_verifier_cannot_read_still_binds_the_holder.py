@@ -36,6 +36,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from proofbundle import emit_bundle, generate_signer, verify_bundle
 from proofbundle import kbjwt
+from proofbundle.bundle import _issuer_requires_holder_binding
 from proofbundle.kbjwt import holder_key_from_cnf, verify_key_binding
 from proofbundle.policy import evaluate_policy
 from proofbundle.sdjwt_vc import verify_sdjwt_vc
@@ -43,6 +44,7 @@ from proofbundle.sdjwt_vc import verify_sdjwt_vc
 _VCT = "https://example.test/vct"
 _IAT = 1_780_000_000
 _UNREADABLE = "cnf) this verifier cannot read"
+_NOT_RULED_OUT = "cannot be ruled out"
 _POLICY = {"schema": "proofbundle-trust-policy/v0.1", "sd_jwt": {"require_key_binding_when_cnf_present": True}}
 
 
@@ -289,8 +291,13 @@ def test_presence_is_the_member_and_nothing_else():
     assert kbjwt._cnf_present({"vct": _VCT, "CNF": _readable_cnf()}) is False     # another member name
     assert kbjwt._cnf_present({"vct": _VCT, "cnf": _readable_cnf()}) is True
     assert holder_key_from_cnf({"vct": _VCT, "cnf": _readable_cnf()}) == _raw(_keys()["holder"])
-    for no_object in (None, 5, "cnf", ["cnf"], b"cnf"):
-        assert kbjwt._cnf_present(no_object) is False, no_object
+
+
+def test_what_is_no_json_object_asks_for_the_binding():
+    """"No holder key bound" is said of a payload that was read as a JSON object and carries no ``cnf``, and of
+    nothing else. What is no object is no claims set, so nothing in it says that the issuer bound no key."""
+    for no_object in (None, 5, "cnf", ["cnf"], b"cnf", True):
+        assert kbjwt._cnf_present(no_object) is True, no_object
 
 
 def test_a_payload_that_is_no_json_value_asks_for_the_binding():
@@ -417,6 +424,16 @@ def test_what_cannot_be_read_at_the_top_level_asks_for_the_binding():
     assert kbjwt._cnf_present(crowded, _sd_jwt_from({"_sd": crowded["_sd"]}, crowd[:256])) is False
 
 
+def test_a_presentation_that_is_no_text_asks_for_the_binding():
+    """Without a presentation the payload alone is asked. A presentation that is no text cannot be read, so no
+    Disclosure in it can be ruled out."""
+    claims = {"vct": _VCT, "_sd": [_digest_of(_disclosure("given_name", "Ada"))]}
+    assert kbjwt._cnf_present(claims) is False
+    assert kbjwt._cnf_present(claims, None) is False
+    for no_text in (5, b"a.b.c~", ["a.b.c~"], {"compact": "a.b.c~"}, True):
+        assert kbjwt._cnf_present(claims, no_text) is True, no_text
+
+
 # --- a cnf Disclosure under each hash the profile reads, with digests computed outside Python ----------------
 
 # One fixed Disclosure, ["2GLC42sKQveCfGfryNRN9w", "cnf", {"kid": "holder-key-1"}], and the digests of its ASCII text
@@ -530,15 +547,22 @@ def test_exactly_as_many_disclosures_as_the_verifier_accepts_are_read_by_the_bun
 
 
 def test_an_sd_alg_that_cannot_be_hashed_never_reaches_the_hash_table():
-    """``_cnf_disclosed`` looks ``_sd_alg`` up in a module-level table only after ``is_member`` let it through. A value
-    that cannot be hashed, or that names no known algorithm, yields no binding from a Disclosure and raises nothing;
-    the presentation is refused where every presentation with such an ``_sd_alg`` is refused."""
+    """``_cnf_disclosed`` looks ``_sd_alg`` up in a module-level table only after ``is_member`` let it through. Under a
+    value that cannot be hashed, or that names no known algorithm, no digest can be computed, so a presented Disclosure
+    cannot be told from a committed ``cnf``: the binding is asked for, and nothing is raised. Where nothing is presented,
+    or nothing is committed at the top level, there is nothing to tell apart and no binding is asked for."""
     for sd_alg in (["sha-256"], {"alg": "sha-256"}, 256, None, True, "sha-1", "SHA-256"):
         claims = {"_sd_alg": sd_alg, "_sd": [_FIXED_DIGEST["sha-256"]]}
         compact = _sd_jwt_from(claims, [_FIXED_CNF_DISCLOSURE])
-        assert kbjwt._cnf_present({"vct": _VCT, **claims}, compact) is False, sd_alg
+        assert kbjwt._cnf_present({"vct": _VCT, **claims}, compact) is True, sd_alg
+        assert kbjwt._cnf_present({"vct": _VCT, **claims}, _sd_jwt_from(claims)) is False, sd_alg
+        uncommitted = {"_sd_alg": sd_alg}
+        with_nothing_committed = _sd_jwt_from(uncommitted, [_FIXED_CNF_DISCLOSURE])
+        assert kbjwt._cnf_present({"vct": _VCT, **uncommitted}, with_nothing_committed) is False, sd_alg
         result = verify_bundle(_bundle(compact))
+        checks = _key_binding_checks(result)
         assert result.ok is False and _structure(result) == [False], (sd_alg, _structure(result))
+        assert len(checks) == 1 and checks[0][0] is False and _NOT_RULED_OUT in checks[0][1], (sd_alg, checks)
 
 
 # --- what the binding check does not decide -------------------------------------------------------------------
@@ -566,6 +590,62 @@ def test_a_payload_that_is_no_object_fails_everywhere():
     verdict = verify_key_binding(_with_key_binding(compact, third), _raw(third))
     assert verdict["present"] is True and verdict["ok"] is False, verdict
     assert verdict["detail"] == "malformed KB-JWT or issuer JWT", verdict
+
+
+# --- a payload the bundle cannot read -------------------------------------------------------------------------
+
+@functools.lru_cache(maxsize=None)
+def _unreadable_payloads() -> dict:
+    """Compact forms whose issuer-signed payload cannot be read as a JSON object. ``verify_sd_jwt`` refuses each before
+    its signature check; none of them says that the issuer bound no key."""
+    header = _b64u(json.dumps({"alg": "EdDSA", "typ": "dc+sd-jwt"}).encode())
+    payload = _b64u(json.dumps({"iss": "https://issuer.example.test", "vct": _VCT}).encode())
+    signature = _b64u(bytes(64))
+    no_json, a_list, a_number = _b64u(b"no json"), _b64u(b'["cnf"]'), _b64u(b"5")
+    a_name_twice = _b64u(b'{"vct": 1, "vct": 2}')
+    return {
+        "no-dot-in-the-first-segment": "abc~",
+        "the-empty-text": "",
+        "a-payload-outside-ascii": f"{header}.{payload[:-2]}\u00e4a.{signature}~",
+        "a-payload-outside-base64url": f"{header}.!!!!.{signature}~",
+        "a-payload-that-is-no-json": f"{header}.{no_json}.{signature}~",
+        "a-payload-that-is-a-json-list": f"{header}.{a_list}.{signature}~",
+        "a-payload-that-is-a-json-number": f"{header}.{a_number}.{signature}~",
+        "a-payload-with-a-name-twice": f"{header}.{a_name_twice}.{signature}~",
+    }
+
+
+_UNREADABLE_PAYLOADS = sorted(_unreadable_payloads())
+
+
+@pytest.mark.parametrize("with_issuer_key", [True, False])
+@pytest.mark.parametrize("form", _UNREADABLE_PAYLOADS)
+def test_a_payload_the_bundle_cannot_read_never_says_that_nothing_is_bound(form, with_issuer_key):
+    compact = _unreadable_payloads()[form]
+    sd_part, _kb = kbjwt.split_key_binding(compact)
+    assert _issuer_requires_holder_binding(sd_part) is True, form
+    result = verify_bundle(_bundle(compact, with_issuer_key=with_issuer_key))
+    checks = _key_binding_checks(result)
+    assert result.ok is False, (form, [(c.name, c.ok, c.detail) for c in result.checks])
+    assert len(checks) == 1 and checks[0][0] is False and _NOT_RULED_OUT in checks[0][1], (form, checks)
+
+
+def test_a_payload_that_was_read_and_binds_nothing_asks_for_nothing():
+    """The one path that says "no holder key bound": a payload read as a JSON object, without ``cnf``."""
+    sd_part, _kb = kbjwt.split_key_binding(_sd_jwt())
+    assert _issuer_requires_holder_binding(sd_part) is False
+    assert _issuer_requires_holder_binding(kbjwt.split_key_binding(_sd_jwt(_readable_cnf()))[0]) is True
+
+
+def test_a_readable_cnf_refused_before_the_signature_check_is_not_said_to_lack_an_issuer_key():
+    """With an issuer key supplied and the SD-JWT refused before its signature check (here: an ``_sd_alg`` no digest
+    can be computed under), the detail no longer says that no issuer key was supplied."""
+    compact = _sd_jwt_from({"_sd_alg": "sha-1", "cnf": _readable_cnf()})
+    with_key = _key_binding_checks(verify_bundle(_bundle(compact)))
+    assert len(with_key) == 1 and with_key[0][0] is False, with_key
+    assert _NOT_RULED_OUT in with_key[0][1] and "NO issuer key" not in with_key[0][1], with_key
+    without_key = _key_binding_checks(verify_bundle(_bundle(compact, with_issuer_key=False)))
+    assert len(without_key) == 1 and without_key[0][0] is False and "NO issuer key" in without_key[0][1], without_key
 
 
 def test_the_conformance_vector_fails_at_the_key_binding_check_and_nowhere_else():
