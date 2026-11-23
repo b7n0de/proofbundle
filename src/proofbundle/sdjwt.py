@@ -143,7 +143,8 @@ def _placement_problem(payload: dict, by_digest: dict) -> Optional[str]:
     CODEX-KLASSENSUCHE-631-01 A1). Each disclosure is placed where its digest stands: a ``[salt, name, value]``
     disclosure in the object whose ``_sd`` names it, a ``[salt, value]`` disclosure at the array position of its
     ``{"...": digest}``. In one object a claim name stands once, whether open or disclosed, and is neither ``_sd``
-    nor ``...``; a disclosure stands at one place only. Measured at f6ea5cc3: two disclosures
+    nor ``...``; a disclosure stands at one place only, and every presented disclosure stands at one (6.6.1).
+    Measured at f6ea5cc3: two disclosures
     ``[salt0, "passed", false]`` and ``[salt1, "passed", true]`` under one signed ``_sd`` passed in both orders,
     so a last-wins merge read another value after the order was swapped while both presentations verified."""
     placed: Set[str] = set()
@@ -186,6 +187,13 @@ def _placement_problem(payload: dict, by_digest: dict) -> Optional[str]:
                     stack.append(parsed[1])
                 else:
                     stack.append(item)
+    if len(placed) != len(by_digest):
+        # Committed by digest and placed nowhere (6.6.1): `_collect_committed_digests` follows an object under `_sd`
+        # into that object's own `_sd` and reads a `...` key in any object, and this walk places a Disclosure only
+        # in the `_sd` LIST of an object or at an array element that is exactly `{"...": digest}`. Until 6.6.0 such
+        # a Disclosure passed the structure check and stood at no place a reader could name.
+        return ("a disclosure is committed by digest and stands at no place: not in the _sd list of an object and "
+                "not at an array element (RFC 9901 section 7.1, rejected)")
     return None
 
 

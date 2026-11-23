@@ -826,6 +826,10 @@ MUTATIONS = [
      '        if not (isinstance(parsed, list) and len(parsed) == 3 and type(parsed[1]) is str):\n            return True\n',
      '        if not (isinstance(parsed, list) and len(parsed) == 3 and type(parsed[1]) is str):\n            continue\n',
      'kbjwt: a committed Disclosure whose form is no claim asks for no binding again', True),
+    ('src/proofbundle/sdjwt.py',
+     '    if len(placed) != len(by_digest):\n',
+     '    if False:\n',
+     'sdjwt: a disclosure that is committed and stands at no place passes the structure check again', True),
 ]
 
 
