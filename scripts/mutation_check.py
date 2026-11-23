@@ -831,6 +831,9 @@ MUTATIONS = [
      '    if False:\n',
      'sdjwt: a disclosure that is committed and stands at no place passes the structure check again', True),
     ('src/proofbundle/sdjwt.py',
+     '            if "..." in node and _placed_below(node["..."], by_digest):\n'
+     '                return ("a disclosure is committed below a `...` key of an object, which is no place (RFC 9901 "\n'
+     '                        "section 7.1, rejected)")\n'
      '            stack.extend(value for key, value in node.items() if key not in ("_sd", "..."))\n',
      '            stack.extend(value for key, value in node.items() if key != "_sd")\n',
      'sdjwt: what stands under an ellipsis key of an object counts as a place again', True),
@@ -838,6 +841,10 @@ MUTATIONS = [
      '            if "..." in node and _placed_below(node["..."], by_digest):\n',
      '            if False:\n',
      'sdjwt: a digest in the form of a place below an ellipsis key of an object is accepted again', True),
+    ('src/proofbundle/sdjwt.py',
+     '            stack.extend(value for key, value in cur.items() if key != "_sd")\n',
+     '            stack.extend(cur.values())\n',
+     'sdjwt: the check below an ellipsis key reads below an _sd key, where the walk of 6.6.0 did not read', True),
 ]
 
 

@@ -142,7 +142,10 @@ def _placed_below(node, by_digest: dict) -> bool:
     """Whether the digest of a presented Disclosure stands, in the form of a place, anywhere below ``node``: in the
     ``_sd`` list of an object, or as ``{"...": digest}`` in a list. :func:`_placement_problem` asks this of what
     stands under a ``...`` key of an object. Nothing there is a place, so a digest in that form is a second occurrence
-    of a Disclosure placed elsewhere, or the only occurrence of one that then stands nowhere. Never raises."""
+    of a Disclosure placed elsewhere, or the only occurrence of one that then stands nowhere. It reads what the walk
+    of 6.6.0 read there and no more: below every key but ``_sd``, and of an ``_sd`` only the text entries of a list,
+    so a presentation in which every Disclosure stands at its place is refused here exactly where 6.6.0 refused it
+    for a second place. For the values ``verify_sd_jwt`` hands over, parsed JSON, it does not raise."""
     stack = [node]
     while stack:
         cur = stack.pop()
@@ -150,7 +153,7 @@ def _placed_below(node, by_digest: dict) -> bool:
             sd = cur.get("_sd")
             if isinstance(sd, list) and any(isinstance(dg, str) and dg in by_digest for dg in sd):
                 return True
-            stack.extend(cur.values())
+            stack.extend(value for key, value in cur.items() if key != "_sd")
         elif isinstance(cur, list):
             for item in cur:
                 if (isinstance(item, dict) and len(item) == 1 and isinstance(item.get("..."), str)
