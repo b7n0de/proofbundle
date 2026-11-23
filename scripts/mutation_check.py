@@ -834,6 +834,10 @@ MUTATIONS = [
      '            stack.extend(value for key, value in node.items() if key not in ("_sd", "..."))\n',
      '            stack.extend(value for key, value in node.items() if key != "_sd")\n',
      'sdjwt: what stands under an ellipsis key of an object counts as a place again', True),
+    ('src/proofbundle/sdjwt.py',
+     '            if "..." in node and _placed_below(node["..."], by_digest):\n',
+     '            if False:\n',
+     'sdjwt: a digest in the form of a place below an ellipsis key of an object is accepted again', True),
 ]
 
 

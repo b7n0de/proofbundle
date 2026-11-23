@@ -138,6 +138,28 @@ def _collect_committed_digests(node, out: Set[str]) -> None:
             _collect_committed_digests(item, out)
 
 
+def _placed_below(node, by_digest: dict) -> bool:
+    """Whether the digest of a presented Disclosure stands, in the form of a place, anywhere below ``node``: in the
+    ``_sd`` list of an object, or as ``{"...": digest}`` in a list. :func:`_placement_problem` asks this of what
+    stands under a ``...`` key of an object. Nothing there is a place, so a digest in that form is a second occurrence
+    of a Disclosure placed elsewhere, or the only occurrence of one that then stands nowhere. Never raises."""
+    stack = [node]
+    while stack:
+        cur = stack.pop()
+        if isinstance(cur, dict):
+            sd = cur.get("_sd")
+            if isinstance(sd, list) and any(isinstance(dg, str) and dg in by_digest for dg in sd):
+                return True
+            stack.extend(cur.values())
+        elif isinstance(cur, list):
+            for item in cur:
+                if (isinstance(item, dict) and len(item) == 1 and isinstance(item.get("..."), str)
+                        and item["..."] in by_digest):
+                    return True
+                stack.append(item)
+    return False
+
+
 def _placement_problem(payload: dict, by_digest: dict) -> Optional[str]:
     """Why the presented disclosures do not resolve to ONE reading of the claims, or None (RFC 9901 section 7.1,
     CODEX-KLASSENSUCHE-631-01 A1). Each disclosure is placed where its digest stands: a ``[salt, name, value]``
@@ -173,7 +195,12 @@ def _placement_problem(payload: dict, by_digest: dict) -> Optional[str]:
                 stack.append(parsed[2])
             # `...` is reserved (6.6.1): in a list, `{"...": digest}` is the place of an array element and the
             # list branch below reads it; as a key of an object it names no claim, and what stands under it is no
-            # place. A walk that descended into it called a Disclosure placed that no reader finds.
+            # place. A walk that descended into it called a Disclosure placed that no reader finds. A digest that
+            # stands there in the form of a place is refused: 6.6.0 descended and counted it as a second place, and
+            # a walk that only looks away accepted a payload 6.6.0 refused (measured on 2026-11-23).
+            if "..." in node and _placed_below(node["..."], by_digest):
+                return ("a disclosure is committed below a `...` key of an object, which is no place (RFC 9901 "
+                        "section 7.1, rejected)")
             stack.extend(value for key, value in node.items() if key not in ("_sd", "..."))
         elif isinstance(node, list):
             for item in node:
