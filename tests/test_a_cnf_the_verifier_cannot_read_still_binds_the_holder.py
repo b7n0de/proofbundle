@@ -520,6 +520,19 @@ def test_only_text_digests_in_a_list_commit_a_disclosure():
         assert verify_bundle(_bundle(compact)).ok is False, sd                # refused: the Disclosure is not committed
 
 
+def test_an_sd_that_is_no_list_commits_nothing_and_asks_for_no_binding():
+    """Why this one place still answers "no holder key bound": an ``_sd`` that is no list commits no Disclosure, here
+    as in ``verify_sd_jwt``. With nothing presented such a credential verifies, and asking for the binding would fail
+    it for a reason that has nothing to do with a holder key."""
+    for sd in ("digest", {"0": _FIXED_DIGEST["sha-256"]}, None, 5):
+        claims = {"_sd": sd}
+        compact = _sd_jwt_from(claims)
+        assert kbjwt._cnf_present({"vct": _VCT, **claims}, compact) is False, sd
+        result = verify_bundle(_bundle(compact))
+        assert _structure(result) == [True], (sd, [(c.name, c.ok, c.detail) for c in result.checks])
+        assert result.ok is True and _key_binding_checks(result) == [], (sd, [(c.name, c.ok) for c in result.checks])
+
+
 def test_more_disclosures_than_the_verifier_accepts_fail_the_bundle():
     crowd = [_disclosure("claim_%d" % i, i) for i in range(257)]
     claims = {"_sd": [_digest_of(d) for d in crowd]}
