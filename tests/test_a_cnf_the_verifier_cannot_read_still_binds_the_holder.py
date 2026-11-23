@@ -188,6 +188,46 @@ def test_the_policy_rule_still_passes_a_credential_without_cnf():
     assert verdict["policy_ok"] is True and len(rule) == 1 and rule[0]["ok"] is True, verdict
 
 
+def _as_a_verifier_without_the_rule_would_report(bundle):
+    """The result of ``verify_bundle`` without its ``sd-jwt-key-binding`` line, stamped as this process's own: what a
+    verifier that had lost the rule would hand to a policy. ``verify_bundle`` itself produces no such result."""
+    result = verify_bundle(bundle)
+    result.checks[:] = [c for c in result.checks if c.name != "sd-jwt-key-binding"]
+    result.stamp_origin()
+    return result
+
+
+@pytest.mark.parametrize("form", _FORMS + ["a-readable-ed25519-jwk"])
+def test_the_policy_rule_reads_the_payload_and_does_not_rest_on_the_bundle_check(form):
+    """Reached directly: a crypto result that passed and carries no key-binding line, over a credential whose issuer
+    bound a holder key, presented with no Key Binding JWT. The rule reads the payload itself and refuses."""
+    cnf = _readable_cnf() if form == "a-readable-ed25519-jwk" else _unreadable_forms()[form]
+    bundle = _bundle(_sd_jwt(cnf))
+    result = _as_a_verifier_without_the_rule_would_report(bundle)
+    assert result.ok is True, (form, [(c.name, c.ok) for c in result.checks])
+    verdict = evaluate_policy(bundle, result, _POLICY)
+    rule = [c for c in verdict.get("checks", []) if c["name"] == "policy:key_binding_present"]
+    assert verdict.get("policy_ok") is False and len(rule) == 1 and rule[0]["ok"] is False, (form, verdict)
+    assert _NOT_RULED_OUT in rule[0]["detail"], (form, rule)
+
+
+def test_the_policy_rule_reads_a_presented_cnf_disclosure_too():
+    claims, disclosure = _top_level(_readable_cnf())
+    bundle = _bundle(_sd_jwt_from(claims, [disclosure]))
+    verdict = evaluate_policy(bundle, _as_a_verifier_without_the_rule_would_report(bundle), _POLICY)
+    rule = [c for c in verdict.get("checks", []) if c["name"] == "policy:key_binding_present"]
+    assert verdict.get("policy_ok") is False and len(rule) == 1 and rule[0]["ok"] is False, verdict
+
+
+def test_the_policy_rule_passes_a_result_without_the_line_when_nothing_is_bound():
+    """The control: over a credential without ``cnf`` the same kind of result passes the rule, as before."""
+    bundle = _bundle(_sd_jwt())
+    verdict = evaluate_policy(bundle, _as_a_verifier_without_the_rule_would_report(bundle), _POLICY)
+    rule = [c for c in verdict["checks"] if c["name"] == "policy:key_binding_present"]
+    assert verdict["policy_ok"] is True and len(rule) == 1 and rule[0]["ok"] is True, verdict
+    assert rule[0]["detail"] == "no cnf holder key bound; KB not required", rule
+
+
 # --- the bundle, presented with a Key Binding JWT a third party signed ----------------------------------------
 
 @pytest.mark.parametrize("form", _FORMS)
