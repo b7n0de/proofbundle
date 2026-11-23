@@ -510,6 +510,18 @@ def test_more_disclosures_than_the_verifier_accepts_fail_the_bundle():
     assert len(checks) == 1 and checks[0][0] is False, checks                  # a binding it cannot rule out
 
 
+def test_an_sd_alg_that_cannot_be_hashed_never_reaches_the_hash_table():
+    """``_cnf_disclosed`` looks ``_sd_alg`` up in a module-level table only after ``is_member`` let it through. A value
+    that cannot be hashed, or that names no known algorithm, yields no binding from a Disclosure and raises nothing;
+    the presentation is refused where every presentation with such an ``_sd_alg`` is refused."""
+    for sd_alg in (["sha-256"], {"alg": "sha-256"}, 256, None, True, "sha-1", "SHA-256"):
+        claims = {"_sd_alg": sd_alg, "_sd": [_FIXED_DIGEST["sha-256"]]}
+        compact = _sd_jwt_from(claims, [_FIXED_CNF_DISCLOSURE])
+        assert kbjwt._cnf_present({"vct": _VCT, **claims}, compact) is False, sd_alg
+        result = verify_bundle(_bundle(compact))
+        assert result.ok is False and _structure(result) == [False], (sd_alg, _structure(result))
+
+
 # --- what the binding check does not decide -------------------------------------------------------------------
 
 @pytest.mark.parametrize("form", ["jwk-ec-p256", "kid-only", "cnf-null"])
