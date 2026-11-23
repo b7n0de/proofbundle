@@ -166,11 +166,12 @@ def _cnf_present(issuer_payload, sd_part=None) -> bool:
     along, so the two verifiers disagreed on exactly these bundles.
 
     A member that is present counts, also as ``null``, an empty object or another type: what the issuer meant
-    cannot be read, and a binding that cannot be read is not a binding that is absent. A payload that is no
-    JSON object carries no member. One that holds a value JSON cannot write cannot be read at all and asks for
-    the binding (fail-closed). Never raises."""
+    cannot be read, and a binding that cannot be read is not a binding that is absent. "No holder key bound" is
+    said on one path only: the payload was read as a JSON object, it carries no ``cnf``, and no presented
+    Disclosure gives it one. What is no JSON object is no claims set, and a payload that holds a value JSON
+    cannot write cannot be read at all; both ask for the binding (fail-closed). Never raises."""
     if not issubclass(type(issuer_payload), dict):
-        return False
+        return True
     # By what the payload stores, as in holder_key_from_cnf: a dict subclass's own `__contains__` never answers.
     try:
         issuer_payload = _plain_for_jcs(issuer_payload, ValueError)
@@ -193,18 +194,26 @@ def _cnf_disclosed(issuer_payload: dict, sd_part) -> bool:
     Top level only: the digest of the Disclosure stands in the payload's own ``_sd``. A property named ``cnf``
     inside another object is no confirmation claim. A Disclosure the holder withholds is visible to no verifier.
     More Disclosures than ``sdjwt.verify_sd_jwt`` accepts, or one committed at the top level that cannot be
-    read, ask for the binding (fail-closed). An ``_sd_alg`` this verifier does not know yields False: every
-    caller refuses that presentation before it comes here. Never raises."""
-    top = issuer_payload.get("_sd")
-    if type(sd_part) is not str or not isinstance(top, list):
+    read, ask for the binding (fail-closed). So does a presentation that is no text, and an ``_sd_alg`` under
+    which no digest can be computed while something is presented and something is committed: no Disclosure can
+    then be told from a committed ``cnf``. Without a presentation (``sd_part`` is None) the payload alone was
+    asked. An ``_sd`` that is no list commits nothing, as ``sdjwt.verify_sd_jwt`` reads it. Never raises."""
+    if sd_part is None:
         return False
-    sd_alg = issuer_payload.get("_sd_alg", "sha-256")
-    if not is_member(sd_alg, _HASH_ALG):
+    if type(sd_part) is not str:
+        return True
+    top = issuer_payload.get("_sd")
+    if not isinstance(top, list):
         return False
     disclosures = [d for d in sd_part.split("~")[1:] if d and d.count(".") == 0]
     if len(disclosures) > _MAX_DISCLOSURES:
         return True
     committed = {dg for dg in top if type(dg) is str}
+    if not disclosures or not committed:
+        return False
+    sd_alg = issuer_payload.get("_sd_alg", "sha-256")
+    if not is_member(sd_alg, _HASH_ALG):
+        return True
     for d in disclosures:
         try:
             if _b64url_nopad(hashlib.new(_HASH_ALG[sd_alg], d.encode("ascii")).digest()) not in committed:

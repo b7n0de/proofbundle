@@ -77,27 +77,38 @@ def _as_list(v):
     return v if isinstance(v, (list, tuple)) else []
 
 
-def _issuer_requires_holder_binding(sd_part: str) -> bool:
-    """True iff the issuer-signed SD-JWT payload carries a ``cnf`` member (RFC 7800), readable here or not
-    (6.6.1, ``kbjwt._cnf_present``; until 6.6.0 only a usable OKP/Ed25519 key counted, so a ``cnf`` of another
-    key type or with only a ``kid`` read as "no binding required"). The issuer then REQUIRES proof-of-possession:
-    a presentation without a valid Key Binding JWT is a bearer downgrade and MUST fail. No cnf → False. A
-    DUPLICATE key → True (fail-closed, F12): 'no binding required' would be the inversion _strict_json.py warns of."""
+def _holder_binding_asked(sd_part: str) -> Optional[str]:
+    """Whether the presented SD-JWT asks for proof of possession, and why: ``"cnf"`` when the issuer-signed
+    payload carries a ``cnf`` member (RFC 7800), readable here or not, or a presented Disclosure gives it one
+    (6.6.1, ``kbjwt._cnf_present``); ``"unreadable"`` when the payload cannot be read as a JSON object; None when
+    a payload that was read binds no holder key.
+
+    None is the one answer that asks for no binding, and it is given on that one path only. Before, a reading
+    that stopped on an error other than the strict reader's own (a first segment without a second part, text
+    outside ASCII or outside base64url, bytes that are no JSON) answered "no binding required", and so did a
+    payload that is no object. No bundle was measured to verify through that answer: ``verify_sd_jwt`` reads the
+    same segment with the same decoder and the same reader and refuses it before its signature check, so the
+    bundle failed at ``sd-jwt-disclosures`` and ``sd-jwt-issuer-signature`` (nine forms, with and without an
+    issuer key). The decision itself was not fail-closed. Never raises."""
     try:
         issuer_jwt = sd_part.split("~", 1)[0]
         payload_b64 = issuer_jwt.split(".")[1].encode("ascii")
         payload = loads_strict(decode_b64url(payload_b64))
-        return isinstance(payload, dict) and _cnf_present(payload, sd_part)
-    except ProofBundleError:
-        # adversarial re-audit round 3: catch the BASE ProofBundleError — loads_strict raises a SIBLING
-        # BudgetExceeded (a node-heavy issuer payload) that `except BundleFormatError` missed, letting a raw
-        # exception escape this verify helper. A duplicated key in the issuer payload must NOT read as "no cnf
-        # ⇒ no binding required" (that
-        # inversion would let a duplicate-cnf payload skip holder binding entirely). Fail-closed: demand
-        # binding. The bundle already fails at the sd-jwt-disclosures structure gate; this is belt-and-braces.
-        return True
-    except Exception:  # noqa: BLE001 — any other malformed/absent payload ⇒ no binding required (backward-compat)
-        return False
+    except Exception:  # noqa: BLE001 - whatever stopped the reading, no payload was read
+        # The strict reader's own refusals are among these (a duplicated key, F12; the node budget, re-audit
+        # round 3): a duplicated ``cnf`` must not read as "no cnf, so no binding required", the inversion
+        # _strict_json.py warns of.
+        return "unreadable"
+    if not isinstance(payload, dict):
+        return "unreadable"
+    return "cnf" if _cnf_present(payload, sd_part) else None
+
+
+def _issuer_requires_holder_binding(sd_part: str) -> bool:
+    """True unless the issuer-signed SD-JWT payload was read as a JSON object that binds no holder key
+    (:func:`_holder_binding_asked`). The issuer then REQUIRES proof-of-possession, or may have: a presentation
+    without a valid Key Binding JWT is a bearer downgrade and MUST fail."""
+    return _holder_binding_asked(sd_part) is not None
 
 SCHEMA = "proofbundle/v0.1"
 
@@ -715,12 +726,22 @@ def _verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonc
             # "structure-only passed". SD-JWTs without `cnf` keep the documented no-key
             # backward-compat path unchanged.
             sd_part, _ = split_key_binding(compact)
-            if _issuer_requires_holder_binding(sd_part):
+            asked = _holder_binding_asked(sd_part)
+            if asked == "cnf" and issuer_pub is None:
                 result.add(
                     "sd-jwt-key-binding", False,
                     "SD-JWT declares a cnf holder key but NO issuer key was supplied — holder "
                     "binding is unverifiable, refusing (fail-closed; supply "
                     "sd_jwt_vc.issuer_public_key_b64)")
+            elif asked is not None:
+                # The payload could not be read, or an issuer key was supplied and the SD-JWT was refused before
+                # its signature check. The sentence above would name a cnf nobody read, or a key as missing
+                # that was supplied.
+                result.add(
+                    "sd-jwt-key-binding", False,
+                    "a holder key bound to the SD-JWT (cnf) cannot be ruled out and its issuer signature was "
+                    "not verified (the issuer-signed payload cannot be read, or the SD-JWT was refused before "
+                    "the signature check) — holder binding is unverifiable, refusing (fail-closed)")
 
         # WP-C1 (6-lens review, Owner-GO): bind the sd_jwt_vc to THIS bundle. sd_jwt_vc is outside the
         # signed payload, so an issuer-VALID SD-JWT from bundle B can be swapped into bundle A (cross-receipt

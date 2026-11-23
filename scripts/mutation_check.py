@@ -780,8 +780,8 @@ MUTATIONS = [
      '        if False:',
      'kbjwt: a presented cnf Disclosure is ignored again', True),
     ('src/proofbundle/bundle.py',
-     '        return isinstance(payload, dict) and _cnf_present(payload, sd_part)',
-     '        return False',
+     '    return "cnf" if _cnf_present(payload, sd_part) else None',
+     '    return None',
      'bundle: a cnf in the issuer payload never requires holder binding', True),
 ]
 
