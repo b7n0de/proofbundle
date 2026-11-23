@@ -830,6 +830,10 @@ MUTATIONS = [
      '    if len(placed) != len(by_digest):\n',
      '    if False:\n',
      'sdjwt: a disclosure that is committed and stands at no place passes the structure check again', True),
+    ('src/proofbundle/sdjwt.py',
+     '            stack.extend(value for key, value in node.items() if key not in ("_sd", "..."))\n',
+     '            stack.extend(value for key, value in node.items() if key != "_sd")\n',
+     'sdjwt: what stands under an ellipsis key of an object counts as a place again', True),
 ]
 
 

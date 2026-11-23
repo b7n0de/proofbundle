@@ -171,7 +171,10 @@ def _placement_problem(payload: dict, by_digest: dict) -> Optional[str]:
                             "an open claim, so the claims have no single reading (RFC 9901 section 7.1, rejected)")
                 names.add(name)
                 stack.append(parsed[2])
-            stack.extend(value for key, value in node.items() if key != "_sd")
+            # `...` is reserved (6.6.1): in a list, `{"...": digest}` is the place of an array element and the
+            # list branch below reads it; as a key of an object it names no claim, and what stands under it is no
+            # place. A walk that descended into it called a Disclosure placed that no reader finds.
+            stack.extend(value for key, value in node.items() if key not in ("_sd", "..."))
         elif isinstance(node, list):
             for item in node:
                 if (isinstance(item, dict) and len(item) == 1 and isinstance(item.get("..."), str)
