@@ -1635,7 +1635,7 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
             # before a policy judges it; until 6.6.1 this branch rested on that alone and read no `cnf`.
             from .bundle import _holder_binding_asked  # noqa: PLC0415
             if sd is None:
-                asked = "no-sd-jwt"
+                asked: Union[str, None] = "no-sd-jwt"
             elif isinstance(sd, dict) and isinstance(sd.get("compact"), str):
                 asked = _holder_binding_asked(split_key_binding(sd["compact"])[0])
             else:
