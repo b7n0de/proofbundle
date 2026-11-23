@@ -318,10 +318,10 @@ read, so it does not read as no claim. A payload that is not UTF-8 or not JSON t
 leading byte order mark, a raw control character inside a string) is no eval claim;
 only case 2 can add the check for it.
 
-Check **sd-jwt-key-binding** (since v1.2, RFC 9901 §4.3): performed **iff** the
+Check **sd-jwt-key-binding** (since v1.2, RFC 9901 §4.3): in a bundle whose SD-JWT issuer signature verified, it is performed where the
 compact serialization carries a trailing Key Binding JWT (a compact form ending
-in `~` carries none), or the issuer-signed payload carries a `cnf` member (see
-the end of this paragraph). The check is **fail-closed** — a present KB-JWT that cannot
+in `~` carries none), and otherwise where the issuer-signed payload carries a `cnf` member or a presented Disclosure gives it a top-level `cnf` claim (see
+the end of this paragraph; a payload that raises one of the verifier's own errors when read, a duplicated member or an exceeded budget, is treated as carrying one). Without an issuer key it is performed, and **FAILS**, in the `cnf` cases only; under an issuer signature that does not verify it is not performed, and the bundle fails at `sd-jwt-issuer-signature`. The check is **fail-closed** — a present KB-JWT that cannot
 be verified fails the bundle; it is never silently ignored. The verifier
 requires: header `typ` = `kb+jwt` and `alg` = `EdDSA`; payload claims `iat`,
 `aud`, `nonce`, `sd_hash` all present; `sd_hash` = base64url(H(US-ASCII of the
