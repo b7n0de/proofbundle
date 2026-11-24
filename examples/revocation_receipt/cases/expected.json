@@ -61,6 +61,16 @@
       "verdict": "INVALID"
     },
     {
+      "file": "cases/revoked_at_action_time.json",
+      "firstNonPass": "revocation.covers_action",
+      "verdict": "UNRESOLVED"
+    },
+    {
+      "file": "cases/revoked_at_action_time_countersigned.json",
+      "firstNonPass": "revocation.covers_action",
+      "verdict": "UNRESOLVED"
+    },
+    {
       "file": "cases/wrong_authority.json",
       "firstNonPass": "revocation.authority_match",
       "verdict": "INVALID"
