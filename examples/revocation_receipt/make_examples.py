@@ -177,14 +177,14 @@ def main():
     # ... and a broken countersignature next to equal times is still INVALID: UNRESOLVED needs every applicable check
     case("revoked_at_action_time_foreign_countersignature",
          {"revocation": envelope(at_action, C), "countersignature": ack(at_action, signer=S, received_at=ACTION_TIME)},
-         "INVALID", "revocation.covers_action")
+         "INVALID", "countersignature.signature")
     other_at_action = rev_payload(rev_pred(revocationId="rev-example-0002", revokedAt=ACTION_TIME))
     case("revoked_at_action_time_countersignature_other_revocation",
          {"revocation": envelope(at_action, C), "countersignature": ack(other_at_action, received_at=ACTION_TIME)},
-         "INVALID", "revocation.covers_action")
+         "INVALID", "countersignature.binds_revocation")
     case("revoked_at_action_time_countersignature_before_revocation",
          {"revocation": envelope(at_action, C), "countersignature": ack(at_action, received_at="2026-11-25T10:14:59Z")},
-         "INVALID", "revocation.covers_action")
+         "INVALID", "countersignature.time_order")
     case("wrong_authority", {"revocation": envelope(rev_payload(rev_pred(
         authority={"digestAlgorithm": "jcs-sha256-v1", "digest": h(canonical(OTHER_AUTHORITY))})), C)},
          "INVALID", "revocation.authority_match")

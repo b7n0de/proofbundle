@@ -72,17 +72,17 @@
     },
     {
       "file": "cases/revoked_at_action_time_foreign_countersignature.json",
-      "firstNonPass": "revocation.covers_action",
+      "firstNonPass": "countersignature.signature",
       "verdict": "INVALID"
     },
     {
       "file": "cases/revoked_at_action_time_countersignature_other_revocation.json",
-      "firstNonPass": "revocation.covers_action",
+      "firstNonPass": "countersignature.binds_revocation",
       "verdict": "INVALID"
     },
     {
       "file": "cases/revoked_at_action_time_countersignature_before_revocation.json",
-      "firstNonPass": "revocation.covers_action",
+      "firstNonPass": "countersignature.time_order",
       "verdict": "INVALID"
     },
     {

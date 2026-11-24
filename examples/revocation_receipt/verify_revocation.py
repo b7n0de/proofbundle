@@ -275,8 +275,11 @@ def check_statement(st, ptype, results, prefix):
 
 def verify(bundle_bytes, customer_pub, provider_pub, authority_digest, agent_digest, action_time):
     results = []
+    at_exit = []   # rows that belong to the verdict, not to a check: appended last, so the first non-PASS row of
+    #                an INVALID verdict stays the check that failed
 
     def done(verdict):
+        results.extend(at_exit)
         return verdict, results
 
     try:
@@ -336,7 +339,7 @@ def verify(bundle_bytes, customer_pub, provider_pub, authority_digest, agent_dig
     # seconds are equal, nothing here shows which came first, so the receipt neither covers nor misses the action.
     tie = ok and revoked_at == action_time
     if tie:  # LOCK equal_times_unresolved
-        results.append(("revocation.covers_action", "UNRESOLVED",
+        at_exit.append(("revocation.covers_action", "UNRESOLVED",
                         "revokedAt equals the action time; they come from two clocks, so their order is not shown"))
     else:
         failed |= mark("covers_action", ok)
@@ -346,7 +349,7 @@ def verify(bundle_bytes, customer_pub, provider_pub, authority_digest, agent_dig
     # provider countersignature: checked in full also where the times are equal, so that a broken countersignature
     # still gives INVALID; UNRESOLVED is decided only after every applicable check has passed.
     if "countersignature" not in bundle:
-        if tie:
+        if tie:  # LOCK equal_times_customer_only
             return done("UNRESOLVED")
         results.append(("countersignature", "ABSENT", "customer-signed only, no provider confirmation"))
         return done("VALID_CUSTOMER_ONLY")
@@ -376,7 +379,7 @@ def verify(bundle_bytes, customer_pub, provider_pub, authority_digest, agent_dig
         results.append(("countersignature.time_order", "FAIL", "receivedAt before revokedAt"))
         return done("INVALID")
     results.append(("countersignature.time_order", "PASS", ""))
-    if tie:
+    if tie:  # LOCK equal_times_countersigned
         return done("UNRESOLVED")
     return done("VALID_PROVIDER_CONFIRMED")
 
