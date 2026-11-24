@@ -8,6 +8,28 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 ## [Unreleased]
 
+### Changed
+
+- **The Markovian anchor example says that the wallet it names is not authenticated.** The opt-in example type
+  `markovian-provenance/v1` reported a confirmed anchor as "canonical root committed by Markovian wallet W". The
+  envelope ties a wallet name to the data by a hash anyone can recompute: another wallet can be named without
+  touching the OpenTimestamps proof, and no wallet signature is checked. The detail now reads "canonical root
+  anchored; the envelope names Markovian wallet W … (not authenticated)"; `ok`, `warn` and `status` are unchanged.
+- **The revocation receipt example gives a fourth verdict, `UNRESOLVED`, exit 4,** where the customer's stated
+  `revokedAt` equals the caller-supplied action time and all applicable checks pass, a present countersignature
+  included. The two values come from two clocks, so equality does not show which came first. A failed check next
+  to equal times still gives `INVALID`.
+
+### Fixed
+
+- **Sentences on RFC 3161 and OpenTimestamps time say what the proofs give.** SPEC.md, structured trusted time:
+  each source gives at most an upper bound in its own unit and none a lower bound, so a time window needs a lower
+  bound from another source. For `rfc3161_gen_time` the bound is `gen_time` widened by the accuracy the token
+  states, and `trustedTime` carries no accuracy. For `opentimestamps`, `confirmed` means that the proof reaches the
+  supplied Merkle root, not that a number of blocks follow it, and the block's time field, though committed by
+  proof of work, is chosen by the miner and is not an accurate clock. The same correction is made in the Markovian
+  anchor guide and the calendar-independence page of the readiness pack.
+
 ## [6.6.1] - 2026-11-25
 
 6.6.1 is a patch release following 6.6.0. A bundle whose own Ed25519 key is a point of small order or a non-canonical encoding no longer verifies, in `proofbundle verify`, in `show-eval` and in `pb_verify_rs verify-bundle`. An SD-JWT whose issuer bound a holder key that proofbundle cannot read no longer verifies as if nothing were bound, in a bundle, in `verify_key_binding` and in `verify_sdjwt_vc` with key binding required; a `cnf` Disclosure that the holder withholds is visible to no verifier and stays outside this. A trust policy that pins an SD-JWT issuer key fails for an SD-JWT verified under another key, and an SD-JWT that presents a Disclosure committed by digest where no claim and no array element can stand is refused. Every count over the root keys of a Trust Pack counts a key part once. `verify` labels the leaf index and the tree size of a bundle as stated where nothing binds the tree size, and the release workflow stops before the build when the audit output its receipt names is not a tracked file or when the tag does not fall on the date of its changelog section.

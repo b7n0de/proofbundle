@@ -71,6 +71,21 @@
       "verdict": "UNRESOLVED"
     },
     {
+      "file": "cases/revoked_at_action_time_foreign_countersignature.json",
+      "firstNonPass": "revocation.covers_action",
+      "verdict": "INVALID"
+    },
+    {
+      "file": "cases/revoked_at_action_time_countersignature_other_revocation.json",
+      "firstNonPass": "revocation.covers_action",
+      "verdict": "INVALID"
+    },
+    {
+      "file": "cases/revoked_at_action_time_countersignature_before_revocation.json",
+      "firstNonPass": "revocation.covers_action",
+      "verdict": "INVALID"
+    },
+    {
       "file": "cases/wrong_authority.json",
       "firstNonPass": "revocation.authority_match",
       "verdict": "INVALID"

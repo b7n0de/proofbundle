@@ -853,11 +853,13 @@ from a verified RFC 3161 token's own `gen_time`, or
 attestation (the block HEIGHT is the proof's native unit; no wall-clock value
 is guessed for it). The field is present ONLY when the proof genuinely carries
 the time; it is never derived from the informative `anchoredAt`. Each source
-gives, per anchor, an upper bound ("no later than") in its own unit: a time for
-`rfc3161_gen_time`, a block height for `bitcoin_block`. Neither gives a lower
-bound, and a block height and a `gen_time` are not on one scale, so a time-window
-policy (t₁ < run < t₂) needs a lower bound from another source and one scale for
-both ends.
+gives, per anchor, at most an upper bound ("no later than") in its own unit. For
+`rfc3161_gen_time` it is the TSA-asserted `gen_time` widened by the accuracy the
+token states; `trustedTime` carries `gen_time` alone and no accuracy, so where the
+accuracy is unknown the token gives no precise upper bound. For `bitcoin_block`
+it is the block height. Neither gives a lower bound, and a block height and a
+`gen_time` are not on one scale, so a time-window policy (t₁ < run < t₂) needs a
+lower bound from another source and one scale for both ends.
 
 ### Built-in types (informative)
 
@@ -884,11 +886,11 @@ both ends.
   `needs_rp_trust` (ok=False), never confirmed. A root copied from a block
   explorer is a third party's report, not the relying party's own view of the
   chain; the verifier cannot tell where a supplied root came from. `confirmed`
-  means that the proof reaches the supplied header; it does not measure how many
-  blocks follow that header. Proof of work secures the block at the attested
-  height, not the block's time field, which the miner sets within consensus
-  limits; the trusted time is the height (see draft-fassbender-scitt-time-anchor,
-  informative).
+  means that the proof reaches the supplied Merkle root; it does not measure how
+  many blocks follow that block. The block's time field is part of the header that
+  proof of work commits, but the miner chooses it within consensus limits, so it
+  is not an accurate clock; the trusted time is the height (see
+  draft-fassbender-scitt-time-anchor, informative).
 
 ### Trust model (WP-A1, normative)
 

@@ -13,9 +13,9 @@ Final verdict, one of four fixed words:
   VALID_PROVIDER_CONFIRMED  customer revocation valid, provider countersignature valid  (exit 0)
   VALID_CUSTOMER_ONLY       customer revocation valid, no countersignature present      (exit 3)
   INVALID                   any check failed                                           (exit 1)
-  UNRESOLVED                every check passed, but revokedAt equals the action time   (exit 4)
-Usage errors exit 2. VALID_CUSTOMER_ONLY is never a provider confirmation. UNRESOLVED is never a
-revocation that covers the action: the two times come from two clocks, so equality shows no order.
+  UNRESOLVED                revokedAt equals the action time and all applicable checks passed  (exit 4)
+Usage errors exit 2. VALID_CUSTOMER_ONLY is never a provider confirmation. UNRESOLVED does not show
+that the revocation covers the action: the two times come from two clocks, so equality shows no order.
 
 The type names under https://signed-evidence.org/ are provisional.
 """
@@ -342,11 +342,12 @@ def verify(bundle_bytes, customer_pub, provider_pub, authority_digest, agent_dig
         failed |= mark("covers_action", ok)
     if failed:
         return done("INVALID")
-    if tie:
-        return done("UNRESOLVED")
 
-    # provider countersignature
+    # provider countersignature: checked in full also where the times are equal, so that a broken countersignature
+    # still gives INVALID; UNRESOLVED is decided only after every applicable check has passed.
     if "countersignature" not in bundle:
+        if tie:
+            return done("UNRESOLVED")
         results.append(("countersignature", "ABSENT", "customer-signed only, no provider confirmation"))
         return done("VALID_CUSTOMER_ONLY")
 
@@ -375,6 +376,8 @@ def verify(bundle_bytes, customer_pub, provider_pub, authority_digest, agent_dig
         results.append(("countersignature.time_order", "FAIL", "receivedAt before revokedAt"))
         return done("INVALID")
     results.append(("countersignature.time_order", "PASS", ""))
+    if tie:
+        return done("UNRESOLVED")
     return done("VALID_PROVIDER_CONFIRMED")
 
 
