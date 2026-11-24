@@ -336,7 +336,7 @@ def verify(bundle_bytes, customer_pub, provider_pub, authority_digest, agent_dig
     if not (revoked_at is not None and revoked_at <= action_time):  # LOCK covers_action
         ok = False
     # revokedAt is the customer's statement and the action time is the caller's record: two clocks. Where the two
-    # seconds are equal, nothing here shows which came first, so the receipt neither covers nor misses the action.
+    # stated seconds are equal, nothing here shows which event came first, so coverage of the action is unresolved.
     tie = ok and revoked_at == action_time
     if tie:  # LOCK equal_times_unresolved
         at_exit.append(("revocation.covers_action", "UNRESOLVED",

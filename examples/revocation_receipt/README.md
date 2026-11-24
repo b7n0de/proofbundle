@@ -24,7 +24,8 @@ These unkeyed, unsalted fingerprints bind the signed record to known inputs; the
 - Customer only: the holder of the customer key signed a revocation of exactly this authorization
   for exactly this agent, at a time the customer states.
 - With countersignature: in addition, the provider signed that it received exactly this revocation
-  (bound by its digest), at a time the provider states, which is not before the revocation.
+  (bound by its digest), at a time the provider states whose value is not earlier than the customer's
+  stated `revokedAt`.
 
 ## What it does not show
 

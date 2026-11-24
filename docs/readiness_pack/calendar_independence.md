@@ -52,8 +52,8 @@ as one. For an independence claim, pin the operators you trust rather than relyi
 The remaining assumption is the Bitcoin header's trustworthiness: a relying party who runs their own
 node removes it; one who accepts a shipped checkpoint relies on whoever curated it. OpenTimestamps
 attests existence no later than the Bitcoin block at the attested height, not second-accurate ordering:
-the block's time field is chosen by the miner, and consensus only requires it to be later than the
-median of the previous eleven blocks (the median-time-past rule), so it is not an accurate clock.
+the block's time field is chosen by the miner. Among the rules it must meet, it must be later than the
+median of the previous eleven blocks (the median-time-past rule); that does not make it an accurate clock.
 None of this establishes the truth of the timestamped content. What a receipt establishes about
 authorship, integrity and time depends on its verified evidence; the OTS anchor provides the
 block-height bound described above.

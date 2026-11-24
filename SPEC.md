@@ -854,9 +854,10 @@ attestation (the block HEIGHT is the proof's native unit; no wall-clock value
 is guessed for it). The field is present ONLY when the proof genuinely carries
 the time; it is never derived from the informative `anchoredAt`. Each source
 gives, per anchor, at most an upper bound ("no later than") in its own unit. For
-`rfc3161_gen_time` it is the TSA-asserted `gen_time` widened by the accuracy the
-token states; `trustedTime` carries `gen_time` alone and no accuracy, so where the
-accuracy is unknown the token gives no precise upper bound. For `bitcoin_block`
+`rfc3161_gen_time` it is the token's full TSA-asserted `gen_time` widened by the
+accuracy the token states. `trustedTime.time` is that `gen_time` cut to whole
+seconds and carries no accuracy, so it is not by itself an upper bound; where the
+accuracy is unknown, the token gives no precise upper bound. For `bitcoin_block`
 it is the block height. Neither gives a lower bound, and a block height and a
 `gen_time` are not on one scale, so a time-window policy (t₁ < run < t₂) needs a
 lower bound from another source and one scale for both ends.

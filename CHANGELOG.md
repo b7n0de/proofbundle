@@ -24,8 +24,9 @@ _Editorial 2026-07-20: internal gate codename replaced by its external name thro
 
 - **Sentences on RFC 3161 and OpenTimestamps time say what the proofs give.** SPEC.md, structured trusted time:
   each source gives at most an upper bound in its own unit and none a lower bound, so a time window needs a lower
-  bound from another source. For `rfc3161_gen_time` the bound is `gen_time` widened by the accuracy the token
-  states, and `trustedTime` carries no accuracy. For `opentimestamps`, `confirmed` means that the proof reaches the
+  bound from another source. For `rfc3161_gen_time` the bound is the token's full `gen_time` widened by the
+  accuracy the token states; `trustedTime.time` is that `gen_time` cut to whole seconds and carries no accuracy,
+  so it is not by itself an upper bound. For `opentimestamps`, `confirmed` means that the proof reaches the
   supplied Merkle root, not that a number of blocks follow it, and the block's time field, though committed by
   proof of work, is chosen by the miner and is not an accurate clock. The same correction is made in the Markovian
   anchor guide and the calendar-independence page of the readiness pack.
