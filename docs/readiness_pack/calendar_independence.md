@@ -54,9 +54,9 @@ node removes it; one who accepts a shipped checkpoint relies on whoever curated 
 attests existence no later than the Bitcoin block at the attested height, not second-accurate ordering:
 the block's time field is chosen by the miner. Among the rules it must meet, it must be later than the
 median of the previous eleven blocks (the median-time-past rule); that does not make it an accurate clock.
-None of this establishes the truth of the timestamped content. What a receipt establishes about
-authorship, integrity and time depends on its verified evidence; the OTS anchor provides the
-block-height bound described above.
+None of this is a statement about the correctness of the timestamped content, and it does not
+establish the truth of what was timestamped. What a receipt shows about authorship, integrity and
+time depends on its verified evidence; the OTS anchor provides the block-height bound described above.
 
 ## Where to check this in code
 
