@@ -31,6 +31,7 @@
     "bundle/duplicate-json-key",
     "bundle/forged-anchor-own-frozen",
     "bundle/n1-eval-sdjwt-graft-non-eval",
+    "bundle/sd-jwt-cnf-not-readable-without-key-binding",
     "bundle/sd-jwt-forged-issuer-identity",
     "bundle/sd-jwt-signed-but-unbound",
     "bundle/sd-jwt-unsigned-unauthenticated",

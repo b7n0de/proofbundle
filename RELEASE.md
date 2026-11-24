@@ -130,7 +130,7 @@ The order below is the convention, not a suggestion. A release is a fact about `
 
 Historical note: the 2.0.0b1–b3 line shipped this way until **2.0.0 final** (2026-07-09).
 The `[experimental]` extra now ships with normal final releases.
-This checklist tracks the version currently being prepared (current: 6.6.0).
+This checklist tracks the version currently being prepared (current: 6.6.1).
 The checklist below is the convention for any FUTURE pre-release: `pip install proofbundle` never
 pulls a PEP 440 pre-release, so the current stable stays the default while a preview stabilizes.
 
@@ -139,7 +139,7 @@ pulls a PEP 440 pre-release, so the current stable stays the default while a pre
 - [ ] The experimental bridge is behind the `[experimental]` extra AND under
       `proofbundle.experimental` (import-warns) — double-gated.
 - [ ] Rehearse on TestPyPI, then tag the **merged** `main` HEAD (see *Release ordering*):
-      `git tag v2.0.0b1 && git push --tags` (the hardened release workflow builds once + attests ==
+      `git tag -a v2.0.0b1 && git push --tags` (the hardened release workflow builds once + attests ==
       publishes, same as stable).
 - [ ] Announce as a preview; invite the external audit before promoting toward `2.0.0`.
 - [ ] `pip install --pre "proofbundle[experimental]==2.0.0b1" && python examples/experimental_enclave.py`

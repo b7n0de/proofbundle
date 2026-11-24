@@ -1161,6 +1161,10 @@ _LOOKUPS_CLASSIFIED = {
         (1, "own value: require_bool_verdict returns a bool or raises"),
     ("proofbundle/kbjwt.py", "verify_key_binding", "_HASH_ALG", "sd_alg"):
         (2, "guarded: is_member(sd_alg, _HASH_ALG) returns before both"),
+    # 6.6.1, the rule for a cnf the verifier cannot read: read at its source. An `_sd_alg` that cannot be hashed
+    # is sent to the surface in tests/test_a_cnf_the_verifier_cannot_read_still_binds_the_holder.py.
+    ("proofbundle/kbjwt.py", "_cnf_disclosed", "_HASH_ALG", "sd_alg"):
+        (1, "guarded: not is_member(sd_alg, _HASH_ALG) returns True before it"),
     ("proofbundle/policy_profiles.py", "canonical_profile_name", "PROFILE_ALIASES", "short"):
         (1, "guarded: is_member(short, PROFILE_ALIASES) in the same branch"),
     ("proofbundle/policy_profiles.py", "profile_path", "PROFILE_ALIASES", "short"):

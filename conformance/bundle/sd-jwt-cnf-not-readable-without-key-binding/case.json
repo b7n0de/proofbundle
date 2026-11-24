@@ -1,0 +1,15 @@
+{
+  "caseId": "native-bundle-sd-jwt-cnf-not-readable-without-key-binding",
+  "kind": "native_bundle",
+  "input": "bundle.json",
+  "attribution": "proofbundle (6.6.1 holder-binding vector: an issuer-signed SD-JWT whose cnf.jwk is an EC P-256 key, presented with NO Key Binding JWT; everything else about the bundle verifies)",
+  "expected": {
+    "exitCode": 1,
+    "rejected": true
+  },
+  "specRefs": [
+    "SPEC.md",
+    "THREAT_MODEL.md"
+  ],
+  "rationale": "The issuer bound the credential to a holder key (RFC 7800 cnf), here an EC P-256 jwk. proofbundle reads an OKP/Ed25519 cnf.jwk only, so it cannot check possession of this key. A cnf that is present asks for proof of possession whether or not the verifier can read it: the presentation carries no Key Binding JWT, so verify MUST reject it (exit 1, sd-jwt-key-binding=False), not read the unreadable cnf as no binding. Until 6.6.0 proofbundle verify accepted this bundle (exit 0) while pb_verify_rs verify-bundle rejected it (exit 1): the two verifiers disagreed, and no vector of this corpus carried a cnf of another key type. The bundle signature, the inclusion proof and the issuer signature all verify, and the SD-JWT carries no receipt.root_b64 commitment, so the verdict isolates the holder-binding rule."
+}

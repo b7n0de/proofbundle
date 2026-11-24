@@ -204,8 +204,8 @@ SD-JWT is its own issuer signature. Therefore (secure-by-default since revision
 2026-07-11, WP-C1/C2 — a breaking change from the prior null-and-warn behaviour):
 
 Check **sd-jwt-disclosures**: the compact string is well formed and every
-presented disclosure is committed (its digest appears in the issuer-signed
-payload's `_sd` array). This is self-consistency only — it proves nothing about
+presented disclosure is committed (its digest stands at one of the places
+named below). This is self-consistency only — it proves nothing about
 provenance and is forgeable without any key. Committed means placed as RFC 9901 places
 it: an object-property disclosure in the `_sd` array of any object of the issuer-signed
 payload or of a value disclosed in turn, an array-element disclosure as `{"...": digest}`
@@ -318,9 +318,10 @@ read, so it does not read as no claim. A payload that is not UTF-8 or not JSON t
 leading byte order mark, a raw control character inside a string) is no eval claim;
 only case 2 can add the check for it.
 
-Check **sd-jwt-key-binding** (since v1.2, RFC 9901 §4.3): performed **iff** the
+Check **sd-jwt-key-binding** (since v1.2, RFC 9901 §4.3): where the issuer signature of the SD-JWT was checked and verified, it is performed where the
 compact serialization carries a trailing Key Binding JWT (a compact form ending
-in `~` carries none). The check is **fail-closed** — a present KB-JWT that cannot
+in `~` carries none), and otherwise where the issuer-signed payload carries a `cnf` member or a presented Disclosure gives it a top-level `cnf` claim (see
+the end of this paragraph; a payload that cannot be read as a JSON object is treated as carrying one, and so are, where the payload holds a top-level `_sd` list, more than 256 presented Disclosures, a Disclosure committed in that list that the verifier cannot read or whose form is no claim `[salt, name, value]` with a text name and, where that list holds at least one text entry and a Disclosure is presented, an `_sd_alg` the verifier does not know or a presented Disclosure that holds a character outside ASCII; over a top-level `_sd` that is no list, any presented Disclosure counts as one too). Where the issuer signature was not checked, because the bundle supplies no issuer key or because the SD-JWT was refused before its signature (not a compact SD-JWT, a header or payload the verifier does not read, a `crit` header, an unknown `_sd_alg`, more than 256 Disclosures), it is performed, and **FAILS**, in those `cnf` cases only, with or without a Key Binding JWT; where the signature was checked and does not verify it is not performed, and the bundle fails at `sd-jwt-issuer-signature`. The check is **fail-closed** — a present KB-JWT that cannot
 be verified fails the bundle; it is never silently ignored. The verifier
 requires: header `typ` = `kb+jwt` and `alg` = `EdDSA`; payload claims `iat`,
 `aud`, `nonce`, `sd_hash` all present; `sd_hash` = base64url(H(US-ASCII of the
@@ -330,7 +331,20 @@ spelling of the issuer signature counts (the holder hashed the spelling it
 received; the two differ in the signature segment only, see above); and the
 KB-JWT signature verifies under the holder key
 from the issuer-signed payload's `cnf.jwk` (RFC 7800, OKP/Ed25519 — the issuer's
-binding is authoritative). `aud`/`nonce` *value* policy and `iat` freshness are
+binding is authoritative). A `cnf` member in the issuer-signed payload asks for
+proof of possession: a presentation without a Key Binding JWT then **FAILS**
+this check (a bearer downgrade), and so does a bundle that supplies no issuer
+key for such an SD-JWT. Since 6.6.1 this holds for every `cnf` member that is
+present, whether or not the verifier can read it. Where it is not an
+OKP/Ed25519 `cnf.jwk` of 32 bytes (another key type, a `kid`, `jku` or `jwe`, a
+malformed value, `null`), possession cannot be checked, so a Key Binding JWT
+**FAILS** as well, and a holder key the caller supplies never replaces the
+issuer's binding: it is used only when the payload carries no `cnf` member.
+Where the payload carries no `cnf` member itself, a presented Disclosure that gives it a top-level `cnf` claim counts as
+such a member the verifier cannot read (it reads `cnf` in the issuer-signed
+payload only). A `cnf` Disclosure the holder withholds is visible to no verifier.
+6.6.0 treated a `cnf` the verifier could not read as absent.
+`aud`/`nonce` *value* policy and `iat` freshness are
 the relying party's (an offline verifier has no trusted clock); the library
 exposes them and accepts `expected_aud`/`expected_nonce` parameters.
 
@@ -363,7 +377,7 @@ A conforming verifier MUST perform, in this order, and report each result:
    `issuer_public_key_b64` makes **sd-jwt-issuer-signature** FAIL (unsigned →
    unauthenticated); it is not a skipped or warning-only check.
 5. **sd-jwt-key-binding** — only if `sd_jwt_vc` is present AND its compact
-   serialization carries a Key Binding JWT (§6, since v1.2; fail-closed).
+   serialization carries a Key Binding JWT or a `cnf` asks for one, in the branches §6 names (§6, since v1.2; fail-closed).
 6. **sd-jwt-issuer-identity** — only if `sd_jwt_vc` is present, its issuer
    signature verified, and it discloses an `issuer` (§6, WP-C1; fail-closed against
    a forged issuer identity).
@@ -501,7 +515,7 @@ and without a pinned root the root itself remains unauthenticated.
 
 Since 6.6.1 the object also carries `actualSource: checkpoint|expected|stated`, which says whether `actual`
 is bound. `checkpoint` means a verified signed checkpoint names the same tree size (`--trusted-checkpoint`
-with `--checkpoint-vkey`, or a policy `merkle.trusted_checkpoints` entry at the current time); `expected`
+with `--checkpoint-vkey`, or a policy `merkle.trusted_checkpoints` entry at the current time that names the root of the bundle as well); `expected`
 means an explicit `--expected-tree-size` matched; `stated` means neither, a mismatch included. A `stated`
 size is only the bundle's own claim: the same audit path verifies under an interval of tree sizes, so
 neither the size nor the leaf index is authenticated by inclusion alone. The human `merkle-inclusion` line

@@ -400,6 +400,11 @@ def _faelle(w: _Welt, pfad: str, regel: tuple) -> "list[_Fall]":
             ("sd_jwt", "require_nonce"): [_Fall("b0", issuer, True, erfuellt=True, welt_erfuellt="sd")],
             ("sd_jwt", "max_iat_age_seconds"): [_Fall("sd", issuer_sd, 1, erfuellt=10 ** 9)],
             ("sd_jwt", "expected_vct"): [_Fall("sd", issuer_sd, "urn:other:vct", erfuellt=w.vct)],
+            # A rule of its own since 6.6.1: the key that verified the SD-JWT must be the pin. Until 6.6.0 the pin
+            # was read only beside a rule that trusts a value of the SD-JWT and stood among the pairs without an
+            # effect of their own.
+            ("sd_jwt", "issuer_key_pin"): [_Fall("sd", issuer_sd, "ed25519:" + _b64(_FREMD),
+                                                 erfuellt="ed25519:" + w.sd_pub)],
             ("status", "reject_self_issued"): [_Fall("b0", issuer, True)],
             ("status", "allowed_status_authorities"): [_Fall("b0", issuer, ["https://status.example"])],
             ("assurance", "minimum_level"): [_Fall("sd", issuer_sd, "enclave_attested", erfuellt="self_attested")],
@@ -529,14 +534,6 @@ _OHNE_EIGENE_WIRKUNG = {
     ("decision verify", ("decision_receipt", "allow_pending")):
         "without `--anchors` no anchor is checked, so `require_external_anchor` fails and the permission has nothing "
         "to relax: exit 3 with and without it (fail-closed); beside `--anchors` it is measured",
-    ("verify", ("sd_jwt", "issuer_key_pin")):
-        "qualifies sd_jwt.expected_vct only (Nachtrag 32, the Critical): the pin is read solely inside the "
-        "expected_vct check, to decide whether the attacker-chosen SD-JWT issuer key may be trusted. Set without "
-        "expected_vct it changes no verdict; beside expected_vct its effect (a wrong-key pin fails, a matching pin "
-        "passes) is measured in tests/test_security_fix_620_n32.py",
-    ("evaluate_policy", ("sd_jwt", "issuer_key_pin")):
-        "same as the verify path: the pin is consulted only by the expected_vct check, so it flips no verdict on "
-        "its own; its effect beside expected_vct is measured in tests/test_security_fix_620_n32.py",
 }
 
 

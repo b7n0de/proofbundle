@@ -226,7 +226,10 @@ def verify_sdjwt_vc(compact: str, policy: dict, *, issuer_pubkey: bytes | None =
 
     ``requireKeyBinding`` defaults to True (a VC without a valid holder binding is FAIL — the holder key is taken
     from ``cnf.jwk`` inside the issuer payload, so it is only trustworthy once the issuer signature above is
-    verified). Returns ``{ok, profile, issuer, binding}``; read ``ok`` — never an individual field alone.
+    verified). ``holder_pubkey`` is used only for a credential whose issuer payload carries no ``cnf``; a
+    ``cnf`` that is present and that this verifier cannot read fails the binding and is never replaced by the
+    supplied key (6.6.1, ``kbjwt._cnf_present``). Returns ``{ok, profile, issuer, binding}``; read ``ok`` —
+    never an individual field alone.
 
     ``now`` / ``max_age_seconds`` (Nachtrag 49b CX-04): the one evaluation time (POSIX seconds) for the holder
     KB-JWT iat freshness — default age 300 s, 60 s future-clock-skew window; a non-negative ``max_age_seconds``

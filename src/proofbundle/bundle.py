@@ -33,7 +33,7 @@ from ._strict_json import enforce_structural_budget, loads_strict
 from .budget import DEFAULT_BUDGET, render_keys_safe, render_safe
 from .canonical import _ein_stand, _plain_for_jcs, _zeichen_von
 from .errors import BundleFormatError, ProofBundleError, UnsupportedError, VerificationResult
-from .kbjwt import holder_key_from_cnf, split_key_binding, verify_key_binding
+from .kbjwt import _cnf_present, split_key_binding, verify_key_binding
 from .signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness, verify_ed25519_pinned
 from .sdjwt import canonical_sd_jwt_compact, verify_sd_jwt
 from ._wire_b64 import decode_b64, decode_b64url
@@ -77,27 +77,38 @@ def _as_list(v):
     return v if isinstance(v, (list, tuple)) else []
 
 
-def _issuer_requires_holder_binding(sd_part: str) -> bool:
-    """True iff the issuer-signed SD-JWT payload carries a usable ``cnf`` holder key (RFC 7800) — i.e. the
-    issuer REQUIRES proof-of-possession. A presentation without a valid Key Binding JWT is then a bearer
-    downgrade and MUST fail. Malformed/absent → False (no cnf ⇒ no binding required, backward-compatible).
-    A DUPLICATE key → True (fail-closed, F12): treating an ambiguous-because-duplicated payload as
-    'no binding required' would be the exact inversion _strict_json.py warns about."""
+def _holder_binding_asked(sd_part: str) -> Optional[str]:
+    """Whether the presented SD-JWT asks for proof of possession, and why: ``"cnf"`` when the issuer-signed
+    payload carries a ``cnf`` member (RFC 7800), readable here or not, or a presented Disclosure gives it one
+    (6.6.1, ``kbjwt._cnf_present``); ``"unreadable"`` when the payload cannot be read as a JSON object; None when
+    a payload that was read binds no holder key.
+
+    None is the one answer that asks for no binding, and it is given on that one path only. Before, a reading
+    that stopped on an error other than the strict reader's own (a first segment without a second part, text
+    outside ASCII or outside base64url, bytes that are no JSON) answered "no binding required", and so did a
+    payload that is no object. No bundle was measured to verify through that answer: ``verify_sd_jwt`` reads the
+    same segment with the same decoder and the same reader and refuses it before its signature check, so the
+    bundle failed at ``sd-jwt-disclosures`` and ``sd-jwt-issuer-signature`` (nine forms, with and without an
+    issuer key). The decision itself was not fail-closed. Never raises."""
     try:
         issuer_jwt = sd_part.split("~", 1)[0]
         payload_b64 = issuer_jwt.split(".")[1].encode("ascii")
         payload = loads_strict(decode_b64url(payload_b64))
-        return isinstance(payload, dict) and holder_key_from_cnf(payload) is not None
-    except ProofBundleError:
-        # adversarial re-audit round 3: catch the BASE ProofBundleError — loads_strict raises a SIBLING
-        # BudgetExceeded (a node-heavy issuer payload) that `except BundleFormatError` missed, letting a raw
-        # exception escape this verify helper. A duplicated key in the issuer payload must NOT read as "no cnf
-        # ⇒ no binding required" (that
-        # inversion would let a duplicate-cnf payload skip holder binding entirely). Fail-closed: demand
-        # binding. The bundle already fails at the sd-jwt-disclosures structure gate; this is belt-and-braces.
-        return True
-    except Exception:  # noqa: BLE001 — any other malformed/absent payload ⇒ no binding required (backward-compat)
-        return False
+    except Exception:  # noqa: BLE001 - whatever stopped the reading, no payload was read
+        # The strict reader's own refusals are among these (a duplicated key, F12; the node budget, re-audit
+        # round 3): a duplicated ``cnf`` must not read as "no cnf, so no binding required", the inversion
+        # _strict_json.py warns of.
+        return "unreadable"
+    if not isinstance(payload, dict):
+        return "unreadable"
+    return "cnf" if _cnf_present(payload, sd_part) else None
+
+
+def _issuer_requires_holder_binding(sd_part: str) -> bool:
+    """True unless the issuer-signed SD-JWT payload was read as a JSON object that binds no holder key
+    (:func:`_holder_binding_asked`). The issuer then REQUIRES proof-of-possession, or may have: a presentation
+    without a valid Key Binding JWT is a bearer downgrade and MUST fail."""
+    return _holder_binding_asked(sd_part) is not None
 
 SCHEMA = "proofbundle/v0.1"
 
@@ -572,15 +583,21 @@ def _verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonc
         # it matches. For distinct entries, fixing the size also fixes the index; inclusion alone does not
         # identify a unique occurrence when entries repeat (a repeated entry can verify under two indices of
         # the same tree). An unbound pair is labelled at the value, not only by the root caveat behind it.
-        size_bound = type(expected_tree_size) is int and expected_tree_size == tree_size
-        anchored = (f"anchored at index {leaf_index} of {tree_size}" if size_bound
-                    else f"anchored at stated index {leaf_index} of stated tree size {tree_size}")
-        result.add(
-            "merkle-inclusion",
-            incl_ok,
-            f"{anchored} (Merkle-consistent under the STATED root)"
-            if incl_ok else "inclusion proof failed",
-        )
+        # The line names both integers, so it is built on the passing path only, as in 6.6.0, and writes them
+        # through the bounded renderer. `_require_int` admits an integer of up to 2,467 digits and a host may
+        # lower the int-to-str limit to 640 digits, so a plain f-string here raised a raw ValueError out of
+        # verify_bundle(dict): for every such bundle while the line was built before the verdict was known,
+        # and on the passing path in 6.6.0 as well (the last leaf of a tree of 2**2200 + 1 entries has an
+        # audit path of one step, so inclusion holds under a tree size of 663 digits).
+        if incl_ok:
+            size_bound = type(expected_tree_size) is int and expected_tree_size == tree_size
+            index_text, size_text = render_safe(leaf_index), render_safe(tree_size)
+            anchored = (f"anchored at index {index_text} of {size_text}" if size_bound
+                        else f"anchored at stated index {index_text} of stated tree size {size_text}")
+            incl_detail = f"{anchored} (Merkle-consistent under the STATED root)"
+        else:
+            incl_detail = "inclusion proof failed"
+        result.add("merkle-inclusion", incl_ok, incl_detail)
         # Addendum R6a-2 (Z309): record the Merkle root this inclusion check passed under (origin-covered),
         # set only on a passing bundle signature AND a passing inclusion. A downstream judge that authenticates
         # a pinned/expected/checkpoint root (policy.evaluate_policy) confirms the result proved inclusion UNDER
@@ -623,13 +640,16 @@ def _verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonc
         # never-raise API. Keep the established fail-closed contract (bool/float/huge/ill-typed -> recorded
         # tree-size FAIL, never a raise) but render the raw expectation ONLY when it is a bounded int; a huge
         # or ill-typed expectation gets a safe generic detail (no str() of the raw value).
+        # The stated tree size goes through the bounded renderer as well: it is an integer `_require_int`
+        # admitted, and under a lowered host limit a plain f-string raised here in each of the three branches.
+        size_text = render_safe(tree_size)
         if size_ok:
-            detail = f"tree_size {tree_size} matches the expected size"
+            detail = f"tree_size {size_text} matches the expected size"
         elif type(expected_tree_size) is int and expected_tree_size.bit_length() <= 8192:
-            detail = (f"tree_size {tree_size} != expected {expected_tree_size} "
+            detail = (f"tree_size {size_text} != expected {render_safe(expected_tree_size)} "
                       "— possible tree-size substitution")
         else:
-            detail = (f"tree_size {tree_size} != expected (ill-typed or out-of-range expectation) "
+            detail = (f"tree_size {size_text} != expected (ill-typed or out-of-range expectation) "
                       "— possible tree-size substitution")
         result.add("tree-size", size_ok, detail)
 
@@ -676,7 +696,7 @@ def _verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonc
         # bound a `cnf` holder key (proof-of-possession REQUIRED) a presentation with NO KB-JWT is a bearer
         # downgrade — anyone who sees the disclosed SD-JWT could replay it — so that MUST fail. expected_aud/
         # expected_nonce (v1.3) enforce RFC 9901 §7.3 replay/audience binding when the relying party supplies
-        # them. Bundles issued without `cnf` and with no KB-JWT verify exactly as before (backward-compatible).
+        # them. Where `_holder_binding_asked` finds no `cnf` and there is no KB-JWT, this check asks for nothing.
         #
         # The holder-binding check is only MEANINGFUL when the issuer signature was actually verified: the `cnf`
         # holder key is declared INSIDE the issuer-signed JWT, so without a checked issuer signature an attacker
@@ -706,12 +726,22 @@ def _verify_bundle(bundle: Union[dict, str], *, expected_aud=None, expected_nonc
             # "structure-only passed". SD-JWTs without `cnf` keep the documented no-key
             # backward-compat path unchanged.
             sd_part, _ = split_key_binding(compact)
-            if _issuer_requires_holder_binding(sd_part):
+            asked = _holder_binding_asked(sd_part)
+            if asked == "cnf" and issuer_pub is None:
                 result.add(
                     "sd-jwt-key-binding", False,
                     "SD-JWT declares a cnf holder key but NO issuer key was supplied — holder "
                     "binding is unverifiable, refusing (fail-closed; supply "
                     "sd_jwt_vc.issuer_public_key_b64)")
+            elif asked is not None:
+                # The payload could not be read, or an issuer key was supplied and the SD-JWT was refused before
+                # its signature check. The sentence above would name a cnf nobody read, or a key as missing
+                # that was supplied.
+                result.add(
+                    "sd-jwt-key-binding", False,
+                    "a holder key bound to the SD-JWT (cnf) cannot be ruled out and its issuer signature was "
+                    "not verified (the issuer-signed payload cannot be read, or the SD-JWT was refused before "
+                    "the signature check) — holder binding is unverifiable, refusing (fail-closed)")
 
         # WP-C1 (6-lens review, Owner-GO): bind the sd_jwt_vc to THIS bundle. sd_jwt_vc is outside the
         # signed payload, so an issuer-VALID SD-JWT from bundle B can be swapped into bundle A (cross-receipt
