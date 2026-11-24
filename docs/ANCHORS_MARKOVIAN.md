@@ -11,15 +11,16 @@ register()   # anchors[] entries with type "markovian-provenance/v1" now verify
 
 ## What it adds over `opentimestamps`
 
-The built-in `opentimestamps` type proves *the data existed by a Bitcoin block time*. A Markovian stamp
+The built-in `opentimestamps` type proves *the data existed no later than the Bitcoin block at the attested
+height*; the block's time field is set by the miner and is not a trusted clock. A Markovian stamp
 adds an **attributable issuer**: it binds the committed data to a wallet inside the stamp envelope,
 
 ```
 merkle_root = sha256( data_hash ":" salt ":" wallet )
 ```
 
-so a verified anchor says *the target canonical root was committed **by wallet W** and existed by the
-OTS-attested Bitcoin block time* — issuer **and** time, not time alone.
+so a verified anchor says *the target canonical root was committed **by wallet W** and existed no later
+than the Bitcoin block at the OTS-attested height* — issuer **and** an upper bound in time, not time alone.
 
 ## Composition, not reinvention
 
@@ -58,7 +59,8 @@ UTF-8 JSON, base64'd into the anchor's `proof` field:
 
 ## Trust model (honest)
 
-- **Time** is trust-minimized (Bitcoin PoW time): it comes from Bitcoin via the OTS proof, verified offline against a block header
+- **Time** is an upper bound at a block height: proof of work secures the block at the attested height, not the block's
+  time field, which the miner sets. It comes from Bitcoin via the OTS proof, verified offline against a block header
   the **relying party supplies** (WP-A1: `--bitcoin-header` / policy `anchors.bitcoin_block_headers`) from
   their own trusted (pruned) node — NOT the anchor's `frozen` header, which is producer-controlled evidence
   and is never trusted. proofbundle never fetches it. That value is the block's `hashMerkleRoot` in Bitcoin **internal (node) byte order**

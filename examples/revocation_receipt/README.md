@@ -51,11 +51,11 @@ python3 verify_revocation.py revocation_countersigned.json \
 
 Expected: every line `PASS`, last line `VERDICT VALID_PROVIDER_CONFIRMED`, exit code 0. The same
 command on `revocation_customer_only.json` ends with `VERDICT VALID_CUSTOMER_ONLY`, exit code 3. A
-failed check gives `VERDICT INVALID`, exit code 1. `--action-time` is the caller-supplied time of the action being examined. The checker requires the customer's stated `revokedAt` to be at or before that time. It does not authenticate the action time. `VALID_PROVIDER_CONFIRMED` adds a valid, matching provider-signed acknowledgement whose stated receipt time is not before `revokedAt`; it does not require receipt before the action. The checker keeps no history and does not detect conflicting records that reuse a revocation identifier. Rechecking identical bytes with identical inputs gives the same result.
+failed check gives `VERDICT INVALID`, exit code 1. `--action-time` is the caller-supplied time of the action being examined. The checker requires the customer's stated `revokedAt` to be before that time. It does not authenticate the action time. Where `revokedAt` equals the action time and every other check passes, the verdict is `UNRESOLVED`, exit code 4: the two values come from two clocks, the customer's statement and the caller's record, so equality does not show which came first. `UNRESOLVED` is never a revocation that covers the action. `VALID_PROVIDER_CONFIRMED` adds a valid, matching provider-signed acknowledgement whose stated receipt time is not before `revokedAt`; it does not require receipt before the action. The checker keeps no history and does not detect conflicting records that reuse a revocation identifier. Rechecking identical bytes with identical inputs gives the same result.
 
 Times must use ASCII digits in the exact UTC form `YYYY-MM-DDTHH:MM:SSZ`. Fingerprint arguments must be exactly 64 lowercase hexadecimal characters. The checker refuses a supplied public key that is not a canonically encoded Ed25519 point of prime order, such as the identity point, under which a signature made without any private key would verify.
 
-`python3 verify_revocation.py --selftest` runs all 26 test runs and exits 0 only if each result equals
+`python3 verify_revocation.py --selftest` runs all 28 test runs and exits 0 only if each result equals
 `cases/expected.json`. `python3 check_mutants.py` exits 0 only if every switched-off check turns at
 least one case red.
 

@@ -9,11 +9,13 @@ Usage:
       --agent-digest HEX --action-time 2026-11-25T10:15:00Z
   python3 verify_revocation.py --selftest [CASES_DIR]
 
-Final verdict, one of three fixed words:
+Final verdict, one of four fixed words:
   VALID_PROVIDER_CONFIRMED  customer revocation valid, provider countersignature valid  (exit 0)
   VALID_CUSTOMER_ONLY       customer revocation valid, no countersignature present      (exit 3)
   INVALID                   any check failed                                           (exit 1)
-Usage errors exit 2. VALID_CUSTOMER_ONLY is never a provider confirmation.
+  UNRESOLVED                every check passed, but revokedAt equals the action time   (exit 4)
+Usage errors exit 2. VALID_CUSTOMER_ONLY is never a provider confirmation. UNRESOLVED is never a
+revocation that covers the action: the two times come from two clocks, so equality shows no order.
 
 The type names under https://signed-evidence.org/ are provisional.
 """
@@ -330,9 +332,18 @@ def verify(bundle_bytes, customer_pub, provider_pub, authority_digest, agent_dig
     ok = True
     if not (revoked_at is not None and revoked_at <= action_time):  # LOCK covers_action
         ok = False
-    failed |= mark("covers_action", ok)
+    # revokedAt is the customer's statement and the action time is the caller's record: two clocks. Where the two
+    # seconds are equal, nothing here shows which came first, so the receipt neither covers nor misses the action.
+    tie = ok and revoked_at == action_time
+    if tie:  # LOCK equal_times_unresolved
+        results.append(("revocation.covers_action", "UNRESOLVED",
+                        "revokedAt equals the action time; they come from two clocks, so their order is not shown"))
+    else:
+        failed |= mark("covers_action", ok)
     if failed:
         return done("INVALID")
+    if tie:
+        return done("UNRESOLVED")
 
     # provider countersignature
     if "countersignature" not in bundle:
@@ -367,7 +378,7 @@ def verify(bundle_bytes, customer_pub, provider_pub, authority_digest, agent_dig
     return done("VALID_PROVIDER_CONFIRMED")
 
 
-EXIT = {"VALID_PROVIDER_CONFIRMED": 0, "VALID_CUSTOMER_ONLY": 3, "INVALID": 1}
+EXIT = {"VALID_PROVIDER_CONFIRMED": 0, "VALID_CUSTOMER_ONLY": 3, "INVALID": 1, "UNRESOLVED": 4}
 
 
 def run_one(path, customer_key, provider_key, authority_digest, agent_digest, action_time):

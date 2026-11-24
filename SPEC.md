@@ -852,8 +852,12 @@ from a verified RFC 3161 token's own `gen_time`, or
 `{source: "bitcoin_block", height: <int>}` from a confirmed OpenTimestamps
 attestation (the block HEIGHT is the proof's native unit; no wall-clock value
 is guessed for it). The field is present ONLY when the proof genuinely carries
-the time; it is never derived from the informative `anchoredAt`. This is what
-makes a time-window policy (t₁ < run < t₂) buildable over `verify --json`.
+the time; it is never derived from the informative `anchoredAt`. Each source
+gives, per anchor, an upper bound ("no later than") in its own unit: a time for
+`rfc3161_gen_time`, a block height for `bitcoin_block`. Neither gives a lower
+bound, and a block height and a `gen_time` are not on one scale, so a time-window
+policy (t₁ < run < t₂) needs a lower bound from another source and one scale for
+both ends.
 
 ### Built-in types (informative)
 
@@ -877,7 +881,14 @@ makes a time-window policy (t₁ < run < t₂) buildable over `verify --json`.
   **internal (node) byte order** as returned by `bitcoind` — NOT the
   byte-reversed order block explorers display; a reimplementer MUST use the
   internal order. With no relying-party header the upgraded proof is
-  `needs_rp_trust` (ok=False), never confirmed.
+  `needs_rp_trust` (ok=False), never confirmed. A root copied from a block
+  explorer is a third party's report, not the relying party's own view of the
+  chain; the verifier cannot tell where a supplied root came from. `confirmed`
+  means that the proof reaches the supplied header; it does not measure how many
+  blocks follow that header. Proof of work secures the block at the attested
+  height, not the block's time field, which the miner sets within consensus
+  limits; the trusted time is the height (see draft-fassbender-scitt-time-anchor,
+  informative).
 
 ### Trust model (WP-A1, normative)
 
@@ -1093,3 +1104,6 @@ Whether these bytes equal the text of the draft in the IETF archive is not measu
 - RFC 2104 / FIPS 198 — HMAC (per-leaf salt PRF).
 - RFC 9334 — RATS Architecture (Passport model).
 - RFC 9711 — Entity Attestation Token (EAT).
+- draft-fassbender-scitt-time-anchor-08 — Umarise's Bitcoin-Anchored Temporal
+  Proofs (individual Internet-Draft, Independent Submission; informative, cited
+  for the block time field and the source of block headers).
