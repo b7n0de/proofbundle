@@ -1,0 +1,9 @@
+{
+ "what": "Public key that signs this publisher's Figure Statements (COSE_Sign1, ES256). The private key was generated inside the service that signs and is not exported. The same document is served live at https://frc-mcp.ziyetis.workers.dev/statement-key.",
+ "key_id": "07e9b801b771c9ea",
+ "key_id_rule": "first 16 hex characters of SHA-256 over x + \".\" + y, as written below",
+ "alg": "ES256 (COSE algorithm -7): ECDSA P-256 with SHA-256, signature r||s",
+ "public_jwk": {"kty": "EC", "crv": "P-256", "x": "FEmCN2MN6ofuOCAv-vGiFexgMmHrayjP2gubTJ2d5KI", "y": "fSfqjj8J7V7t3aHNeO3-KNHDfGW_3-oCaMBcktEQBvI"},
+ "created": "2026-11-24T20:47:05.887Z",
+ "issuer": "https://financeratecalc.com"
+}

@@ -1,0 +1,5024 @@
+{
+ "what": "Every digest of a Figure Statement this publisher has issued, per figure, oldest first. The last entry is the statement in force. Entries are only ever added.",
+ "digest_rule": "SHA-256 over the COSE Sig_structure [\"Signature1\", protected, h'', payload] of the statement (the ToBeSigned scheme); lowercase hex",
+ "key": "https://financeratecalc.com/transparency/statement-key.json",
+ "key_id": "07e9b801b771c9ea",
+ "profile": "https://datatracker.ietf.org/doc/draft-yetis-scitt-figure-receipts/",
+ "history_begins": "2026-11-25",
+ "updated": "2026-11-25",
+ "figures": 716,
+ "digests": {
+  "conv-national-denial-rate-2025": [
+   {
+    "digest": "c24b6c86c647e9f0b7bfb47ea8eac0a470b7f4d2a9cbec7db4808d254f20bc73",
+    "value": "23.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-ak-denial-rate-2025": [
+   {
+    "digest": "1079efbc2de8d762741c1de713cd3d16153d2604313527aaad75d9d0d501cf0d",
+    "value": "20.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-al-denial-rate-2025": [
+   {
+    "digest": "28878cf97098688a4409a0dffb6be1424a63a32808e5de4afa4e570786128d6a",
+    "value": "27.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-ar-denial-rate-2025": [
+   {
+    "digest": "a82999a7f1d0e3fa04295fcb19f2a99c265ebf484e428b91ccd2bceb403ac3d1",
+    "value": "24.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-az-denial-rate-2025": [
+   {
+    "digest": "61a5722587f26afe8dfd7b7a73c7bb8d918f0bec17f7c7a398ca721135623b19",
+    "value": "21.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-ca-denial-rate-2025": [
+   {
+    "digest": "2d13bb776362b273ce839ec602c24179a035144e98230880f9f2b79a303d7061",
+    "value": "22.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-co-denial-rate-2025": [
+   {
+    "digest": "64c7b089a37af4a9e501e776a4cc08096d390e574aa8dcae127cf23d94e9e33d",
+    "value": "20.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-ct-denial-rate-2025": [
+   {
+    "digest": "3a883f51d2ae2e18bdf1ba8a8b218fd74258686712515d0c7cf88867fe874440",
+    "value": "21.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-dc-denial-rate-2025": [
+   {
+    "digest": "f2ec07d1dd98aef1b8aea4054342300836e1dafce00948fbe6e154e75fb942c7",
+    "value": "24.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-de-denial-rate-2025": [
+   {
+    "digest": "caf6cbb32b0bc5f14100c1b9dd7dce7d74b63b4ab100722824503247fef5e637",
+    "value": "22.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-fl-denial-rate-2025": [
+   {
+    "digest": "e4f224c0402ecbb87a9186f7a226afeda3669e0f57a15603edef48c8ad0bd598",
+    "value": "28.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-ga-denial-rate-2025": [
+   {
+    "digest": "0df78a335eb5e8ec26808d42e25df698da29d61170061dc00a8496aafe22eb5a",
+    "value": "26.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-hi-denial-rate-2025": [
+   {
+    "digest": "b9006f6d27e631569a1da18360a0e16e51383bdba5d468b9835ff5a055e9d80e",
+    "value": "29.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-ia-denial-rate-2025": [
+   {
+    "digest": "9f20e73e3bc980f1a026342c8b68c454db5a79b45a511540ff2dd93dc23175ab",
+    "value": "14.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-id-denial-rate-2025": [
+   {
+    "digest": "ce4321f34865ef91681c4eec2ea516166dc7d189b6ce39fdbfa09ecafd52ce5e",
+    "value": "18.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-il-denial-rate-2025": [
+   {
+    "digest": "bc332e2239c2e24303e106215c97c3bcdabb44d18989dd4616a9374d86b7eb3f",
+    "value": "21.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-in-denial-rate-2025": [
+   {
+    "digest": "4e3a4cc70feb0d976033e1a6df7170ee901e103a7883479e0306f89b9be196df",
+    "value": "20.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-ks-denial-rate-2025": [
+   {
+    "digest": "4a7718aedc2eb048f68b26dc0a15d4974f69fb7f027eb440e9aa8b2adc61f21b",
+    "value": "18.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-ky-denial-rate-2025": [
+   {
+    "digest": "50656e2c48f7da287f2d418d81e02c6c186acb8397e814c5e781ca0bf640ada8",
+    "value": "24.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-la-denial-rate-2025": [
+   {
+    "digest": "d17f34fc45153a722b351dc7b47d3e0f34fca18d3479eccfdf8ca419c08c2975",
+    "value": "30.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-ma-denial-rate-2025": [
+   {
+    "digest": "28d0102af79d0ad5d9b78744d473ade49be7617544251c78c5a3e96c8f03fd1d",
+    "value": "19.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-md-denial-rate-2025": [
+   {
+    "digest": "1b71ba11fd92a1d47cc8f4891744ac92cebaeb3d924a0c6a19b76c3bb023c287",
+    "value": "25.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-me-denial-rate-2025": [
+   {
+    "digest": "aa0d90e01428fbbfaf98e93d43e0c060146ccf182da246eddb29ebcf23a39775",
+    "value": "19.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-mi-denial-rate-2025": [
+   {
+    "digest": "68494e5affd07154dd73d425efbc87c7620a774e13716c9dcba15e34be00cb80",
+    "value": "22.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-mn-denial-rate-2025": [
+   {
+    "digest": "004e158221f41742641ea2b3fe4c7e2d9a562ea7fac874546390ae3bf3c0e236",
+    "value": "15.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-mo-denial-rate-2025": [
+   {
+    "digest": "13bf718b964ce06b9982721ca9abfb95a64d8daa950f19a4cf7b3f922ca7ec38",
+    "value": "18.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-ms-denial-rate-2025": [
+   {
+    "digest": "2598f8db57837cb0f6596dfadb4094cfb2da32bb75210e2c79556f9c88d37f27",
+    "value": "30.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-mt-denial-rate-2025": [
+   {
+    "digest": "589f186a2a4be01ed0e36ebc4570429623ada397067ee177cb5a31dfb6b3f789",
+    "value": "18.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-nc-denial-rate-2025": [
+   {
+    "digest": "0d115cc56af5b0ce088e655183084182c0783577f373ee55c40b4a4eb205568a",
+    "value": "24.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-nd-denial-rate-2025": [
+   {
+    "digest": "2fdaf967a54cba9ee7391adae4ed491a698d860c5fc13eb6bd8293929a2522af",
+    "value": "13.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-ne-denial-rate-2025": [
+   {
+    "digest": "96b2df9d8cf9725a3aebacebe0b2c598bb862eaff1fda7cc3dbd9eb85697ed9b",
+    "value": "14.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-nh-denial-rate-2025": [
+   {
+    "digest": "25e6d0153d7c96ab9d212b0c6b811d4839e11cbfa6a1edd674462425d18f8765",
+    "value": "20.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-nj-denial-rate-2025": [
+   {
+    "digest": "c9815076798ad69757fba856e5b5566b1906f9bb359c2bddbd54cc9f1681007c",
+    "value": "23.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-nm-denial-rate-2025": [
+   {
+    "digest": "e5b4ee8517c836a193921e907798d399a4363715ab62fbb347b44c03681f736c",
+    "value": "26.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-nv-denial-rate-2025": [
+   {
+    "digest": "f62d2cc762133550dcea8b76b337aa5e499c0075c91d8b73a84aeaca9ef52f24",
+    "value": "24.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-ny-denial-rate-2025": [
+   {
+    "digest": "b89c0f78836a6dcf7e41a4dd2426d894f145b3c4d1c449e101e81e077aad75a3",
+    "value": "24.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-oh-denial-rate-2025": [
+   {
+    "digest": "85b8f68afc367a971ff759c822a8ac2a14906537c348e227ee58fa0b8124d0d2",
+    "value": "22.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-ok-denial-rate-2025": [
+   {
+    "digest": "9f8da0b54d67a0f1ff494c65830c33c04e7b1b6c42192c46ecb47369b49c0cf2",
+    "value": "24.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-or-denial-rate-2025": [
+   {
+    "digest": "1fc8a9c9ba294546421342c6329a460059f8eabaf8a9545cd1b7f1ce372be232",
+    "value": "19.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-pa-denial-rate-2025": [
+   {
+    "digest": "7669ffd55eaf77d201e695a0af9120bf9afc20ddf37858a1299a0397f8095f3a",
+    "value": "22.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-pr-denial-rate-2025": [
+   {
+    "digest": "39b95ad403762538cef4cc495df935aaa5f07253fe454cb62c464aeeea5da3f4",
+    "value": "19.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-ri-denial-rate-2025": [
+   {
+    "digest": "b874e983e5fc37b8f60e89635f23d8691e332380241b6822b5c6f864f4046d68",
+    "value": "23.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-sc-denial-rate-2025": [
+   {
+    "digest": "1dfb7dcf321369ea944f294e44fee11852b672a09e91f953926b52936239acc6",
+    "value": "25.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-sd-denial-rate-2025": [
+   {
+    "digest": "fcb5ef1c4fb9417e9560d0572f38e5108726cb34bfc19a06c09c7f376195f592",
+    "value": "15.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-tn-denial-rate-2025": [
+   {
+    "digest": "0f93116ae7a26046021364911c6b42ec23aa6c16c7974066bcfdc309df84a597",
+    "value": "22.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-tx-denial-rate-2025": [
+   {
+    "digest": "ebb4fc29d805b4ebbcecb9aa022b41beca7363f14da0ffcfeace4bf0f10f6407",
+    "value": "28.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-ut-denial-rate-2025": [
+   {
+    "digest": "899b54bffc69b2253e6e1034e7db3c415bd916b744358a2920c976a6bcca0058",
+    "value": "20.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-va-denial-rate-2025": [
+   {
+    "digest": "c6c21189d9534a8d808bc8192e4d1ed6cf2c5a995c8e0e05ac0478432a5e1e3b",
+    "value": "21.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-vi-denial-rate-2025": [
+   {
+    "digest": "adf2503678265ee932848f3879ddecde29d13c1df31bda68da7d09d338293840",
+    "value": "7.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-vt-denial-rate-2025": [
+   {
+    "digest": "302bcbe79a9db93faa451d8a06603f3243a06f6db2566b7ca533eafd71bf9993",
+    "value": "17.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-wa-denial-rate-2025": [
+   {
+    "digest": "b839c47ab0cc0316f9ceed59ce08cf3d4c1a6230f17bfd675fd46bed81bba3ce",
+    "value": "20.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-wi-denial-rate-2025": [
+   {
+    "digest": "3814ab1c54441e8d245524cf5d43e4992a073481c92543fdb71b523c2e35ac48",
+    "value": "15.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-wv-denial-rate-2025": [
+   {
+    "digest": "0d4e68c42951ebe8f06268bf7a1c86688442b14483cdea0afbe9252322e2492d",
+    "value": "28.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "conv-state-wy-denial-rate-2025": [
+   {
+    "digest": "48826da65d65f92e7a77478deae0957ba75223fe86bc97f92834fa2724900c4c",
+    "value": "21.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "denial-reason-shares-top100-2025": [
+   {
+    "digest": "8011e93f839e380708301a125e44a75530c07676219d2ef379460fcea7e98e08",
+    "value": "dti-40.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "door-effect-38pct-2026": [
+   {
+    "digest": "7685e1757e9d42b64567069b197bf319474b02c6b09771ba45aae8a1f03c7c02",
+    "value": "38%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-acrisure-mortgage-2025": [
+   {
+    "digest": "9fd2c6a54844334fcdd389fc20afa5c29bacc7a9e1e5a032d46615afa2293741",
+    "value": "8.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-advantagefirst-lending-2025": [
+   {
+    "digest": "65c7d5fe82f7b2c5e55f852727bccabcba085649eb08b761b2cbe7603e615dc3",
+    "value": "37.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-american-financial-network-2025": [
+   {
+    "digest": "aa1de0a9221b7803e7c41b7b7e5e303429c56ab622a0a7ef2f78fc1356d63fd8",
+    "value": "15.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-american-financial-resources-2025": [
+   {
+    "digest": "df3adcc76de3468d7a57050841637634cb583ec61c369e8b5f02d17f341d6c87",
+    "value": "10.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-american-financing-2025": [
+   {
+    "digest": "c9f56f4b0e27672fab02c0d4ecbc36c3f2b2abb3d805a8faaf500d78b59c061c",
+    "value": "71.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-american-neighborhood-mortgage-acceptance-2025": [
+   {
+    "digest": "a0dd2d690a104108670b07d7b3aaf565f6e87bc3090b755ec3a6b67580ec1a66",
+    "value": "4.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-american-pacific-mortgage-2025": [
+   {
+    "digest": "5f8ca94538a0cbb1765a4435740a105c15b3f013f50515806a7aca3deaba51b8",
+    "value": "12.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-amerihome-mortgage-2025": [
+   {
+    "digest": "6ea269f9d6dbaeaca44a6d724dc05b4efeae375ab716b2013d6a5e481444ddd5",
+    "value": "14.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-ameris-bank-2025": [
+   {
+    "digest": "74b352142fe9a6c4d14e96fcbf3167684c721acf0d39744113528ce761f23822",
+    "value": "10.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-amerisave-mortgage-2025": [
+   {
+    "digest": "bc95d6e3257a44663603d61128853d804648adfd7800cf1b8d992f06ab9949b2",
+    "value": "78.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-ark-la-tex-financial-services-2025": [
+   {
+    "digest": "0cb02d99146be8e47b200c6e5212ccc6af93b4628b2bdd1543c9b8ac08229fff",
+    "value": "4.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-atlantic-bay-mortgage-group-2025": [
+   {
+    "digest": "b4bc3113abfb102959c71dc37e865d1f3aa3ed2d29995bb7d24a4d270cbaa291",
+    "value": "3.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-better-mortgage-2025": [
+   {
+    "digest": "2d1e8660e5c7c5f4c79094c43fd253dbd18fd5c1dde85c740a9b46382925eab0",
+    "value": "49.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-calcon-mutual-mortgage-2025": [
+   {
+    "digest": "3ea6a6aabd5a4a214feabf0b7112d98867155d916d2f29733ddaec0d319421e0",
+    "value": "24.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-canopy-mortgage-2025": [
+   {
+    "digest": "c0b9f0f5db6aadc30f598e3789c5c5458e9f02dc623a376132327072e2230b8f",
+    "value": "4.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-cardinal-financial-li-2025": [
+   {
+    "digest": "696769582ff0613550f4797829e56b5ea388a165de3ee6948a571edcf14b1847",
+    "value": "12.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-carrington-mortgage-services-2025": [
+   {
+    "digest": "43a2b611baeba7e1b7d3ab5332384131cba1811f631ad07e52c5a42b3944e287",
+    "value": "58.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-click-n-close-2025": [
+   {
+    "digest": "96c01c43264c7db6cf1eab6207d58a9f6911b583eafeeb941a9d19067bf07241",
+    "value": "9.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-cmg-mortgage-2025": [
+   {
+    "digest": "a1b7767987fe34f423221be99ba280f497e00867eb904a0deee7e98e5aaeeef3",
+    "value": "6.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-crosscountry-mortgage-2025": [
+   {
+    "digest": "289ab6c1204de4d603abdd4576a1bf496aeb8520ac473646c93c0610f35920e9",
+    "value": "6.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-das-acquisition-2025": [
+   {
+    "digest": "6d10710a1d284287ac76176c855758d165cfb15c119a693cc50734a0bee1aac8",
+    "value": "4.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-dhi-mortgage-2025": [
+   {
+    "digest": "d517599e94b7cc5ceed8786d8414c2bf5c06c17a9f1989f5355b6d54c0790682",
+    "value": "20.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-envoy-mortgage-2025": [
+   {
+    "digest": "4288e4f6b53f8530cb623a4b674a9f657aed4e511bef83b2b457bfbb16193f1e",
+    "value": "42.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-equity-prime-mortgage-2025": [
+   {
+    "digest": "4f9df4ee81ac42780b981de63030609f73020f403edc63b24b589adb2e3d6cff",
+    "value": "20.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-everett-financial-2025": [
+   {
+    "digest": "57fe499c02f1b7702cb166d24c97fe260d26e7b90b31049789d2eca6a790193f",
+    "value": "10.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-fairway-independent-mort-2025": [
+   {
+    "digest": "137b5892b10d06c5c4250121430402e255b668f279e540a5188df1da6e1d2cb2",
+    "value": "8.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-first-colony-mortgage-corporat-2025": [
+   {
+    "digest": "81cbfafefeff27c41714680ada6050c24e03f3f71325297d015a273c3aab128c",
+    "value": "5.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-first-community-mortgage-2025": [
+   {
+    "digest": "f57cc7a00e49b6341ef493ce8923a4be0d2fd7581faf6aa77251ae0da7456105",
+    "value": "9.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-first-heritage-mortgage-2025": [
+   {
+    "digest": "ff52c4ffdec54d685e107c23e843b2e8bf988108951325d816c6cc0cc0eb8bf4",
+    "value": "7.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-flagstar-bank-2025": [
+   {
+    "digest": "0274783ab2dbe25bf501d27a92cb1234a20747a4b53933892750b287bc1bdc9d",
+    "value": "40.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-flat-branch-mortgage-2025": [
+   {
+    "digest": "a4afce423b7e1026766f37133ea029973105883932f4c79df0763718cde8b88b",
+    "value": "1.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-freedom-mortgage-2025": [
+   {
+    "digest": "00eb286a13bba3d90468b7fef4cae4149220437379b9ab34e4e9f02561e97c11",
+    "value": "19.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-gateway-first-bank-2025": [
+   {
+    "digest": "4ad4086d5555401f1b2510ad3e29805e342e5762960d1bedc115d590207de653",
+    "value": "7.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-geneva-financial-2025": [
+   {
+    "digest": "6b86437f23aaf1a90654cbf6a5a0f1a48c06f9a1f9054478f5483e06a1e4a6d7",
+    "value": "3.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-gold-star-mortgage-financial-group-2025": [
+   {
+    "digest": "474dce71c6ff70c256d46c4cfd165fd220ad198fd4d179e37d3ea9ddcbf8119e",
+    "value": "7.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-goodleap-2025": [
+   {
+    "digest": "8f25905e58c3bfcac6f25d3a4f325b1336c08a733c2dda2dc8255cc385403da8",
+    "value": "35.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-guaranteed-rate-2025": [
+   {
+    "digest": "f9c0b07740848b169da95c0bb12cd56ba8d48511ece237baeeebff3ea6b37510",
+    "value": "13.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-guild-mortgage-2025": [
+   {
+    "digest": "3a7f57bfd6b94bac763af35322ef92af5916e05496cbec0125d601c7126d2448",
+    "value": "6.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-highlands-residential-mortgage-2025": [
+   {
+    "digest": "4f5b13702012c1ff23846607e2f940a03d7600aecf0c88023e885a5496638de4",
+    "value": "3.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-homeamerican-mortgage-2025": [
+   {
+    "digest": "4c4008eb385d4c67ebd34e718fc4ccdaefb6e30a5bf6e0b3737d87393283d6b8",
+    "value": "12.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-homebridge-financial-services-2025": [
+   {
+    "digest": "7fa9a8f3e2a2552b521560a30bd10dcc2807d1d08f549e94a2a55e89d4b6a7ba",
+    "value": "33.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-huntington-national-bank-2025": [
+   {
+    "digest": "453f4b18261660e3a570b280c0cbbb3c5409e90186ac5daa32c00165f3586144",
+    "value": "26.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-inspire-home-loans-2025": [
+   {
+    "digest": "2854c22ac6093be58447f499cd7c417fef674d7f5ba736688ac9a02a94f625ce",
+    "value": "15.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-ixonia-bank-2025": [
+   {
+    "digest": "ea5eb7505ef24483be740c3068d75de2482433b153c5e225003722b785f383bf",
+    "value": "6.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-jpmorgan-chase-bank-2025": [
+   {
+    "digest": "a47cbcdd465d19c2047012f44fff5484df534b4d0ef6cb574adde8a8eb58b289",
+    "value": "42.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-kbhs-home-loans-2025": [
+   {
+    "digest": "f4a29fad5a5948766e22cf0f386e4a92e96dea69afff672f0ae087847d10a3f5",
+    "value": "12.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-kind-lending-2025": [
+   {
+    "digest": "82a3e0174bc92ec7a53fb0bdd166249e3e917909adbf58baed2fc19f5d0129ff",
+    "value": "27.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-lakeview-community-capital-2025": [
+   {
+    "digest": "98898d632aab1703b146a3a42bcf23f2775d9a85fe616682bee18b727d86f73b",
+    "value": "1.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-lakeview-loan-servicing-2025": [
+   {
+    "digest": "b849a3dee3150bf64c24c6e4e0327f4098092f9da2190b15d6ec81dbdc96872c",
+    "value": "57.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-lennar-mortgage-2025": [
+   {
+    "digest": "c4acd6c70cf749579067551e8595187b13dd8d78ba758eea18860d4a6f4be68b",
+    "value": "22.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-loandepotcom-2025": [
+   {
+    "digest": "2d2f852e60e4520f4999919f9e8ce08c0f48aa4d7fd6dfdc96db0358df75c2d2",
+    "value": "34.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-loanunitedcom-2025": [
+   {
+    "digest": "9800ebfdd2c3b419b3134bc9415ab7fa2f372effc7c58955f520f0597a8c9ebf",
+    "value": "24.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-lower-2025": [
+   {
+    "digest": "716479ef6abe399ec37395093b565d0b8bb5a8601b14d54c9ef2e9cc3d821516",
+    "value": "22.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-luminate-bank-2025": [
+   {
+    "digest": "84de2c5c7ba6ed7ff91594e1b66ad8f2f6bdd41608e048f48ef06f278881369c",
+    "value": "8.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-m-i-financial-2025": [
+   {
+    "digest": "8de33c5422faf271889ff8c408cb59eeb41e1198dd20e623f6980a9324839f0e",
+    "value": "5.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-mandt-bank-2025": [
+   {
+    "digest": "f8cddadff9939e035584d7e73e8b03f21519e002710125a75c45b1c4e9255a29",
+    "value": "32.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-mortgage-research-center-2025": [
+   {
+    "digest": "72c62e1d525110b02bf19926ae0edc0445a06d77868820404a21f8c66694f5ea",
+    "value": "36.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-movement-mortgage-2025": [
+   {
+    "digest": "dcae168e2c15ebb5f70866884dd48c9bd290e6d19be5e6da32c2cc055ce3f3ce",
+    "value": "5.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-mutual-of-omaha-mortgage-2025": [
+   {
+    "digest": "2d0163631689500138a4023a99f73a9856073938c91ee5978f578f11c0da6806",
+    "value": "42.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-nations-lending-2025": [
+   {
+    "digest": "1de15da4de372d8f507ab6b1ad16f8c476ebf4d65b271c5c046928d138e391c3",
+    "value": "11.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-nationstar-mortgage-2025": [
+   {
+    "digest": "2e24943fa802fa66e74e0efcd1175f06bb483d0e0bc2202f36c13936a68a6e6b",
+    "value": "26.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-new-american-funding-2025": [
+   {
+    "digest": "7e43ac26fafd99ad750079bad2ee3733710f34bba2fcfdf9cbeb7d615c36c32b",
+    "value": "26.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-newrez-2025": [
+   {
+    "digest": "ec5afe7b85167028c93d08e4d63f11738eee59564b5c1e6b5ddf37cd296eef34",
+    "value": "52.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-nfm-2025": [
+   {
+    "digest": "b988af086a9c2f986e1e6ac36643ea283acf73a8e6e9fe36b96937dcf15e8997",
+    "value": "4.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-nvr-mortgage-finance-2025": [
+   {
+    "digest": "6b4993a7dfbce605a8e803726565e76fe6d6d7c07d4170fc4d207640eeebd9a6",
+    "value": "34.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-ocmbc-2025": [
+   {
+    "digest": "70ab9bdababe509aa27279d24a332322aa228de880fcb9563d68f814307f986d",
+    "value": "10.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-paramount-residential-mortgage-2025": [
+   {
+    "digest": "3b29db6f79bd68a29d9466ec0c2316996f0685fe24e342da692eda6a0b8db114",
+    "value": "5.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-pennymac-loan-services-2025": [
+   {
+    "digest": "f8e3ac30d221dc176479c41574851116711573cdc9853adf1dfed06a6de73e0e",
+    "value": "22.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-phh-mortgage-2025": [
+   {
+    "digest": "6cfc43eb590d75c267fd0d9246c93a501b8e5d938b75946e17884f0a1166c71f",
+    "value": "25.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-plains-commerce-bank-2025": [
+   {
+    "digest": "48efd8f0c5ee59ce12325bad6d75b2b769fc258fc54018b57651c05041f83ebc",
+    "value": "14.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-planet-home-lending-2025": [
+   {
+    "digest": "22f1d45b7257fe64887eafd8d6bf2f2564155e054f8737e9dbf9f6d1b9b914a0",
+    "value": "17.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-plaza-home-mortgage-2025": [
+   {
+    "digest": "13c01603762b0282083a76cb40030987018e81720b06b58cde0473316ed7629d",
+    "value": "35.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-premier-mortgage-resources-2025": [
+   {
+    "digest": "b38106ba441d8f9fcbff83ee8b0a78bfb0ab8415367e8921ef7025ad0d2f9e93",
+    "value": "5.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-primary-residential-mortgage-2025": [
+   {
+    "digest": "c03c0a1991346c528a0ce8e49bfe5d36a5a048786fa9f839bf2267af635e8b42",
+    "value": "10.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-primelending-2025": [
+   {
+    "digest": "02d05ac771a0eecc26f5ecdcfe247db3ad5aa6c1578acd763da621ee770bf313",
+    "value": "9.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-prosperity-home-mortgage-2025": [
+   {
+    "digest": "450a226fe9d4fda1f0b53cc9a8500f82c40aca64240d98263e0ff6bf5c92c160",
+    "value": "18.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-pulte-mortgage-2025": [
+   {
+    "digest": "e3fb460336a1285c00925c9c3a63c4059f245f7ab0fe9b0f4c8af5de7e448a08",
+    "value": "26.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-regions-bank-2025": [
+   {
+    "digest": "5887d7b2810d352a4396490393a9353b08d2f552100f498cf21a147a9fb21151",
+    "value": "40.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-rocket-mortgage-2025": [
+   {
+    "digest": "a7501e1e84c0fcfc14df754434184de3363c16a7d1bc92812db53be589e5c950",
+    "value": "29.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-ruoff-mortgage-2025": [
+   {
+    "digest": "efac6312fa136d14d1495bbf035335fb93f2ed6fc3b9d5078fed1f81164f75b7",
+    "value": "9.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-securitynational-mortgage-2025": [
+   {
+    "digest": "1b010f45a4914f7efe146783fd52ccb42c97ed19adaac9866b476781cb08f644",
+    "value": "14.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-stockton-mortgage-2025": [
+   {
+    "digest": "ffe15126213bfeddbadcf4d0840d9e0427dd4ce2cd7d9546419bd412a9fbc804",
+    "value": "16.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-sun-west-mortgage-2025": [
+   {
+    "digest": "bf1b085bfd8449d2faf694892d5d1d65227b747c6cc22a0f55f342ecad49e1ea",
+    "value": "20.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-synergy-one-lending-2025": [
+   {
+    "digest": "059fc914daef505b8af086c1e022dbbdbf20632bb7904dda36d35925e5c92de5",
+    "value": "10.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-t2-financial-2025": [
+   {
+    "digest": "bd811bf25fa4c4cbbb35bb9c716b2b21cdb7c07cc35fcd18d91b017b3fc9fb61",
+    "value": "9.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-taylor-morrison-home-funding-2025": [
+   {
+    "digest": "721585c93cd3e54e684996f29c26989cf91ffe3a1858fbd7dfbd120fec2f2e7a",
+    "value": "26.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-the-loan-store-2025": [
+   {
+    "digest": "fdd337e2fad125830b6a3724dda45bb97cc068de6863d9569cf28e034d03f04d",
+    "value": "10.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-top-flite-financial-2025": [
+   {
+    "digest": "7e0e3dcda92b0f35c3b6a14298e210e704d62d8d3de293e0f882e7126bb9abee",
+    "value": "15.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-towne-mortgage-2025": [
+   {
+    "digest": "e87190222105aefd629738bbf67fef403f81844b9755f6469d73e7cb75287443",
+    "value": "5.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-union-home-mortgage-2025": [
+   {
+    "digest": "854813155fb5d616a59988ccb29d837561bd9b6e33306e651f1f9cf221f164fb",
+    "value": "8.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-united-wholesale-mortgage-2025": [
+   {
+    "digest": "acadf96b94eeaf5b6034f89c9af4d2b6c1599dc9b9535c22102d87ef225d36be",
+    "value": "21.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-us-bank-2025": [
+   {
+    "digest": "be14749ddbddf005d0b4ce3f9345a64db167d76b1c86cf7f4ed5fbc27a30d43f",
+    "value": "23.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-vanderbilt-mortgage-and-finance-2025": [
+   {
+    "digest": "793102beb4416478b94a003a7eb0f1ba3b61dc82a0088ce87cf3ffb501ac74bd",
+    "value": "2.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-velocio-mortgage-2025": [
+   {
+    "digest": "e773547a0107c0d4c2aee96e0fd1d9a3f7aea42d3d1439f65d46e4ceae3dce36",
+    "value": "4.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-village-capital-and-investment-2025": [
+   {
+    "digest": "fd5f467e59705e64297ff64901ee104795dd0753cfd51b53d18f39677cc8e25a",
+    "value": "33.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-vip-mortgage-2025": [
+   {
+    "digest": "14bbe91848011041618ead5dae3883700d140c49cd06df3db029583d1697a38f",
+    "value": "5.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-wells-fargo-bank-2025": [
+   {
+    "digest": "463fecdba43a89631d4474a5ac327153590e38e7a7348f45c403505159f2a3a9",
+    "value": "48.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "lender-zillow-home-loans-2025": [
+   {
+    "digest": "cbb648f2e78834ce7ecf921fb2560628f4b046ea322a69362a14ae639eac4be2",
+    "value": "12.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-akron-oh-2025": [
+   {
+    "digest": "b0628f58a5da93b4662ce7792aa00355786c200d3d78edbdc3f6e2fd08016371",
+    "value": "24.3pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-albany-schenectady-troy-ny-2025": [
+   {
+    "digest": "4675180506d4cb18ca6cea055f07a02ab7f11a984f134d93a10c9894ac21413e",
+    "value": "19.4pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-albuquerque-nm-2025": [
+   {
+    "digest": "0a612a03a1bef80e5e3ba43d66ccb0c6673fdb6a579bcc42724be6b3bb1dd4a2",
+    "value": "26.5pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-allentown-bethlehem-easton-pa-nj-2025": [
+   {
+    "digest": "5333726ad4795b59b054f244c0ec42c608aecf46a23319490e45aa820ee27cb6",
+    "value": "20.4pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-anaheim-santa-ana-irvine-ca-2025": [
+   {
+    "digest": "2b3ed3b80c0cb71898f0d597b918b95fd8ee2d62befdf62e1c718a4be17ac2b2",
+    "value": "10.0pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-arlington-alexandria-reston-va-wv-2025": [
+   {
+    "digest": "76b8cf33340c691246c0df5f0456e4f3e86797ea81a6c5fab89994e576b06a3f",
+    "value": "23.4pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-atlanta-sandy-springs-roswell-ga-2025": [
+   {
+    "digest": "3119927dc3d2d0073a06fbbc8c646479cd78f781d85279e0b403a948f2ead475",
+    "value": "55.2pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-augusta-richmond-county-ga-sc-2025": [
+   {
+    "digest": "4ec6cff88d446911f2d02d8e973ece91a5198740e095cebbcc5de4c122e0f12b",
+    "value": "18.3pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-austin-round-rock-tx-2025": [
+   {
+    "digest": "4b3c41d731bd0944586cc62d967ca31bf5dd0ab1c2df70ab74d8c3d26fd9cffd",
+    "value": "23.0pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-bakersfield-ca-2025": [
+   {
+    "digest": "3ba1859351cc1a2cf8f62fb8ecb34ea80e44fb3cb1fccb17cc909e2bffb8f411",
+    "value": "21.2pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-baltimore-columbia-towson-md-2025": [
+   {
+    "digest": "df1ecaabf4f6e214795de0e4aaa4105cb9bc0d484d3061a28b79671cfb51fa17",
+    "value": "10.9pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-baton-rouge-la-2025": [
+   {
+    "digest": "afc9d507326be551c0420e1cc0bec05578ebad665f3592b5acc8f4a28fd2fb39",
+    "value": "17.9pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-beaumont-port-arthur-tx-2025": [
+   {
+    "digest": "86e4e0b46e1ffab0d5e4601d74a30947efbc68cdcd569544ae60101404b9bfc6",
+    "value": "8.5pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-birmingham-hoover-al-2025": [
+   {
+    "digest": "c378b7f3bfe96c6d4d00c2173f0cb9a9bef004a2fb342af7a07a5b4d12812e5e",
+    "value": "33.2pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-boise-city-id-2025": [
+   {
+    "digest": "45772173b9a58665a275dfa97a4c20198ea19a4386f60faf4301128d7b5950dd",
+    "value": "13.4pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-boston-ma-2025": [
+   {
+    "digest": "81b2e86d2d6e231e6faf58186dc6083d58779df60f96a91a00f3b69e539a26a4",
+    "value": "21.5pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-bridgeport-stamford-norwalk-ct-2025": [
+   {
+    "digest": "deff4c1fa1bbf69aa9a6b18231cf39b4e744e1b78bad74786bf290399c4415f1",
+    "value": "11.4pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-buffalo-cheektowaga-niagara-falls-ny-2025": [
+   {
+    "digest": "f806a9bffcca8ae2315b72f76709e09f0f98d699a4664c28de09f1c752d59871",
+    "value": "27.0pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-cambridge-newton-framingham-ma-2025": [
+   {
+    "digest": "600677e9a4425b42d11f6dedf9923666d138e1458217880dbbd37e96ed71d8a8",
+    "value": "22.6pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-camden-nj-2025": [
+   {
+    "digest": "830d015eaedd2924cbedf7f39c220b6749712b4387a3b753302b0a9f548e4950",
+    "value": "23.7pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-canton-massillon-oh-2025": [
+   {
+    "digest": "5c7b74c8f4476017eec217a0af3a50c7aea7bdb1f1646c7233e0549a476ee62d",
+    "value": "28.6pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-cape-coral-fort-myers-fl-2025": [
+   {
+    "digest": "235343c419b40f98479a14a615fc808264a6289faee832561daa8414d8de89de",
+    "value": "37.5pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-charleston-north-charleston-sc-2025": [
+   {
+    "digest": "7d59b824013c493beb7f8b065fbec7c0607d1b10704e30cd331f42942230f16f",
+    "value": "9.7pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-charlotte-concord-gastonia-nc-sc-2025": [
+   {
+    "digest": "dcb4aa43d14a368c49476ea019aba252d46436f4b20c441b082345f29bed1ae9",
+    "value": "28.5pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-chattanooga-tn-ga-2025": [
+   {
+    "digest": "a1db9a0479c75d421115538d1b0e13ef6f8fede9132758c09edd4f0ddb6401de",
+    "value": "25.2pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-chicago-naperville-evanston-il-2025": [
+   {
+    "digest": "94cf0321dc6f9ed1621fc6efc5bd696a753faedde82a144e7876e733fa785704",
+    "value": "26.2pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-cincinnati-oh-ky-in-2025": [
+   {
+    "digest": "4157ee9ee40c56773c6b7da27f63efeebcc1606a2365ee5af2ee2e0107b4028c",
+    "value": "19.3pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-clarksville-tn-ky-2025": [
+   {
+    "digest": "551f40e340b6aff573491c4d3ca128bf6905377d33c2a4efa423b6b1998ec9b8",
+    "value": "0.3pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-cleveland-oh-2025": [
+   {
+    "digest": "5c74bb531370b70d2d844a554dab81a8ec82f9a9120785715d9a3c7d83d018cc",
+    "value": "73.7pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-colorado-springs-co-2025": [
+   {
+    "digest": "747e7f88d419965a133a983a4e7912b8e224b8040377a29580f9fb9ee7c5d0a4",
+    "value": "16.7pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-columbia-sc-2025": [
+   {
+    "digest": "c0bc5365bc4fa2e5fe6a08344b197dacfb968a89b5526e141062af09065712a6",
+    "value": "25.1pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-columbus-ga-al-2025": [
+   {
+    "digest": "67fdf22b4d5166f09407493b11cdef9986a58c11cddf7479d7e2626f3a0a2992",
+    "value": "9.7pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-columbus-oh-2025": [
+   {
+    "digest": "23b1154cbc75672e6666222f98d7682313dbfcb8a6ce686a0860677b10396f0f",
+    "value": "30.7pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-corpus-christi-tx-2025": [
+   {
+    "digest": "747af6501bbe8443e38da0f96b3a6880e274ba89275bad4c730825add76629ba",
+    "value": "12.6pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-crestview-fort-walton-beach-destin-fl-2025": [
+   {
+    "digest": "cc2a251acb929ef50a0c59cd36c052f96b1ff95dc91bb414ea1eae0011466416",
+    "value": "7.3pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-dallas-plano-irving-tx-2025": [
+   {
+    "digest": "179bf209770e4ff88a03b2d69897b9b49bca7440a03ea767a02feecf67af5da8",
+    "value": "11.3pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-daphne-fairhope-foley-al-2025": [
+   {
+    "digest": "6d62869ccc7566a285d10dd46b383ee4e2c7e040f53b2eeb7c646bbceb941883",
+    "value": "4.6pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-davenport-moline-rock-island-ia-il-2025": [
+   {
+    "digest": "f356167d6dfecdd529023b3e10b76f984aeca41bf8f4a1b226449e49e1b634c8",
+    "value": "11.7pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-dayton-kettering-oh-2025": [
+   {
+    "digest": "3a5bcc6ba6efbdb34a428a6d4c839cbea0b480885db70d1be3d90d0565469bc1",
+    "value": "23.0pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-deltona-daytona-beach-ormond-beach-fl-2025": [
+   {
+    "digest": "a860d045fff04ef3de1f207c43a8973879df97cbdcd046e588221458f387c60b",
+    "value": "13.0pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-denver-aurora-lakewood-co-2025": [
+   {
+    "digest": "05894f8c41d44d98ed4caeb96e7203e1b78b98aca37b80de0b588df266482ea9",
+    "value": "61.3pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-des-moines-west-des-moines-ia-2025": [
+   {
+    "digest": "d1c2dee206109e85e0b4712bd5d98a6b8233b215ca14fccc34b827ee6c086a71",
+    "value": "16.6pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-detroit-dearborn-livonia-mi-2025": [
+   {
+    "digest": "a1e7c2a9935de98fb8d8ad4c13612e7e3932f539efa6411304b0619d0288845f",
+    "value": "57.0pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-durham-chapel-hill-nc-2025": [
+   {
+    "digest": "355c77799a467b8b7251ff6cffc13ad9f34420654029939d71087dd7b481c44d",
+    "value": "4.5pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-el-paso-tx-2025": [
+   {
+    "digest": "1ade428863ea586eaf9ea924e6a6c9c820e9b196eaba3a5606d25ec9b807f40a",
+    "value": "6.7pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-elgin-il-2025": [
+   {
+    "digest": "2c05f4473ee70826aa83cf6efcde4558292a71d1065b8eb6f167f7c355b7c4c5",
+    "value": "14.6pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-everett-wa-2025": [
+   {
+    "digest": "6dc0b82a0b517bbbd50fd236e99d0ab7f4248b35764761deda53befc1eb580ca",
+    "value": "12.5pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-fayetteville-nc-2025": [
+   {
+    "digest": "0a2a992ddbf2f5a585afb5a984092ddf70a58fd2c804c10bd2d0d130d6a00f47",
+    "value": "4.8pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-fayetteville-springdale-rogers-ar-mo-2025": [
+   {
+    "digest": "d71dae920d5ca051b225c3c99f805cffb29091eeb91c969a5cfa481571d2b75e",
+    "value": "22.5pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-flint-mi-2025": [
+   {
+    "digest": "41f0dd5bd07c95f69a782ab7d9ab26002e27b9206203fa5b8cde6f99f28d3220",
+    "value": "14.2pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-fort-lauderdale-pompano-beach-deerfield-beach-fl-2025": [
+   {
+    "digest": "e19bf2eefef858e745093337c8773395fcb4f70bcda5f9799f4c538d0587030a",
+    "value": "69.4pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-fort-wayne-in-2025": [
+   {
+    "digest": "323fcbf3bd46ca884c5c6fd9e0d2e85ed22441d5cf4a78f0e5f4130f1593135d",
+    "value": "22.5pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-fort-worth-arlington-tx-2025": [
+   {
+    "digest": "d730fa4b91e46bd6c1b6d33bfccd15ba2ae9e40d83f5d43979a60b57d8e09b7e",
+    "value": "4.0pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-frederick-gaithersburg-rockville-md-2025": [
+   {
+    "digest": "0cfc0b244527050a713f4e50f6a2e93f98cad437c7c581d85e969861d65d6df1",
+    "value": "47.4pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-fresno-ca-2025": [
+   {
+    "digest": "4457e96292a1291f99430bb59a339c6c50c592c0a4b093fabcb067a3695b107a",
+    "value": "13.7pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-gainesville-fl-2025": [
+   {
+    "digest": "2fdd11ffbf92b919e02ed0ca947bf4ac474b1b0331fb4eda48b15a8a6816f15e",
+    "value": "9.6pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-gainesville-ga-2025": [
+   {
+    "digest": "e5cf58735ccd1bf9d9c7d58028b33e4b7db0a989d7415667e0cae5968fe51383",
+    "value": "17.9pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-grand-rapids-wyoming-mi-2025": [
+   {
+    "digest": "76689db19b22abf31a3dfdd498a7dd95d14905f0620d89cc2c00257338559b3d",
+    "value": "9.1pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-greeley-co-2025": [
+   {
+    "digest": "6355a7815cda75c3394b4925de33eb1277d588a06b7b5764aa9a3bf34d6a0c70",
+    "value": "46.6pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-greensboro-high-point-nc-2025": [
+   {
+    "digest": "c04631975da256fe78d8c1133b1a5145bbc8990cf966b824d1606ab0c98bdbaf",
+    "value": "26.8pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-greenville-anderson-mauldin-sc-2025": [
+   {
+    "digest": "1fcefcfd6660be8590e57ad436c609c6158bebc24ee41f2ad11cf1487a8d06a2",
+    "value": "10.2pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-gulfport-biloxi-pascagoula-ms-2025": [
+   {
+    "digest": "8b4a57e1c0252e6cb515c003454d85a9910e382223444d2ccbb00bf85a9d8842",
+    "value": "21.3pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-hagerstown-martinsburg-md-wv-2025": [
+   {
+    "digest": "fe041b07222a3c51fb992096041cb976fb99a72d7cc9554a9bdb0498b19d2d70",
+    "value": "23.0pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-harrisburg-carlisle-pa-2025": [
+   {
+    "digest": "622168ff3c13e70c010647bd31e55be7379711b7c7626c507ce3e83d424149be",
+    "value": "14.8pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-hartford-west-hartford-east-hartford-ct-2025": [
+   {
+    "digest": "7aa98f19aea4605eb870c496efde37e559a1275864ac4914005e0e7048b67939",
+    "value": "11.2pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-hickory-lenoir-morganton-nc-2025": [
+   {
+    "digest": "5af49197a1d0ecc6e628eabb3f28f77dd5331dd887aad5619b03a34bcd8baf1b",
+    "value": "23.0pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-homosassa-springs-fl-2025": [
+   {
+    "digest": "0aea87cd8c15f105073be7c90b252cbb7a3e3bffb80bb0fd159f208333476164",
+    "value": "8.2pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-houston-the-woodlands-sugar-land-tx-2025": [
+   {
+    "digest": "6529769f5ae10b09c560058c7a2e166be60cb443bfde7fe22848c05b1f1f6d20",
+    "value": "9.0pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-huntington-ashland-wv-ky-oh-2025": [
+   {
+    "digest": "ae8589fcbb9193ab23528cc67255a2327c4364c1a2f9fbf867b63aa50a9d6552",
+    "value": "35.8pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-huntsville-al-2025": [
+   {
+    "digest": "07ef27f04a9e514b77e7498aef6d2ea355a224a19d4434f54acbc76bfa0a9776",
+    "value": "20.0pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-indianapolis-carmel-anderson-in-2025": [
+   {
+    "digest": "4c31b2dfcd2dd605576bdc932872e80ca3694080ce23d7d99baa52efd7480458",
+    "value": "29.9pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-jackson-ms-2025": [
+   {
+    "digest": "e3d61b6d11c19e849724929b52fe9a2e6f574bc593938004efd734effffe81fa",
+    "value": "30.1pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-jacksonville-fl-2025": [
+   {
+    "digest": "f97f1d690c124500feaaeff1ff540f28cc4105cd6f8fa390cafd8562f8fc7cbe",
+    "value": "15.3pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-kansas-city-mo-ks-2025": [
+   {
+    "digest": "867d87eeaf250111cada95aa4e842377156f6ff9152a85dd2948cdc41866cdc3",
+    "value": "20.8pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-kennewick-richland-wa-2025": [
+   {
+    "digest": "ed4498c11ba5a73715ab74ba92d4ce45423f0d98d021278fe7462c9c30a250e8",
+    "value": "21.3pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-killeen-temple-tx-2025": [
+   {
+    "digest": "13da265a83c0ff49919bda2c503682d088dbb359cff83b592b785d8714664abd",
+    "value": "8.8pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-kingsport-bristol-bristol-tn-va-2025": [
+   {
+    "digest": "0d70b6e23621cb7092712a6424cdbabacf2c67e2940237a75c8a3c6f2cae530a",
+    "value": "23.7pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-knoxville-tn-2025": [
+   {
+    "digest": "39a0aaa00a0da89680530d914e3f6e787cbdf26c413f9877af3789ef12633289",
+    "value": "11.3pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-lafayette-la-2025": [
+   {
+    "digest": "ba677826e47d1489831c80b1ac7e78aa5b6dbfc05fe069efbf89ed9ef34db529",
+    "value": "18.7pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-lake-county-kenosha-county-il-wi-2025": [
+   {
+    "digest": "da2dce40e6dfa79abe65ffd37d82cd7d11f91af182699808c11cbc2e293912af",
+    "value": "1.9pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-lake-county-porter-county-jasper-county-in-2025": [
+   {
+    "digest": "74b80e2e25b46a98f2f06cd2a72aa87a4ca4ab9d6a2ec922c8f08419e62c002d",
+    "value": "17.8pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-lake-havasu-city-kingman-az-2025": [
+   {
+    "digest": "5964f1fad3a85f5ef6bf873416e67077e7ace0114d6f93565433d620fbd0af75",
+    "value": "19.7pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-lakeland-winter-haven-fl-2025": [
+   {
+    "digest": "5cf228a901e209a7bd4212d193c63a4c8d6f1b17496ec093051bc773086449aa",
+    "value": "13.6pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-lakewood-new-brunswick-nj-2025": [
+   {
+    "digest": "12d434a7d5184e3edfa9bc28e9f94812a654f3e43ca4e6edfa22a52e4c497654",
+    "value": "20.4pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-lansing-east-lansing-mi-2025": [
+   {
+    "digest": "fa54ef9f7258f5c2bc3df03ff41dee4cbdcbfc0be828f490357978fa9cdd5c4d",
+    "value": "53.4pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-laredo-tx-2025": [
+   {
+    "digest": "0fab219fc5607028f1ae5af025639e498b942424acdd5f17ba53e116c4208f0f",
+    "value": "6.9pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-las-cruces-nm-2025": [
+   {
+    "digest": "cfaf8fd191ccf5ebe285d42fb1bb008f5679703a1f4b58794c3c80b5fc24956b",
+    "value": "12.2pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-las-vegas-henderson-paradise-nv-2025": [
+   {
+    "digest": "865090c998d1dab72c1c73da5c61e67bb3fc670b8881c2c1e82def1ef1d4d62e",
+    "value": "21.1pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-lexington-fayette-ky-2025": [
+   {
+    "digest": "5c22681460b91ec00fc4ee56bdaa71959b4b249a9327eb0f3df46d387d93cf0a",
+    "value": "17.7pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-little-rock-north-little-rock-conway-ar-2025": [
+   {
+    "digest": "3322a2d0a569224c1a8ea45263b0ec5161b4960607046c2e6a22957e1ec44958",
+    "value": "30.5pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-longview-tx-2025": [
+   {
+    "digest": "a12b8472ba5af7895fb9d4feb2cf803a9071d4dc3a919b962171c37e8c248daf",
+    "value": "11.2pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-los-angeles-long-beach-glendale-ca-2025": [
+   {
+    "digest": "87e9c9544cfb29573535dfa2f861a8c2030ca1fd18e043cb172d9d18d081183f",
+    "value": "28.3pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-louisville-jefferson-county-ky-in-2025": [
+   {
+    "digest": "9f222b5de364a958b9a5aaeb027e038118665abd6e358502a545cce0404dd56c",
+    "value": "12.5pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-lubbock-tx-2025": [
+   {
+    "digest": "691745b90c85c35e390676fdc4441f30b10e8d432449b59ae775df859948bec5",
+    "value": "15.5pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-lynchburg-va-2025": [
+   {
+    "digest": "b6f3a235534b76eeb9c31467e116eb7d5c737e75940b99318cad7630377279b1",
+    "value": "10.7pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-marietta-ga-2025": [
+   {
+    "digest": "45258fd70c02ba66abce2d5711848fe7e1297e57355873e69bd8bbe494623bdf",
+    "value": "9.7pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-mcallen-edinburg-mission-tx-2025": [
+   {
+    "digest": "41978a205f35e659c29c2e159688d43eac5157fdbf7119b2ee669205f6513c22",
+    "value": "10.9pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-memphis-tn-ms-ar-2025": [
+   {
+    "digest": "0f0d7d12ef7a624e5d9da533cec120b0c6fa5f708216a18ba0eb5015b077d44c",
+    "value": "15.8pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-miami-miami-beach-kendall-fl-2025": [
+   {
+    "digest": "f576eefcf9d1942d5801e6cdc2da9084b01a7f3d94cb62f4d311866771b408dd",
+    "value": "55.8pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-midland-tx-2025": [
+   {
+    "digest": "e489100fa24eff16bfc3fcfebb5e51d208453cdccf96696f726f6338d2fdd45f",
+    "value": "12.5pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-milwaukee-waukesha-west-allis-wi-2025": [
+   {
+    "digest": "ea0434d436344715a0d72811b4099ed37c657920e493b8e0b2b4a794f0b9c83a",
+    "value": "20.7pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-minneapolis-st-paul-bloomington-mn-wi-2025": [
+   {
+    "digest": "1bf17dbf29c77000a35c40884560dfee7545cabdde5a82650f646a57ba103e9c",
+    "value": "20.1pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-mobile-al-2025": [
+   {
+    "digest": "d4f8c6e36ab0123315c0d82c7b9c8ab53965380f7084c7d7bc5dfa51f4897ecb",
+    "value": "9.2pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-modesto-ca-2025": [
+   {
+    "digest": "070da1a595a65622425b0ed6c2d12f0600320f1aa12b0f3604d946bbec60a32a",
+    "value": "26.5pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-monroe-mi-2025": [
+   {
+    "digest": "f2c64a25658a468be7c1cee96004aef93287f52f6a68d36fed322bef94fe15f0",
+    "value": "27.3pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-montgomery-al-2025": [
+   {
+    "digest": "fa3c2604f26f120e84ab8c5ee6b2f5a0268508dc1541851bea824141ee5cbd99",
+    "value": "26.4pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-montgomery-county-bucks-county-chester-county-pa-2025": [
+   {
+    "digest": "86202e7dc40f589e157373b2eb3c425e081e9d0e89fdbfd77f11ff082c470562",
+    "value": "20.3pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-myrtle-beach-conway-north-myrtle-beach-sc-nc-2025": [
+   {
+    "digest": "453232d05cf09add91e9665d3a3eeee5881baea9a9076b3bbd0441a7e45fd975",
+    "value": "9.5pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-naples-immokalee-marco-island-fl-2025": [
+   {
+    "digest": "4a4cebec9c9b1fcd53ac95edffd95e407498d7d3d46aa468c533c3235ed55ef7",
+    "value": "24.9pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-nashville-davidson-murfreesboro-franklin-tn-2025": [
+   {
+    "digest": "a555cb91d22130d62105c502a9e0639248da88303cc776620217ef32a19fb3ab",
+    "value": "21.4pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-nassau-county-suffolk-county-ny-2025": [
+   {
+    "digest": "042315fe2740af349086ee35496d210c7014bfe349e7e310fdcef7b5bb690885",
+    "value": "56.1pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-new-haven-milford-ct-2025": [
+   {
+    "digest": "70c1ae6f460b836fd079a1af051a50639c3b9548c73b81318304a4883f5f0be2",
+    "value": "11.0pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-new-orleans-metairie-la-2025": [
+   {
+    "digest": "31fcba000575086f6b754f33cde7dcc702fa323651ec8d412f311466dae43e87",
+    "value": "33.6pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-new-york-jersey-city-white-plains-ny-nj-2025": [
+   {
+    "digest": "14397a3f3e58d59ca09e8ec263a1158696f6742329c9033fc2acfbd05f715864",
+    "value": "63.4pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-newark-nj-pa-2025": [
+   {
+    "digest": "0d0b7d17795b489ef38b9da5e02986c6f6f38220371ab550a289ea19aecbda7c",
+    "value": "22.2pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-north-port-sarasota-bradenton-fl-2025": [
+   {
+    "digest": "ebf0fe61a113356b863be0fbc06f7c56dddb9b5818162bd12aa61b321cf6a971",
+    "value": "22.2pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-oakland-hayward-berkeley-ca-2025": [
+   {
+    "digest": "73b03abfe27f6ebe656732a068aec5269084c2753d35ee5c892adc0b00d93745",
+    "value": "30.1pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-ocala-fl-2025": [
+   {
+    "digest": "e4c4d68b5395fd10c10d966c19fec463642277355fd2e2a705b59df0c22d6304",
+    "value": "26.9pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-odessa-tx-2025": [
+   {
+    "digest": "d9837eb19b0b8a24dbfdb9ec6af446dbc2fb05119cea4e072ddb4ba6d56213e2",
+    "value": "14.3pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-ogden-clearfield-ut-2025": [
+   {
+    "digest": "53b9ce4a05db96c61cade967b1a62d3b3f2765aa6d8b2d6d098ae7eef2a5cb35",
+    "value": "26.5pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-oklahoma-city-ok-2025": [
+   {
+    "digest": "04d755744187883a88e791b6148ed13adf2ba1c35d64297b4526dc5afd9f377d",
+    "value": "16.0pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-omaha-council-bluffs-ne-ia-2025": [
+   {
+    "digest": "40d4785e9190329549580e991f70325cd0f332ccae40144199629fab99c70180",
+    "value": "24.0pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-orlando-kissimmee-sanford-fl-2025": [
+   {
+    "digest": "126925d96dfecfaab8e75048cf539b1a07575c9c7b60fa910d775a57a594b3cd",
+    "value": "53.1pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-palm-bay-melbourne-titusville-fl-2025": [
+   {
+    "digest": "3c09927ad7962242836007d64fd6fa34de884883c4bc8f9588c2e85c0ed8e925",
+    "value": "9.7pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-panama-city-fl-2025": [
+   {
+    "digest": "a58d1c16226619338292ce4a6ed5079030d7483395907ffac7bab25e8b0ff293",
+    "value": "1.5pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-pensacola-ferry-pass-brent-fl-2025": [
+   {
+    "digest": "d18b0551106ae877b79a9071a21175a9f50b9cabc55121318e355b55b9611ab4",
+    "value": "19.3pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-peoria-il-2025": [
+   {
+    "digest": "540f2f5f9199d50656414eb39b651f89434308d8e707e0fdb79c6f91fdee3448",
+    "value": "30.0pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-philadelphia-pa-2025": [
+   {
+    "digest": "eb07ac8e9ecc308dc31208ba9c8c9100b2e8e343bff88aea2c8afc24e6ff55d0",
+    "value": "30.5pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-phoenix-mesa-scottsdale-az-2025": [
+   {
+    "digest": "f5a9c33e1f1c551988df6137132ae5352a5989434a01041b302b62f356f0ab20",
+    "value": "14.1pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-pittsburgh-pa-2025": [
+   {
+    "digest": "0c087c8bda98cc183423247b6d044566345e65b0eb859a6e4fb68f99b3b33055",
+    "value": "72.7pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-port-st-lucie-fl-2025": [
+   {
+    "digest": "5a0d05b8bb021b8a7fa993c3c332301ff5f8a599b4fc16c3c967a7b2babff4cb",
+    "value": "37.4pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-portland-south-portland-me-2025": [
+   {
+    "digest": "6c15a16e6e42d6f25f5507deff3c7c9b44964739a1e848bbb86d829aa5fc7089",
+    "value": "23.6pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-portland-vancouver-hillsboro-or-wa-2025": [
+   {
+    "digest": "183aa9605dbb68950f0132c140ed0221933a4b86a2852ad4c09d03c8e7c5b7ad",
+    "value": "22.2pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-providence-warwick-ri-ma-2025": [
+   {
+    "digest": "4f90948cd37fbc71e4fccdc97203439c00d5966487ec0dda6d2725ba27db000a",
+    "value": "25.7pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-provo-orem-ut-2025": [
+   {
+    "digest": "27d4a396e007ecbc2d925502bc3d3c2babab84fcc69adb6e6e3e1d8db9b1a0ae",
+    "value": "14.4pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-punta-gorda-fl-2025": [
+   {
+    "digest": "2498332062f4d10af86120d6f44cc02a6ba2541037bb784346a9419e3e89d517",
+    "value": "20.0pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-raleigh-nc-2025": [
+   {
+    "digest": "bc5a0e769fac580a01a9ff02d5453d2db4338597b3960973000d3dc82b7be80d",
+    "value": "15.1pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-reading-pa-2025": [
+   {
+    "digest": "1b759616989caa43d6709b50da35a29132a541b90a47ba2c66b1b309381218e6",
+    "value": "32.2pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-reno-nv-2025": [
+   {
+    "digest": "16e2a96b3598b3b34c6698912eccf87697db5e214fb8d7771d019be1339312a2",
+    "value": "15.2pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-richmond-va-2025": [
+   {
+    "digest": "68c6aa299de0761e4a646bbbdb041938632f055f9c18297b04f828e55346c095",
+    "value": "22.4pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-riverside-san-bernardino-ontario-ca-2025": [
+   {
+    "digest": "300d890757b634a128f4a4ef63f33bcbb2e50ceb9454156b58a825c18d1ff08e",
+    "value": "28.1pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-roanoke-va-2025": [
+   {
+    "digest": "495ab53afbb3850bdfcd80f7aa3aa43983da02d2fce3280be6ac8cf03ae15cc0",
+    "value": "22.0pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-rockingham-county-strafford-county-nh-2025": [
+   {
+    "digest": "6d030f0cd30be5beacc1714f14dc8515aceedfdedd291d60d1e0878d3db0ff08",
+    "value": "1.7pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-sacramento-roseville-arden-arcade-ca-2025": [
+   {
+    "digest": "7d879f766a3c6e54b28334b33ff3c8f8e31c09dfbb612f6c3fd0ddbda193cbdb",
+    "value": "33.1pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-salem-or-2025": [
+   {
+    "digest": "a68bb3a6ecefeaeb615ba5e08297747572d2e819af639b222138286581531323",
+    "value": "14.8pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-salt-lake-city-ut-2025": [
+   {
+    "digest": "0e9b20837c6d6e6cc24e456098d6025547dbc6b26ed3325b2f9b9f3c36ed181d",
+    "value": "25.5pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-san-antonio-new-braunfels-tx-2025": [
+   {
+    "digest": "0db14bac9f4158eedcbd02a1b0282a89357d267b6e69c3628941019f85479390",
+    "value": "9.8pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-san-diego-carlsbad-ca-2025": [
+   {
+    "digest": "c868ea6d34f374afe77e53b185412421d780de89dec1d8a4fcb041350d44f9b4",
+    "value": "56.1pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-savannah-ga-2025": [
+   {
+    "digest": "b0999d260b213b3df790100a39b9492a456ae270be7eb32f4730f7e0523cbafd",
+    "value": "17.8pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-scranton-wilkes-barre-hazleton-pa-2025": [
+   {
+    "digest": "8eb2594600b50ada154b929475b1572d8512fb83d3191ed5ce3b6e07391e3b63",
+    "value": "23.5pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-seattle-bellevue-everett-wa-2025": [
+   {
+    "digest": "7a8a2dc959c7e12ca74491169c11dc1e88b07f986e1924f9848200df9d31b006",
+    "value": "26.6pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-shreveport-bossier-city-la-2025": [
+   {
+    "digest": "b4dc8cfe59790ef9e3c1c16fa6d12a4e0e37374ef28ba428fb8d5db773c94505",
+    "value": "35.8pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-south-bend-mishawaka-in-mi-2025": [
+   {
+    "digest": "757f8b378b28f6783759e2d6f3614cf57839879eccd90e9661e07a3b3de9753d",
+    "value": "17.2pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-spartanburg-sc-2025": [
+   {
+    "digest": "7478de1be7bc5183db463d37b5212f156664743eb52716c217d0455bbb0b5931",
+    "value": "11.9pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-spokane-spokane-valley-wa-2025": [
+   {
+    "digest": "c02df7814c73d4d2b2dca4eea595b17c2ddfa3d5ec919dc61995a7acbe0cf505",
+    "value": "19.6pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-springfield-ma-2025": [
+   {
+    "digest": "b29cf6e1080bd77082b0e44f61003cb3260a42b5d55c804bd384d9d655f88684",
+    "value": "23.2pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-springfield-mo-2025": [
+   {
+    "digest": "8650a70ebf13c2ff11effb25abed94b217a898d0240a175a5cb9224694f02fc8",
+    "value": "35.2pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-st-louis-mo-il-2025": [
+   {
+    "digest": "c80beffe2820d3c145201eb34ae4249997dff61ce75c9458b8b048d03324d274",
+    "value": "19.9pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-st-petersburg-clearwater-largo-fl-2025": [
+   {
+    "digest": "3463a5f773959a5d210369c390fac610f793645402533f3e587fa582042af013",
+    "value": "5.2pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-stockton-lodi-ca-2025": [
+   {
+    "digest": "b8c4364d64be0c580d4c3f30b50f3e01db47eb9b88ec86e9be9d9a7562bcf97e",
+    "value": "27.5pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-tacoma-lakewood-wa-2025": [
+   {
+    "digest": "3b1afac1297deae8a62fa7505b33d2eb25d41ebd2503f52a7efc5b56d6e110b2",
+    "value": "23.3pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-tallahassee-fl-2025": [
+   {
+    "digest": "a6cb39943981395b1750b640112f3cfa514942e8f0c19213ee85e5a3cb776979",
+    "value": "21.3pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-tampa-fl-2025": [
+   {
+    "digest": "71938c0eb3557249c74e1124a7c0eea810c0c7cbd19002783aeae6ed46e7d752",
+    "value": "22.4pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-terre-haute-in-2025": [
+   {
+    "digest": "470839f50a4e4194796e751e027325185094e1720105f0ddfb1fcdda0cff811a",
+    "value": "20.2pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-toledo-oh-2025": [
+   {
+    "digest": "2e92a7d2e6f90debf96f912c24ec27b5586f2b1a79d172322a9ef4777621613a",
+    "value": "24.9pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-tucson-az-2025": [
+   {
+    "digest": "acaa67c9754dbe5fa7157a68a587171bbfb502cb47df87eafe174fd787fc505b",
+    "value": "33.4pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-tulsa-ok-2025": [
+   {
+    "digest": "ef6dbdfa90a9504ac834b6726339b1f6058fa8d92dbf3316a624edfd8df4011c",
+    "value": "34.1pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-tuscaloosa-al-2025": [
+   {
+    "digest": "de2767065ee0ef232ee6ce26eb4291a46ae4d4228f1a8a20919ce93ac593cf98",
+    "value": "23.9pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-vallejo-fairfield-ca-2025": [
+   {
+    "digest": "0fe2b26a46f16f6132447d446c19103cf2cde7f99f6de45006a6c92e9bac03e1",
+    "value": "7.7pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-virginia-beach-norfolk-newport-news-va-nc-2025": [
+   {
+    "digest": "bc659c310b9393c5ec17dc1a0b8b7c07ff2aa4299f450516383310849b6f30a9",
+    "value": "19.8pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-visalia-porterville-ca-2025": [
+   {
+    "digest": "f68a83a37077f8cf2a065a6d34effd37e5716ff9dd9135932909d8c5f5ed158d",
+    "value": "13.0pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-warner-robins-ga-2025": [
+   {
+    "digest": "0d32c1361611fa0fd9284090458a525d57612718b1932b9fd255256872394fb5",
+    "value": "26.4pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-warren-troy-farmington-hills-mi-2025": [
+   {
+    "digest": "338fc9641f8d8241eae2e729a84a0642e1afaf5314f075725e3383a57780b6f4",
+    "value": "48.9pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-washington-dc-md-2025": [
+   {
+    "digest": "81ca7bb7f232627b635d3b8fe9b57a8c409cafe0f2f77d6b716c17a044e6dd00",
+    "value": "17.3pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-waterbury-shelton-ct-2025": [
+   {
+    "digest": "0b0ad65817d4cc3e2d36d6d929a3c748d58bbcb01e98243475aa2ff8ecd5f728",
+    "value": "4.7pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-west-palm-beach-boca-raton-delray-beach-fl-2025": [
+   {
+    "digest": "00d365f5a2982750abfe5e995440ca0233bf4b90aed594e337a9637ac80d78dd",
+    "value": "64.0pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-wichita-ks-2025": [
+   {
+    "digest": "97eb969feca763acd193bfaa595ffbc63d6244af0f882cbc230e35a33518d8f0",
+    "value": "23.2pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-wilmington-de-md-nj-2025": [
+   {
+    "digest": "d80620105f26794b10d132b1a47fefcd02c3adb98034aaa867861d0a9226da6c",
+    "value": "7.3pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-wilmington-nc-2025": [
+   {
+    "digest": "63d800b11852e7d9a8fd183b4de637dbfa7f15d03732d3b15cf97fbdf8430a2e",
+    "value": "18.2pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-winston-salem-nc-2025": [
+   {
+    "digest": "9518f1a25a10581645e66409f8faf5e8e76e647287ad22c4a91deba856f849f5",
+    "value": "27.3pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-worcester-ma-ct-2025": [
+   {
+    "digest": "055fbd7947dc9584c345118bc547bde3c918b3b0c60d4f9d447d91d3080799a8",
+    "value": "19.5pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-york-hanover-pa-2025": [
+   {
+    "digest": "a224c010a9e563c64e25c29f74665361babf3b74e7b1a1f63a4c736cd9d5f2cf",
+    "value": "22.3pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-youngstown-warren-boardman-oh-pa-2025": [
+   {
+    "digest": "3edfec45e684ece09b813d84d4935a478e2bebaa733589d06492324a9cdd7652",
+    "value": "39.4pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "metro-gap-yuma-az-2025": [
+   {
+    "digest": "4d2f60dcf89a34e0fe36be0e2928eb95797138bfcf3e7b660f70dd2b41b4550e",
+    "value": "14.1pp",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "national-fha-denial-rate-2025": [
+   {
+    "digest": "469ee7e5baf998e72efabcc88de686360f5d06847522fc4525da71a226e5c283",
+    "value": "22.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-ginnie-iss-2026-03-ginnie-i-issuance-musd": [
+   {
+    "digest": "8aaab40e034a1476b2bfcd656cbb61ce1368a414ef222ef6c4de3474e8168292",
+    "value": "1,393",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-ginnie-iss-2026-03-ginnie-ii-issuance-musd": [
+   {
+    "digest": "e2d5e0ee74caa1d5f37dfa5516c7ec53aa5323bc6933b2ff87004faf84dc33f8",
+    "value": "44,525",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-ginnie-iss-2026-03-total-issuance-musd": [
+   {
+    "digest": "c3540968ff56efb6b4ebfdb1cb19d3732bda2871458c5176816d634047015e23",
+    "value": "45,918",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-ginnie-iss-2026-05-ginnie-i-issuance-musd": [
+   {
+    "digest": "112bd86cd621416572e01177b32f535d0e6bc05b17f0bb1d26ceb183c1e8f693",
+    "value": "1,647",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-ginnie-iss-2026-05-ginnie-ii-issuance-musd": [
+   {
+    "digest": "0bb9330c43d36aff36cbba7ffc0ed41b006dbefbb1fd5dd6850fd5a907a8036f",
+    "value": "53,000",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-ginnie-iss-2026-05-total-issuance-musd": [
+   {
+    "digest": "934f92374d81d98dffb6eee1e37250b685b88f0c22d801c29c15fb98570b9ff3",
+    "value": "54,647",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-ginnie-iss-2026-09-ginnie-i-issuance-musd": [
+   {
+    "digest": "a214d9bf4d2173b31b98a30dbe3f3df19efc9b0a6abaee42ce71260325594d23",
+    "value": "1,876",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-ginnie-iss-2026-09-ginnie-ii-issuance-musd": [
+   {
+    "digest": "ee9f6cde12653caeb9a9b36a97947bf9c338aeb08aba45d4d08f36da5e89198a",
+    "value": "44,399",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-ginnie-iss-2026-09-total-issuance-musd": [
+   {
+    "digest": "efd8c53c190518bdc0906b1f59c8828a923ed5006fcddb1c092f51db65bcc895",
+    "value": "46,275",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-ginnie-iss-2026-10-ginnie-i-issuance-musd": [
+   {
+    "digest": "ca12da3eed6b322868eb835848cbc4bb1adc2aa8547ee92b8d862af64ca2ba36",
+    "value": "2,954",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-ginnie-iss-2026-10-ginnie-ii-issuance-musd": [
+   {
+    "digest": "8e8e7a547ae3b76573095f00bcdecf4325870ac061908cdfcc1573dc42ba824b",
+    "value": "41,311",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-ginnie-iss-2026-10-total-issuance-musd": [
+   {
+    "digest": "db5673eb0f38f8837de00cbfe45bb32791518f6ffd444c37d3626cd4c9408576",
+    "value": "44,265",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-07-endorsements-balance-musd": [
+   {
+    "digest": "701bcc3322bc31811916687c1bd42f7ead3ef86c07d60fe501701ca27ec27bb4",
+    "value": "27,537",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-07-endorsements-count": [
+   {
+    "digest": "74d6a6aa0b4ec15c68e285cbc9e32b35bb9a73099e996f828d2d48a8edfbe399",
+    "value": "87,538",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-07-endorsements-fytd": [
+   {
+    "digest": "c9d6005004fa04d2fdc40439944471b6294951595a29a1f1cd11a885e595ff8c",
+    "value": "781,399",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-07-fha-streamline-pct": [
+   {
+    "digest": "e2f91406b4144c159b79f769342045d22ff84fbd857038953e2a7afff8baf7fb",
+    "value": "27.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-07-first-time-homebuyer-pct": [
+   {
+    "digest": "c4e1cc5fa7b6dc479f63a042d0a088ed3e842b03735be24fc4b1514a1e63fee9",
+    "value": "83.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-07-insurance-in-force-end": [
+   {
+    "digest": "4be2b62bd19cb1dfa132109a5ce1a8728d04bdff329b715639494ab2eb379dd6",
+    "value": "8,387,103",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-07-purchase-count": [
+   {
+    "digest": "51fe266e598737793262fe2454f42700231146a5580547c8616acae83048e3cb",
+    "value": "65,328",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-07-purchase-share-pct": [
+   {
+    "digest": "9024b3d089a12d8bcdabc1ee41c8423653c5fa969bae5eef4c0a7193026e37f9",
+    "value": "74.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-07-refinance-count": [
+   {
+    "digest": "40a3a244dd10638b2866b8575a7fce6c7cb7993a476eaba70a6c88bb10521426",
+    "value": "22,210",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-07-refinance-share-pct": [
+   {
+    "digest": "eeedcd81a1bbb06ce515dac0e7f088338a41474a0f4bc79c79f7d5fdf7601ca0",
+    "value": "25.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-08-endorsements-balance-musd": [
+   {
+    "digest": "b113ccbc9e5b06df93b52022a55514419144aac22e874b87e0f3c95429b64678",
+    "value": "24,676",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-08-endorsements-count": [
+   {
+    "digest": "52e51073d3c21b1974631ad9c810cb32ddc2b72388ab31b5f358c70cf03c9458",
+    "value": "78,925",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-08-endorsements-fytd": [
+   {
+    "digest": "dc1ca27504919eb8c1147acf55b6e912cda37ed6e3e3ed43ad275e69425716bb",
+    "value": "860,335",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-08-fha-streamline-pct": [
+   {
+    "digest": "fdf6abec07c703ed8a6609b905d97ea1f35ab8827f22a2f4f51f6b63ab7212aa",
+    "value": "24.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-08-first-time-homebuyer-pct": [
+   {
+    "digest": "99a982802682918db7c9f21a5a6dce2a1a6a4125c7237b7fcfeafbff65f88f99",
+    "value": "82.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-08-insurance-in-force-end": [
+   {
+    "digest": "e2d6d87c45ba7db88de61424dfe073922a784dd2d05e020e7fd14eb24eaf96db",
+    "value": "8,416,639",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-08-purchase-count": [
+   {
+    "digest": "bac50c70cb3e1bb1b455263c32e01588bbfa25261390fcdc53c8daa253270724",
+    "value": "58,244",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-08-purchase-share-pct": [
+   {
+    "digest": "17fb2f772d049b45d31cb622457e1f3c9f223ef95b8f36d14a9d2930aa863059",
+    "value": "73.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-08-refinance-count": [
+   {
+    "digest": "2c43a1d3b58e0393eebd1c327525aa5710f7b31fc772521f4bc7e5713a38aaee",
+    "value": "20,681",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-08-refinance-share-pct": [
+   {
+    "digest": "e719b610226866583e67f3641123862089c5659b33c0de9c18d1ac901eb6d82f",
+    "value": "26.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-09-endorsements-balance-musd": [
+   {
+    "digest": "4fe2b8fc1fad0f3a17758aa2ee07a8c644b3de99b1923090e7b0f655f5a15342",
+    "value": "23,455",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-09-endorsements-count": [
+   {
+    "digest": "3b4b5f16b8cf23dad3d737032b7e5b28ac3e5e715b98853c24df47759e38e13d",
+    "value": "74,943",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-09-endorsements-fytd": [
+   {
+    "digest": "59b0c915a2c7dc019d4094a418c26bf5d7f019298a354a05fa9d705d28107381",
+    "value": "935,283",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-09-fha-streamline-pct": [
+   {
+    "digest": "32c080486b34cc430d06e30422e66780c9bf3cacd4cc25120f9d28b181effd85",
+    "value": "17.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-09-first-time-homebuyer-pct": [
+   {
+    "digest": "224e6c51bc3f566c76cb0d4a01b732700406ae312175b321a3fe1dc206f1dca6",
+    "value": "83.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-09-insurance-in-force-end": [
+   {
+    "digest": "d32c1d417ebdb026c42c3a7aee6deaafd285d030952a7954671fabdeb129ece1",
+    "value": "8,446,489",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-09-purchase-count": [
+   {
+    "digest": "2dbf74ee0ccebd04bc9b6166dd5309ca9582a66429c83552b310f5a4db8a46f4",
+    "value": "57,186",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-09-purchase-share-pct": [
+   {
+    "digest": "b22890378a42d45824bad8d45c08e021e8a570708c89ad4f351568904265cf83",
+    "value": "76.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-09-refinance-count": [
+   {
+    "digest": "c416542a7fce1a82f2642880add3a678b87308b2b8329716fce786302174013b",
+    "value": "17,757",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-09-refinance-share-pct": [
+   {
+    "digest": "fb35eb0fb48de0549dd66b3a8e614e9ad9d24779cb8c1b5a1a31fdf3dbf3cd78",
+    "value": "23.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-fhaprod-2026-09-total-endorsement-count": [
+   {
+    "digest": "0cc619cf22bb8b83f91f283b6f4e9b6e2f26a1f25e94ec55e10ecadd7c3f5e64",
+    "value": "74,943",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-lpt-2026-07-active-insurance-in-force": [
+   {
+    "digest": "e8a637d315d8be32e601c4faa395ffd1917c9659c2084904d33f08a4abc796d9",
+    "value": "8,387,103",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-lpt-2026-07-delinquent-90-day-rate": [
+   {
+    "digest": "f8fb01c6d1076b6876ac26d2303393ff2db0940a56e8bfacff05ab2b9b831161",
+    "value": "5.24",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-lpt-2026-07-in-foreclosure-rate": [
+   {
+    "digest": "876fbf79519d624054975502dfabd768e577f67418b7e88466b2b537eb189ccf",
+    "value": "0.60",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-lpt-2026-07-serious-delinquency-rate": [
+   {
+    "digest": "172e465303efaaa14115e1d4407c19425e2225381cdafe55446b151bbd5aa871",
+    "value": "6.38",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-lpt-2026-08-active-insurance-in-force": [
+   {
+    "digest": "36fe05d501855a7d38dcedeb0f9ff917e214c648653d625b21c9b419526cf6b7",
+    "value": "8,416,639",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-lpt-2026-08-delinquent-90-day-rate": [
+   {
+    "digest": "ed2241d915856fd075bc37c4e51447ed9326559fd968dbf30dd635fc8fe1cb7d",
+    "value": "5.24",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-lpt-2026-08-in-foreclosure-rate": [
+   {
+    "digest": "8879b730e6d6cf0374e11acd73fe6965f1f57e8c263d36cf8c1d35b828cff5f1",
+    "value": "0.63",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-lpt-2026-08-serious-delinquency-rate": [
+   {
+    "digest": "907d140d3bcc5a6ec97c59a89da396ecf34ca471d5b4b72fac873bd05c09d02a",
+    "value": "6.42",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-lpt-2026-09-active-insurance-in-force": [
+   {
+    "digest": "ba3dc442a5abfa1649138dbd3644cf399ed619dcbbf743181c746449f6163e1a",
+    "value": "8,446,489",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-lpt-2026-09-delinquent-90-day-rate": [
+   {
+    "digest": "1c9ad9f16c91c652731c00c8ff7fd74326a2d33a108b59968dfaba86d1160e46",
+    "value": "5.30",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-lpt-2026-09-in-foreclosure-rate": [
+   {
+    "digest": "f2e477400bd0314e60488fdd64bda5614006d80e9582a4568252ee9c50dd31ff",
+    "value": "0.65",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-hud-lpt-2026-09-serious-delinquency-rate": [
+   {
+    "digest": "8f854ed132f70a97c2da58f31b19fabc6751e2f979e80422f430692ff14db5af",
+    "value": "6.51",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-sba-7a504-2026-10-504-approved-loans": [
+   {
+    "digest": "d883cb9622fc1686d7414181adc3210050283e6fbe37b020649c7364f3203b54",
+    "value": "409",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-sba-7a504-2026-10-504-approved-usd": [
+   {
+    "digest": "1109cd13a36a54eda455574f7ccf09132f6538347413ae154b292f483572673c",
+    "value": "442,546,000",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-sba-7a504-2026-10-7a-approved-loans": [
+   {
+    "digest": "b08e139b6dd3499eb047ac7a1380947490b3d1f89fd64cc5651918ef0afbf97b",
+    "value": "3,387",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "official-sba-7a504-2026-10-7a-approved-usd": [
+   {
+    "digest": "6a4ea60c27b1ee1d07fa8729ce5ff9558c3f8873e140d1b1e43138f6dd91c094",
+    "value": "1,435,714,700",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-acrisure-mortgage-2025": [
+   {
+    "digest": "2c2581b24a5738d0709a82a8637df683e997f04bd35dd40e6775aaea63a502fa",
+    "value": "16.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-advantagefirst-lending-2025": [
+   {
+    "digest": "5d50d3483648b86511cb23fbb66d33fc592d1ba39f6dac5930c378d4dcbd6112",
+    "value": "46.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-american-financial-network-2025": [
+   {
+    "digest": "e661309456d38888b93cc1083f11ceb0025a4dd724a16b406c960253099d4a79",
+    "value": "29.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-american-financial-resources-2025": [
+   {
+    "digest": "e2531e746ebefece02559125a5370f44d2f4a666cfa089a8e7f0cb92f4c70c36",
+    "value": "23.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-american-financing-2025": [
+   {
+    "digest": "8d2549940820e2dcf380201584b7078598371b1b3bea80fc4d0ed91bcd95237f",
+    "value": "20.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-american-neighborhood-mortgage-acceptance-2025": [
+   {
+    "digest": "76e7f9f9387e276397fb599361e6584a226c23562841a134c48b180f6d1a3f04",
+    "value": "45.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-american-pacific-mortgage-2025": [
+   {
+    "digest": "4d074d3a02abe9072ef4f1a595bee2c77097ea7fa742f2eab0cf4026f810cc7e",
+    "value": "17.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-amerihome-mortgage-2025": [
+   {
+    "digest": "788a0d8dc78e48256552ad4c27ce4bd80ad94a8f5ee50612812b4dc0c7775857",
+    "value": "35.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-ameris-bank-2025": [
+   {
+    "digest": "8fbcd55df47a37f18740f5ef5434a6827aba7544aba9174e4902afd128934685",
+    "value": "17.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-amerisave-mortgage-2025": [
+   {
+    "digest": "8bb3c961b3669379eab3d9580f1cf82de6d0fec372b2ff79932817ea238aa52d",
+    "value": "11.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-ana-share-2025": [
+   {
+    "digest": "7e0542aec9fbe8413f69346867408ec84856aec5dca7dd860fdafb17761fd928",
+    "value": "4.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-approved-not-accepted-2025": [
+   {
+    "digest": "0875ace281c8b70a1a35c1fa907d800eec56c236025d5ffe3b9f4b805e6de384",
+    "value": "2.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-ark-la-tex-financial-services-2025": [
+   {
+    "digest": "2616fe82fe0ea606ff33c345870ec3b326e208de6343a47aff32c9c186a2d9ad",
+    "value": "17.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-atlantic-bay-mortgage-group-2025": [
+   {
+    "digest": "06b36da379650260d45d14c3b8eafef3cac25a78fac1c92d8048826ce70c1cb7",
+    "value": "19.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-better-mortgage-2025": [
+   {
+    "digest": "f6029687dcad190bf64baa7a6e86b33a02c829b8c22bd7f41bbfdc85d34de97d",
+    "value": "45.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-calcon-mutual-mortgage-2025": [
+   {
+    "digest": "1445c0130d47323afe4b778e9e7043926caa2d8b1f212138c74e0d492b250e65",
+    "value": "31.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-canopy-mortgage-2025": [
+   {
+    "digest": "3130e995a307ec2e40d9879659fd91d1a605a350c64e1781c2b554b13ec6e7e0",
+    "value": "32.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-cardinal-financial-li-2025": [
+   {
+    "digest": "8480a1edbacb3a8f31687a5975a445ab91c6943c78903c57d36b661c43c629cd",
+    "value": "6.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-carrington-mortgage-services-2025": [
+   {
+    "digest": "17e4a5ed9b52882c5c340d5060512ffdc7d84f7296fcba86456ab2db8492140f",
+    "value": "19.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-click-n-close-2025": [
+   {
+    "digest": "88879196888b5737354ff96400bf5e5d1f2968035d0b02826bf344d6b65e709f",
+    "value": "27.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-closed-incomplete-2025": [
+   {
+    "digest": "6f26587608ce44697a61f1b4d9c509a7d7162dabd17849b722dc68635d6a0bcb",
+    "value": "6.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-cmg-mortgage-2025": [
+   {
+    "digest": "0bca024d4eb19ca944d71d72f29c540e55616888a2868de9e3cb34980986e720",
+    "value": "19.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-conv-approved-not-accepted-2025": [
+   {
+    "digest": "0764ef3a860512b669185d635cac05fdd5eed01a8dfcb60f418b207b40300121",
+    "value": "3.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-conv-closed-incomplete-2025": [
+   {
+    "digest": "d0ae6e3477a7f437cfa1e6ecec051798ae38c1a1cc59dc79205ff02bfaf8ca6d",
+    "value": "5.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-conv-denied-2025": [
+   {
+    "digest": "c66f3df88fbca82d7f9fc975611edca2d48cea97eb86c0329318ec8550ad8426",
+    "value": "18.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-conv-originated-2025": [
+   {
+    "digest": "971826d6fc9637290b1cf1ef5075f53353fefda59f65ba38c661a13e2619addc",
+    "value": "58.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-conv-withdrawn-2025": [
+   {
+    "digest": "4a7d2bc822a438ba986f2f528502a0db14e5e3595eb120ae9d6d56cf30a84c4a",
+    "value": "13.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-crosscountry-mortgage-2025": [
+   {
+    "digest": "ffe0e42b6dcff325a299cd58485157c79a2b6cebe4a8ffb6ee694e1304828eeb",
+    "value": "34.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-das-acquisition-2025": [
+   {
+    "digest": "98a83e84d97b6974c4c4f2ac16bbbc124bf38b80db59915c6477f1634fb1eeca",
+    "value": "13.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-denied-2025": [
+   {
+    "digest": "eefd99f0833df2cc366f2ee2da6faffd7cab5de65dbe42508f581b15ded09f99",
+    "value": "16.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-dhi-mortgage-2025": [
+   {
+    "digest": "1ce5f0f093b148c58ebfd68014163f80403909746ada538fb3bba2e5eff48641",
+    "value": "16.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-envoy-mortgage-2025": [
+   {
+    "digest": "30e48564ab07f133c36a5bc641e2b096d91aa64db2e403e068ab5a444f58053e",
+    "value": "21.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-equity-prime-mortgage-2025": [
+   {
+    "digest": "205bb6311f78d25bdb057fb0241437bdb63f8df6cd868a29700dc2c7e8c92579",
+    "value": "48.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-everett-financial-2025": [
+   {
+    "digest": "1ad33d5189fa90cfd136bad6c6d1dde98fae797f626152fde157841b87836d8f",
+    "value": "31.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-fairway-independent-mort-2025": [
+   {
+    "digest": "8e1e3107c6e182bd67eb32324df1e7bc2baef900aa8655517f8ee6c9254f89ed",
+    "value": "18.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-first-colony-mortgage-corporat-2025": [
+   {
+    "digest": "63847d319707231f00e6025dfe10d0a48eb6c7a8f44b62931712a1c2ce4e13c6",
+    "value": "17.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-first-community-mortgage-2025": [
+   {
+    "digest": "11a3dcf7e4fb90a7da2fb4459b1a4e6675680d8a03ca3f2d7d81088d1eec5202",
+    "value": "8.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-first-heritage-mortgage-2025": [
+   {
+    "digest": "ac29d86e1294efa1a6f33b86692469ecf683386172a817d2cb361d515703d596",
+    "value": "12.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-flagstar-bank-2025": [
+   {
+    "digest": "549b9beb59270f6f4736a330658cee54067f3ef988b23b22e4279a9a1e95a6b8",
+    "value": "14.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-flat-branch-mortgage-2025": [
+   {
+    "digest": "d440d7d2eacae14f3bf4021e2d8ba67a6f58b26afe93836696fe1a1c49732521",
+    "value": "17.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-freedom-mortgage-2025": [
+   {
+    "digest": "cd4cfab283c79f9a540ed1b043a9c28cb84c12c9540aac3f99e510e1c0430fa1",
+    "value": "43.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-gateway-first-bank-2025": [
+   {
+    "digest": "6e79d030acf2c748bc375ef9c7dfe99eb8198342a7d6cdf9d7ea26846d8d3eab",
+    "value": "20.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-geneva-financial-2025": [
+   {
+    "digest": "d7a7a331f404ee738d110de0909496aad9fe1487afb53f55b4fa8b24ceb26b9d",
+    "value": "29.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-gold-star-mortgage-financial-group-2025": [
+   {
+    "digest": "34f0b1a7bdb5fd7df07daa294be728258d7d0295b258c2be11fb4c51ae547d7f",
+    "value": "24.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-goodleap-2025": [
+   {
+    "digest": "a8ed168464b29e11c12a6e60b06f4bf4486d734ea4e7e3fb6aa3e6d2776f7876",
+    "value": "23.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-guaranteed-rate-2025": [
+   {
+    "digest": "081f8c41e9babf2dab54f300389985add5f4202cc747cc7f2fe98af256b78a3e",
+    "value": "38.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-guild-mortgage-2025": [
+   {
+    "digest": "bd60603e117479e89df43a20107e8a37d39fcee38dc9cbd8d44746bf765db3f0",
+    "value": "18.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-highlands-residential-mortgage-2025": [
+   {
+    "digest": "b2c2b1e407cf07ddec928ce7bf26838c0313d2ba916c323a8596c1922b8e4aea",
+    "value": "18.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-homeamerican-mortgage-2025": [
+   {
+    "digest": "8984d4db4c5c0da26f7e71a92a9186e611607fa37d7a3f4a475031fcfbbaf7f5",
+    "value": "8.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-homebridge-financial-services-2025": [
+   {
+    "digest": "c5ab309bfe4db0a441d675915cafa0d5b8d3b8184be1007cbdab816985467918",
+    "value": "3.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-huntington-national-bank-2025": [
+   {
+    "digest": "fabb6ac079f6a2804bdb31245b60917d65e2c29c0f14cde74700e9f9bebe70a1",
+    "value": "24.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-inspire-home-loans-2025": [
+   {
+    "digest": "7f8d010f14742661bd995956fd0947a18a326ca9aa640d496a9aa7f524bb4481",
+    "value": "11.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-ixonia-bank-2025": [
+   {
+    "digest": "c8b8adc06f0d52dfffedc1fdefeb0563fcaf3a041f9c01a76dbc377977686836",
+    "value": "23.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-jpmorgan-chase-bank-2025": [
+   {
+    "digest": "af22736493d6ae1560b7f32e6cf882ec5199f8674a0a91d73585114db41adafd",
+    "value": "35.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-kbhs-home-loans-2025": [
+   {
+    "digest": "c9eb71106b036f84933894c8827111a343b6d03a856b266b6d60c6fe7165a60b",
+    "value": "20.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-kind-lending-2025": [
+   {
+    "digest": "876521d73f64f1a74559bcfcde4253f2eb02eb3e96fdfda4ec013abacec9612e",
+    "value": "10.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-lakeview-community-capital-2025": [
+   {
+    "digest": "2ca7cd4057b06a15c32704922b0558077ae10010cd320bb3595b6f2b3befc79a",
+    "value": "1.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-lakeview-loan-servicing-2025": [
+   {
+    "digest": "c5755db18eceb1e3074b0027668859c586a3cb79035917499046b0f13f49b8c9",
+    "value": "11.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-lennar-mortgage-2025": [
+   {
+    "digest": "a93f198d844f38fccd550346bd6c0b4473ffd788c4765bf07a9cf4350ba3100c",
+    "value": "8.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-loandepotcom-2025": [
+   {
+    "digest": "a1355ac7c8fd83ff296f22039fdc0161fc3c969acdb77cd24a17088c1e44f854",
+    "value": "13.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-loanunitedcom-2025": [
+   {
+    "digest": "0a89df23788187a3e7cea5212cac94505afa53a8c75e4a4ae294b48f19626225",
+    "value": "52.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-lower-2025": [
+   {
+    "digest": "cb78d8ac3ce0ba5d27b005f0dd503f7fd59a71b27523dfbcedca3e58f7dbb612",
+    "value": "30.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-luminate-bank-2025": [
+   {
+    "digest": "231e8c0d60af4855fc44f7cd2aace48787dcc072af77ca54872dd4c6222ccda3",
+    "value": "25.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-m-i-financial-2025": [
+   {
+    "digest": "1ddfe77fcdfa30bf6603f514d9ff63407ca90bb379d62eaa2202a5ee3d042c58",
+    "value": "4.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-mandt-bank-2025": [
+   {
+    "digest": "2672635607d9a37b6669023b0bd1f309aaf418afa77a883211a4a4716038bdda",
+    "value": "26.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-mortgage-research-center-2025": [
+   {
+    "digest": "4a60e9529b9f35be49fd1d9eec3fe592877c105858a605b781338a97710c5250",
+    "value": "33.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-movement-mortgage-2025": [
+   {
+    "digest": "9a7f98d7d029468f4f32495b5c4fbb64fd17905b3a4e922a336d03638aa9fbe5",
+    "value": "13.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-mutual-of-omaha-mortgage-2025": [
+   {
+    "digest": "0599429b1df7f1b1f204b7cfa16de45d803798036632d0b18f22d9455eca8d7e",
+    "value": "29.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-nations-lending-2025": [
+   {
+    "digest": "a521d75d900a20526b20abc5fb82417f4dc71455280a039c054a4dbddf33dc43",
+    "value": "5.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-nationstar-mortgage-2025": [
+   {
+    "digest": "cb029bf12836eac8b903b1c4117c2db35ed6d575971f47c79cb821d15cd6f303",
+    "value": "21.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-new-american-funding-2025": [
+   {
+    "digest": "af4838f4403eea304897fb1643ee062ed0f0f3d188684cd86f3ccdfb159f7e45",
+    "value": "55.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-newrez-2025": [
+   {
+    "digest": "93680c2ab96d28d8529f56e11c5e498c937bdec06f0b4344dc1abee611371721",
+    "value": "42.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-nfm-2025": [
+   {
+    "digest": "4c4ec212b8a128294a5475f737ffa3478d0e65851e52dc4b626adab781c2abaa",
+    "value": "19.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-nvr-mortgage-finance-2025": [
+   {
+    "digest": "aafdc81d35fa7b9e51b5958b9ddda58a1ed41cecc66b70ed050955d0ee6748aa",
+    "value": "6.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-ocmbc-2025": [
+   {
+    "digest": "28a4d6721a8a440ac59b71124cbce5cc21be20a24cd05edab0b6d3bc8c2701fa",
+    "value": "16.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-originated-2025": [
+   {
+    "digest": "5175a43a622eee0f89135c88ed1a222be3c6bb519fc0944de0509aade2c77dbd",
+    "value": "56.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-paramount-residential-mortgage-2025": [
+   {
+    "digest": "60504658e7523b1fa0999378c2ab983c0f905b0ed218e4c74b868ec3ea2d43fe",
+    "value": "28.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-pennymac-loan-services-2025": [
+   {
+    "digest": "56a94d1b0e2ae61af6403fa23818eb7f7fae5cc430920165901ea2aa4120b0eb",
+    "value": "40.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-phh-mortgage-2025": [
+   {
+    "digest": "e86b15ed62bca8d6010511893cfb12dcb75e8c0beb6f0c52bb36ab4f1faa6a22",
+    "value": "62.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-plains-commerce-bank-2025": [
+   {
+    "digest": "8a59b85baae3f1be16a43cd32a9c42b45b637a6f52f586805fbc1469a80601e9",
+    "value": "30.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-planet-home-lending-2025": [
+   {
+    "digest": "eb34171ea15ae60cb96d36c963f59a5be1256d3057717d14f4b3f1ae36f68217",
+    "value": "5.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-plaza-home-mortgage-2025": [
+   {
+    "digest": "60847455b2e1883df2e6ffebab00eabb85a7228d4d3f19bbee1e774dbbbae2fd",
+    "value": "10.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-premier-mortgage-resources-2025": [
+   {
+    "digest": "b621c7efae794399944e06d9076df10e7f05ea2a081458cecaef445f5450e65e",
+    "value": "26.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-primary-residential-mortgage-2025": [
+   {
+    "digest": "5fb52aa618fcdbfaef908347cf2ccf0115e6b915ee580bc81316d25008fb7443",
+    "value": "23.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-primelending-2025": [
+   {
+    "digest": "fba070f51757ade4c36b156052d9918bf03fa65a32f3b0184ff9c9d89dada362",
+    "value": "10.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-prosperity-home-mortgage-2025": [
+   {
+    "digest": "0f44a609204ef9f9a8345a0f180b6b170c50416960f05509c62b7297a8b0336b",
+    "value": "21.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-pulte-mortgage-2025": [
+   {
+    "digest": "c9eb8f549203399e581e7d4481927cbb979bd260b5d2d1db7c7414f221c33747",
+    "value": "12.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-regions-bank-2025": [
+   {
+    "digest": "3728d3e6f10e24b1a2af5f9bf777e1bbf34825c01be2d5844df0cc5d9f307a0a",
+    "value": "20.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-rocket-mortgage-2025": [
+   {
+    "digest": "d178dfdcfa1d2e710fef8f73e12d17200316ce190cf9a87e1fce90ca6267ef36",
+    "value": "7.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-ruoff-mortgage-2025": [
+   {
+    "digest": "e029fa7b36a7acedf99a2c18b2bcdbfe5323fd31efb4feae694f0b6963d5795e",
+    "value": "9.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-securitynational-mortgage-2025": [
+   {
+    "digest": "a457df5a983b22a6651fc8bc241630568842d364e0f5957806f89a226334b00b",
+    "value": "25.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-stockton-mortgage-2025": [
+   {
+    "digest": "e6378c5ffa6dc8f74e6512d110f502ec4b07ac8be7c06c63bece50917ee0e781",
+    "value": "26.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-sun-west-mortgage-2025": [
+   {
+    "digest": "ffa98ef9c9964fe3d3f7e8d8e207137c0a3b52282e4d4ee41a9651449dc88698",
+    "value": "18.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-synergy-one-lending-2025": [
+   {
+    "digest": "f01d09c9b258cf25eb5b793e1ebb839af9e6d239379ed9b4baaa7e07e7fb60ca",
+    "value": "23.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-t2-financial-2025": [
+   {
+    "digest": "434fa25a05582d929057cb4cb10ddb12dd4804ab10da55e4d25113147e3cf07e",
+    "value": "9.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-taylor-morrison-home-funding-2025": [
+   {
+    "digest": "8046f9ff9884a86876295779bcd1e41731c08d445a706ebb221cb8ca87cef9b1",
+    "value": "12.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-the-loan-store-2025": [
+   {
+    "digest": "31db8c29f8ac758975d9f5fe46d1daeab61de5ce0a4a2a6179356cd5ec8d97a6",
+    "value": "11.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-top-flite-financial-2025": [
+   {
+    "digest": "bd781605088012f64fcce2d715aea69f6c31e168705a9b6ee345d0f419424672",
+    "value": "38.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-towne-mortgage-2025": [
+   {
+    "digest": "51238e24a2cbcb518552d4bf9041a154bd649a81ac4158e8f05b0695eda85f17",
+    "value": "7.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-union-home-mortgage-2025": [
+   {
+    "digest": "931ec9eeef6a0af28dbcb49347ca8b2df2eb2e57b6f3f86978b60d13d041f82a",
+    "value": "20.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-united-wholesale-mortgage-2025": [
+   {
+    "digest": "c5194584e527417bd53ef4e955ddda1c004fa399430c5c969071976f1803af87",
+    "value": "14.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-us-bank-2025": [
+   {
+    "digest": "bad46f2f1b9a8c8d0ef9f0de09aafa1caf23cc9e1bc9c35d54c4541459905884",
+    "value": "21.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-usda-approved-not-accepted-2025": [
+   {
+    "digest": "042b3a699b2ba4d831a65cf2cbab54484ebdb0b23a18c0fda9370acd6daa7057",
+    "value": "2.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-usda-closed-incomplete-2025": [
+   {
+    "digest": "ec434ca949d0f1fcc906fd3d6a09c03a452a9f471c5daa60712cbbb983ab8929",
+    "value": "2.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-usda-denied-2025": [
+   {
+    "digest": "758b438a132d20a94700dd63c0266821cec620ff25bc33baa39601ae5dbeee18",
+    "value": "10.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-usda-originated-2025": [
+   {
+    "digest": "fb13e7dbacd93db1f3d994899ee8db92f3bac06f351c3e1895f6a9a7b9e0865e",
+    "value": "67.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-usda-withdrawn-2025": [
+   {
+    "digest": "fa4b1ca0203e887e67ed732e8cc1d22a2c71b219b8e800a737de7f83ec52863e",
+    "value": "17.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-va-approved-not-accepted-2025": [
+   {
+    "digest": "e5f407a31cca2126e5ecf7d4292bf0979928ec61a91d640a58bfa4f2ff1d510c",
+    "value": "3.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-va-closed-incomplete-2025": [
+   {
+    "digest": "3f0d5f81c2916dc5cb6620f635211a0c39152027174c38adb2790a54924b621b",
+    "value": "7.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-va-denied-2025": [
+   {
+    "digest": "08f68a566e3fcbffd3a348eb1b98a408effe24ff06e38d4d24a6c5aaf62f4615",
+    "value": "11.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-va-originated-2025": [
+   {
+    "digest": "bb416d53bd2bdbac741205cf29c4bf213896967a40abff1069e7663ab8217013",
+    "value": "57.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-va-withdrawn-2025": [
+   {
+    "digest": "a45d815472d2ec87c2174f82970d82868834dc50f59cfcc2e6c3aa83d9631f23",
+    "value": "19.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-vanderbilt-mortgage-and-finance-2025": [
+   {
+    "digest": "d7a763d48aaa2b6d7f411e7e1b5ad8ded9f25cb7456d39361d75293d0a2c68b6",
+    "value": "16.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-velocio-mortgage-2025": [
+   {
+    "digest": "6644eee95c7d9a11c949de4dab9c6a633f0ad51ee7be4be6bf9433612652eedf",
+    "value": "10.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-village-capital-and-investment-2025": [
+   {
+    "digest": "6cfe597d803f68df9a643494952f318be469d77226674d076fab2f6da2c7f3d8",
+    "value": "30.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-vip-mortgage-2025": [
+   {
+    "digest": "cfb88646fb02d83644dfdd81e8f06d0c108ce556fe2a84296dae6b622f3291fa",
+    "value": "18.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-wells-fargo-bank-2025": [
+   {
+    "digest": "543fb0bcb8434503f029b90381fa19ca06f1835ca3596b85091792077145713b",
+    "value": "30.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-withdrawn-2025": [
+   {
+    "digest": "c7c566723c14098b981f1826398eefaa96758ca60be30b5c120f2305d5ff056a",
+    "value": "17.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "outcome-zillow-home-loans-2025": [
+   {
+    "digest": "cb0899eca2af2296276eea05558ad0cc6aa6072432f3024cf373e45d1948957f",
+    "value": "23.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "purpose-fha-purchase-denial-rate-2025": [
+   {
+    "digest": "1d6dd6bb966980a96234655fe9ab47a30ad660d023c69eafe9888f4d24220418",
+    "value": "12.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "purpose-fha-refinance-denial-rate-2025": [
+   {
+    "digest": "dd631b622ffacd88b035f4139261b8115fcc93b876246e72b575bc83a81d1041",
+    "value": "37.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "purpose-va-purchase-denial-rate-2025": [
+   {
+    "digest": "0e23f801b7513a40c2689d2fa3662005d3aa0392e64f656f7feedd568db327f9",
+    "value": "8.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "purpose-va-refinance-denial-rate-2025": [
+   {
+    "digest": "723d8341d8083079ce28c43cb2429fa665f46a90e23e678ea47b124e664f6689",
+    "value": "24.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-al-2025": [
+   {
+    "digest": "ca05080a8242fa7b6e66db50cbe2fda94cfd8f0e3dc19f1f1f4e96f7d461fd1f",
+    "value": "2.35x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-ar-2025": [
+   {
+    "digest": "368a6bc4c543542b6c2307513259018a80d1a740d324477a493e3032355eeed8",
+    "value": "2.3x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-az-2025": [
+   {
+    "digest": "f42b5eb54ae41029e764a9d07da191b7350be2d53d48b25e7e4687b0c5c0e5d8",
+    "value": "2.88x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-ca-2025": [
+   {
+    "digest": "bf4e329055df5259eb6d4746d1db9e327a666d59c17fe106f00d2587a169526d",
+    "value": "2.63x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-co-2025": [
+   {
+    "digest": "c64fa5b46e49ec25d2e7bda0667ba9b7b0278628edd740e5c51d002660847272",
+    "value": "2.31x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-ct-2025": [
+   {
+    "digest": "4b6b7bde282d2460a7e3850edef8a1033f3d9e92f06bd74087695336674e1a6d",
+    "value": "2.38x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-de-2025": [
+   {
+    "digest": "7d516f890c923c6205d7135c70ee981c7e944fb311be0aea6c10b3ff11e58356",
+    "value": "2.31x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-fl-2025": [
+   {
+    "digest": "87749c4c46009dafe4274b1a4d6f099d98217b9042cae09dcabd105bb26f73df",
+    "value": "2.19x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-ga-2025": [
+   {
+    "digest": "3d76aa315086e5558efcc39d2d18da84a3215e58b264fbd9b6808f8856a3c893",
+    "value": "2.17x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-ia-2025": [
+   {
+    "digest": "f1d0eac9395130cc2e855ac9406ac7306f7eedf29abc16bb8d043885ea376e70",
+    "value": "1.66x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-id-2025": [
+   {
+    "digest": "db5cc0f8207942c88e5bf135607b9e3f993d9707626f572e9a4adea4dea38888",
+    "value": "4.45x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-il-2025": [
+   {
+    "digest": "bb1eee3b01fea90c02ce710ee7d65611ad4cf84806bfda2532a4a9c0f37aebde",
+    "value": "1.49x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-in-2025": [
+   {
+    "digest": "3a33c6f180dc769de492d7affdb26f45003c6c04e170f3c752d9d3a80ac9be3b",
+    "value": "1.88x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-ks-2025": [
+   {
+    "digest": "f781dba6292fceeeff1a10213412da11438d8156fbb132939d0547388a36006f",
+    "value": "2.07x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-ky-2025": [
+   {
+    "digest": "04301b5363d68ce91a6ee65db39d3b28ecb38f13a03b9dd77e54de04d89d572e",
+    "value": "2.21x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-la-2025": [
+   {
+    "digest": "7bdc13b700a91343b5bbcf26e6f2c99549ca1e3760bc201d3c887d31de4eb243",
+    "value": "2.23x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-ma-2025": [
+   {
+    "digest": "68cc21e2e6081f133362f176685dd86ee24daae61e195f44e0b83d3d3c871c21",
+    "value": "2.9x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-md-2025": [
+   {
+    "digest": "96ca08b585ad0a0e859d22a7e093a7820f01b0f07b2413743c4b9c9be08cdcdb",
+    "value": "2.11x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-me-2025": [
+   {
+    "digest": "24063851987aa5d222033a6dc06169424763e9d470f776b19908c373a5dca66e",
+    "value": "2.76x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-mi-2025": [
+   {
+    "digest": "7165799e52d28617e318be93fdcbf0c6e402d40d550326fea6115be1972d4fb7",
+    "value": "1.63x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-mn-2025": [
+   {
+    "digest": "3a66df9809a1e3e1672c2f4c37a55f7e1aeab447aa2401182f20e7729bef8f74",
+    "value": "2.05x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-mo-2025": [
+   {
+    "digest": "3a7085db0dc65323d0ad2074181ac798738b29fddd6e738f1975793f87b1e557",
+    "value": "2.29x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-ms-2025": [
+   {
+    "digest": "3235f0510ff59901a3f58522e1404cc0f1545ed99c56b725a0c5e30463ebdc6c",
+    "value": "2.58x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-mt-2025": [
+   {
+    "digest": "11360f9dd6cf475431ff469ad8201167fc627ec58a1fa6e387f3a1916a61b7d6",
+    "value": "2.86x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-nc-2025": [
+   {
+    "digest": "650ca5bdf57157ee5282df10dd44c849f3203fea0f6725bb61bb4fb185442e16",
+    "value": "2.36x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-nd-2025": [
+   {
+    "digest": "82719aadcf7d3ac1efd7c2cf2823418a1af4902543f5c35511a4eb5b73df1e76",
+    "value": "2.61x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-ne-2025": [
+   {
+    "digest": "ed5713a99779e0369fe1fd3aa7be2867ac385733c7d503a0d500c6843d324271",
+    "value": "2.58x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-nh-2025": [
+   {
+    "digest": "a108cf3563dabc14c845dcd5308fe8c41df63e5bdd8658e77bc2e18053a91ac4",
+    "value": "3.23x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-nj-2025": [
+   {
+    "digest": "20831946641f64c982baf8c1ac95377ce26633937d172060c4e0ac58ef0dc19c",
+    "value": "2.17x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-nm-2025": [
+   {
+    "digest": "7ab77ebd56d3a281c8302bfa45023e2ac25b75ec3242bb87f291dd889867adb2",
+    "value": "2.61x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-nv-2025": [
+   {
+    "digest": "015a966d9cc784e0678cacccda30a9205ad53374119bd941ddb2155fc9543fc7",
+    "value": "3.0x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-ny-2025": [
+   {
+    "digest": "bb23081fdf36e6b9082611f2a8dc58e4e3106541188b83a10c620fb682f175d5",
+    "value": "1.45x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-oh-2025": [
+   {
+    "digest": "0c1851311a485e3f7d379f4e2e9f69771593a81b5b10112d93db63a92e4757dd",
+    "value": "1.74x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-ok-2025": [
+   {
+    "digest": "7e4a318b96f3bd5797914150461f98a24cea734cfec064cac78fd6cfc1d83ff6",
+    "value": "2.35x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-or-2025": [
+   {
+    "digest": "3429a5292e65385d9d3bc87ef1c54620ca4b26d818a5b5df7978e3a4dc63a57b",
+    "value": "3.4x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-pa-2025": [
+   {
+    "digest": "4932c41ce72c60566dcc2a409473735ad63e55456e443dda163c22d7f2f15b79",
+    "value": "1.97x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-pr-2025": [
+   {
+    "digest": "3cb2c6b2219571121377a87b9a89aba5534300213d9e551b90a07bd49c629f03",
+    "value": "1.19x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-range-2025": [
+   {
+    "digest": "60b1e3eb92eb6749d36c650c8dbb7425937e13531668e2ccabffcc800cb645ca",
+    "value": "1.19x-4.45x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-sc-2025": [
+   {
+    "digest": "7183b6ebf4fe24009691812a5358899fa85b1c0bed7aa663308f65cead09cb83",
+    "value": "2.23x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-sd-2025": [
+   {
+    "digest": "34e70c02f8c6905b61bd78436057119272bbc57fae19641785ad6e79be6fc095",
+    "value": "2.89x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-tn-2025": [
+   {
+    "digest": "12baea8d7559b36275d08da1f53c28a96f493a113a34d7b866c10a7a85a5f421",
+    "value": "2.51x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-tx-2025": [
+   {
+    "digest": "f331a58ec09e87272fbe68aedc2ef864947f908471c0a197b1119bab67559f6a",
+    "value": "1.81x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-ut-2025": [
+   {
+    "digest": "5d4893cb02e7b91c602bc22d6ce14714b3c299087d33dfac167f6fad6a9d11c8",
+    "value": "3.87x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-va-2025": [
+   {
+    "digest": "dbe045d1fc97f71df531f50348e4a6e673bd0e8c7f9112d5d5cbe1b9757a0fb2",
+    "value": "2.18x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-vt-2025": [
+   {
+    "digest": "e895747ff43c6d3a2bc3ea13f52f367e5706664aaf96e892c0178b7d0b641a3f",
+    "value": "2.17x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-wa-2025": [
+   {
+    "digest": "361ed6af2809f76dd5d98caed8dd97bae1f77d3b52dd8e2bc59581288616ae82",
+    "value": "3.44x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-wi-2025": [
+   {
+    "digest": "1174a3d38d64a873a4b29345efd00547c0fc7ce7b55bb699696e4f1dbff8c7d2",
+    "value": "2.29x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-wv-2025": [
+   {
+    "digest": "239c74342c4dbd3f78715a9466c1f4952e33373f9091df52d85e13a649208638",
+    "value": "2.17x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "small-loan-penalty-wy-2025": [
+   {
+    "digest": "d73d8ea822e95b69662e6d9a56954ec7b54807872ffcbdb1c5154f6e72227551",
+    "value": "2.66x",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-ak-2025": [
+   {
+    "digest": "ac4ca838bb73313a62b7c2f4cb33a142c18b5767118a9d46963fde56807615e0",
+    "value": "18.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-al-2025": [
+   {
+    "digest": "8ba2d4aca87bd5952a19e8d6301ae07d41ccc6b4a373cc670cb117175e610f80",
+    "value": "22.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-ar-2025": [
+   {
+    "digest": "4d3e4c01b9e80116e43601d840097d1a642374e31ad3e8fce1a1a359dd66912a",
+    "value": "21.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-az-2025": [
+   {
+    "digest": "e7ed5ecba5ce377313831cd886d01ed536e8685120d813302d913b17a0447d74",
+    "value": "18.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-ca-2025": [
+   {
+    "digest": "f076904707573a1c2a180ff2dbf6f3bc6ffdcf7279f9b5f49a494b4e47c8eaf7",
+    "value": "21.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-co-2025": [
+   {
+    "digest": "aca9436aa7fe6d2802469b9452bc44d79ed64ff012d6089af80eaaef411e12ad",
+    "value": "21.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-ct-2025": [
+   {
+    "digest": "456c253250e895bc8a389e94f36236523d80847aae579b9d7dc9c4381e353762",
+    "value": "26.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-dc-2025": [
+   {
+    "digest": "7a0c20f36a0d8624dec0d4741c034164e1b990a9e0f062ace398fc5415d21f24",
+    "value": "29.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-de-2025": [
+   {
+    "digest": "a1155c071fcbe632e01b52ead07e16050b1d3332d0e6ad7255770121697a821f",
+    "value": "25.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-fl-2025": [
+   {
+    "digest": "7ca46dbb334fcac133ebc15f8c50f19b84c9f3225303be732b638f4017fcb7dc",
+    "value": "24.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-ga-2025": [
+   {
+    "digest": "f9b6f9e3a91ea85f76af12f5a62277e15e3ffa34d01bfdf6bfe64f2921c3a278",
+    "value": "24.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-hi-2025": [
+   {
+    "digest": "c298dffaa249c2a4af9e1db902c08fd9c89dbaf93b5c58b6496a2e9d502aa7b7",
+    "value": "31.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-ia-2025": [
+   {
+    "digest": "2de506eb964689663f84acbe06b287c7b95f4ae356c11e6e4cbf577f32015be1",
+    "value": "24.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-id-2025": [
+   {
+    "digest": "8456d8e94fa6567caf717cffd2f41981800e5469a4b6292c88a756f776fd140c",
+    "value": "15.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-il-2025": [
+   {
+    "digest": "ddb7d05b0569141edc647b0040f9fc3dfac268315d13ec673da1241dc7b5025c",
+    "value": "27.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-in-2025": [
+   {
+    "digest": "d1c0b1a852adf38c1d8d09fe1f4e06a76e5c1636d29db8d00fa9e15448658b16",
+    "value": "22.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-ks-2025": [
+   {
+    "digest": "72de91dd0a62e12fa45edd5c855fb930bec8b0db5cd7b1404ec52c12d314363d",
+    "value": "22.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-ky-2025": [
+   {
+    "digest": "402dec2470fd5906048d5f88d5f594b4a58063d9e7c34911c2591c3ac5c78770",
+    "value": "21.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-la-2025": [
+   {
+    "digest": "dcdc6100359c24d7d9c44af076da256dfdc52cc74c055a2844c910af7673229e",
+    "value": "24.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-ma-2025": [
+   {
+    "digest": "4be0c923a5a3aa558b3f4f931b5540a0bc5dbb569c28b3324ff45986ab01795a",
+    "value": "22.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-md-2025": [
+   {
+    "digest": "3f9aa7ac3adf134499073b01bf75079d399fe6677de5d8da00f26cc59b44f08a",
+    "value": "24.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-me-2025": [
+   {
+    "digest": "fb66b4919c0905555786069c75f5375e2f22e98f6f230e31b8dc73b9dfb28c1e",
+    "value": "24.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-mi-2025": [
+   {
+    "digest": "e80254f8a4ee883ba3f00b8af9d4b475a2dcb66eb5bd75a690ffe260243fc618",
+    "value": "27.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-mn-2025": [
+   {
+    "digest": "ee18b24e69d2be86ca70ac8dbe11f5ef22cb8b61b04ecbc634cc622c390809e9",
+    "value": "22.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-mo-2025": [
+   {
+    "digest": "b4b9131871b983f5dd2d51b842fa1beb170707dff8292055b91afe5f094e725d",
+    "value": "20.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-ms-2025": [
+   {
+    "digest": "debcf09ab4efdcfceee413f9c1f247d899c349272a9ec6cd4b38c98e1446b127",
+    "value": "24.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-mt-2025": [
+   {
+    "digest": "d319f39774cd54be4566f0ec2e2df1794dd0baf4812bd1be22815bf1a51f94cc",
+    "value": "21.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-nc-2025": [
+   {
+    "digest": "e691f6496134a7ceec7f3f9cac6bedfdfcb8e530a41c6b3d9d7cf136021a3cbb",
+    "value": "21.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-nd-2025": [
+   {
+    "digest": "5e574dae3156ff8ff03736b26a5c1ed54344ae2ef129a82e9b453bdbf737e0e4",
+    "value": "17.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-ne-2025": [
+   {
+    "digest": "62d96a463f3e6e04af4cdcbb57c8f2d77d4933ef589f8a2e47525067a4ddc8a8",
+    "value": "20.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-nh-2025": [
+   {
+    "digest": "dfe6ef412e689ff05c3c41fd5a9b07a4daa6f2969e0f29bcb897201c644b221d",
+    "value": "23.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-nj-2025": [
+   {
+    "digest": "e1357b284ed469d03aff3f0c73295223c0a28b8bd5f7c147ad092c330a87665c",
+    "value": "24.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-nm-2025": [
+   {
+    "digest": "0857bbd76eac6584616a972a8e2cd6164bf7edfc8a54e5e0d7f663c4d719608a",
+    "value": "22.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-nv-2025": [
+   {
+    "digest": "c20edff75baaef34316cc520d45c88b82ffe2cacaef7ce7704adffa3197e3449",
+    "value": "17.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-ny-2025": [
+   {
+    "digest": "e3dcba9103724755e5730bd0a75dff0d1835394de3cb872266028c84e98fa2d8",
+    "value": "25.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-oh-2025": [
+   {
+    "digest": "0accc334c3b322b5d013ca8982068cd10e13377af5529a0a8d5406be9674fd7c",
+    "value": "23.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-ok-2025": [
+   {
+    "digest": "8cd71840a656e72cd72ea6787407ab40b7561a85c7ff7e0d93b0ffcb58db7d6b",
+    "value": "20.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-or-2025": [
+   {
+    "digest": "5e056d2be0455a7371861750efff674ec861e58b514e48e4fe3cc30716d0c980",
+    "value": "18.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-pa-2025": [
+   {
+    "digest": "2f789a823ffd13b4c5b54ae24dbd33d104fa91691732c52fcb976f2b2c219c24",
+    "value": "25.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-pr-2025": [
+   {
+    "digest": "df3a60b11686c772f9e7ad6734d04c90c72b18236020f1a5dd19be37ae383348",
+    "value": "17.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-ri-2025": [
+   {
+    "digest": "c38741b6147492fe52b458e450df400cde211e7ac2058c1f498598c8551736c7",
+    "value": "21.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-sc-2025": [
+   {
+    "digest": "84200ec178488c4f1b3ebaae1f995a136f3efec1a24893d86d680525781232c1",
+    "value": "21.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-sd-2025": [
+   {
+    "digest": "7e2830432fa71aa9559731d825d3ce544b71ddd8f9e5875bdf9c4a3f498e4b36",
+    "value": "21.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-tn-2025": [
+   {
+    "digest": "b81e5ae7bd19ec02a1436b627c671c07982c4af041cbb7e8f94193ef8671ffb2",
+    "value": "20.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-tx-2025": [
+   {
+    "digest": "870f4e8d2bb2db1c5e8fa52cef9f4ce4cd6ca607a073ab85d285f311938dda9c",
+    "value": "15.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-ut-2025": [
+   {
+    "digest": "41d725bb7853d47184238d4be1197de63ce6e7cd7ee045dccab325ace5c4026f",
+    "value": "15.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-va-2025": [
+   {
+    "digest": "a94ab53917db4c213cbe1c5ed0fd0e87b7bf4cc1a536674b101d296fbc37c747",
+    "value": "21.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-vt-2025": [
+   {
+    "digest": "5eacf6043d3d4af5887fef0009318213a9a8ff7a6709e59639bac82e1db8171d",
+    "value": "27.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-wa-2025": [
+   {
+    "digest": "4137eca5c7e6a30f69b9648ff8d45450481a3cd7c0c650aa36cc4892bca9c96b",
+    "value": "18.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-wi-2025": [
+   {
+    "digest": "2b5243d816b9329f4d1576a247957f14d2ea2c2e2d9caa48cec0a208fcbcd03f",
+    "value": "26.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-wv-2025": [
+   {
+    "digest": "0749d6da93501f38ae257f4a7e894d01cf5b9fc1480f6a4176e03121d69e910b",
+    "value": "23.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "state-wy-2025": [
+   {
+    "digest": "05cee27eb628066401eef965e772942df3fdf8e259efaacc33297bf6476b8247",
+    "value": "17.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-national-denial-rate-2025": [
+   {
+    "digest": "dc8f176b4822dea7dcd556e5c6767984d35c3d988c4f69d6a697ab14edb221ab",
+    "value": "12.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-al-denial-rate-2025": [
+   {
+    "digest": "03929accfa62d9124a2c753464122e4390897e5c48dac49c20aec35c3e87d310",
+    "value": "15.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-ar-denial-rate-2025": [
+   {
+    "digest": "bec6360192e36f58cdff0d2c8de60f35cb6d2ef821a748dccf131b9e97c15ca5",
+    "value": "9.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-az-denial-rate-2025": [
+   {
+    "digest": "446ba4f788b5ddc082a44c7932271b320127cf86420bc9b6aaf71c2a205160c3",
+    "value": "12.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-ca-denial-rate-2025": [
+   {
+    "digest": "c481f7d36e99c7883b6945e53ad8bf2e448201ac2e89aab30c2ad076093b51b5",
+    "value": "18.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-co-denial-rate-2025": [
+   {
+    "digest": "f4dddd0119c3303cbf8be89509864adcf1f79c812b88e967ce67a4ed69e0d544",
+    "value": "13.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-ct-denial-rate-2025": [
+   {
+    "digest": "a3be20ba028e788b679121f8d7dae35f61aeee7e29504e58b71817c3d4a12677",
+    "value": "9.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-fl-denial-rate-2025": [
+   {
+    "digest": "4693a81fd9f0a13a51bb0353d0c66d6fb9d457769b748fe0d302734484de2475",
+    "value": "21.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-ga-denial-rate-2025": [
+   {
+    "digest": "3a7d9d381e6ded948dae07504255b186d2bd7b647d79c0a90e6113f99bb5ec7f",
+    "value": "12.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-ia-denial-rate-2025": [
+   {
+    "digest": "ea11a70fa885c6779891538e770a635f744fe25a32b049a425f7c6d4f0de6a45",
+    "value": "20.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-il-denial-rate-2025": [
+   {
+    "digest": "3132a5622ca64ae2c58f718b3b7054b7c46f111f4495397d82fecf3ff3381922",
+    "value": "16.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-in-denial-rate-2025": [
+   {
+    "digest": "18454c62c6f299b02bec940ab0e2b404e373c4c5300af076f232ef545fb7c8df",
+    "value": "10.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-ks-denial-rate-2025": [
+   {
+    "digest": "9ec00a140bdbc18057f397b2b77f9e1e4bba0ae804370f2edd4b179abeedff2a",
+    "value": "12.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-ky-denial-rate-2025": [
+   {
+    "digest": "5d8c9d4bf7b1c4d9676e9bb3f44260660d9ade87ae9b278e4ac12de670846a96",
+    "value": "14.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-la-denial-rate-2025": [
+   {
+    "digest": "c13cf9254bc8f0d6f015a9c37abedb5af64849df7be80e6ec7f142731190f929",
+    "value": "10.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-ma-denial-rate-2025": [
+   {
+    "digest": "9e811d6f1f9ded004102f920ecc6ef81c1f25070c2fa0ca42e5e287b75ffa988",
+    "value": "11.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-md-denial-rate-2025": [
+   {
+    "digest": "401cca2866323a59f9ab52dab11410894c62301697664a15467bad9f66d145d0",
+    "value": "8.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-me-denial-rate-2025": [
+   {
+    "digest": "f1e14550241f9106f315f3d08be7e2468f0ef64525b66896c875fac46d16fe8f",
+    "value": "20.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-mi-denial-rate-2025": [
+   {
+    "digest": "713c7f672d56ccf14cc20b8ce998b87e75d68646093109637ca69e8d5093c9cd",
+    "value": "12.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-mn-denial-rate-2025": [
+   {
+    "digest": "dbced2cf6a6e26deeafdfa1d5c416820e4f50b3d5f6887361c453860d90b4e69",
+    "value": "9.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-mo-denial-rate-2025": [
+   {
+    "digest": "aae31e9be209fa01f65366dfdba917882869f0540c1f46d6960ab7e7110e45b9",
+    "value": "10.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-ms-denial-rate-2025": [
+   {
+    "digest": "461156fc7eb4c81060bbd09b69674f592f0771eaac6c1d79f62c1e04a2e2cc0e",
+    "value": "12.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-nc-denial-rate-2025": [
+   {
+    "digest": "eecc6ed6bd374c4cc6907af1721f3a22b6aba21658f9ab42f188143a5b7bd89a",
+    "value": "12.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-ne-denial-rate-2025": [
+   {
+    "digest": "97057f5744d0f97b931a92dd1f69071fe358e2a8321d2af0ec5af3f40072067f",
+    "value": "7.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-nj-denial-rate-2025": [
+   {
+    "digest": "5be329b18a660a9d2a1553de2a1666b5519f25212e9202a8573d124a9f482cf2",
+    "value": "14.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-nm-denial-rate-2025": [
+   {
+    "digest": "5cb4af1529118b94d6d0aaa4e43990cd71a68dd407bdbe71ad16fea2b894ac0d",
+    "value": "13.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-ny-denial-rate-2025": [
+   {
+    "digest": "5b9dbf90e392a75da86272c8523978cf33b06ccb91d6cdc38e31b4d110694fb5",
+    "value": "20.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-oh-denial-rate-2025": [
+   {
+    "digest": "42e00f52bcd728bb88e78040c8ae490a5d66dd669279e70c694cca3b393a2d67",
+    "value": "10.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-ok-denial-rate-2025": [
+   {
+    "digest": "70f43ef86161d111465f94d84d4312fc7d5d95510797218979f42214632323e8",
+    "value": "11.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-or-denial-rate-2025": [
+   {
+    "digest": "37c400d9846a2911359744bb00fc4fcf7084b7ba10ccd1435e92ad2add800926",
+    "value": "12.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-pa-denial-rate-2025": [
+   {
+    "digest": "b5efbe7b7aafa669d0bb937514bc3486a1fdd6bb4176b028682e5c808d54c546",
+    "value": "12.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-pr-denial-rate-2025": [
+   {
+    "digest": "c43c1ed1aa229210adbc510d200a1a34bb33246c74490d3a4eeca30e4b0cecd4",
+    "value": "16.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-sc-denial-rate-2025": [
+   {
+    "digest": "8086d998716155e35ef667d18f8f8c5bdf40ee92090cbca70650ed8b72369f78",
+    "value": "15.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-sd-denial-rate-2025": [
+   {
+    "digest": "8d226f2673fee37894ad54949d0fe651629e197a586b89238cc947d6604f32eb",
+    "value": "9.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-tn-denial-rate-2025": [
+   {
+    "digest": "cc009cf59f52576e8962077f4347d6f883b9fa28ef8dd5da6fbe0ebc0746cb78",
+    "value": "11.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-tx-denial-rate-2025": [
+   {
+    "digest": "842127306cb7f803e8763ff3fa6735608579465ce36d92b946937e9dcd088dd4",
+    "value": "11.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-ut-denial-rate-2025": [
+   {
+    "digest": "d10ce01f61f277906d43a2c674ab87020dab6d773f803182501602c5b5e4985a",
+    "value": "16.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-va-denial-rate-2025": [
+   {
+    "digest": "11a2cdafb1b260a4f5588d044ae47350f9d5fac57f04c9c7a096dc17d1c52d92",
+    "value": "9.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-wa-denial-rate-2025": [
+   {
+    "digest": "217375a1178c2a88167c5c6a1853d650348e9444d282f4459c6d2639b86b658c",
+    "value": "6.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-wi-denial-rate-2025": [
+   {
+    "digest": "454fb429b5fd4084affe469bdbd70a79f33c671153af847276111c0c4712e34e",
+    "value": "12.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "usda-state-wv-denial-rate-2025": [
+   {
+    "digest": "3928152a9ee07c56bd3994c89dceb5bb626667e3a9ec4a93cb8203ae47050f66",
+    "value": "11.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-national-denial-rate-2025": [
+   {
+    "digest": "16df77d3febfb970629ec15a8013bcf23791e53c0cde8a991c183b47b9df5147",
+    "value": "16.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-ak-denial-rate-2025": [
+   {
+    "digest": "8f6a0fc32d8c3ed2d3c4eccea15df014c38f71deb0a7fda77cce0d8d952b4bba",
+    "value": "11.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-al-denial-rate-2025": [
+   {
+    "digest": "9ab66d4a4334ea4f4f8b28872410401cf01f1034978e00a03cf9bc608b802ac1",
+    "value": "17.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-ar-denial-rate-2025": [
+   {
+    "digest": "970e6b4b892a4583763c87c32f3e1e5fb4d00a87aaedcc793cbee77f4dd3583b",
+    "value": "17.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-az-denial-rate-2025": [
+   {
+    "digest": "f54426747ee438310ac36b6f9a5977744f7287ae0aa57bece56b011dddee62fb",
+    "value": "14.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-ca-denial-rate-2025": [
+   {
+    "digest": "82b146e72cf7ae31b973dcaba25632fa596e08c4215cd0e27725e1e2583355e5",
+    "value": "18.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-co-denial-rate-2025": [
+   {
+    "digest": "08e3006c2d1043ba22dce7720e9418601eb774d2677ccf9ce6d1bd926795773d",
+    "value": "13.4%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-ct-denial-rate-2025": [
+   {
+    "digest": "2fabdef90ac6a57de73c94901e83812c27207936a132ee001aad08bb00343aae",
+    "value": "19.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-dc-denial-rate-2025": [
+   {
+    "digest": "27aee88e09a6c9862dba431c6703fa430e1289fd41a87fe30da0ea01795b03ed",
+    "value": "15.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-de-denial-rate-2025": [
+   {
+    "digest": "79d9d8fea4f3b9ae16c9166b50dd2463c136555c0fec9b90e09fa1e3dd70dca5",
+    "value": "16.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-fl-denial-rate-2025": [
+   {
+    "digest": "480b7a933f2e4eebb898f6d147c46949a657c308f262e54718bf8a41886511b5",
+    "value": "18.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-ga-denial-rate-2025": [
+   {
+    "digest": "f924375f979a05a00bf232abbe43edd4ea441727c9dff4c7e45c7d095d3f1e83",
+    "value": "18.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-hi-denial-rate-2025": [
+   {
+    "digest": "c3d776ed1eec6b6f6c3de62d551125eec96c3f62d016ad56f362c6760e12fef1",
+    "value": "12.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-ia-denial-rate-2025": [
+   {
+    "digest": "9998ed451c097efcfe6cd4f1173531f6d051e171cafc2b27c6512a859e21dee4",
+    "value": "17.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-id-denial-rate-2025": [
+   {
+    "digest": "c32b8157727391c9bc31c72afb54335c7fcdf0c337acec5075a46fd6ca049e1b",
+    "value": "13.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-il-denial-rate-2025": [
+   {
+    "digest": "33fe78ab8cc98b24559909d1eeeb3884c3eec7c7293a84861f7d71badcceaaed",
+    "value": "18.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-in-denial-rate-2025": [
+   {
+    "digest": "7a193210d447aa2a03145dedaf88123d3f7e01bf027d297a74c06c93314167c4",
+    "value": "17.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-ks-denial-rate-2025": [
+   {
+    "digest": "56526ff42d2ad1e46b42e5d612c0398c9d5bb8b285a14f104db436165d61a777",
+    "value": "15.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-ky-denial-rate-2025": [
+   {
+    "digest": "d57ea7213742d42c58b2df2c15d58424c730a77a9f84dc87ce4cadcfea7237f0",
+    "value": "17.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-la-denial-rate-2025": [
+   {
+    "digest": "35de89d04fd451475cc5e6465faa7caa255271cdde1866b2b110186950b52999",
+    "value": "20.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-ma-denial-rate-2025": [
+   {
+    "digest": "f8dcb070820e2894ffcba522887cc379240c3dc98e3959bdba831a79b298d257",
+    "value": "15.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-md-denial-rate-2025": [
+   {
+    "digest": "8c3d80271575b3eacbd20129fd9f7163a03ded4c65f38f8bfdbc6334b43f6839",
+    "value": "16.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-me-denial-rate-2025": [
+   {
+    "digest": "ff04f63ec2e65e278b5a3be61d74368a629968f88c035cfd045bf7399f40eb84",
+    "value": "17.8%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-mi-denial-rate-2025": [
+   {
+    "digest": "a6b94ea5ab10d087aee8a2862e88ac87ff024c6c8e2ab242ed03c55915df1e03",
+    "value": "18.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-mn-denial-rate-2025": [
+   {
+    "digest": "d2cfe48a2929e4576fcfda9c14255ecfd48ebafef2a0a26a85f177ffae5306bb",
+    "value": "16.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-mo-denial-rate-2025": [
+   {
+    "digest": "25adb09b0f25d18a5cf60652b94d0651201282546a7124d3f77f6638ea6da438",
+    "value": "15.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-ms-denial-rate-2025": [
+   {
+    "digest": "f219177e829a392ff5f8ba99327e139760f09e076442496b8d18bf33266882e1",
+    "value": "18.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-mt-denial-rate-2025": [
+   {
+    "digest": "f41615051b3723c493f3a222c43a094b5efd7d1967019cf9822d9db6cea63f4a",
+    "value": "16.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-nc-denial-rate-2025": [
+   {
+    "digest": "c80c326b6c2ad6b6cc76a327cdf780f2888fa86d9973e1cfffa0da43850055ed",
+    "value": "14.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-nd-denial-rate-2025": [
+   {
+    "digest": "55b5d1b89a3f2eeeb0cd34eb05ebd6b9cba36caac6befe2f7101a453a885e69f",
+    "value": "12.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-ne-denial-rate-2025": [
+   {
+    "digest": "6b9c2469f88f79996100247276a26d45125a32c0d589de45f99e55040f8bbcf2",
+    "value": "12.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-nh-denial-rate-2025": [
+   {
+    "digest": "36165c165d13edef5d0efd01f3d09437867adb2f9085781bd8d3b69a31e2c801",
+    "value": "15.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-nj-denial-rate-2025": [
+   {
+    "digest": "a0f8603364fb4e71905e830caf49b0577074aa4404b61c9ba6e50a1e334073a0",
+    "value": "19.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-nm-denial-rate-2025": [
+   {
+    "digest": "6cf8338a18d826e13480a366ecf8ca10d2a642742e25c5fcdc1a7ef2bb8ceeae",
+    "value": "16.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-nv-denial-rate-2025": [
+   {
+    "digest": "05a64cabfcfef6bd1885a5c85629007111ecb27ef25d2c61ea17ce7611b33062",
+    "value": "15.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-ny-denial-rate-2025": [
+   {
+    "digest": "248c3e4a2120b974e1b8e0359123f09d335843bee18ff558d04192b9b29c0f8d",
+    "value": "17.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-oh-denial-rate-2025": [
+   {
+    "digest": "d0b4b7326bf055de6e93c48374bebfe11aa35281da205e61cb89ca8ec40ca31b",
+    "value": "17.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-ok-denial-rate-2025": [
+   {
+    "digest": "4d19e043e752f0ff293b3592e469695eede704a8fd9f7905bda2e7c57a1186f3",
+    "value": "18.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-or-denial-rate-2025": [
+   {
+    "digest": "3d6aabcc708d64df5b5a6630ca87d8ffaddaa29494900aeeb34b73528669e9f2",
+    "value": "16.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-pa-denial-rate-2025": [
+   {
+    "digest": "69ab0fb368649cbe4e05f447e8c440b1133c4e3113a748e0493dcefc6dc17ad7",
+    "value": "21.0%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-pr-denial-rate-2025": [
+   {
+    "digest": "f41ebbbedb66f619098f272ac03ed1ad774fab3c2cfdf8124405d871e2981cca",
+    "value": "20.3%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-ri-denial-rate-2025": [
+   {
+    "digest": "731ddaf81c5ea26aed77bc0f5a2f7cfdd4edf34141ed530fdb0b8aa07a87a71a",
+    "value": "15.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-sc-denial-rate-2025": [
+   {
+    "digest": "bb302903e370da33d05d9eca5a987419a80fbed3f7e282a5b89701ff7d16dcfc",
+    "value": "15.6%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-sd-denial-rate-2025": [
+   {
+    "digest": "f4d008f76716a4b2c5224f0552a75f935ecfc2ba92463633f720da04e81d5ade",
+    "value": "14.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-tn-denial-rate-2025": [
+   {
+    "digest": "2aa8822d93e1502b5191e6ff091245d1a0a7ce68327a5f03f993de732caa632e",
+    "value": "15.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-tx-denial-rate-2025": [
+   {
+    "digest": "a1b8f37358115c0ad6a33eab273a285124093a71558cc1e4dfb8c643b357f9dd",
+    "value": "12.1%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-ut-denial-rate-2025": [
+   {
+    "digest": "d332006fec9dde97de0e67d4a69982a54b261a7b946631a824ae64c921e6f1e3",
+    "value": "12.9%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-va-denial-rate-2025": [
+   {
+    "digest": "8c623cbc1dc3c02ae33758cf23704aa129a506965d725c302f8bca50b76cdf7c",
+    "value": "13.2%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-vt-denial-rate-2025": [
+   {
+    "digest": "94b9bac1df947bcd78c16483aa65fcde69a1f6bb16f8afdcc169542e17ca9d6f",
+    "value": "19.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-wa-denial-rate-2025": [
+   {
+    "digest": "065bfe43587dbcaa94d8f6453d798bd9983361b7555c390429c07294182f771a",
+    "value": "13.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-wi-denial-rate-2025": [
+   {
+    "digest": "6ee3d8ba66e2a64811de1038ba800da08a9e1dd105d9515176c2b8b39546447c",
+    "value": "15.7%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-wv-denial-rate-2025": [
+   {
+    "digest": "1f6a5873e3d97f46cdd2f92de015745c879c3e5299e75b73b2cbe87377abd8a6",
+    "value": "16.5%",
+    "first_listed": "2026-11-25"
+   }
+  ],
+  "va-state-wy-denial-rate-2025": [
+   {
+    "digest": "4046e7672b4eeccd24141b800ac611dffef6fb4053a82a923fe37b1968d39fd3",
+    "value": "14.5%",
+    "first_listed": "2026-11-25"
+   }
+  ]
+ }
+}
