@@ -2748,6 +2748,19 @@ fn run_verify_relation(
         Err(e) => return (2, "null".into(), vec![e]),
     };
 
+    // An envelope refused before any signature is checked is malformed input (exit 2), as in
+    // `proofbundle decision verify`, `outcome verify` and `relation-statement verify` from 6.7.0 on: a
+    // payload that does not decode (in neither DSSE alphabet, or without its padding), a payload or
+    // payloadType that is absent or no string, a signature list that is empty, absent, no list or
+    // over the budget, an envelope that is no object. Python leaves `crypto_ok` None there and ends
+    // with 2; this verifier ended with 1, "crypto: ...", measured on all ten forms. The check is the
+    // function `verify_dsse` runs first, so the two cannot disagree about which faults these are. A
+    // payloadType other than the pinned one is a verdict there (`Ok(None)`), not an error, and stays
+    // a verification failure below, as in Python.
+    if let Err(e) = dsse_bestandteile(envelope, Some(INTOTO_STATEMENT_PAYLOAD_TYPE)) {
+        return (2, "null".into(), vec![format!("envelope: {e}")]);
+    }
+
     // Crypto (exit 1 on failure). Pin the in-toto payloadType (mirror of Python
     // relation_statement.py:189-190 / the decision/outcome verify paths) so a statement/receipt
     // presented under the WRONG payloadType fails crypto here, never authenticated under a foreign type.
