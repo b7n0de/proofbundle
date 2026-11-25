@@ -2242,6 +2242,21 @@ def _dsse_verify_reasons(res: dict, envelope: object, shown: tuple) -> list:
     return reasons
 
 
+def _dsse_refused_before_signature(envelope, pub: bytes) -> bool:
+    """True when the DSSE layer refuses ``envelope`` before any signature is checked: a payload that is not
+    base64 in the required form, a payloadType or signatures member of the wrong form, signatures beyond the
+    budget, an envelope that is no object. The same reading the in-toto verifiers make
+    (`dsse._verify_and_load`), over the plain dict the strict reader returned. Such an envelope is malformed
+    input, exit 2, as under decision, outcome and relation-statement verify (vectors OP17, OP20, F95)."""
+    from . import dsse as _dsse  # noqa: PLC0415
+    from .intoto import INTOTO_STATEMENT_PAYLOAD_TYPE  # noqa: PLC0415
+    try:
+        _dsse._verify_and_load(envelope, pub, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+    except (ProofBundleError, ValueError):
+        return True
+    return False
+
+
 def _cmd_intoto(args: argparse.Namespace) -> int:
 
     from .bundle import load_bundle  # noqa: PLC0415
@@ -2291,6 +2306,8 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
                 types = ", ".join(EVAL_RESULT_PREDICATE_TYPES)
                 print(f"    {_safe_line(f'predicateType {pt!r} is neither of {types}')}")
         print("=> OK" if ok else "=> FAILED")
+        if not ok and _dsse_refused_before_signature(envelope, pub):
+            return 2
         return 0 if ok else 1
 
     from .evalclaim import decode_eval_claim  # noqa: PLC0415
@@ -2378,7 +2395,8 @@ def _cmd_svr(args: argparse.Namespace) -> int:
         try:
             with _open_input(args.receipt) as handle:
                 envelope = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
-            res = verify_svr_dsse(envelope, decode_b64(args.pub))
+            pub = decode_b64(args.pub)
+            res = verify_svr_dsse(envelope, pub)
         except (OSError, ValueError, ProofBundleError, TypeError) as exc:
             _err(exc)
             return 2
@@ -2406,6 +2424,8 @@ def _cmd_svr(args: argparse.Namespace) -> int:
                 # its own row before the real one. One writer, one line per property.
                 print(f"    {_safe_line(str(p))}")
         print("=> OK" if res["ok"] else "=> FAILED")
+        if not res["ok"] and _dsse_refused_before_signature(envelope, pub):
+            return 2
         return 0 if res["ok"] else 1
 
     from .bundle import load_bundle  # noqa: PLC0415
