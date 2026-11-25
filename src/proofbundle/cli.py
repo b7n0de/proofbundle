@@ -2962,6 +2962,10 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             print(f"ANCHORS: {'OK' if result['anchors_ok'] else 'FAIL'}")
         if result["action_outcome_proven"] is False:
             print("ASSURANCE: actionOutcome=executed is self-asserted (no signed outcomeRef)")
+        # SPEC.md §7j: the lineage state is reported, as on the relation-statement verify path, so a
+        # DECLARED_UNRESOLVED edge never reads like a VERIFIED one in the text report.
+        if isinstance(result.get("lineage"), dict):
+            print(f"LINEAGE: {_safe_line(str(result['lineage'].get('lineage')))}")
         if result["subject_binding"] is not None:
             print(f"SUBJECT: {result['subject_binding']['mode']}")
         if result["subject_derived_ok"] is not None:
@@ -3268,6 +3272,10 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
             print(f"NONCE: {'OK' if result['nonce_ok'] else 'MISMATCH'}")
         if result["execution_proven"] is False:
             print("ASSURANCE: status=executed is self-asserted (no effectDigest/actualActionDigest)")
+        # SPEC.md §7j: the lineage state is reported, as on the relation-statement verify path, so a
+        # DECLARED_UNRESOLVED edge never reads like a VERIFIED one in the text report.
+        if isinstance(result.get("lineage"), dict):
+            print(f"LINEAGE: {_safe_line(str(result['lineage'].get('lineage')))}")
         if result["subject_binding"] is not None:
             print(f"SUBJECT: {result['subject_binding']['mode']}")
         if result["subject_derived_ok"] is not None:

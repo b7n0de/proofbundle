@@ -109,6 +109,11 @@ does (exit 1). Per edge:
   PAYLOAD is not a well-formed statement (`RELATION_TARGET_MALFORMED`), cycle, or depth > 32.
 - **NOT_EVALUATED** — no profile present.
 
+The text report of `decision verify`, `outcome verify` and `relation-statement verify` names the
+aggregate state in a `LINEAGE:` line whenever `lineage` is computed; `--json` carries it as `lineage`.
+A relying party that needs a named relation to resolve, as an auditor who holds the predecessor of a
+`supersedes` edge does, sets `require_relation_resolution` (§5); DECLARED_UNRESOLVED is then exit 3.
+
 **Which edges set `lineage`.** `lineage` is computed from the edges the receipt under verification
 declares in its own `relationships`. A receipt that declares none is NOT_EVALUATED, also when an
 attachment declares an edge over it; such edges feed only the `relations` policy of §5
