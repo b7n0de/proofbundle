@@ -17,7 +17,8 @@ Properties checked:
 - verify_receipt copies safeForAutomation and automationBlockers verbatim from the core's report
   (automation for decision and outcome, root_authenticity for a bundle), names where it took them, and
   gives null with "not reported by the core" where the report has no such field; it derives nothing;
-- the text for exit 1 does not rule out a structure failure, which is what a broken envelope gives;
+- the text for exit 1 does not rule out a structure failure, which is what a receipt changed after signing gives;
+  an envelope refused before any signature is checked is malformed input (exit 2) and gets the text for exit 2;
 - the rule on safe_for_automation stands in the server too, in verify_receipt's description and in the
   instructions, because a model can call the tool without the skill;
 - the server's version is the version of every manifest in the plugin folder, and every result carries
@@ -448,6 +449,7 @@ def test_the_scope_sentence_and_the_gate_note_the_instructions_name_are_in_the_r
 
 
 EXIT_1 = "verification failed: a signature, structure or other check did not hold; the report names which"
+EXIT_2 = "malformed input: the file, the key or an option could not be read as required"
 
 
 def test_a_valid_but_foreign_key_does_not_verify_and_the_issuers_does(server):
@@ -461,12 +463,20 @@ def test_a_valid_but_foreign_key_does_not_verify_and_the_issuers_does(server):
     assert (right["exit_code"], right["verified"]) == (0, True)
 
 
-def test_the_exit_1_text_names_structure_and_a_broken_envelope_gets_it(server, tmp_path):
+def test_the_exit_1_text_names_structure_and_a_changed_receipt_gets_it(server, tmp_path):
+    """A receipt changed after signing fails its signature and its structure together, and gets exit 1 with the
+    text that names structure. Until 6.6.1 a broken envelope was the case for this text; since the core ends an
+    envelope refused before any signature is checked with exit 2, that envelope gets the text for exit 2 and a
+    crypto_ok of null, and the text for exit 1 needs a case whose signature was checked."""
     key = (FIXTURES / "issuer.pub").read_text(encoding="utf-8").strip()
+    changed, _ = server.tool("verify_receipt", kind="decision", path=str(FIXTURES / "receipt-tampered.json"),
+                             public_key=key)
+    assert (changed["exit_code"], changed["verified"], changed["meaning"]) == (1, False, EXIT_1)
+    assert (changed["output"]["structure_ok"], changed["output"]["crypto_ok"]) == (False, False)
     broken = tmp_path / "broken.json"
     broken.write_text(json.dumps({"payloadType": 5}), encoding="utf-8")
     result, _ = server.tool("verify_receipt", kind="decision", path=str(broken), public_key=key)
-    assert (result["exit_code"], result["verified"], result["meaning"]) == (1, False, EXIT_1)
+    assert (result["exit_code"], result["verified"], result["meaning"]) == (2, False, EXIT_2)
     assert (result["output"]["structure_ok"], result["output"]["crypto_ok"]) == (False, None)
 
 
