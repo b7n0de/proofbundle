@@ -384,6 +384,25 @@ def test_both_or_no_proof_form_fails():
         assert r["statuses"]["CONSISTENCY"] == "FAIL", r
 
 
+def _pad_bits_set(text: str) -> str:
+    """The same 32 bytes in a second spelling: base64 of 32 bytes has two pad bits in its 43rd character."""
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    return text[:42] + alphabet[alphabet.index(text[42]) ^ 1] + text[43:]
+
+
+def test_a_second_spelling_of_the_held_root_or_of_a_proof_hash_fails():
+    """A value of the caller is read canonically (`_wire_b64.decode_b64`): the stdlib decoder takes a base64
+    string with pad bits set as the same bytes, one root with two wire forms."""
+    d1, d, proof = _honest()
+    note, vk = _checkpoint(9, _mth(d))
+    assert base64.b64decode(_pad_bits_set(_b64(_mth(d1)))) == _mth(d1)
+    for fields in ({"old_root_b64": _pad_bits_set(_b64(_mth(d1))), "proof_b64": proof},
+                   {"old_root_b64": _b64(_mth(d1)), "proof_b64": [_pad_bits_set(proof[0])] + proof[1:]}):
+        beweis = _proof_input(old_origin=ORIGIN, old_tree_size=5, **fields)
+        r = evaluate_public_transparency(note, POLICY, log_vkey=vk, consistency_proof=beweis)
+        assert r["statuses"]["CONSISTENCY"] == "FAIL", r
+
+
 @pytest.mark.parametrize("value", [object(), "proof", 5, {"old_tree_size": 5}])
 def test_a_consistency_proof_of_another_type_fails(value):
     d = _entries(9)

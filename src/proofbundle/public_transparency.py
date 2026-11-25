@@ -23,7 +23,6 @@ general SCITT/RFC-9943 conformance claim without interop vectors, and never that
 """
 from __future__ import annotations
 
-import base64
 import binascii
 from dataclasses import dataclass
 from typing import Any
@@ -31,6 +30,7 @@ from typing import Any
 from .canonical import (_ein_stand, _folge_von, _ganzzahl_von, _plain_for_jcs, _pruefkopie, _zeichen_von)
 from .errors import ProofBundleError
 from ._membership import is_member, stored_str_items
+from ._wire_b64 import decode_b64, decode_b64_c2sp
 
 _STATUS_NAMES = (
     "LOG_ORIGIN", "CHECKPOINT_SIGNATURE", "ROOT_BYTES_AUTHENTICITY",
@@ -152,13 +152,15 @@ class ConsistencyProof:
     ccf_rp_trust: Any = None
 
 
-def _wurzel_aus_b64(text: Any) -> "bytes | None":
-    """A root in standard base64 as its 32 bytes, None for anything else. Never raises."""
+def _wurzel_aus_b64(text: Any, lesen: Any = decode_b64) -> "bytes | None":
+    """A root in base64 as its 32 bytes, None for anything else. Never raises. A value of the caller is read
+    canonically (`_wire_b64.decode_b64`); the root of the signed note is read as `checkpoint` reads a note field
+    (`_wire_b64.decode_b64_c2sp`), so this path and the signature check agree on its bytes."""
     if type(text) is not str:
         return None
     try:
-        roh = base64.b64decode(text.encode("ascii"), validate=True)
-    except (UnicodeEncodeError, binascii.Error, ValueError):
+        roh = lesen(text)
+    except (binascii.Error, ValueError, TypeError):
         return None
     return roh if len(roh) == 32 else None
 
@@ -176,9 +178,9 @@ def _konsistenz_bewiesen(beweis: Any, origin: Any, tree_size: Any, root: Any) ->
         return False, ["consistency proof: old_tree_size must be an integer >= 1"]
     if type(tree_size) is not int:
         return False, ["consistency proof: the checkpoint has no tree size to verify against"]
-    alt_wurzel, neu_wurzel = _wurzel_aus_b64(beweis.old_root_b64), _wurzel_aus_b64(root)
+    alt_wurzel, neu_wurzel = _wurzel_aus_b64(beweis.old_root_b64), _wurzel_aus_b64(root, decode_b64_c2sp)
     if alt_wurzel is None:
-        return False, ["consistency proof: old_root_b64 is not 32 bytes in standard base64"]
+        return False, ["consistency proof: old_root_b64 is not 32 bytes in canonical standard base64"]
     if neu_wurzel is None:
         return False, ["consistency proof: the checkpoint root is not 32 bytes in standard base64"]
     hat_pfad, hat_receipt = beweis.proof_b64 is not None, beweis.ccf_receipt is not None
@@ -191,9 +193,9 @@ def _konsistenz_bewiesen(beweis: Any, origin: Any, tree_size: Any, root: Any) ->
         hashes = []
         for p in pfad:
             try:
-                hashes.append(base64.b64decode(p.encode("ascii"), validate=True))
-            except (UnicodeEncodeError, binascii.Error, ValueError):
-                return False, ["consistency proof: a hash of proof_b64 is not standard base64"]
+                hashes.append(decode_b64(p))
+            except (binascii.Error, ValueError, TypeError):
+                return False, ["consistency proof: a hash of proof_b64 is not canonical standard base64"]
         from . import merkle  # noqa: PLC0415
         if merkle.verify_consistency(alt_groesse, tree_size, hashes, alt_wurzel, neu_wurzel) is True:
             return True, []
