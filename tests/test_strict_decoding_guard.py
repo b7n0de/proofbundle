@@ -215,9 +215,6 @@ EXCEPTIONS = {
            "direction has just written, twice; no function returns the module object or a decoded value, a hand-on "
            "would be a fourth reference here, and every verdict on a statement comes from receipt_cose's own strict "
            "reader"),
-    "src/proofbundle/signed_eval_receipt.py": (
-        2, "_schema_by_scan, the scan of top-level members that served the removed dispatch question: it reads only "
-           "member names and string values, is called by no verify path and vouches for nothing"),
     "src/proofbundle/adapters/eee.py": (1, "reads the JSON schema file this package ships, not input"),
     # Moved here from dsse.py with the fix of finding Z7B of the deep gate 6.6.0 at c71eeb12: one function now holds
     # the budget check of every producer, the DSSE primitive and the status list and enclave issuers.
