@@ -468,10 +468,11 @@ def _binde(text: str, basis: str) -> str:
     return text
 
 
-#: Where the residual-risk records live since they left the root. A source that names its record
-#: keeps that name; a source that does not gets the record of its version in this folder. The record
+#: Where the residual-risk records live since they left the root. A two-level source that names its
+#: record keeps that name; one that does not gets the record of its version in this folder. The record
 #: of a release is linked at the release commit, so the sources of releases cut before the move keep
-#: their bare names (RESTRISIKO_661.md), and those of later releases name the folder.
+#: their bare names (RESTRISIKO_661.md), and those of later releases name the folder. The grouped form
+#: (6.1.0 and 6.2.0, both cut before the move) keeps the root, see `rendere`.
 RISIKO_ORDNER = "docs/residual_risk"
 
 
@@ -626,7 +627,11 @@ def rendere(daten: Dict[str, Any]) -> str:
 
     # THE RECORD IS NAMED AFTER ITS VERSION. This link was the literal `RESTRISIKO_610.md`, so every
     # later body would have pointed at the residual-risk record of 6.1.0.
-    restrisiko = f"{RISIKO_ORDNER}/RESTRISIKO_" + q["version"].replace(".", "") + ".md"
+    # IT STAYS AT THE ROOT. The grouped form carries 6.1.0 and 6.2.0 only (from 6.2.1 every release is of
+    # the two-level form), the link is bound to the release commit, and at those commits the record stood
+    # at the root. The folder form here would link a path those commits do not carry, and `pruefe` reads
+    # no linked file of a grouped source, so nothing would refuse it.
+    restrisiko = "RESTRISIKO_" + q["version"].replace(".", "") + ".md"
     teile.append(
         f"[Changelog]({basis}/CHANGELOG.md) · "
         f"[Known limitations]({basis}/{restrisiko}) · "

@@ -336,53 +336,13 @@ class TestDocsTruth(unittest.TestCase):
 
 
 class TestRecordsUnderResidualRisk(unittest.TestCase):
-    """The residual-risk records moved to docs/residual_risk/ with their bytes unchanged.
+    """The residual-risk records moved to docs/residual_risk/.
 
-    Two readers follow them there. The future-tense guard treats a record of a release that is out as
-    history in that folder too, and the link check holds the one link a moved record carries to a
-    record that stayed at the root only while the moved file keeps its exact bytes.
+    The future-tense guard treats a record of a release that is out as history in that folder too. The
+    one link a moved record carried to a record that stayed at the root (RESTRISIKO_640.md to
+    RESTRISIKO_600.md) is written from the new folder, so `test_no_broken_internal_doc_links` holds it
+    with no exception in the link check.
     """
-
-    def _baum(self, td: str, text: bytes) -> Path:
-        import hashlib
-        root = Path(td)
-        (root / "docs" / "residual_risk").mkdir(parents=True)
-        (root / "RESTRISIKO_600.md").write_text("# kept at the root\n", encoding="utf-8")
-        (root / "docs" / "residual_risk" / "RESTRISIKO_640.md").write_bytes(text)
-        self._sha = hashlib.sha256(text).hexdigest()
-        return root
-
-    def _check(self, root: Path, eintraege: dict) -> dict:
-        alt_repo, alt = doc_link_check.REPO, doc_link_check._VERSCHOBEN_MIT_BYTES
-        doc_link_check.REPO, doc_link_check._VERSCHOBEN_MIT_BYTES = root, eintraege
-        try:
-            return doc_link_check.check()
-        finally:
-            doc_link_check.REPO, doc_link_check._VERSCHOBEN_MIT_BYTES = alt_repo, alt
-
-    def test_a_pinned_link_of_a_moved_record_holds_and_RED_when_a_byte_changes(self):
-        import tempfile
-        text = b"# 6.4.0\n\nSee [the record of 6.0.0](RESTRISIKO_600.md).\n"
-        with tempfile.TemporaryDirectory() as td:
-            root = self._baum(td, text)
-            key = ("docs/residual_risk/RESTRISIKO_640.md", "RESTRISIKO_600.md")
-            pin = {key: (self._sha, "RESTRISIKO_600.md")}
-            self.assertEqual(self._check(root, pin)["broken"], [])
-            self.assertEqual(self._check(root, {})["verdict"], "FAIL", "without the entry the link is broken")
-            (root / "docs" / "residual_risk" / "RESTRISIKO_640.md").write_bytes(text + b" ")
-            self.assertEqual(self._check(root, pin)["verdict"], "FAIL", "an edited file loses the entry")
-            (root / "docs" / "residual_risk" / "RESTRISIKO_640.md").write_bytes(text)
-            (root / "RESTRISIKO_600.md").unlink()
-            self.assertEqual(self._check(root, pin)["verdict"], "FAIL", "a missing target is broken")
-
-    def test_the_real_entry_names_the_bytes_of_the_moved_record(self):
-        import hashlib
-        for (rel, _ziel), (sha, wurzel) in doc_link_check._VERSCHOBEN_MIT_BYTES.items():
-            datei = REPO / rel
-            if not datei.is_file():
-                self.skipTest(f"NOT MEASURABLE here: {rel} is not in this tree (an sdist does not ship it)")
-            self.assertEqual(hashlib.sha256(datei.read_bytes()).hexdigest(), sha, rel)
-            self.assertTrue((REPO / wurzel).is_file(), wurzel)
 
     def test_a_closed_record_under_residual_risk_is_history_and_RED_for_the_open_one(self):
         released = {"6.6.0", "6.6.1"}

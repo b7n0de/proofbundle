@@ -1059,6 +1059,16 @@ class DieRisikoberichteLiegenUnterDocsResidualRisk(unittest.TestCase):
         self.assertIn("/blob/" + "0" * 40 + "/docs/residual_risk/RESTRISIKO_999.md)", rendere(d))
         self.assertNotIn("/blob/" + "0" * 40 + "/RESTRISIKO_999.md)", rendere(d))
 
+    def test_RED_the_grouped_form_keeps_the_record_at_the_root(self):
+        """The grouped form carries 6.1.0 and 6.2.0, both cut before the move, and its link is bound to the
+        release commit, where the record stood at the root. `pruefe` reads no linked file of a grouped source,
+        so a folder path here would publish a dead link with nothing refusing it."""
+        d = DerRendererWirdAuchOHNEDieGoldeneVorlageGEMESSEN._synthetisch(None)
+        basis = "https://github.com/b7n0de/proofbundle/blob/" + d["release_commit"]
+        text = rendere(d)
+        self.assertIn(f"[Known limitations]({basis}/RESTRISIKO_999.md)", text)
+        self.assertNotIn("docs/residual_risk", text)
+
     def test_RED_the_records_in_the_folder_must_stand_in_the_described_commit(self):
         import tempfile
         d = _zwei_ebenen()
