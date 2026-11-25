@@ -1557,13 +1557,17 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
         _sig_label = _neuester_sig if isinstance(_neuester_sig, str) else ""
         _sig_modes = ("authority signature", "stamp policy")
         pq_verified = anchored and anchor_mode == "authority signature" and "mldsa" in _sig_label
-        # A stamp policy verifies the newest stamp's signature as well (its keys anchor it), so a PQ leg verified
-        # there counts the same way. A line of its own: the mutation operator F1 names the line above.
-        pq_verified = pq_verified or (anchored and anchor_mode == "stamp policy" and "mldsa" in _sig_label)
+        # A stamp policy verifies the newest stamp's signature as well, whatever the anchor mode: beside
+        # authority_keys or an anchor_verifier the policy check still runs (Codex review round 1 on PR 560, P2: with
+        # an anchor_verifier answering True the mode was "caller anchor_verifier" and a PQ leg the policy had
+        # verified did not count). So a PQ leg verified under a policy key counts in every mode. A line of its own:
+        # the mutation operator F1 names the line above.
+        pq_verified = pq_verified or (anchored and _politik is not None and "mldsa" in _sig_label
+                                      and _policy_anchor(newest))
         if pq_verified:
             pq_detail = (f"newest ATS carries a VERIFIED PQ leg (sig_alg {_rs(_neuester_sig)}, authority "
                          "signature)")
-        elif anchor_mode not in _sig_modes:
+        elif anchor_mode not in _sig_modes and _politik is None:
             pq_detail = (f"require_pq needs authority_keys or a stamp_policy to verify a PQ signature; anchor mode is "
                          f"{anchor_mode!r} (a PQ label on sig_alg alone is not verification, fail-closed)")
         else:
