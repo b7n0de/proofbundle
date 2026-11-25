@@ -438,7 +438,8 @@ def test_the_same_shape_with_a_32_byte_element_still_passes():
     assert r["statuses"]["CONSISTENCY"] == "PASS", r
 
 
-@pytest.mark.parametrize("groesse", [10 ** 5000, 2 ** 8193])
+# Named ids: pytest renders a parameter into its test id, and 10**5000 cannot be rendered under the digit limit either.
+@pytest.mark.parametrize("groesse", [10 ** 5000, 2 ** 8193], ids=["10e5000", "2e8193"])
 def test_a_held_size_past_the_integer_budget_fails_and_never_raises(groesse):
     """Codex review round 1 on PR 559, finding 2: at 5c5d5672 old_tree_size=10**5000 with a well-formed path raised
     ValueError when the failure message rendered it (Python's integer-string digit limit), and 2**8193 gave a
