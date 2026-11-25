@@ -12,6 +12,7 @@ CLI: [--json]
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sys
@@ -21,6 +22,26 @@ REPO = Path(__file__).resolve().parents[1]
 _LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 _SKIP = (".git", "node_modules", ".venv", "archive", "upstream")   # docs/archive/ is frozen history;
 # docs/upstream/ is ready-to-submit in-toto material whose relative links resolve in the in-toto repo tree, not ours
+
+#: A RECORD THAT MOVED WITH ITS BYTES. The residual-risk records moved from the root to
+#: docs/residual_risk/ unchanged, byte for byte, while RESTRISIKO_600.md stayed at the root. One moved
+#: record links it by a bare relative name, which no longer resolves beside the record. Each entry
+#: names the moved file, the link target as the file writes it, the sha256 of the file's bytes, and
+#: the path from the root where the target stands. The entry holds only while the file has exactly
+#: these bytes and the target exists at that path; an edit of the file, or a missing target, makes the
+#: link broken again, so the fix is then to write the link anew.
+_VERSCHOBEN_MIT_BYTES = {
+    ("docs/residual_risk/RESTRISIKO_640.md", "RESTRISIKO_600.md"):
+        ("28433f230d26cc3c735afcd2495af720ad210ddea6f2029c650eac53e906687f", "RESTRISIKO_600.md"),
+}
+
+
+def _haelt_als_verschoben(rel: str, target: str, roh: bytes) -> bool:
+    eintrag = _VERSCHOBEN_MIT_BYTES.get((rel, target))
+    if eintrag is None:
+        return False
+    sha, ziel = eintrag
+    return hashlib.sha256(roh).hexdigest() == sha and (REPO / ziel).is_file()
 
 
 def _iter_md():
@@ -35,9 +56,11 @@ def check() -> dict:
     checked = 0
     for md in _iter_md():
         try:
-            text = md.read_text(encoding="utf-8", errors="replace")
+            roh = md.read_bytes()
         except OSError:
             continue
+        text = roh.decode("utf-8", errors="replace")
+        rel = md.relative_to(REPO).as_posix()
         # blank fenced code so a `[x](y)` inside a code sample is not treated as a live link
         text = re.sub(r"```.*?```", lambda m: re.sub(r"[^\n]", " ", m.group(0)), text, flags=re.DOTALL)
         for m in _LINK.finditer(text):
@@ -49,6 +72,8 @@ def check() -> dict:
                 continue   # pure in-page anchor
             checked += 1
             if not (md.parent / path_part).resolve().exists():
+                if _haelt_als_verschoben(rel, target, roh):
+                    continue
                 broken.append({"file": str(md.relative_to(REPO)), "target": target})
     return {
         "schema": "proofbundle.doc_link_check.v1",

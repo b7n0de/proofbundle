@@ -351,10 +351,10 @@ def _pruefe_zwei_ebenen(daten: Dict[str, Any]) -> List[str]:
     # "Earlier risk record" and is not one.
     frueher = daten.get("frueherer_risikobericht")
     if _text(daten, "frueherer_risikobericht"):
-        if not re.fullmatch(r"RESTRISIKO_\d+\.md", frueher):
+        if not re.fullmatch(r"(?:" + re.escape(RISIKO_ORDNER) + r"/)?RESTRISIKO_\d+\.md", frueher):
             befunde.append(f"frueherer_risikobericht names {frueher!r}, not a residual-risk record "
-                           f"RESTRISIKO_<digits>.md")
-        elif frueher == _restrisiko(daten):
+                           f"RESTRISIKO_<digits>.md or {RISIKO_ORDNER}/RESTRISIKO_<digits>.md")
+        elif frueher.rpartition("/")[2] == _restrisiko(daten).rpartition("/")[2]:
             befunde.append("frueherer_risikobericht names the record of this release")
     hl = daten.get("highlights")
     if not isinstance(hl, list) or not 3 <= len(hl) <= 4:
@@ -468,9 +468,16 @@ def _binde(text: str, basis: str) -> str:
     return text
 
 
+#: Where the residual-risk records live since they left the root. A source that names its record
+#: keeps that name; a source that does not gets the record of its version in this folder. The record
+#: of a release is linked at the release commit, so the sources of releases cut before the move keep
+#: their bare names (RESTRISIKO_661.md), and those of later releases name the folder.
+RISIKO_ORDNER = "docs/residual_risk"
+
+
 def _restrisiko(q: Dict[str, Any]) -> str:
     # The two-level source names its record (owner decision of 2026-10-09: RESTRISIKO_620.md for 6.2.1).
-    return q.get("restrisiko") or ("RESTRISIKO_" + q["version"].replace(".", "") + ".md")
+    return q.get("restrisiko") or (f"{RISIKO_ORDNER}/RESTRISIKO_" + q["version"].replace(".", "") + ".md")
 
 
 def verlinkte_ziele(daten: Dict[str, Any]) -> List[str]:
@@ -619,7 +626,7 @@ def rendere(daten: Dict[str, Any]) -> str:
 
     # THE RECORD IS NAMED AFTER ITS VERSION. This link was the literal `RESTRISIKO_610.md`, so every
     # later body would have pointed at the residual-risk record of 6.1.0.
-    restrisiko = "RESTRISIKO_" + q["version"].replace(".", "") + ".md"
+    restrisiko = f"{RISIKO_ORDNER}/RESTRISIKO_" + q["version"].replace(".", "") + ".md"
     teile.append(
         f"[Changelog]({basis}/CHANGELOG.md) · "
         f"[Known limitations]({basis}/{restrisiko}) · "
