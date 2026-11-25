@@ -397,3 +397,24 @@ def test_counter_probe_each_rule_decides_its_case(off: str, deviating: set) -> N
         assert full == EXPECTED[n]
         partial = _reference_reading(vec, seq, windows, horizons, **{off: False})
         assert (partial != EXPECTED[n]) == (n in deviating), (off, n, partial)
+
+
+def test_require_pq_counts_a_pq_leg_verified_under_the_stamp_policy() -> None:
+    """In the stamp policy mode the newest stamp's signature IS verified, so require_pq accepts a verified
+    ML-DSA leg there; an Ed25519-only newest stamp still fails the PQ floor."""
+    pytest.importorskip("cryptography.hazmat.primitives.asymmetric.mldsa")
+    from proofbundle.pqsig import generate_mldsa  # noqa: PLC0415
+    vec, d = OURS, [OURS.digest]
+    m = generate_mldsa("mldsa65")
+    m_pub = m.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
+    t1, t2, _t3 = vec.times
+    seq = rn.build_initial_sequence(d, hash_alg="sha256", time=t1, sig_alg="ed25519", signers={"ed25519": vec.keys["T1"]})
+    seq_pq = rn.renew_timestamp(seq, time=t2, sig_alg="mldsa65", signers={"mldsa65": m})
+    keys = (rn.StampKey(key_id="T1", public_keys={"ed25519": _pub(vec.keys["T1"])}, not_before=vec.not_before, not_after=vec.v),
+            rn.StampKey(key_id="PQ", public_keys={"mldsa65": m_pub}, not_before=vec.not_before, not_after=vec.v))
+    policy = rn.StampPolicy(keys=keys, hash_horizons={"sha256": _t("2035-01-01T00:00:00Z")}, verification_time=vec.v)
+    res = rn.verify_sequence(seq_pq, d, stamp_policy=policy, require_pq=True)
+    assert res.ok is True, [str(c) for c in res.checks]
+    res = rn.verify_sequence(seq, d, stamp_policy=policy, require_pq=True)
+    assert res.ok is False
+    assert _failing(res) == {"renewal:pq_floor"}
