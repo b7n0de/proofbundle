@@ -44,5 +44,7 @@ examples/<file>` (or `make examples` to run all that need no optional extras). E
 
 The folder `vcon_ai_agent_receipts/` is a worked vCon example with decision receipts for an AI agent session. It has its own README and runs against an installed `proofbundle==6.4.0`.
 
+The folder `otel_scitt_agent_record/` turns two OpenTelemetry spans of an agent run and a person's approval into a signed record with salted fingerprints, anchored in SCITT through a local test service, and checks it offline in the states PASSED, FAILED and OPEN. It has its own README and needs the `[scitt]` extra.
+
 For the whole trust story with no checkout at all: `pip install proofbundle && proofbundle demo`
 (honest receipt verifies, six tampers fail, a swapped sample is caught — see `docs/DEMO.md`).

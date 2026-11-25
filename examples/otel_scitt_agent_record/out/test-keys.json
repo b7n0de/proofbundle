@@ -1,0 +1,30 @@
+{
+  "note": "TEST KEYS ONLY. Each key derives from its public label; never use them for real records.",
+  "recorder-1": {
+    "label": "otel scitt agent record example test key recorder-1",
+    "alg": "Ed25519",
+    "derivation": "seed = SHA-256(label)",
+    "public_b64": "CRmuVCANabPavn2xC54Vl6Uovqf3wohMlLZD/2dktSA="
+  },
+  "approval-gate-1": {
+    "label": "otel scitt agent record example test key approval-gate-1",
+    "alg": "Ed25519",
+    "derivation": "seed = SHA-256(label)",
+    "public_b64": "IKCIKm7udaFy18B+4pE3pRbLU+XNg7konHjKDvjEwms="
+  },
+  "statement-signer-1": {
+    "label": "otel scitt agent record example test key statement-signer-1",
+    "alg": "ES256",
+    "derivation": "scalar = SHA-256(label) mod (n - 1) + 1, scitt_local.ec_key",
+    "spki_sha256": "2e257a67e80398ed2e4c5897e1821f5bc5c8ff4de01e9f6e602d04178aa78bb1",
+    "certificate_der_sha256": "319289efb6f791a51ca5f8eaad238c97ae849cec01f853f7556581bd976226aa",
+    "certificate_issuer_label": "otel scitt agent record example test key certificate-issuer-1"
+  },
+  "scitt-service-1": {
+    "label": "otel scitt agent record example test key scitt-service-1",
+    "alg": "ES256",
+    "issuer": "scitt.example",
+    "derivation": "scalar = SHA-256(label) mod (n - 1) + 1, scitt_local.ec_key",
+    "spki_sha256": "0beb046a275d38722bd3193013fbb6004242c79a13526a926f4beccb9863b405"
+  }
+}

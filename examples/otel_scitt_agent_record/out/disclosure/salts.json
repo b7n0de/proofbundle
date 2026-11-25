@@ -1,0 +1,11 @@
+{
+  "note": "TEST SALTS, derived from public labels; a real issuer keeps random salts to itself and discloses them only in a dispute",
+  "alg": "sha256-salted-v1",
+  "salts_hex": {
+    "run": "d9103c85c3b8d6e993e4ce0840c8d10077948f0125270728183f3d28c9a51c3a",
+    "approval": "c958df64337b316dc9f30fc1c2d096b19b7ca8be4910ee71aa07603aad399b6c",
+    "action": "6464728351763e6c80a1f61397f2ff0a22e07cb0545cdced94b7dd60d431f533",
+    "call": "0ef94de0d82d087c4439877d9b345b9949ea03c269316d26ffdfdafdd49e4716",
+    "trace": "5b3b739d6f40b5b375f40cb8ed4b028b225753ec05d12d3bdc4006f9a6bc1840"
+  }
+}
