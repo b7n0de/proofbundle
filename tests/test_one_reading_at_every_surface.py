@@ -1240,6 +1240,7 @@ def _flaechen_drei(ablage):
 
     from proofbundle import evalcard, pqsig, prereg, renewal  # noqa: PLC0415
     from proofbundle import RenewalPolicy, build_initial_sequence, renew_timestamp  # noqa: PLC0415
+    from proofbundle.renewal import StampKey, StampPolicy  # noqa: PLC0415
     from proofbundle.renewal import anchor_proof_digest  # noqa: PLC0415
 
     dokument = ablage / "protocol.txt"
@@ -1256,7 +1257,9 @@ def _flaechen_drei(ablage):
             str(dokument), w({"evaluation_card_sha256": wert}))),
         ("renewal.verify_sequence", lambda w: renewal.verify_sequence(
             w(folge), w(daten), authority_keys=w({"ed25519": _raw(_T)}), known_newest_token_digest=w(zuletzt),
-            rp_trust=w({}))),
+            rp_trust=w({}), stamp_policy=w(StampPolicy(
+                keys=(StampKey(key_id="t", public_keys={"ed25519": _raw(_T)}, not_before=0, not_after=100),),
+                hash_horizons={"sha256": 1000}, verification_time=10)))),
         ("renewal.evaluate_renewal_policy", lambda w: renewal.evaluate_renewal_policy(
             w(folge), policy=RenewalPolicy(deprecated_algs=frozenset({"sha1"}), max_ats_age=10, strictness="fail"),
             now=w(12))),
