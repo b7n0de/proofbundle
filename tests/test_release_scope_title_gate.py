@@ -1194,12 +1194,14 @@ def test_die_grenze_ein_zufallstreffer_des_stamms_irrt_zu_nicht_messbar(tmp_path
 #: measured with this reader: state measured, no branch, no rider, no line.
 #: 6.6.1.md opens the scope after the tag v6.6.0 as not started (2026-11-16), for the same reason;
 #: measured with this reader: state measured, no branch, no rider, no line.
+#: 6.7.0.md opens the scope after the tag v6.6.1 as not started (2026-11-25), for the same reason;
+#: measured with this reader: state measured, no branch, no rider, no line.
 _ZUSTAND_DER_ECHTEN = {"3.7.1.md": "kein einziger Zweig", "4.0.0.md": "kein einziger Zweig",
                        "5.0.0.md": "kein einziger Zweig", "6.0.0.md": "kein einziger Zweig",
                        "6.1.0.md": "gemessen", "6.2.0.md": "gemessen", "6.2.1.md": "gemessen",
                        "6.3.0.md": "gemessen", "6.3.1.md": "gemessen", "6.4.0.md": "gemessen",
                        "6.5.0.md": "gemessen", "6.6.0.md": "gemessen", "6.6.1.md": "gemessen",
-                       "plugin-0.4.0.md": "gemessen"}
+                       "6.7.0.md": "gemessen", "plugin-0.4.0.md": "gemessen"}
 
 
 def test_GRUEN_die_echten_umfangsdateien_lesen_sich_wie_vorher():
