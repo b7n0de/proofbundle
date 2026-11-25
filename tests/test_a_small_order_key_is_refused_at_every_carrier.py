@@ -2210,6 +2210,8 @@ _LENGTH_32 = {
     ("persample.py", "audit_challenge"): (1, "a root, no key"),
     ("policy.py", "_validate_pinned_ed25519_pubkey"): (1, "followed by the rule"),
     ("policy.py", "_validate_root_b64"): (1, "a root, no key"),
+    ("public_transparency.py", "_wurzel_aus_b64"): (1, "a Merkle root of a checkpoint or of the held older state, "
+                                                       "no key (issue 557)"),
     ("relation.py", "_keys_equal"): (1, "compares two keys; writes nothing"),
     ("scitt_ccf.py", "<module>"): (3, "the CDDL rule table of the receipt pass: the leaf's transaction "
                                       "hash, its data-hash and the consistency anchor, tree hashes, no key"),
