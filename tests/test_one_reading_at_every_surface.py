@@ -1460,6 +1460,9 @@ _NICHT_IM_SWEEP = {
     "public_transparency.evaluate_public_transparency": {
         "consistency_confirmed": "a bool or None the relying party computed; a bool cannot be subclassed",
         "consistency_result": "an object of this package's own ConsistencyVerificationResult type, no JSON value",
+        "consistency_proof": "an object of this package's own ConsistencyProof type (issue 557), no JSON value; its "
+                             "exact type is required, and its malformed and foreign forms are held by "
+                             "tests/test_557_consistency_needs_a_verified_proof.py",
     },
     "policy.evaluate_policy": {"now": "an aware datetime, no JSON value; the sweep's readers rebuild JSON values. "
                                "Read once (canonical._zeitpunkt_von); a datetime subclass is held by "

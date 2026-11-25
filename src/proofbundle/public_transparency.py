@@ -10,7 +10,7 @@ Named statuses (each PASS / FAIL / NOT_EVALUATED):
   CHECKPOINT_SIGNATURE      the checkpoint is signed by a trusted log key (verify_checkpoint)
   ROOT_BYTES_AUTHENTICITY   the checkpoint root equals a root the relying party supplied from its own source
   TREE_CONTEXT_AUTHENTICITY the checkpoint tree size equals a size the relying party supplied
-  CONSISTENCY               a consistency proof was required and confirmed (append-only, no fork)
+  CONSISTENCY               a consistency proof was required and verified on this path (append-only, no fork)
   WITNESS_QUORUM            >= threshold distinct witnesses cosigned (witness_quorum)
   PUBLIC_TRANSPARENCY       aggregate: every REQUIRED status PASS and none FAIL
 
@@ -23,12 +23,14 @@ general SCITT/RFC-9943 conformance claim without interop vectors, and never that
 """
 from __future__ import annotations
 
+import binascii
 from dataclasses import dataclass
 from typing import Any
 
 from .canonical import (_ein_stand, _folge_von, _ganzzahl_von, _plain_for_jcs, _pruefkopie, _zeichen_von)
 from .errors import ProofBundleError
 from ._membership import is_member, stored_str_items
+from ._wire_b64 import decode_b64, decode_b64_c2sp
 
 _STATUS_NAMES = (
     "LOG_ORIGIN", "CHECKPOINT_SIGNATURE", "ROOT_BYTES_AUTHENTICITY",
@@ -119,6 +121,127 @@ class ConsistencyVerificationResult:
         return errors
 
 
+@dataclass(frozen=True)
+class ConsistencyProof:
+    """The material to VERIFY consistency between the older state a relying party holds and the checkpoint
+    ``evaluate_public_transparency`` evaluates (issue 557). Until 6.6.1 CONSISTENCY was PASS on a caller's
+    statement; now it is PASS only when this proof verifies on that path.
+
+    The older side is the relying party's own: ``old_origin``, ``old_tree_size`` and ``old_root_b64`` of a
+    checkpoint it verified before. The newer side is never taken from here: origin, tree size and root are
+    the ones the evaluation parses from the signed note, so both sizes the proof is checked for are bound to
+    their roots by data the relying party holds or that is signed (the point of erratum eid9317 to RFC 9942).
+
+    Exactly one form:
+
+    - ``proof_b64``: an RFC 6962 / RFC 9162 consistency path, each hash in standard base64, checked with
+      ``merkle.verify_consistency(old_tree_size, <checkpoint size>, path, old root, <checkpoint root>)``;
+    - ``ccf_receipt``: the bytes of a CCF consistency receipt, checked with
+      ``scitt_ccf.verify_consistency_receipt`` against the older root with ``ccf_issuer`` and the relying
+      party's ``ccf_rp_trust``, with ``older_size=old_tree_size`` and ``newer_size=<checkpoint size>``. Only
+      the status ``confirmed`` counts, and the receipt's newer root must be the checkpoint's root. Where the
+      receipt's protected header names a tree size (its ``ccf.v1`` txid), the receipt verifier compares it
+      with the checkpoint size, and a mismatch is a failure (``consistency_newer_size_mismatch``)."""
+
+    old_origin: str
+    old_tree_size: int
+    old_root_b64: str
+    proof_b64: Any = None
+    ccf_receipt: Any = None
+    ccf_issuer: Any = None
+    ccf_rp_trust: Any = None
+
+
+def _wurzel_aus_b64(text: Any, *, aus_der_note: bool = False) -> "bytes | None":
+    """A root in base64 as its 32 bytes, None for anything else. Never raises. A value of the caller is read
+    canonically (`_wire_b64.decode_b64`); the root of the signed note (``aus_der_note``) is read as `checkpoint`
+    reads a note field (`_wire_b64.decode_b64_c2sp`), so this path and the signature check agree on its bytes."""
+    if type(text) is not str:
+        return None
+    try:
+        roh = decode_b64_c2sp(text) if aus_der_note else decode_b64(text)
+    except (binascii.Error, ValueError, TypeError):
+        return None
+    return roh if len(roh) == 32 else None
+
+
+def _konsistenz_bewiesen(beweis: Any, origin: Any, tree_size: Any, root: Any) -> "tuple[bool, list[str]]":
+    """(verified, errors) for a ``ConsistencyProof`` against the checkpoint parsed from the note. It calls the
+    existing verifiers and writes no Merkle code of its own. Never raises."""
+    if type(beweis) is not ConsistencyProof:
+        return False, ["consistency_proof is not a ConsistencyProof (fail-closed)"]
+    if type(beweis.old_origin) is not str or beweis.old_origin != origin:
+        return False, ["consistency proof: old_origin is not the origin of the checkpoint being evaluated — a "
+                       "consistency proof only relates two states of one log"]
+    alt_groesse = beweis.old_tree_size
+    if type(alt_groesse) is not int or alt_groesse < 1:
+        return False, ["consistency proof: old_tree_size must be an integer >= 1"]
+    if type(tree_size) is not int:
+        return False, ["consistency proof: the checkpoint has no tree size to verify against"]
+    # THE MAGNITUDE, NOT JUST THE TYPE (Codex review round 1 on PR 559, finding 2). At 5c5d5672 an
+    # old_tree_size of 10**5000 with an otherwise well-formed path reached the failure message below, and
+    # rendering it raised ValueError (Python's integer-string digit limit) out of a surface that answers every
+    # proof with a verdict; 2**8193 gave a message of 2613 characters. Both sizes are bounded here, before
+    # either proof form and before any message renders them, by the ceiling `merkle` and `bundle` share.
+    from .budget import int_magnitude_ok  # noqa: PLC0415
+    if not int_magnitude_ok(alt_groesse):
+        return False, ["consistency proof: old_tree_size exceeds the integer budget (fail-closed)"]
+    if not int_magnitude_ok(tree_size):
+        return False, ["consistency proof: the checkpoint's tree size exceeds the integer budget (fail-closed)"]
+    alt_wurzel, neu_wurzel = _wurzel_aus_b64(beweis.old_root_b64), _wurzel_aus_b64(root, aus_der_note=True)
+    if alt_wurzel is None:
+        return False, ["consistency proof: old_root_b64 is not 32 bytes in canonical standard base64"]
+    if neu_wurzel is None:
+        return False, ["consistency proof: the checkpoint root is not 32 bytes in standard base64"]
+    hat_pfad, hat_receipt = beweis.proof_b64 is not None, beweis.ccf_receipt is not None
+    if hat_pfad == hat_receipt:
+        return False, ["consistency proof: give exactly one of proof_b64 (RFC 6962) and ccf_receipt (CCF)"]
+    if hat_pfad:
+        pfad = beweis.proof_b64
+        if type(pfad) not in (list, tuple) or not all(type(p) is str for p in pfad):
+            return False, ["consistency proof: proof_b64 must be a list of base64 strings"]
+        hashes = []
+        for p in pfad:
+            try:
+                roh = decode_b64(p)
+            except (binascii.Error, ValueError, TypeError):
+                return False, ["consistency proof: a hash of proof_b64 is not canonical standard base64"]
+            # EVERY PATH ELEMENT IS A SHA-256 NODE (Codex review round 1 on PR 559, finding 1). Canonical base64
+            # says nothing about the length, and `merkle.verify_consistency` checks none: at 5c5d5672 a held
+            # size-1 root h, a signed size-2 checkpoint with root SHA-256(0x01 || h) and the path [""] gave
+            # CONSISTENCY and PUBLIC_TRANSPARENCY PASS. The inclusion-proof reader in `tlogproof` holds the same
+            # boundary.
+            if len(roh) != 32:
+                return False, ["consistency proof: a hash of proof_b64 is not 32 bytes (an RFC 6962 SHA-256 node)"]
+            hashes.append(roh)
+        from . import merkle  # noqa: PLC0415
+        if merkle.verify_consistency(alt_groesse, tree_size, hashes, alt_wurzel, neu_wurzel) is True:
+            return True, []
+        return False, [f"consistency proof (RFC 6962) from size {alt_groesse} to the checkpoint's size {tree_size} "
+                       "does not verify against the held old root and the checkpoint root (fail-closed)"]
+    from . import scitt_ccf  # noqa: PLC0415
+    pruefung = scitt_ccf.verify_consistency_receipt(
+        beweis.ccf_receipt, older_root=alt_wurzel, older_issuer=beweis.ccf_issuer, rp_trust=beweis.ccf_rp_trust,
+        older_size=alt_groesse, newer_size=tree_size)
+    if pruefung.status != scitt_ccf.CONFIRMED:
+        return False, [f"consistency receipt (CCF) is not confirmed: {pruefung.status}: {pruefung.detail}"]
+    if pruefung.newer_root != neu_wurzel:
+        return False, ["consistency receipt (CCF) is confirmed for another newer root than the checkpoint's "
+                       "(fail-closed)"]
+    return True, []
+
+
+def _dieselbe_alte_seite(ergebnis: Any, beweis: ConsistencyProof) -> bool:
+    """Whether a typed result names the older state of the proof beside it. Never raises: a field that cannot be
+    read, or one of another type, names no state."""
+    try:
+        felder = [getattr(ergebnis, f, None) for f in ("old_origin", "old_tree_size", "old_root_b64")]
+    except Exception:  # noqa: BLE001 - an object that cannot be read names no state
+        return False
+    erwartet = [beweis.old_origin, beweis.old_tree_size, beweis.old_root_b64]
+    return all(type(a) is type(b) and a == b for a, b in zip(felder, erwartet))
+
+
 @_ein_stand
 def validate_public_transparency_policy(policy: Any) -> list[str]:
     """Fail-closed validation of a public-transparency policy object (empty = valid)."""
@@ -161,8 +284,14 @@ def validate_public_transparency_policy(policy: Any) -> list[str]:
             errors.append("witnessQuorum must be an object with a 'threshold'")
         else:
             th = wq.get("threshold")
+            # A neighbour of Codex finding 2 on PR 559, same class: at 5c5d5672 a threshold of 10**5000 passed
+            # here, and the evaluation raised ValueError when its "quorum not met" message rendered it. A
+            # threshold past the shared integer ceiling is an invalid policy.
+            from .budget import int_magnitude_ok  # noqa: PLC0415
             if not (isinstance(th, int) and not isinstance(th, bool) and th >= 1):
                 errors.append("witnessQuorum.threshold must be an integer >= 1")
+            elif not int_magnitude_ok(th):
+                errors.append("witnessQuorum.threshold exceeds the integer budget")
             for k in wq:
                 if k not in ("threshold",):
                     errors.append(f"witnessQuorum.{k} is not an allowed field")
@@ -172,7 +301,8 @@ def validate_public_transparency_policy(policy: Any) -> list[str]:
 @dataclass
 class _KonsistenzStand:
     """A consistency result read once at the call of `evaluate_public_transparency`: the answer of its own
-    ``validate()`` and the four fields the evaluation compares, each read one time (verify lane V2 on 6d674973).
+    ``validate()`` and the fields the evaluation compares, each read one time (verify lane V2 on 6d674973; the three
+    old_* fields since issue 557, compared with the older state of a ``ConsistencyProof``).
     The evaluation read the caller's object at five places; one whose fields are computed on each access passed
     with the root of one state and the confirmation of another, where each state fails. A dataclass of this
     package, so `canonical._stand` compares two readings of it field by field (`canonical._derselbe`)."""
@@ -181,6 +311,9 @@ class _KonsistenzStand:
     new_tree_size: Any
     new_root_b64: Any
     confirmed: Any
+    old_origin: Any = None
+    old_tree_size: Any = None
+    old_root_b64: Any = None
 
     def validate(self) -> list:
         return list(self._befund)
@@ -205,7 +338,8 @@ def _konsistenz_stand(wert: Any) -> Any:
         raise   # as below
     except Exception:  # noqa: BLE001 - an object that cannot be asked is read by the evaluation as before
         return wert
-    felder = ("new_origin", "new_tree_size", "new_root_b64", "confirmed")
+    felder = ("new_origin", "new_tree_size", "new_root_b64", "confirmed",
+              "old_origin", "old_tree_size", "old_root_b64")
 
     def lesen() -> list:
         befund = wert.validate()
@@ -227,24 +361,23 @@ def evaluate_public_transparency(
     witness_vkeys: list | None = None, expected_root_b64: str | None = None,
     expected_tree_size: int | None = None, consistency_confirmed: bool | None = None,
     consistency_result: "ConsistencyVerificationResult | None" = None,
-    strict_consistency: bool = False,
+    strict_consistency: bool = False, consistency_proof: "ConsistencyProof | None" = None,
 ) -> dict:
     """Evaluate a signed checkpoint against a public-transparency policy → unified named-status verdict.
 
-    ``consistency_confirmed`` is the relying party's OWN result of a consistency-proof check (append-only, no
-    fork) computed elsewhere; when the policy requires consistency it MUST be True, else FAIL. It is passed in
-    (not computed here) because a consistency proof is between two checkpoints the relying party holds — this
-    layer records the verdict, fail-closed. Read PUBLIC_TRANSPARENCY — never an individual status alone.
+    ``consistency_proof`` (issue 557): the ``ConsistencyProof`` between the older state the relying party holds
+    and this checkpoint. When the policy requires consistency, CONSISTENCY is PASS only when this proof verifies
+    on this call, by ``merkle.verify_consistency`` for an RFC 6962 path or by
+    ``scitt_ccf.verify_consistency_receipt`` for a CCF consistency receipt. Without it CONSISTENCY is FAIL: a
+    required check whose material is missing is FAIL (module docstring, the fail-closed rule).
 
-    ``consistency_result`` (finding 10, additive): a typed ``ConsistencyVerificationResult`` instead of the
-    bare ``consistency_confirmed`` boolean. Preferred, because it BINDS the confirmation to this exact
-    checkpoint — ``new_origin`` / ``new_tree_size`` / ``new_root_b64`` are checked against the values this
-    call itself parses from ``signed_note`` BEFORE ``confirmed`` is ever accepted, and its own
-    ``.validate()`` rejects a structurally impossible (e.g. split-view) pair regardless of ``confirmed``.
-    When both are supplied, ``consistency_result`` takes precedence. ``strict_consistency=True`` refuses
-    the unbound bare-boolean path entirely (CONSISTENCY FAILs if only ``consistency_confirmed`` is given) —
-    additive: the default (``strict_consistency=False``) preserves every existing caller's behavior
-    exactly."""
+    ``consistency_confirmed`` and ``consistency_result`` are a caller's statement about a check made elsewhere.
+    Until 6.6.1 either one alone gave PASS; since issue 557 neither does. They are kept so existing calls still
+    run, and they still count where they say no: ``consistency_confirmed=False`` is FAIL, and a typed result
+    that does not validate, does not bind to this checkpoint, does not name the older state of the proof, or
+    is not ``confirmed`` is FAIL beside a verified proof too. ``strict_consistency=True`` keeps its meaning:
+    a bare ``consistency_confirmed`` without a typed result is refused. Read PUBLIC_TRANSPARENCY — never an
+    individual status alone."""
     from . import checkpoint as cp  # noqa: PLC0415
     # ONE READING of every input, by what it holds (round 12): the note as its characters, read once
     # for the parse, the signature check and the quorum; the policy as the plain copy of what it
@@ -356,45 +489,53 @@ def evaluate_public_transparency(
         if statuses["TREE_CONTEXT_AUTHENTICITY"] == "FAIL":
             errors.append("checkpoint tree size does not equal the relying party's expected tree size")
 
-    # CONSISTENCY — required-and-confirmed → PASS; required-and-not-confirmed → FAIL (fail-closed).
-    # finding 10: a typed consistency_result (preferred) is BOUND to this exact checkpoint before its
-    # `confirmed` is accepted; a bare consistency_confirmed boolean is an unbound plaintext claim, and
-    # strict_consistency=True refuses it entirely.
+    # CONSISTENCY — PASS only for a proof verified on this call (issue 557); required and not verified → FAIL
+    # (fail-closed, the rule of the module docstring for a required check without its material). Until 6.6.1 a
+    # bare consistency_confirmed=True, or a typed consistency_result with confirmed=True bound to the new
+    # checkpoint, was PASS, and no proof was checked here. Both are still read where they say no.
     if bool(policy.get("requireConsistencyProof")):
+        befund: list[str] = []
         if consistency_result is not None and not hasattr(consistency_result, "validate"):
             # adversarial re-audit r5: consistency_result kwarg muss ein ConsistencyVerificationResult sein; ein
             # Nicht-Objekt (int/str/list/dict) crasht sonst .validate() — fail-closed statt roh.
-            statuses["CONSISTENCY"] = "FAIL"
-            errors.append("consistency result is not a valid ConsistencyVerificationResult (fail-closed)")
+            befund.append("consistency result is not a valid ConsistencyVerificationResult (fail-closed)")
         elif consistency_result is not None:
             cerrs = consistency_result.validate()
             if cerrs:
-                statuses["CONSISTENCY"] = "FAIL"
-                errors.extend(f"consistency result invalid: {e}" for e in cerrs)
+                befund.extend(f"consistency result invalid: {e}" for e in cerrs)
             elif not (parsed_ok and consistency_result.new_origin == origin
-                     and consistency_result.new_tree_size == tree_size
-                     and consistency_result.new_root_b64 == root):
-                statuses["CONSISTENCY"] = "FAIL"
-                errors.append(
+                      and consistency_result.new_tree_size == tree_size
+                      and consistency_result.new_root_b64 == root):
+                befund.append(
                     "consistency result does not bind to this checkpoint (new_origin/new_tree_size/"
                     "new_root_b64 do not match the checkpoint being evaluated) — wrong checkpoint pair, "
                     "fail-closed")
-            elif consistency_result.confirmed is True:
-                statuses["CONSISTENCY"] = "PASS"
-            else:
-                statuses["CONSISTENCY"] = "FAIL"
-                errors.append("consistency result is bound to this checkpoint but confirmed is not True")
-        elif strict_consistency:
-            statuses["CONSISTENCY"] = "FAIL"
-            errors.append(
-                "requireConsistencyProof with strict_consistency=True needs a typed "
-                "ConsistencyVerificationResult — a bare consistency_confirmed boolean is an unbound "
-                "plaintext claim and is rejected (fail-closed)")
-        elif consistency_confirmed is True:
-            statuses["CONSISTENCY"] = "PASS"
+            elif consistency_result.confirmed is not True:
+                befund.append("consistency result is bound to this checkpoint but confirmed is not True")
+            elif type(consistency_proof) is ConsistencyProof and not _dieselbe_alte_seite(consistency_result,
+                                                                                         consistency_proof):
+                befund.append("consistency result names another older state than the consistency proof "
+                              "(old_origin/old_tree_size/old_root_b64), fail-closed")
+        elif strict_consistency and consistency_confirmed is not None:
+            befund.append(
+                "requireConsistencyProof with strict_consistency=True refuses a bare consistency_confirmed "
+                "boolean — it is an unbound plaintext claim (fail-closed)")
+        if consistency_confirmed is False:
+            befund.append("consistency_confirmed is False: the relying party's own check did not confirm "
+                          "consistency")
+        if consistency_proof is None:
+            befund.append(
+                "requireConsistencyProof but no consistency_proof supplied: a consistency_confirmed boolean or a "
+                "typed consistency_result alone is a statement, not a verified proof (issue 557, fail-closed)")
+        elif not parsed_ok:
+            befund.append("consistency proof cannot be checked: the checkpoint note is malformed")
         else:
-            statuses["CONSISTENCY"] = "FAIL"
-            errors.append("requireConsistencyProof but no confirmed consistency proof supplied (fail-closed)")
+            bewiesen, beweis_fehler = _konsistenz_bewiesen(consistency_proof, origin, tree_size, root)
+            befund.extend(beweis_fehler)
+            if not bewiesen and not beweis_fehler:
+                befund.append("consistency proof did not verify (fail-closed)")
+        statuses["CONSISTENCY"] = "FAIL" if befund else "PASS"
+        errors.extend(befund)
 
     # WITNESS_QUORUM
     if isinstance(policy.get("witnessQuorum"), dict):
