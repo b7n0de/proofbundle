@@ -45,9 +45,32 @@ def _pub(key: Ed25519PrivateKey) -> bytes:
     return key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
 
 
+# The six stamper seeds, written out. Each is the SHA-256 of its published sentence (the seed sentences of OURS and
+# OTHER below, with T1, T2 or T3), so the keys are the reference tool's and never a secret. The shipped-sdist guard
+# (tests/test_sdist_ohne_signierwerkzeug.py) admits a private key only from a seed written out in the source, so the
+# seeds stand here as literals, and test_the_written_out_seeds_are_the_published_sentences holds each to its sentence.
+_SEED_OURS_T1 = b"\x09\xc9\xaa\x48\xc5\x49\xaa\x01\x82\x16\x21\xbf\x83\xd2\x37\xff\x5b\xd8\xe3\xf4\xfe\x13\x29\xfd\x1a\x12\x01\xd5\xb7\x93\x24\xf7"
+_SEED_OURS_T2 = b"\x2d\xfd\x73\x54\xc7\xf0\xeb\xcb\x59\x63\x28\xae\xba\x0b\x95\xc8\xac\xe5\xde\x14\x84\x0a\xbb\xa1\x1b\x77\xa5\xf6\xfd\xae\xa9\xdb"
+_SEED_OURS_T3 = b"\xb8\x43\x7f\x1c\xa8\x8a\xf1\x2d\x1c\x63\x42\xf7\x16\x0e\x7a\xf4\x2e\xa4\x97\xa8\x41\xb6\x99\x0a\xc7\x46\xb4\x5e\xc7\x9f\x7f\xfc"
+_SEED_OTHER_T1 = b"\x90\x48\xe2\x20\xff\x55\x0b\xe3\xcf\xb6\x36\xca\xa3\x91\xc0\xd8\x95\x33\xa4\x7f\x64\xb2\x8e\x49\xe7\x3b\xed\xe0\xfa\x32\x09\x97"
+_SEED_OTHER_T2 = b"\x48\x03\xd9\xec\x21\xff\x47\x62\x7d\x02\x41\x41\xf5\xa8\x2e\x3f\x37\x65\x88\x83\x8f\x41\x84\xc1\xf0\xda\xc9\x72\x6d\xca\x54\xf4"
+_SEED_OTHER_T3 = b"\x91\xa5\xcd\x54\x71\x87\xbd\x6d\x0e\x20\x93\x69\x49\x9c\x86\x75\xc2\x77\xe9\xe9\x63\xcb\x72\x78\x8c\x02\xd2\x86\x41\x50\x29\xe2"
+_OURS_SENTENCE = "proofbundle shared RFC 4998 5.3 vector, stamper key %s"
+_OTHER_SENTENCE = "proofbundle 6.7.0 second half of the 5.3 vector, stamper key %s"
+_SEEDS = {_OURS_SENTENCE % "T1": _SEED_OURS_T1, _OURS_SENTENCE % "T2": _SEED_OURS_T2, _OURS_SENTENCE % "T3": _SEED_OURS_T3,
+          _OTHER_SENTENCE % "T1": _SEED_OTHER_T1, _OTHER_SENTENCE % "T2": _SEED_OTHER_T2,
+          _OTHER_SENTENCE % "T3": _SEED_OTHER_T3}
+_KEYS = {_OURS_SENTENCE % "T1": Ed25519PrivateKey.from_private_bytes(_SEED_OURS_T1),
+         _OURS_SENTENCE % "T2": Ed25519PrivateKey.from_private_bytes(_SEED_OURS_T2),
+         _OURS_SENTENCE % "T3": Ed25519PrivateKey.from_private_bytes(_SEED_OURS_T3),
+         _OTHER_SENTENCE % "T1": Ed25519PrivateKey.from_private_bytes(_SEED_OTHER_T1),
+         _OTHER_SENTENCE % "T2": Ed25519PrivateKey.from_private_bytes(_SEED_OTHER_T2),
+         _OTHER_SENTENCE % "T3": Ed25519PrivateKey.from_private_bytes(_SEED_OTHER_T3)}
+
+
 def _key_from_seed(text: str) -> Ed25519PrivateKey:
-    # the SHA-256 of the published sentence IS the private test key (published seed, never a secret)
-    return Ed25519PrivateKey.from_private_bytes(hashlib.sha256(text.encode()).digest())
+    # the SHA-256 of the published sentence IS the private test key (published seed, never a secret); written out above
+    return _KEYS[text]
 
 
 def _tamper_first_signature(ats: rn.ArchiveTimeStamp) -> rn.ArchiveTimeStamp:
@@ -101,7 +124,7 @@ class Vector:
 
 
 # --- our half: exactly the reference tool's parameters -------------------------------------------------------
-OURS = Vector(seed_sentence="proofbundle shared RFC 4998 5.3 vector, stamper key %s",
+OURS = Vector(seed_sentence=_OURS_SENTENCE,
               times=(_t("2026-01-01T00:00:00Z"), _t("2027-01-01T00:00:00Z"), _t("2028-01-01T00:00:00Z")),
               v=_t("2029-01-01T00:00:00Z"), content=b"shared RFC 4998 5.3 vector, proofbundle side",
               first_hash="sha256", renewed_hash="sha3-512", not_before=_t("2025-01-01T00:00:00Z"))
@@ -117,7 +140,7 @@ OUR_POLICY = {
 OUR_TAMPER = {5: "T1"}
 
 # --- five further cases of the same classes, parameters of our own -------------------------------------------
-OTHER = Vector(seed_sentence="proofbundle 6.7.0 second half of the 5.3 vector, stamper key %s",
+OTHER = Vector(seed_sentence=_OTHER_SENTENCE,
                times=(_t("2030-03-01T00:00:00Z"), _t("2031-03-01T00:00:00Z"), _t("2032-03-01T00:00:00Z")),
                v=_t("2033-03-01T00:00:00Z"), content=b"second half of the 5.3 vector, built in the test",
                first_hash="sha512", renewed_hash="sha3-256", not_before=_t("2030-01-01T00:00:00Z"))
@@ -159,6 +182,15 @@ def _case(n: int):
     vec, seq = _case_seq(n)
     windows, horizons = (OUR_POLICY if n <= 5 else OTHER_POLICY)[n]
     return vec, seq, vec.policy(windows, horizons)
+
+
+def test_the_written_out_seeds_are_the_published_sentences() -> None:
+    """Each written-out seed is the SHA-256 of its published sentence, and the six sentences are exactly the ones the
+    two halves of the vector use, so the literals cannot drift from the reference tool's keys."""
+    assert set(_SEEDS) == {v.seed_sentence % r for v in (OURS, OTHER) for r in ("T1", "T2", "T3")}
+    for sentence, seed in _SEEDS.items():
+        assert seed == hashlib.sha256(sentence.encode()).digest(), sentence
+    assert set(_KEYS) == set(_SEEDS)
 
 
 def _verdict(res) -> str:
