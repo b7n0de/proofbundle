@@ -49,6 +49,18 @@ class TestPolicyValidate(unittest.TestCase):
     def test_bad_witness_threshold_rejected(self):
         self.assertTrue(validate_public_transparency_policy({"witnessQuorum": {"threshold": 0}}))
 
+    def test_a_witness_threshold_past_the_integer_budget_is_an_invalid_policy(self):
+        """Codex review round 1 on PR 559, a neighbour of its finding 2 in the same function: at 5c5d5672 a threshold of
+        10**5000 passed the policy check, and the evaluation raised ValueError when its "quorum not met" message
+        rendered the threshold. A threshold past `budget.int_magnitude_ok` is an invalid policy, which the evaluation
+        answers with the PublicTransparencyError it documents for one."""
+        errs = validate_public_transparency_policy({"witnessQuorum": {"threshold": 10 ** 5000}})
+        self.assertTrue(any("integer budget" in e for e in errs), errs)
+        note, _ = _signed_note()
+        note2, wv = _witnessed(note)
+        with self.assertRaises(PublicTransparencyError):
+            evaluate_public_transparency(note2, {"witnessQuorum": {"threshold": 10 ** 5000}}, witness_vkeys=[wv])
+
     def test_bad_policy_raises_in_evaluate(self):
         note, _ = _signed_note()
         with self.assertRaises(PublicTransparencyError):
@@ -155,9 +167,11 @@ class TestEvaluate(unittest.TestCase):
         r = evaluate_public_transparency(note, {"requireSignedCheckpoint": True, "requireConsistencyProof": True},
                                          log_vkey=lv)
         self.assertEqual(r["statuses"]["CONSISTENCY"], "FAIL")
+        # Issue 557: a bare consistency_confirmed=True is a statement, not a verified proof. It was PASS until
+        # 6.6.1; tests/test_557_consistency_needs_a_verified_proof.py holds the rule that replaces it.
         r2 = evaluate_public_transparency(note, {"requireSignedCheckpoint": True, "requireConsistencyProof": True},
                                           log_vkey=lv, consistency_confirmed=True)
-        self.assertEqual(r2["statuses"]["CONSISTENCY"], "PASS")
+        self.assertEqual(r2["statuses"]["CONSISTENCY"], "FAIL")
 
     def test_witness_quorum_pass(self):
         note, lv = _signed_note()
@@ -292,12 +306,35 @@ class TestConsistencyVerificationResult(unittest.TestCase):
 class TestConsistencyResultBinding(unittest.TestCase):
     """Integration: evaluate_public_transparency binds/rejects consistency_result and strict_consistency."""
 
-    def test_consistency_result_correct_pair_passes(self):
+    def test_consistency_result_correct_pair_alone_is_no_longer_a_pass(self):
+        # Issue 557: a correctly bound typed result with confirmed=True was PASS until 6.6.1 without any proof
+        # being checked. Alone it is a FAIL now; beside a verified consistency_proof it may stand (below, and
+        # tests/test_557_consistency_needs_a_verified_proof.py).
         note, lv = _signed_note()
         cr = _good_consistency_result()
         r = evaluate_public_transparency(
             note, {"requireSignedCheckpoint": True, "requireConsistencyProof": True},
             log_vkey=lv, consistency_result=cr)
+        self.assertEqual(r["statuses"]["CONSISTENCY"], "FAIL", r)
+        self.assertEqual(r["PUBLIC_TRANSPARENCY"], "FAIL", r)
+        self.assertTrue(any("issue 557" in e for e in r["errors"]), r["errors"])
+
+    def test_consistency_result_correct_pair_beside_a_verified_proof_passes(self):
+        import base64
+        from proofbundle import merkle
+        from proofbundle.public_transparency import ConsistencyProof
+        leaves = [b"leaf-%d" % i for i in range(_SIZE)]
+        old_root, new_root = merkle.merkle_tree_hash(leaves[:10]), merkle.merkle_tree_hash(leaves)
+        sk = generate_signer()
+        note = sign_checkpoint(_ORIGIN, _SIZE, new_root, sk, "logkey")
+        lv = vkey("logkey", _pub(sk))
+        cr = _good_consistency_result(old_root_b64=base64.b64encode(old_root).decode(),
+                                      new_root_b64=base64.b64encode(new_root).decode())
+        proof = ConsistencyProof(old_origin=_ORIGIN, old_tree_size=10, old_root_b64=cr.old_root_b64,
+                                 proof_b64=[base64.b64encode(h).decode() for h in merkle.consistency_proof(leaves, 10)])
+        r = evaluate_public_transparency(
+            note, {"requireSignedCheckpoint": True, "requireConsistencyProof": True},
+            log_vkey=lv, consistency_result=cr, consistency_proof=proof)
         self.assertEqual(r["statuses"]["CONSISTENCY"], "PASS", r)
         self.assertEqual(r["PUBLIC_TRANSPARENCY"], "PASS", r)
 
@@ -331,12 +368,13 @@ class TestConsistencyResultBinding(unittest.TestCase):
         self.assertEqual(r["statuses"]["CONSISTENCY"], "FAIL", r)
         self.assertEqual(r["PUBLIC_TRANSPARENCY"], "FAIL", r)
         self.assertTrue(any("strict_consistency" in e for e in r["errors"]), r["errors"])
-        # additive / backward-compat: WITHOUT strict_consistency the bare boolean still works as before
+        # Issue 557: WITHOUT strict_consistency the bare boolean was PASS until 6.6.1. It is a FAIL now, because
+        # no proof was verified on this path; the call still runs and answers with a verdict.
         r2 = evaluate_public_transparency(
             note, {"requireSignedCheckpoint": True, "requireConsistencyProof": True},
             log_vkey=lv, consistency_confirmed=True)
-        self.assertEqual(r2["statuses"]["CONSISTENCY"], "PASS", r2)
-        self.assertEqual(r2["PUBLIC_TRANSPARENCY"], "PASS", r2)
+        self.assertEqual(r2["statuses"]["CONSISTENCY"], "FAIL", r2)
+        self.assertEqual(r2["PUBLIC_TRANSPARENCY"], "FAIL", r2)
 
     def test_monitor_split_view_fails(self):
         # an independent monitor's own report: the SAME tree size was seen under TWO different roots —
