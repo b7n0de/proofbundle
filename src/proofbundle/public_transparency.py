@@ -152,14 +152,14 @@ class ConsistencyProof:
     ccf_rp_trust: Any = None
 
 
-def _wurzel_aus_b64(text: Any, lesen: Any = decode_b64) -> "bytes | None":
+def _wurzel_aus_b64(text: Any, *, aus_der_note: bool = False) -> "bytes | None":
     """A root in base64 as its 32 bytes, None for anything else. Never raises. A value of the caller is read
-    canonically (`_wire_b64.decode_b64`); the root of the signed note is read as `checkpoint` reads a note field
-    (`_wire_b64.decode_b64_c2sp`), so this path and the signature check agree on its bytes."""
+    canonically (`_wire_b64.decode_b64`); the root of the signed note (``aus_der_note``) is read as `checkpoint`
+    reads a note field (`_wire_b64.decode_b64_c2sp`), so this path and the signature check agree on its bytes."""
     if type(text) is not str:
         return None
     try:
-        roh = lesen(text)
+        roh = decode_b64_c2sp(text) if aus_der_note else decode_b64(text)
     except (binascii.Error, ValueError, TypeError):
         return None
     return roh if len(roh) == 32 else None
@@ -178,7 +178,7 @@ def _konsistenz_bewiesen(beweis: Any, origin: Any, tree_size: Any, root: Any) ->
         return False, ["consistency proof: old_tree_size must be an integer >= 1"]
     if type(tree_size) is not int:
         return False, ["consistency proof: the checkpoint has no tree size to verify against"]
-    alt_wurzel, neu_wurzel = _wurzel_aus_b64(beweis.old_root_b64), _wurzel_aus_b64(root, decode_b64_c2sp)
+    alt_wurzel, neu_wurzel = _wurzel_aus_b64(beweis.old_root_b64), _wurzel_aus_b64(root, aus_der_note=True)
     if alt_wurzel is None:
         return False, ["consistency proof: old_root_b64 is not 32 bytes in canonical standard base64"]
     if neu_wurzel is None:
