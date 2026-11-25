@@ -1556,7 +1556,10 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
         # raw TypeError; normalize for the membership test, render every field through _rs.
         _sig_label = _neuester_sig if isinstance(_neuester_sig, str) else ""
         _sig_modes = ("authority signature", "stamp policy")
-        pq_verified = anchored and anchor_mode in _sig_modes and "mldsa" in _sig_label
+        pq_verified = anchored and anchor_mode == "authority signature" and "mldsa" in _sig_label
+        # A stamp policy verifies the newest stamp's signature as well (its keys anchor it), so a PQ leg verified
+        # there counts the same way. A line of its own: the mutation operator F1 names the line above.
+        pq_verified = pq_verified or (anchored and anchor_mode == "stamp policy" and "mldsa" in _sig_label)
         if pq_verified:
             pq_detail = (f"newest ATS carries a VERIFIED PQ leg (sig_alg {_rs(_neuester_sig)}, authority "
                          "signature)")
