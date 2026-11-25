@@ -86,7 +86,10 @@ Each check fail-closed; read the aggregate `ok`, never an individual field:
 2. **root_threshold_met** — `>=` the root role's `threshold` DISTINCT valid non-revoked root signatures over
    the exact PAE bytes. Signatures are counted by key material, every leg of a key (no double-count: a key whose
    classical or post-quantum leg is already counted adds nothing); a key id not in the root set, or revoked, or
-   with an unresolved / malformed public key, does not count.
+   with an unresolved / malformed public key, does not count. A root signature's `sig`, and `sigPq` of a hybrid
+   key, are read as the DSSE envelope allows, in the standard or the URL-safe Base64 alphabet, each padded and
+   canonical, as `dsse.verify_envelope` reads a signature and as the Rust threshold check reads `sig`; the keys
+   `publicKey` and `publicKeyPq` stay standard Base64.
 3. **not_expired** — `expires > now` (fail-closed past expiry).
 4. **version_monotone** — `version > prevVersion` when a previous version is supplied (rollback/freeze catch).
 5. **prevVersionDigest chain** — each version links the previous version's content root; the first is `null`.
