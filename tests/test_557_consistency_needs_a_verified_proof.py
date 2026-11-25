@@ -411,6 +411,52 @@ def test_a_consistency_proof_of_another_type_fails(value):
     assert r["statuses"]["CONSISTENCY"] == "FAIL", r
 
 
+@pytest.mark.parametrize("laenge", [0, 31, 33])
+def test_a_proof_hash_that_is_not_32_bytes_fails(laenge):
+    """Codex review round 1 on PR 559, finding 1: canonical base64 does not make a value a SHA-256 hash, and
+    `merkle.verify_consistency` checks no length. Each case builds the signed size-2 root from the short or long
+    element itself, SHA-256(0x01 || h || x), so the arithmetic of the proof holds; at 5c5d5672 all three gave
+    CONSISTENCY and PUBLIC_TRANSPARENCY PASS (measured for the empty element)."""
+    h = _h(b"\x00probe")
+    x = b"\x07" * laenge
+    note, vk = _checkpoint(2, _h(b"\x01" + h + x))
+    beweis = _proof_input(old_origin=ORIGIN, old_tree_size=1, old_root_b64=_b64(h), proof_b64=[_b64(x)])
+    r = evaluate_public_transparency(note, POLICY, log_vkey=vk, consistency_proof=beweis)
+    assert r["statuses"]["CONSISTENCY"] == "FAIL", r
+    assert r["PUBLIC_TRANSPARENCY"] == "FAIL", r
+    assert any("not 32 bytes" in e for e in r["errors"]), r["errors"]
+
+
+def test_the_same_shape_with_a_32_byte_element_still_passes():
+    """The control for the case above: the same construction with a 32-byte element is an honest size-1 to size-2
+    proof (the element is the leaf hash of the second entry's place) and passes."""
+    h = _h(b"\x00probe")
+    x = _h(b"\x00second")
+    note, vk = _checkpoint(2, _h(b"\x01" + h + x))
+    beweis = _proof_input(old_origin=ORIGIN, old_tree_size=1, old_root_b64=_b64(h), proof_b64=[_b64(x)])
+    r = evaluate_public_transparency(note, POLICY, log_vkey=vk, consistency_proof=beweis)
+    assert r["statuses"]["CONSISTENCY"] == "PASS", r
+
+
+@pytest.mark.parametrize("groesse", [10 ** 5000, 2 ** 8193])
+def test_a_held_size_past_the_integer_budget_fails_and_never_raises(groesse):
+    """Codex review round 1 on PR 559, finding 2: at 5c5d5672 old_tree_size=10**5000 with a well-formed path raised
+    ValueError when the failure message rendered it (Python's integer-string digit limit), and 2**8193 gave a
+    message of 2613 characters. A size past `budget.int_magnitude_ok` is refused before any message renders it,
+    on both proof forms."""
+    d1, d, proof = _honest()
+    note, vk = _checkpoint(9, _mth(d))
+    for beweis in (
+            _proof_input(old_origin=ORIGIN, old_tree_size=groesse, old_root_b64=_b64(_mth(d1)), proof_b64=proof),
+            _proof_input(old_origin=ORIGIN, old_tree_size=groesse, old_root_b64=_b64(_mth(d1)),
+                         ccf_receipt=b"\xd2\x84", ccf_issuer="probe.example",
+                         ccf_rp_trust={"scitt_ccf_services": {}})):
+        r = evaluate_public_transparency(note, POLICY, log_vkey=vk, consistency_proof=beweis)
+        assert r["statuses"]["CONSISTENCY"] == "FAIL", r
+        assert any("integer budget" in e for e in r["errors"]), r["errors"]
+        assert all(len(e) < 400 for e in r["errors"]), [len(e) for e in r["errors"]]
+
+
 def test_without_the_requirement_consistency_stays_not_evaluated():
     d1, d, proof = _honest()
     note, vk = _checkpoint(9, _mth(d))

@@ -49,6 +49,18 @@ class TestPolicyValidate(unittest.TestCase):
     def test_bad_witness_threshold_rejected(self):
         self.assertTrue(validate_public_transparency_policy({"witnessQuorum": {"threshold": 0}}))
 
+    def test_a_witness_threshold_past_the_integer_budget_is_an_invalid_policy(self):
+        """Codex review round 1 on PR 559, a neighbour of its finding 2 in the same function: at 5c5d5672 a threshold of
+        10**5000 passed the policy check, and the evaluation raised ValueError when its "quorum not met" message
+        rendered the threshold. A threshold past `budget.int_magnitude_ok` is an invalid policy, which the evaluation
+        answers with the PublicTransparencyError it documents for one."""
+        errs = validate_public_transparency_policy({"witnessQuorum": {"threshold": 10 ** 5000}})
+        self.assertTrue(any("integer budget" in e for e in errs), errs)
+        note, _ = _signed_note()
+        note2, wv = _witnessed(note)
+        with self.assertRaises(PublicTransparencyError):
+            evaluate_public_transparency(note2, {"witnessQuorum": {"threshold": 10 ** 5000}}, witness_vkeys=[wv])
+
     def test_bad_policy_raises_in_evaluate(self):
         note, _ = _signed_note()
         with self.assertRaises(PublicTransparencyError):

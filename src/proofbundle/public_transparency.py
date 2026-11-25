@@ -178,6 +178,16 @@ def _konsistenz_bewiesen(beweis: Any, origin: Any, tree_size: Any, root: Any) ->
         return False, ["consistency proof: old_tree_size must be an integer >= 1"]
     if type(tree_size) is not int:
         return False, ["consistency proof: the checkpoint has no tree size to verify against"]
+    # THE MAGNITUDE, NOT JUST THE TYPE (Codex review round 1 on PR 559, finding 2). At 5c5d5672 an
+    # old_tree_size of 10**5000 with an otherwise well-formed path reached the failure message below, and
+    # rendering it raised ValueError (Python's integer-string digit limit) out of a surface that answers every
+    # proof with a verdict; 2**8193 gave a message of 2613 characters. Both sizes are bounded here, before
+    # either proof form and before any message renders them, by the ceiling `merkle` and `bundle` share.
+    from .budget import int_magnitude_ok  # noqa: PLC0415
+    if not int_magnitude_ok(alt_groesse):
+        return False, ["consistency proof: old_tree_size exceeds the integer budget (fail-closed)"]
+    if not int_magnitude_ok(tree_size):
+        return False, ["consistency proof: the checkpoint's tree size exceeds the integer budget (fail-closed)"]
     alt_wurzel, neu_wurzel = _wurzel_aus_b64(beweis.old_root_b64), _wurzel_aus_b64(root, aus_der_note=True)
     if alt_wurzel is None:
         return False, ["consistency proof: old_root_b64 is not 32 bytes in canonical standard base64"]
@@ -193,9 +203,17 @@ def _konsistenz_bewiesen(beweis: Any, origin: Any, tree_size: Any, root: Any) ->
         hashes = []
         for p in pfad:
             try:
-                hashes.append(decode_b64(p))
+                roh = decode_b64(p)
             except (binascii.Error, ValueError, TypeError):
                 return False, ["consistency proof: a hash of proof_b64 is not canonical standard base64"]
+            # EVERY PATH ELEMENT IS A SHA-256 NODE (Codex review round 1 on PR 559, finding 1). Canonical base64
+            # says nothing about the length, and `merkle.verify_consistency` checks none: at 5c5d5672 a held
+            # size-1 root h, a signed size-2 checkpoint with root SHA-256(0x01 || h) and the path [""] gave
+            # CONSISTENCY and PUBLIC_TRANSPARENCY PASS. The inclusion-proof reader in `tlogproof` holds the same
+            # boundary.
+            if len(roh) != 32:
+                return False, ["consistency proof: a hash of proof_b64 is not 32 bytes (an RFC 6962 SHA-256 node)"]
+            hashes.append(roh)
         from . import merkle  # noqa: PLC0415
         if merkle.verify_consistency(alt_groesse, tree_size, hashes, alt_wurzel, neu_wurzel) is True:
             return True, []
@@ -266,8 +284,14 @@ def validate_public_transparency_policy(policy: Any) -> list[str]:
             errors.append("witnessQuorum must be an object with a 'threshold'")
         else:
             th = wq.get("threshold")
+            # A neighbour of Codex finding 2 on PR 559, same class: at 5c5d5672 a threshold of 10**5000 passed
+            # here, and the evaluation raised ValueError when its "quorum not met" message rendered it. A
+            # threshold past the shared integer ceiling is an invalid policy.
+            from .budget import int_magnitude_ok  # noqa: PLC0415
             if not (isinstance(th, int) and not isinstance(th, bool) and th >= 1):
                 errors.append("witnessQuorum.threshold must be an integer >= 1")
+            elif not int_magnitude_ok(th):
+                errors.append("witnessQuorum.threshold exceeds the integer budget")
             for k in wq:
                 if k not in ("threshold",):
                     errors.append(f"witnessQuorum.{k} is not an allowed field")
