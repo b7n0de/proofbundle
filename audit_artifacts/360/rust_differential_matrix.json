@@ -1045,32 +1045,32 @@
       "rust_reproduces_expectation": true
     }
   ],
-  "version": "6.6.0",
+  "version": "6.6.1",
   "candidate": {
-    "commit": "53d1eafe8eaf7c558ed394e01d1b29d132c2fd47",
-    "tree_digest": "1e8d4a61d67117287a6be2eb1e52e8eafca580cb0a28bed6b787b45c14384bfd",
-    "sdist_sha256": "d742b2a07ba8cd109de44879bb64134a4921c3f7d90ea9c5d1fa1fe8603757e0",
-    "wheel_sha256": "c679b72e438089384dda1d4412dacc3ce3bd4a55e4d8a3c693cd4a9979dfd2ee"
+    "commit": "7c2cd06b046d40da9fcf2629e54eab04467f93be",
+    "tree_digest": "6a0487f60320e469ba1aa6b7916e1a9bdefd3dfa671597a5cdbb744ce6f5e639",
+    "sdist_sha256": "6ef0dd85327072e883ce347df4237f05a81e8932ef59e9295f54e97343957945",
+    "wheel_sha256": "ae558f864ecdc24bc133e25076ea43f5a103afc1b1db244a99d2d8a2754e6ded"
   },
   "trust_anchor_digest": "f664369e599e0797784578611a885c90fee6f209cd5526bcfcfa1b1f9f100fd3",
   "gate_zeile": {
     "gate_version": "v4",
-    "workflow_datei": "kraxo/02_proofbundle_berichte/deep_gate_660_endregel_k0_41959070/LAUFBESCHREIBUNG_660_K0_41959070.md",
-    "workflow_sha256": "82dc8a750c86fffbf1c9a7ccf3cb96c4c620ccbd389a213ace850a47134442d7",
-    "modus": "DEEP one round (owner end rule DEEP-GATE-660-ENDREGEL-20261113, only a confirmed P0/P1 stops): lenses ran L1, L2, L3, L4, L5, L6, not ran none; targets read fully none, partly Z1, Z2, Z3, Z4, Z5, Z6, Z7, Z8, Z9, Z10, Z11; first lensed head 41959070, fix re-read on 0c67aa6b; tree of C' not measured yet (after landing); carried from lensed head K0 41959070 to C 53d1eafe (merge of PR 528) under the owner's answer A on OA-9ee7dcf4bf and D on OA-4e54c9225b and the owner's choice of 2026-11-16 for the tag: src changes K0..C only src/proofbundle/cli.py, src/proofbundle/emit.py (PR 523, fixes of the deep-gate findings), src unchanged from the fix re-read on 0c67aa6b to C and from the former C e2998298 to C; the verdict is not a pass",
-    "head": "53d1eafe8eaf7c558ed394e01d1b29d132c2fd47",
-    "verdict": "OPEN_COVERAGE_GAP"
+    "workflow_datei": "kraxo/02_proofbundle_berichte/deep_gate_661/laufbeschreibung_eingefroren/LAUFBESCHREIBUNG_661_K0_bcdb8146.md",
+    "workflow_sha256": "6bbd9a7ef8ac48b00bfd1de40143b1de24a8bb155a244384c8e57899e65cfd75",
+    "modus": "DEEP, owner's word on the measured coverage, not FULL (owner end rule of the run description, only a confirmed P0/P1 stops): round at K0 bcdb8146 over Z1 to Z8 by lenses L1, L2, L3, L4, L5 (Claude, on the account that built the PR) and L6 as the owner's hand reading of an excerpt by a second family; not ran L6 as specified (Codex in the cage needed the owner's hardware key); targets read fully none, partly Z1 to Z8 (L1 to L5 by their own account in ranges; L6 partly Z1, Z2, Z3, Z5, Z8); one P1 (L2-C2) fixed in K1 034c7fba and re-read once by one new lens (search for neighbours targeted, not exhaustive), no new P0 or P1; transfer K1 to f170c168 with two re-reads of Z8, seven P3, ended by the owner's choice of 2026-11-22 instead of a transfer from scratch as the run description requires; lens round on the src difference bcdb8146..02c2d4c2 over Z1, Z6 to Z11 by four lenses U1 to U4 instead of six (Claude, same account, no second family), three P3; landing head f6958ab8 removes only release_notes/RELEASE_NOTES_v6.6.0.md, src unchanged; two families instead of three; carried to C 7c2cd06b (merge of PR 553), tree of C 77f6b888 equal to the tree of the landing head; owner's answer A on OA-a262fc4b16 and A on OA-49182d8a8c",
+    "head": "7c2cd06b046d40da9fcf2629e54eab04467f93be",
+    "verdict": "WITHSTANDS_DEEPGATE"
   },
   "producer": {
     "tool": "tools/pb_verify_rs/crosscheck.py",
-    "tool_version": "6.6.0"
+    "tool_version": "6.6.1"
   },
-  "input_digest": "11bb2a4c207ad5743844d10253fd5638d8dd4debcdbe97fdc641c2c628ff671a",
+  "input_digest": "45fa28086a7813481f454aa84ebd23fe88ad347a2120f29e1a7153d1168317e1",
   "signer_role": "readiness_und_register_signierer_600",
-  "produced_at": "2026-11-14T15:52:57Z",
+  "produced_at": "2026-11-24T07:40:15Z",
   "signature": {
     "alg": "ed25519",
     "public_key_b64": "iJipntJA8N//h+ln9CgLzeC9n/M5OdCZNeBhbfagom8=",
-    "sig_b64": "LUgL3AI4rP+N+5wpYmQW3j/KNy1K8t6CEjwVjGjS0j87dINIn+4NnS4jmTL5uI0FZ6j3twQI+HNETy7IZL0HDA=="
+    "sig_b64": "iPHSPdx1DhHdqJZK0qrx1vadIL2ownzGbWJgc5Pk6ezMSs7+riSg/5xVkr29AwHZWRGK0uH6uBIkt+f3cvDfBg=="
   }
 }

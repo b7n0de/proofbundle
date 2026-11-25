@@ -138,12 +138,38 @@ def _collect_committed_digests(node, out: Set[str]) -> None:
             _collect_committed_digests(item, out)
 
 
+def _placed_below(node, by_digest: dict) -> bool:
+    """Whether the digest of a presented Disclosure stands, in the form of a place, anywhere below ``node``: in the
+    ``_sd`` list of an object, or as ``{"...": digest}`` in a list. :func:`_placement_problem` asks this of what
+    stands under a ``...`` key of an object. Nothing there is a place: a digest in that form belongs to a Disclosure
+    placed elsewhere, or to one that stands nowhere and may occur below such keys more than once. It reads below
+    every key but ``_sd``, and of an ``_sd`` only the text entries of a list, as :func:`_placement_problem` reads
+    at every other key; RESTRISIKO_661.md holds the comparison with the release before, with its measurements.
+    For the values ``verify_sd_jwt`` hands over, parsed JSON, it does not raise."""
+    stack = [node]
+    while stack:
+        cur = stack.pop()
+        if isinstance(cur, dict):
+            sd = cur.get("_sd")
+            if isinstance(sd, list) and any(isinstance(dg, str) and dg in by_digest for dg in sd):
+                return True
+            stack.extend(value for key, value in cur.items() if key != "_sd")
+        elif isinstance(cur, list):
+            for item in cur:
+                if (isinstance(item, dict) and len(item) == 1 and isinstance(item.get("..."), str)
+                        and item["..."] in by_digest):
+                    return True
+                stack.append(item)
+    return False
+
+
 def _placement_problem(payload: dict, by_digest: dict) -> Optional[str]:
     """Why the presented disclosures do not resolve to ONE reading of the claims, or None (RFC 9901 section 7.1,
     CODEX-KLASSENSUCHE-631-01 A1). Each disclosure is placed where its digest stands: a ``[salt, name, value]``
     disclosure in the object whose ``_sd`` names it, a ``[salt, value]`` disclosure at the array position of its
     ``{"...": digest}``. In one object a claim name stands once, whether open or disclosed, and is neither ``_sd``
-    nor ``...``; a disclosure stands at one place only. Measured at f6ea5cc3: two disclosures
+    nor ``...``; a disclosure stands at one place only, and every presented disclosure stands at one (6.6.1).
+    Measured at f6ea5cc3: two disclosures
     ``[salt0, "passed", false]`` and ``[salt1, "passed", true]`` under one signed ``_sd`` passed in both orders,
     so a last-wins merge read another value after the order was swapped while both presentations verified."""
     placed: Set[str] = set()
@@ -170,7 +196,15 @@ def _placement_problem(payload: dict, by_digest: dict) -> Optional[str]:
                             "an open claim, so the claims have no single reading (RFC 9901 section 7.1, rejected)")
                 names.add(name)
                 stack.append(parsed[2])
-            stack.extend(value for key, value in node.items() if key != "_sd")
+            # `...` is reserved (6.6.1): in a list, `{"...": digest}` is the place of an array element and the
+            # list branch below reads it; as a key of an object it names no claim, and what stands under it is no
+            # place: descending into it would call a Disclosure placed that no reader finds. The walk does not
+            # descend there. `_placed_below` reads below the key, and where it finds the digest of a presented
+            # Disclosure in the form of a place, the presentation is refused, wherever else that Disclosure stands.
+            if "..." in node and _placed_below(node["..."], by_digest):
+                return ("a disclosure is committed below a `...` key of an object, which is no place (RFC 9901 "
+                        "section 7.1, rejected)")
+            stack.extend(value for key, value in node.items() if key not in ("_sd", "..."))
         elif isinstance(node, list):
             for item in node:
                 if (isinstance(item, dict) and len(item) == 1 and isinstance(item.get("..."), str)
@@ -186,6 +220,13 @@ def _placement_problem(payload: dict, by_digest: dict) -> Optional[str]:
                     stack.append(parsed[1])
                 else:
                     stack.append(item)
+    if len(placed) != len(by_digest):
+        # Committed by digest and placed nowhere (6.6.1): `_collect_committed_digests` follows an object under `_sd`
+        # into that object's own `_sd` and reads a `...` key in any object, and this walk places a Disclosure only
+        # in the `_sd` LIST of an object or at an array element that is exactly `{"...": digest}`. A Disclosure
+        # that is counted there and placed nowhere stands at no place a reader could name, so it is refused.
+        return ("a disclosure is committed by digest and stands at no place: not in the _sd list of an object and "
+                "not at an array element (RFC 9901 section 7.1, rejected)")
     return None
 
 

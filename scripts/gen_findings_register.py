@@ -425,7 +425,7 @@ def _status_aus_abschnitt(text: str, byte_von: int) -> str | None:
 #: genau daran fiel C12.2 am 2026-09-06: ein gueltig signiertes Register auf `3.6.1` entschied ueber
 #: 6.0.0. Wer diese Zahl aendert, aendert auch FINDINGS; ein Register mit neuer Version und alten
 #: Funden waere dieselbe Luege eine Ebene tiefer.
-VERSION = "6.6.0"
+VERSION = "6.6.1"
 
 #: The version the SELECTED v2 line speaks about. The default is the one of the v1 register; line
 #: 610 sets it to its own cut. The v1 path (emit/assemble) stays bound to `VERSION`.
@@ -991,7 +991,7 @@ FINDINGS = [
     # One closing and one addition for release 6.6.0.
     # The window of 6.5.0 above has closed; the same window opens again with the tag v6.6.0.
     # The addition corresponds to the Register entry reference in RESTRISIKO_660.md.
-    {"id": "PIN-CASE-RED-FROM-TAG-UNTIL-PIN-COMMIT-02", "severity": "P3", "status": "open",
+    {"id": "PIN-CASE-RED-FROM-TAG-UNTIL-PIN-COMMIT-02", "severity": "P3", "status": "closed",
      "note": "Recorded in RESTRISIKO_660.md, section 'main may fail the plugin pin case from the "
              "tag until the pin commit'. By the owner choice of 2026-11-12, plugin 0.4.1 follows "
              "the main tag, so the plugins keep pinning 6.5.0 until 6.6.0 is on PyPI. "
@@ -1002,7 +1002,141 @@ FINDINGS = [
              "plugin's pins to 6.6.0 lands. That commit is a pull request of its own, outside "
              "6.6.0. Expected from the rule the test states, not measured. Severity P3 is a "
              "triage of a known window in which a repository test is red, not of a defect in "
-             "the shipped package. Open by design"},
+             "the shipped package. Closed: the window ended when pull request 533, which moves "
+             "the plugins' pins to 6.6.0, was merged into main on 2026-11-17 at 02:41:54Z"},
+    # One closing and nine additions for release 6.6.1.
+    # The window of 6.6.0 above has closed; the same window opens again with the tag v6.6.1.
+    # Each addition corresponds to a Register entry reference in RESTRISIKO_661.md. Six of them came with the
+    # fixes and readings of 2026-11-23: three closed for this tree, three open with 6.7.0 as their release.
+    {"id": "PIN-CASE-RED-FROM-TAG-UNTIL-PIN-COMMIT-03", "severity": "P3", "status": "open",
+     "note": "Recorded in RESTRISIKO_661.md, section 'main may fail the plugin pin case from the "
+             "tag until the pin commit'. The plugins pin 6.6.0 in the tree of 6.6.1, landed with "
+             "pull request 533. tests/test_plugin_pin_is_the_newest_release.py accepts pins to "
+             "the preceding release only while the clone holds no tag of the version of the "
+             "tree. Once the tag v6.6.1 stands, the case is expected to read 6.6.1 as the newest "
+             "release and to fail on main, in every checkout that holds the tag, until the "
+             "commit that moves the plugins' pins to 6.6.1 lands. That commit is a pull request "
+             "of its own, outside 6.6.1, after 6.6.1 is on PyPI. Expected from the rule the test "
+             "states, not measured. Severity P3 is a triage of a known window in which a "
+             "repository test is red, not of a defect in the shipped package. Open by design"},
+    {"id": "RUST-SDJWT-ISSUER-ES256-REFUSED-01", "severity": "P3", "status": "open",
+     "note": "Recorded in RESTRISIKO_661.md, section 'Findings of a reading of the signature "
+             "verification paths at bb018ea6'. Python accepts EdDSA and ES256 as the algorithm of "
+             "an SD-JWT issuer (src/proofbundle/sdjwt.py line 69); pb_verify_rs verify-bundle "
+             "accepts only EdDSA (tools/pb_verify_rs/src/main.rs line 1063). Measured on "
+             "2026-11-21 at bb018ea6 with one bundle on the built programs, by one reader, and not "
+             "run again on the release candidate: proofbundle verify ended with exit 0, "
+             "pb_verify_rs verify-bundle with FAIL and exit 1. The Rust verifier refuses here what "
+             "Python accepts; in the fourteen cases of the probe it accepted nothing Python "
+             "refused. Severity P3 is a triage of a difference in which the second implementation "
+             "is the stricter one. Planned for 6.7.0"},
+    {"id": "RUST-TRUST-PACK-PQ-ROOT-NOT-COUNTED-01", "severity": "P3", "status": "open",
+     "note": "Recorded in RESTRISIKO_661.md, section 'The Rust verifier counts only Ed25519 root "
+             "keys of a Trust Pack'. pb_verify_rs verify-trust-pack-threshold skips a root key "
+             "whose alg is mldsa65 or hybrid-ed25519-mldsa65 and names it in its output "
+             "(tools/pb_verify_rs/src/main.rs lines 1659 to 1663); the Python verifier counts it. "
+             "Measured on 2026-11-21 at bb018ea6 on the built programs, by one reader, and not run "
+             "again on the release candidate: for a pack with one such root key at threshold 1, "
+             "Python met the threshold and the Rust verifier ended with FAIL "
+             "root_threshold_met=false signers=0 threshold=1 skipped_non_ed25519=1 and exit 1. The "
+             "Rust verifier refuses here what Python accepts. CROSS_IMPLEMENTATION_REPORT.md lines "
+             "142 to 148 declare these root keys as not reproduced by the second implementation. "
+             "Severity P3 is a triage of a declared gap of the second implementation. No release "
+             "is set for ML-DSA in the Rust verifier"},
+    {"id": "SDJWT-CNF-NOT-READABLE-READ-AS-NO-BINDING-01", "severity": "P1", "status": "closed",
+     "note": "Recorded in RESTRISIKO_661.md, section 'Releases through 6.6.0 read a `cnf` "
+             "they cannot read as no binding'. 6.6.0 treats a cnf that is not an "
+             "OKP/Ed25519 cnf.jwk of 32 bytes as absent. Measured on 2026-11-22 at 6.6.0 "
+             "from the package index, for a cnf.jwk on EC P-256, RSA 2048 and Ed448, an "
+             "Ed25519 x of 31 bytes and a cnf with only a kid: a bundle with such an "
+             "SD-JWT, a valid issuer signature and no Key Binding JWT gave verify_bundle "
+             "ok, and verify_key_binding accepted a Key Binding JWT signed by a third "
+             "party when the caller supplied that party's key as holder_pubkey. A second "
+             "session reproduced the finding with scripts of its own. Closed for the tree "
+             "of 6.6.1: in a bundle and wherever a caller asks for key binding "
+             "(verify_key_binding, and verify_sdjwt_vc with key binding required), a cnf "
+             "member in the issuer-signed payload requires the Key Binding JWT, and one "
+             "the verifier cannot read fails the sd-jwt-key-binding check with or without "
+             "one; verify_sdjwt_vc with requireKeyBinding set to false checks no binding, "
+             "by the owner's choice of 2026-11-23. Two limits stay as this fix holds them, "
+             "and the owner took note of them on 2026-11-23: a cnf Disclosure that the "
+             "holder withholds is visible to no verifier, and wherever key binding is "
+             "checked and the issuer-signed payload holds no readable cnf.jwk, a presented "
+             "Disclosure that gives the payload a top-level cnf claim fails the binding "
+             "and is not read; "
+             "tests/test_a_cnf_the_verifier_cannot_read_still_binds_the_holder.py carries "
+             "the cases. A release is not changed after it is published, so 6.6.0 keeps "
+             "the old behaviour; releases before 6.6.0 were not measured. Severity P1 "
+             "assigned by the producer from the sheet's stated reach, a credential that "
+             "could be presented without the holder key, not measured by a tool"},
+    {"id": "SDJWT-ISSUER-PIN-ACTED-ONLY-BESIDE-A-VALUE-RULE-01", "severity": "P1", "status": "closed",
+     "note": "Recorded in RESTRISIKO_661.md, section 'Releases through 6.6.0 read a `cnf` "
+             "they cannot read as no binding'. Measured on 2026-11-23 on the prepared tree "
+             "and at 6.6.0 from the package index, for a bundle whose SD-JWT is validly "
+             "signed under a key the presenter chooses: a policy that pinned another "
+             "issuer key through sd_jwt.issuer_key_pin passed, alone and beside "
+             "sd_jwt.require_key_binding_when_cnf_present, and failed beside "
+             "sd_jwt.expected_vct and beside sd_jwt.require_nonce. In 6.6.0 the pin acts "
+             "only beside a rule that reads a value of the SD-JWT; earlier releases were "
+             "not measured for it. Closed for the tree of 6.6.1: the pin is a rule of its "
+             "own, policy:sd_jwt_issuer_pinned, and where the bundle carries an SD-JWT and "
+             "the policy sets sd_jwt.issuer_key_pin, a verifying key other than the pin "
+             "fails the policy, while without a pin the rule adds nothing; "
+             "tests/test_an_issuer_pin_refuses_an_sd_jwt_under_another_key.py carries the "
+             "cases. A release is not changed after it is published. Severity P1 assigned "
+             "by the producer from the sheet's stated reach, a policy that passed for a "
+             "key it did not pin, not measured by a tool"},
+    {"id": "SDJWT-DISCLOSURE-AT-NO-PLACE-ACCEPTED-01", "severity": "P1", "status": "closed",
+     "note": "Recorded in RESTRISIKO_661.md, section 'Releases through 6.6.0 read a `cnf` "
+             "they cannot read as no binding'. verify_sd_jwt accepted a Disclosure that is "
+             "committed by digest and stands at no place, for an object under _sd with an "
+             "_sd of its own and for a ... key in an object, and a bundle that presented a "
+             "cnf Disclosure that way verified with no Key Binding JWT. Measured on "
+             "2026-11-23 on the prepared tree and at 6.6.0 from the package index; "
+             "pb_verify_rs was not measured for it. Only an issuer can write such a "
+             "payload. Closed for the tree of 6.6.1: verify_sd_jwt refuses a presentation "
+             "in which a presented Disclosure is committed by digest and stands at no "
+             "place, and the walk that places Disclosures no longer descends under a ... "
+             "key of an object, a form a second reading found; where the check reads such "
+             "a key, a digest of a presented Disclosure that it finds below it in the form "
+             "of a place refuses the presentation, and the walk of 6.6.0 treated such an "
+             "occurrence as a place like any other, so a second one was a ground for a "
+             "refusal there; "
+             "tests/test_a_presented_disclosure_has_a_place.py carries the cases. A "
+             "release is not changed after it is published. Severity P1 assigned by the "
+             "producer from the sheet's stated reach, a presentation the verifier accepted "
+             "with a Disclosure at no place, not measured by a tool"},
+    {"id": "KBJWT-DISCLOSURE-HASHED-BEFORE-LENGTH-BOUND-01", "severity": "P2", "status": "open",
+     "note": "Recorded in RESTRISIKO_661.md, section 'Releases through 6.6.0 read a `cnf` "
+             "they cannot read as no binding'. The search for a presented cnf Disclosure "
+             "can hash a presented segment before any bound on its length "
+             "(src/proofbundle/kbjwt.py line 224, in the loop of lines 222 to 232; lines "
+             "204 to 221 and line 180 say when the loop is reached). Read by two readers on "
+             "2026-11-23, not timed; the work is linear in a presentation the verifier "
+             "already holds, and the second reader named it work and memory for an "
+             "overlong input and no binding error. Severity P2 by both readers. Not "
+             "changed in 6.6.1; planned for 6.7.0"},
+    {"id": "KB-CHECK-DETAIL-NAMES-A-BOUND-KEY-WHERE-NONE-IS-READ-01", "severity": "P2", "status": "open",
+     "note": "Recorded in RESTRISIKO_661.md, section 'Releases through 6.6.0 read a `cnf` "
+             "they cannot read as no binding'. The detail of the failed sd-jwt-key-binding "
+             "check says that the issuer bound a holder key also where the cnf member is "
+             "null or holds no key (src/proofbundle/bundle.py line 719); that sentence, "
+             "and the one for a missing issuer key, name a cnf also where a binding is "
+             "only not ruled out (more than 256 Disclosures, an _sd_alg under which no "
+             "digest can be computed). The finding concerns the text of the detail, not "
+             "the verdict of the check. Read on 2026-11-23, P2 by the first reader and P3 "
+             "by the second; this entry carries the higher. Not changed in 6.6.1; planned "
+             "for 6.7.0"},
+    {"id": "KB-POLICY-TEST-DOCSTRING-SAYS-NO-CNF-IS-READ-01", "severity": "P3", "status": "open",
+     "note": "Recorded in RESTRISIKO_661.md, section 'Releases through 6.6.0 read a `cnf` "
+             "they cannot read as no binding'. A docstring of "
+             "tests/test_a_cnf_the_verifier_cannot_read_still_binds_the_holder.py (lines "
+             "177 to 178) says that the rule policy:key_binding_present reads no cnf where "
+             "the crypto result carries no key-binding line. Since the step of 2026-11-23 "
+             "the rule reads the payload there, so the sentence is stale; the case it "
+             "stands over holds what verify_bundle does. Read on 2026-11-23, P3 by the "
+             "reader. Not changed in 6.6.1, because the mutation run measures the tree "
+             "with the files under tests/ as they are; planned for 6.7.0"},
 ]
 
 

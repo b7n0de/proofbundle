@@ -31,7 +31,7 @@ from .canonical import (KEIN_ZEITPUNKT, _ein_stand, _plain_for_jcs, _pruefkopie,
                         _zeitpunkt_von)
 from .errors import BundleFormatError, ProofBundleError
 from .evalclaim import ASSURANCE_LEVELS, check_freshness, decode_eval_claim
-from .kbjwt import verify_key_binding
+from .kbjwt import split_key_binding, verify_key_binding
 from .signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness
 from ._wire_b64 import decode_b64
 from .merkle import _inclusion_context_digest
@@ -1589,6 +1589,19 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
     kb = None
     if isinstance(sd, dict) and isinstance(sd.get("compact"), str):
         kb = verify_key_binding(sd["compact"])   # read aud/nonce/iat/present (value binding done in verify_bundle)
+    # 5.0 The issuer pin is a rule of its own (6.6.1). In 6.6.0 the pin was read only by the rules that trust a
+    # value of the SD-JWT (expected_vct, require_nonce, expected_aud and a key binding verdict), so a policy that
+    # pinned an issuer and set none of them, or only require_key_binding_when_cnf_present, passed for an SD-JWT
+    # without cnf that anyone had signed with a key of their own and named in sd_jwt_vc.issuer_public_key_b64
+    # (measured on 2026-11-23: policy_ok True for the pin alone and beside the key binding rule). A relying party
+    # that pins an issuer key means that key: where the bundle carries an SD-JWT, the key that verified it must
+    # be the pin. The decision is the shared one (`_sd_jwt_issuer_trusted`), which a set pin decides alone. A
+    # bundle without an SD-JWT gives the pin nothing to judge.
+    if sdj.get("issuer_key_pin") is not None and isinstance(sd, dict):
+        pinned, pin_detail = _sd_jwt_issuer_trusted(sd, result, sdj, bundle_signer_pub=_signer_pub)
+        add("policy:sd_jwt_issuer_pinned", pinned,
+            "the SD-JWT issuer key is the pinned issuer key" if pinned
+            else f"policy pins an SD-JWT issuer key, but {pin_detail} (fail-closed)")
     if sdj.get("require_key_binding_when_cnf_present"):
         # verify_bundle already fails closed on a cnf-bound SD-JWT without a KB-JWT; reflect it here so
         # the policy states the requirement explicitly. The crypto result's sd-jwt-key-binding check is
@@ -1616,8 +1629,25 @@ def evaluate_policy(bundle: dict, result, policy: dict, *, now=None) -> dict:
                 "a KB-JWT segment is attached but its issuer signature was never verified — cannot "
                 "confirm key binding (fail-closed; supply sd_jwt_vc.issuer_public_key_b64)")
         else:
-            # genuinely no cnf holder key bound and no KB attached → nothing to require, vacuous pass.
-            add("policy:key_binding_present", True, "no cnf holder key bound; KB not required")
+            # No key-binding line in the crypto result and no KB attached. "No cnf holder key bound" is said only
+            # of a payload that was read and binds none: the question the bundle asks (_holder_binding_asked),
+            # asked here again. verify_bundle fails a bundle whose SD-JWT binds a holder key and carries no KB-JWT
+            # before a policy judges it; until 6.6.1 this branch rested on that alone and read no `cnf`.
+            from .bundle import _holder_binding_asked  # noqa: PLC0415
+            if sd is None:
+                asked: Union[str, None] = "no-sd-jwt"
+            elif isinstance(sd, dict) and isinstance(sd.get("compact"), str):
+                asked = _holder_binding_asked(split_key_binding(sd["compact"])[0])
+            else:
+                asked = "unreadable"
+            if asked == "no-sd-jwt":
+                add("policy:key_binding_present", True, "the bundle carries no SD-JWT; KB not required")
+            elif asked is None:
+                add("policy:key_binding_present", True, "no cnf holder key bound; KB not required")
+            else:
+                add("policy:key_binding_present", False,
+                    "the SD-JWT binds a holder key (cnf), or one cannot be ruled out, and the crypto result "
+                    "carries no verified key binding (fail-closed)")
     if sdj.get("require_nonce"):
         # A nonce only means anything when it comes from a VERIFIED key binding (verify-lens L1/L2,
         # HIGH): reading kb["nonce"] straight from an unauthenticated/unsigned KB-JWT was a false PASS.
@@ -1822,6 +1852,10 @@ def explain_policy(policy: dict) -> list:
         lines.append(f"SD-JWT: audience == {render_safe(sdj['expected_aud'])}")
     if sdj.get("require_nonce"):
         lines.append("SD-JWT: nonce required from a VERIFIED key binding")
+    if sdj.get("issuer_key_pin") is not None:
+        # Enforced on its own since 6.6.1, so it is listed on its own (explain and enforce agree).
+        lines.append("SD-JWT: issuer key pinned, an SD-JWT verified under another key fails "
+                     "(policy:sd_jwt_issuer_pinned)")
     if sdj.get("max_iat_age_seconds") is not None:
         # Bounded (`_nennen`): a huge int passes the loader and raised a raw ValueError here (int->str cap).
         lines.append(f"eval claim freshness <= {_nennen(sdj['max_iat_age_seconds'])}s")
