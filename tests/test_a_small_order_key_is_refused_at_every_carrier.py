@@ -2216,6 +2216,10 @@ _LENGTH_32 = {
     ("receipt_cose.py", "_statement_keys"): (1, "the relying party's statement key; followed by the rule"),
     ("receipt_cose.py", "cose_key_thumbprint"): (1, "hashes a public key it is given; trusts and writes "
                                                     "nothing, the rule stands where a key is trusted"),
+    ("public_transparency.py", "_wurzel_aus_b64"): (1, "a Merkle root of a checkpoint or of the held older state, "
+                                                       "no key (issue 557)"),
+    ("public_transparency.py", "_konsistenz_bewiesen"): (1, "a hash of an RFC 6962 consistency path, no key (Codex "
+                                                            "review round 1 on PR 559)"),
     ("relation.py", "_keys_equal"): (1, "compares two keys; writes nothing"),
     ("scitt_ccf.py", "<module>"): (3, "the CDDL rule table of the receipt pass: the leaf's transaction "
                                       "hash, its data-hash and the consistency anchor, tree hashes, no key"),
