@@ -23067,11 +23067,11 @@ VSA_PREDICATE_TYPE = "https://slsa.dev/verification_summary/v1"
 #: The verifier of the Verification Summary, a URI that names the plugin's done check; a consumer accepts only the
 #: (signer, verifier) pairs it trusts (SLSA VSA v1.2, verifier).
 VSA_VERIFIER_ID = "https://github.com/b7n0de/proofbundle/tree/main/plugins/proofbundle#done-check"
-PINNED_PROOFBUNDLE = "6.6.0"
+PINNED_PROOFBUNDLE = "6.6.1"
 _RESOURCE_URI = re.compile(r"[a-z][a-z0-9+.-]*:[!-~]+")
 _SIGN_TOOL = """# /// script
 # requires-python = ">=3.10"
-# dependencies = ["proofbundle==6.6.0"]
+# dependencies = ["proofbundle==6.6.1"]
 # ///
 import hashlib, json, sys
 from proofbundle.dsse import sign_envelope
@@ -23203,7 +23203,7 @@ def done_statement_command(argv: list[str]) -> int:
 
 _KEY_TOOL = """# /// script
 # requires-python = ">=3.10"
-# dependencies = ["proofbundle==6.6.0"]
+# dependencies = ["proofbundle==6.6.1"]
 # ///
 import base64, os, sys
 from proofbundle.emit import generate_signer, load_signer, save_signer
