@@ -760,6 +760,7 @@ def _baum_zwei_ebenen(wurzel: Path, ohne: str | None = None, ersetze: dict | Non
                "docs/release_scope/9.9.9.md": "scope\n", "RELEASE.md": _RELEASE_MD, **(ersetze or {})}
     for rel, inhalt in dateien.items():
         if rel != ohne:
+            (wurzel / rel).parent.mkdir(parents=True, exist_ok=True)
             (wurzel / rel).write_text(inhalt, encoding="utf-8")
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
@@ -1035,3 +1036,51 @@ class DieNeuenFelderFallenNirgendsStillWeg(unittest.TestCase):
         d = _zwei_ebenen()
         d["frueherer_risikobericht"] = "RESTRISIKO_997.md"
         self.assertEqual(pruefe(d), [])
+
+
+class DieRisikoberichteLiegenUnterDocsResidualRisk(unittest.TestCase):
+    """The residual-risk records moved from the root to docs/residual_risk/. A source of a release cut
+    after the move names its records there; a source of an earlier release keeps the bare name, because
+    every link is bound to the release commit, where the record stood at the root."""
+
+    def test_RED_the_folder_form_of_the_earlier_record_passes_and_another_folder_is_refused(self):
+        d = _zwei_ebenen()
+        d["frueherer_risikobericht"] = "docs/residual_risk/RESTRISIKO_997.md"
+        self.assertEqual(pruefe(d), [])
+        for wert in ("docs/other/RESTRISIKO_997.md", "docs/residual_risk/../RESTRISIKO_997.md",
+                     "docs/residual_risk/RESTRISIKO_998.md", "/docs/residual_risk/RESTRISIKO_997.md"):
+            with self.subTest(wert=wert):
+                d["frueherer_risikobericht"] = wert
+                self.assertTrue(any("frueherer_risikobericht" in b for b in pruefe(d)), pruefe(d))
+
+    def test_RED_a_source_without_its_record_name_links_the_record_in_the_folder(self):
+        d = _zwei_ebenen()
+        del d["restrisiko"]
+        self.assertIn("/blob/" + "0" * 40 + "/docs/residual_risk/RESTRISIKO_999.md)", rendere(d))
+        self.assertNotIn("/blob/" + "0" * 40 + "/RESTRISIKO_999.md)", rendere(d))
+
+    def test_RED_the_grouped_form_keeps_the_record_at_the_root(self):
+        """The grouped form carries 6.1.0 and 6.2.0, both cut before the move, and its link is bound to the
+        release commit, where the record stood at the root. `pruefe` reads no linked file of a grouped source,
+        so a folder path here would publish a dead link with nothing refusing it."""
+        d = DerRendererWirdAuchOHNEDieGoldeneVorlageGEMESSEN._synthetisch(None)
+        basis = "https://github.com/b7n0de/proofbundle/blob/" + d["release_commit"]
+        text = rendere(d)
+        self.assertIn(f"[Known limitations]({basis}/RESTRISIKO_999.md)", text)
+        self.assertNotIn("docs/residual_risk", text)
+
+    def test_RED_the_records_in_the_folder_must_stand_in_the_described_commit(self):
+        import tempfile
+        d = _zwei_ebenen()
+        d["restrisiko"] = "docs/residual_risk/RESTRISIKO_998.md"
+        d["frueherer_risikobericht"] = "docs/residual_risk/RESTRISIKO_997.md"
+        dateien = {"docs/residual_risk/RESTRISIKO_998.md": "known limitations\n",
+                   "docs/residual_risk/RESTRISIKO_997.md": "earlier\n"}
+        with tempfile.TemporaryDirectory() as w:
+            r = _render_im(_baum_zwei_ebenen(Path(w), quelle=d, ersetze=dateien))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        for ohne in dateien:
+            with self.subTest(ohne=ohne), tempfile.TemporaryDirectory() as w:
+                r = _render_im(_baum_zwei_ebenen(Path(w), ohne=ohne, quelle=d, ersetze=dateien))
+                self.assertEqual(r.returncode, 2, r.stdout)
+                self.assertIn(f"the page links {ohne}", r.stderr)

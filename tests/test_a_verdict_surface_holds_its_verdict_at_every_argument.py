@@ -781,6 +781,10 @@ _NICHT_ERREICHT: "frozenset[str]" = frozenset({
     "relation_statement.emit_relation_statement(signer)",
     "renewal.evaluate_renewal_policy(policy)",
     "renewal.verify_sequence(rp_trust)",
+    # New with 6.7.0 (`stamp_policy`, a frozen dataclass of this package): `_blaetter` does not descend into a
+    # dataclass and `_anders` has no change for one, so no change of this argument is tried, the same reason as for
+    # `renewal.evaluate_renewal_policy(policy)` above. Its verdict is held by tests/test_renewal_every_stamp_policy.py.
+    "renewal.verify_sequence(stamp_policy)",
     "run_ledger.emit_run_ledger(signer)",
     "sdjwt_issue.present_with_key_binding(holder_signer)",
     "sdjwt_vc.check_vc_profile(offline_metadata)",
