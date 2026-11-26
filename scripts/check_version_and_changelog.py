@@ -9,7 +9,8 @@ typo both sat unreleased on main because nothing enforced this). Eight checks:
      and that section opens with text before its first subsection (see `check_changelog_opening`).
   3. POST-TAG DRIFT (the M2 catcher): if there are non-trivial commits since the last release tag AND the
      version was NOT bumped past that tag, CHANGELOG.md MUST carry an `## [Unreleased]` section — otherwise
-     work is sitting on main undelivered with no changelog trace. Git-gated: skipped (with a note) when git
+     work is sitting on main undelivered with no changelog trace. A fragment in `changelog.d/` (see
+     scripts/changelog_fragments.py) is such a trace too. Git-gated: skipped (with a note) when git
      history / tags are unavailable (e.g. a shallow checkout without tags), never a false failure.
   4. TRACKED PROSE PLACES: every place that states the *current* version in prose (see _TRACKED_PLACES)
      MUST state the source version. A place whose anchor phrase has vanished is a failure too, not a
@@ -54,6 +55,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import importlib.util
 import json
 import os
 import re
@@ -844,6 +846,22 @@ def _semver_tuple(v: str) -> tuple:
     return haupt + vorab_key + (post_key, dev_key)
 
 
+def _changelog_fragments(repo: Path) -> list[Path]:
+    """The fragments in `changelog.d/` of `repo`, read by the one rule of scripts/changelog_fragments.py.
+
+    A fragment carries the lines a pull request would write under `## [Unreleased]`, so for check 3 it
+    is a changelog trace as the heading is. Only the name decides here; whether the content is valid is
+    the finding of `changelog_fragments.py check`, which collect runs before it writes anything.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "changelog_fragments", Path(__file__).resolve().parent / "changelog_fragments.py")
+    if spec is None or spec.loader is None:
+        return []
+    modul = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modul)
+    return list(modul.fragment_paths(repo))
+
+
 def check(repo: Path, nicht_gemessen: list[tuple[int, str]] | None = None, tag: str | None = None,
           gemessen: list[str] | None = None) -> list[str]:
     """The problems of checks 1 to 4 and 6 to 8. `nicht_gemessen`, when given, receives (check, reason)
@@ -882,11 +900,12 @@ def check(repo: Path, nicht_gemessen: list[tuple[int, str]] | None = None, tag: 
         nontrivial = [s for s in log.splitlines() if s.strip() and not _TRIVIAL_PREFIX.match(s.strip())]
         version_bumped = bool(version) and _semver_tuple(version) > _semver_tuple(last_tag)
         has_unreleased = any(h.strip().lower() == "unreleased" for h in headings)
-        if nontrivial and not version_bumped and not has_unreleased:
+        has_fragment = bool(_changelog_fragments(repo))
+        if nontrivial and not version_bumped and not has_unreleased and not has_fragment:
             problems.append(
                 f"{len(nontrivial)} non-trivial commit(s) since tag {last_tag_raw} but the version was not bumped "
-                f"and CHANGELOG.md has no `## [Unreleased]` section — undelivered work with no changelog trace "
-                f"(e.g. {nontrivial[:3]})")
+                f"and CHANGELOG.md has no `## [Unreleased]` section and changelog.d/ no fragment — undelivered "
+                f"work with no changelog trace (e.g. {nontrivial[:3]})")
 
     # 4. Tracked prose places state the current version
     # 6. Places that state a current version without being declared
