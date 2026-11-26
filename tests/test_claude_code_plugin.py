@@ -28,11 +28,16 @@ Properties checked:
   text (TX39, TX40, TX41, TX43 and TX44 of the review of review package -1); each but the marketplace's
   own begins with Verify (the catalog's Claude Code row with Verifies) and marks receipt signing as
   experimental;
-- the plugin directory is not part of the Python distribution.
+- the plugin directory is not part of the Python distribution;
+- the server starts the CLI with `python -I`, which PYTHONPATH does not reach, so a case that calls the CLI
+  skips with both versions named where that child loads another proofbundle than the tree under test (a
+  witness whose interpreter carries an older release), runs where the child loads the tree, and must run in CI.
 """
 from __future__ import annotations
 
 import base64
+import functools
+import hashlib
 import importlib.util
 import json
 import os
@@ -41,6 +46,7 @@ import re
 import select
 import subprocess
 import sys
+import tempfile
 
 import pytest
 
@@ -67,15 +73,59 @@ def _frontmatter(text: str) -> dict[str, str]:
     return fields
 
 
+TREE_PACKAGE = pathlib.Path(proofbundle.__file__).resolve().parent
+
+
+def _cli_tools() -> set[str]:
+    """The tools whose function calls `_run_cli`, read from the server script, so the set cannot drift from it."""
+    text = SERVER.read_text(encoding="utf-8")
+    functions = dict(re.findall(r'^    "(\w+)": \((tool_\w+), \{', text, re.M))
+    bodies = dict(re.findall(r"^def (tool_\w+)\(.*?\n(.*?)(?=^def |\Z)", text, re.M | re.S))
+    return {name for name, function in functions.items() if "_run_cli(" in bodies.get(function, "")}
+
+
+CLI_TOOLS = _cli_tools()
+
+
+def _package_digest(package: pathlib.Path) -> str:
+    """sha256 over every .py file of a package directory, by relative path and bytes."""
+    digest = hashlib.sha256()
+    for path in sorted(p for p in package.rglob("*.py") if "__pycache__" not in p.parts):
+        digest.update(path.relative_to(package).as_posix().encode() + b"\0" + path.read_bytes() + b"\0")
+    return digest.hexdigest()
+
+
+@functools.lru_cache(maxsize=None)
+def _cli_skip_reason(python: str) -> str | None:
+    """None where `python -I`, as the server's _run_cli starts the CLI, loads the tree under test; otherwise the
+    reason for skipping a case that calls the CLI, naming both versions and where each comes from."""
+    probe = "import json, proofbundle; print(json.dumps([proofbundle.__file__, proofbundle.__version__]))"
+    with tempfile.TemporaryDirectory(prefix="proofbundle-child-") as clean:
+        child = subprocess.run([python, "-I", "-c", probe], cwd=clean, capture_output=True, text=True,
+                               timeout=120, check=False)
+    tree = f"the tree under test, proofbundle {proofbundle.__version__} from {TREE_PACKAGE}"
+    if child.returncode != 0:
+        last = (child.stderr.strip().splitlines() or ["no output"])[-1]
+        return f"the server starts the CLI with `python -I`, which cannot import proofbundle ({last}), not {tree}"
+    path, version = json.loads(child.stdout)
+    package = pathlib.Path(path).resolve().parent
+    if _package_digest(package) == _package_digest(TREE_PACKAGE):
+        return None
+    return (f"the server starts the CLI with `python -I`, which loads proofbundle {version} from {package}, not {tree}; "
+            "this case is measured where the isolated child loads the tree, as in CI")
+
+
 class _Server:
-    def __init__(self, cwd: pathlib.Path, data: pathlib.Path):
+    def __init__(self, cwd: pathlib.Path, data: pathlib.Path, python: str = sys.executable):
         env = plugin_env(CLAUDE_PLUGIN_DATA=str(data))
         # The server runs from a temporary directory, where a relative PYTHONPATH would resolve to
         # nothing and the child could import some other installed proofbundle. Put the package this
-        # test imported first, so the server is measured against the code under test.
-        package_root = str(pathlib.Path(proofbundle.__file__).resolve().parent.parent)
+        # test imported first, so the server is measured against the code under test. The CLI the server
+        # starts runs with `-I` and does not see this path; tool() skips a CLI case where it loads another one.
+        package_root = str(TREE_PACKAGE.parent)
         env["PYTHONPATH"] = os.pathsep.join(p for p in (package_root, env.get("PYTHONPATH")) if p)
-        self.proc = subprocess.Popen([sys.executable, str(SERVER)], stdin=subprocess.PIPE,
+        self.python = python
+        self.proc = subprocess.Popen([python, str(SERVER)], stdin=subprocess.PIPE,
                                      stdout=subprocess.PIPE, text=True, cwd=cwd, env=env)
         self.next_id = 0
 
@@ -91,6 +141,10 @@ class _Server:
         return reply
 
     def tool(self, name: str, **arguments) -> tuple[dict, bool]:
+        if name in CLI_TOOLS:
+            reason = _cli_skip_reason(self.python)
+            if reason:
+                pytest.skip(reason)
         result = self.request("tools/call", {"name": name, "arguments": arguments})["result"]
         return json.loads(result["content"][0]["text"]), result["isError"]
 
@@ -623,6 +677,58 @@ def test_every_description_carries_the_owners_text_word_for_word():
     assert "| emit (experimental) | `/proofbundle:emit" in table
     emit = _frontmatter((PLUGIN / "skills" / "emit" / "SKILL.md").read_text(encoding="utf-8"))
     assert emit["description"].startswith("Experimental.")
+
+
+def test_the_cli_tools_are_the_four_that_start_the_cli():
+    """CLI_TOOLS is read from the server; a parse that found nothing would skip nothing and hide the gap."""
+    assert CLI_TOOLS == {"receipt_template", "emit_receipt", "verify_receipt", "inspect_receipt"}
+
+
+def _interpreter_whose_isolated_child_loads_the_tree(tmp_path: pathlib.Path) -> str:
+    """A throwaway venv whose site directory puts the tree under test first and this interpreter's site
+    directories after it, so `python -I` there imports the tree, as an install of the tree in CI does."""
+    venv = tmp_path / "venv"
+    made = subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(venv)], capture_output=True, text=True,
+                          timeout=120, check=False)
+    if made.returncode != 0:
+        pytest.skip("this interpreter cannot build a venv: " + (made.stderr.strip().splitlines() or ["?"])[-1])
+    python = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    purelib = subprocess.run([str(python), "-I", "-c", "import sysconfig; print(sysconfig.get_paths()['purelib'])"],
+                             capture_output=True, text=True, timeout=60, check=True).stdout.strip()
+    sites = [p for p in sys.path if os.path.isdir(p) and p.rstrip(os.sep).endswith(("site-packages", "dist-packages"))]
+    pathlib.Path(purelib, "aa_tree_under_test.pth").write_text("\n".join([str(TREE_PACKAGE.parent), *sites]) + "\n",
+                                                                 encoding="utf-8")
+    return str(python)
+
+
+def test_the_cli_cases_run_where_the_isolated_child_loads_the_tree(tmp_path):
+    """The skip in tool() is a property of the environment, not of the cases: where `python -I` loads the tree,
+    no CLI case skips, and the case the skip was made for gives exit 2 for an envelope refused before any
+    signature is checked and exit 1 for a receipt changed after signing."""
+    python = _interpreter_whose_isolated_child_loads_the_tree(tmp_path)
+    assert _cli_skip_reason(python) is None
+    srv = _Server(tmp_path, tmp_path / "data", python=python)
+    try:
+        srv.request("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
+                                   "clientInfo": {"name": "test", "version": "0"}})
+        key = (FIXTURES / "issuer.pub").read_text(encoding="utf-8").strip()
+        broken = tmp_path / "broken.json"
+        broken.write_text(json.dumps({"payloadType": 5}), encoding="utf-8")
+        result, _ = srv.tool("verify_receipt", kind="decision", path=str(broken), public_key=key)
+        assert (result["exit_code"], result["meaning"]) == (2, EXIT_2)
+        changed, _ = srv.tool("verify_receipt", kind="decision", path=str(FIXTURES / "receipt-tampered.json"),
+                              public_key=key)
+        assert (changed["exit_code"], changed["meaning"]) == (1, EXIT_1)
+    finally:
+        assert srv.close() == 0
+
+
+def test_in_ci_the_isolated_child_loads_the_tree_under_test():
+    """CI installs the tree, so there every CLI case must run: a skip there would hide the cases from the one
+    measurement that sees them, and this test turns that into a red result."""
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        pytest.skip("checked only in CI, where the tree under test is installed")
+    assert _cli_skip_reason(sys.executable) is None, _cli_skip_reason(sys.executable)
 
 
 def test_the_plugin_is_not_part_of_the_python_distribution():
