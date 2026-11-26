@@ -51,8 +51,13 @@ def test_die_risiko_register_der_wurzel_sind_in_der_flaeche():
     """Sie tragen Release-Aussagen (offene Punkte, Restrisiken) und gehoeren derselben Disziplin."""
     m = _gate()
     flaeche = m.release_flaeche_docs()
-    vorhanden = sorted(q.name for q in REPO.glob("RESTRISIKO_*.md"))
+    # The records live at the root (600 and 610) and under docs/residual_risk/ (all others); both
+    # places are compared by their path from the root, so a record the scan misses at either is named.
+    vorhanden = sorted(str(q.relative_to(REPO)) for ort in (REPO, REPO / "docs" / "residual_risk")
+                       for q in ort.glob("RESTRISIKO_*.md"))
     assert vorhanden, "Vorbedingung: der Baum traegt RESTRISIKO-Register"
+    assert any(n.startswith("docs/residual_risk/") for n in vorhanden), (
+        f"Precondition: the tree carries records under docs/residual_risk/, found only {vorhanden}")
     fehlend = [n for n in vorhanden if n not in flaeche]
     assert not fehlend, (
         f"Diese Risiko-Register liegen im Baum, aber nicht in der gescannten Flaeche: {fehlend}.")
@@ -80,6 +85,8 @@ def test_die_flaeche_folgt_dem_TOKEN_und_nicht_einem_getippten_namen():
             ordner.mkdir(parents=True)
             (ordner / "README.md").write_text(f"# Beleg {token}\n", encoding="utf-8")
         (baum / "RESTRISIKO_700.md").write_text("# Restrisiko\n", encoding="utf-8")
+        (baum / "docs" / "residual_risk").mkdir(parents=True)
+        (baum / "docs" / "residual_risk" / "RESTRISIKO_710.md").write_text("# Record\n", encoding="utf-8")
         m.REPO = baum                       # die Funktion liest REPO zur Aufrufzeit
         flaeche = m.release_flaeche_docs()
     assert "audit_artifacts/700/README.md" in flaeche, (
@@ -90,6 +97,8 @@ def test_die_flaeche_folgt_dem_TOKEN_und_nicht_einem_getippten_namen():
         f"Das AELTERE Token wird mitgezogen: {flaeche}. Die Flaeche ist die des aktuellen Release.")
     assert "RESTRISIKO_700.md" in flaeche, (
         f"Das Risiko-Register der Wurzel fehlt in der Flaeche: {flaeche}.")
+    assert "docs/residual_risk/RESTRISIKO_710.md" in flaeche, (
+        f"A record under docs/residual_risk/ is missing from the surface: {flaeche}.")
 
 
 def test_die_ABLEITUNG_greift_auch_im_ECHTEN_baum():

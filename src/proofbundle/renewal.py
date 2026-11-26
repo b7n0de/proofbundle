@@ -53,6 +53,8 @@ __all__ = [
     "ArchiveTimeStamp",
     "RenewalError",
     "RenewalPolicy",
+    "StampKey",
+    "StampPolicy",
     "VerifiedAnchorResult",
     "anchor_proof_digest",
     "build_initial_sequence",
@@ -911,6 +913,226 @@ def last_ats(sequence: list[list[ArchiveTimeStamp]]) -> ArchiveTimeStamp:
     return _newest(sequence)
 
 
+# --- stamp policy: every ArchiveTimeStamp signature, key windows, hash horizons, verification time -------------
+
+#: The signature parts a stamp key may carry (the parts of `_SIG_ALGS`).
+_STAMP_KEY_PARTS = ("ed25519", "mldsa65")
+_STAMP_POLICY_FIELDS = ("keys", "hash_horizons", "verification_time")
+_STAMP_KEY_FIELDS = ("key_id", "public_keys", "not_before", "not_after")
+
+
+@dataclass(frozen=True)
+class StampKey:
+    """One trusted time-stamp key of a `StampPolicy`, with its validity window.
+
+    ``public_keys`` holds the raw public keys of the key, by signature part, in the form of
+    ``verify_sequence(authority_keys=...)`` (``{"ed25519": bytes}``, ``{"mldsa65": bytes}`` or both for a hybrid
+    key). ``not_before`` and ``not_after`` are integers in the unit of an ATS ``time`` and bound the window
+    inclusively. ``key_id`` names the key in diagnostics only; it is never read from the sequence."""
+
+    key_id: str
+    public_keys: dict
+    not_before: int
+    not_after: int
+
+
+@dataclass(frozen=True)
+class StampPolicy:
+    """The verifier's policy for an ArchiveTimeStampSequence, an input of the relying party, never part of the
+    sequence (WP-A1). It names the trusted stamp keys with their windows (``keys``, a tuple of `StampKey`), one
+    horizon per hash algorithm (``hash_horizons``, ``{hash_alg: int}``; an algorithm is relied on only strictly
+    before its horizon) and the verification time V (``verification_time``). All times are integers in the unit
+    of an ATS ``time``.
+
+    Under this policy ``verify_sequence`` judges EVERY stamp, not only the newest (RFC 4998 section 5.3): the
+    reference time of a stamp is the signed time of the next stamp, and the newest stamp is judged at V; each
+    stamp's signature verifies under a policy key whose window holds the stamp's own time and its reference time;
+    each stamp's hash algorithm is before its horizon at the reference time; and each hash-tree renewal comes
+    before the horizon of every hash algorithm of the chain it renews. A hash algorithm without a horizon is
+    never read as one without a limit (fail-closed)."""
+
+    keys: tuple
+    hash_horizons: dict
+    verification_time: int
+
+    @classmethod
+    @_ein_stand(aussen={"cls": "klasse"})
+    def from_dict(cls, obj: dict) -> "StampPolicy":
+        """Load a policy from JSON-shaped data (public keys as lowercase hex). Every field is required and of
+        exactly its type; a field that is missing, unknown or of another type is refused with `RenewalError`,
+        never read as no limit (the rule of `RenewalPolicy.from_dict`)."""
+        if type(obj) is not dict:
+            raise RenewalError(f"stamp policy must be an object, got {type_name(obj)} (fail-closed)")
+        _genau_die_felder(obj, _STAMP_POLICY_FIELDS, "stamp policy")
+        roh_keys, roh_h, v = obj["keys"], obj["hash_horizons"], obj["verification_time"]
+        if type(roh_keys) is not list or not roh_keys:
+            raise RenewalError(f"stamp policy keys must be a non-empty list, got {type_name(roh_keys)} (fail-closed)")
+        keys = []
+        for eintrag in roh_keys:
+            if type(eintrag) is not dict:
+                raise RenewalError(f"stamp policy key must be an object, got {type_name(eintrag)} (fail-closed)")
+            _genau_die_felder(eintrag, _STAMP_KEY_FIELDS, "stamp policy key")
+            kid, pks = eintrag["key_id"], eintrag["public_keys"]
+            if type(kid) is not str:
+                raise RenewalError(f"stamp policy key_id must be text, got {type_name(kid)} (fail-closed)")
+            if type(pks) is not dict or not pks:
+                raise RenewalError(f"stamp policy public_keys must be a non-empty object, got {type_name(pks)} "
+                                   "(fail-closed)")
+            roh = {}
+            for teil, wert in pks.items():
+                if teil not in _STAMP_KEY_PARTS:
+                    raise RenewalError(f"stamp policy public key part must be one of {_STAMP_KEY_PARTS}, got "
+                                       f"{_rs(teil)} (fail-closed)")
+                if type(wert) is not str or not _HEXRE.match(wert) or len(wert) % 2:
+                    raise RenewalError("stamp policy public key must be lowercase hex (fail-closed)")
+                roh[teil] = bytes.fromhex(wert)
+            nb, na = eintrag["not_before"], eintrag["not_after"]
+            for name, wert in (("not_before", nb), ("not_after", na)):
+                if type(wert) is not int:
+                    raise RenewalError(f"stamp policy {name} must be an integer, got {type_name(wert)} (fail-closed)")
+            if nb > na:
+                raise RenewalError("stamp policy key window has not_before after not_after (fail-closed)")
+            keys.append(StampKey(key_id=kid, public_keys=roh, not_before=nb, not_after=na))
+        if type(roh_h) is not dict or not roh_h:
+            raise RenewalError(f"stamp policy hash_horizons must be a non-empty object, got {type_name(roh_h)} "
+                               "(fail-closed)")
+        for alg, wert in roh_h.items():
+            if type(alg) is not str or type(wert) is not int:
+                raise RenewalError("stamp policy hash_horizons maps a hash algorithm name to an integer horizon; "
+                                   f"got {type_name(wert)} for {_rs(alg)} (fail-closed)")
+        if type(v) is not int:
+            raise RenewalError(f"stamp policy verification_time must be an integer, got {type_name(v)} (fail-closed)")
+        return cls(keys=tuple(keys), hash_horizons=dict(roh_h), verification_time=v)
+
+
+def _genau_die_felder(obj: dict, felder: tuple, was: str) -> None:
+    fehlt = [f for f in felder if f not in obj]
+    fremd = [k for k in obj if k not in felder]
+    if fehlt or fremd:
+        raise RenewalError(f"{was} must have exactly the fields {', '.join(felder)}; missing "
+                           f"{', '.join(fehlt) or 'none'}, unknown {', '.join(_rs(k) for k in fremd) or 'none'} "
+                           "(fail-closed)")
+
+
+@dataclass(frozen=True)
+class _GelesenePolitik:
+    keys: tuple          # of (key_id, {part: bytes}, not_before, not_after)
+    hash_horizons: dict  # {str: int}
+    verification_time: int
+
+
+def _stamp_policy_once(policy) -> "_GelesenePolitik | str":
+    """The stamp policy as plain values, read once, or the reason it is malformed. Never raises: the verifier
+    reports a malformed policy as a failed ``renewal:stamp_policy_malformed`` check."""
+    if type(policy) is not StampPolicy:
+        return f"stamp_policy must be a StampPolicy, got {type_name(policy)} (fail-closed)"
+    roh_keys, roh_h, v = policy.keys, policy.hash_horizons, policy.verification_time
+    if type(v) is not int or not int_magnitude_ok(v):
+        return f"stamp_policy.verification_time must be a plain int, got {type_name(v)} (fail-closed)"
+    if type(roh_keys) not in (tuple, list):
+        return f"stamp_policy.keys must be a tuple of StampKey, got {type_name(roh_keys)} (fail-closed)"
+    keys = []
+    for k in roh_keys:
+        if type(k) is not StampKey:
+            return f"stamp_policy.keys holds {type_name(k)}, not a StampKey (fail-closed)"
+        kid, pks, nb, na = k.key_id, k.public_keys, k.not_before, k.not_after
+        if type(nb) is not int or type(na) is not int or not int_magnitude_ok(nb) or not int_magnitude_ok(na):
+            return "a StampKey window bound is not a plain int (fail-closed)"
+        if nb > na:
+            return "a StampKey window has not_before after not_after (fail-closed)"
+        if type(pks) is not dict or not pks:
+            return "a StampKey public_keys is not a non-empty dict (fail-closed)"
+        teile = {}
+        for teil, wert in dict.items(pks):
+            if type(teil) is not str or teil not in _STAMP_KEY_PARTS or type(wert) is not bytes:
+                return "a StampKey public_keys maps a signature part to raw key bytes (fail-closed)"
+            teile[teil] = wert
+        keys.append((_zeichen_von(kid) or "?", teile, nb, na))
+    if type(roh_h) is not dict:
+        return f"stamp_policy.hash_horizons must be a dict, got {type_name(roh_h)} (fail-closed)"
+    horizonte = {}
+    for alg, wert in dict.items(roh_h):
+        if type(alg) is not str or type(wert) is not int or not int_magnitude_ok(wert):
+            return "stamp_policy.hash_horizons maps a hash algorithm name to a plain int (fail-closed)"
+        horizonte[alg] = wert
+    return _GelesenePolitik(keys=tuple(keys), hash_horizons=horizonte, verification_time=v)
+
+
+def _signed_by_policy_key(a: ArchiveTimeStamp, pol: _GelesenePolitik) -> list:
+    """The policy keys under which ``a`` carries a valid signature (fail-closed: an unsigned stamp has none)."""
+    return [k for k in pol.keys if _verify_ats_signature(a, k[1])]
+
+
+def _check_every_stamp(result: VerificationResult, sequence: list, flat: list, pol: _GelesenePolitik) -> None:
+    """RFC 4998 section 5.3 over every stamp of ``sequence`` under ``pol`` (see `StampPolicy`). Appends one
+    failing check per broken rule and the aggregate ``renewal:every_stamp``."""
+    times = [a.time for a in flat]
+    if not all(type(t) is int for t in times):
+        result.checks.append(Check("renewal:every_stamp", False,
+                                   "ATS times are not integers; no stamp can be judged at its reference time"))
+        return
+    v = pol.verification_time
+    if v < times[-1]:
+        result.checks.append(Check(
+            "renewal:every_stamp", False,
+            f"the verification time V={_rs(v)} is before the newest stamp's time {_rs(times[-1])} (fail-closed)"))
+        return
+    broken = 0
+    i = 0
+    for ci, chain in enumerate(sequence):
+        if ci > 0:
+            start = chain[0]
+            late = []
+            for alg in dict.fromkeys(_zeichen_von(a.hash_alg) for a in sequence[ci - 1]):
+                horizon = pol.hash_horizons.get(alg) if alg is not None else None
+                if horizon is None or start.time >= horizon:
+                    late.append(f"{_rs(alg)} (horizon {_rs(horizon) if horizon is not None else 'none in policy'})")
+            if late:
+                broken += 1
+                result.checks.append(Check(
+                    f"renewal:renewal_before_horizon:c{ci}", False,
+                    f"the hash-tree renewal at {_rs(start.time)} is not before the horizon of "
+                    + ", ".join(late)))
+        for ai, a in enumerate(chain):
+            ref = times[i + 1] if i + 1 < len(times) else v
+            i += 1
+            signers = _signed_by_policy_key(a, pol)
+            if not signers:
+                broken += 1
+                result.checks.append(Check(
+                    f"renewal:stamp:c{ci}a{ai}:signature", False,
+                    "no key of the stamp policy verifies this stamp's signature"))
+            elif not any(nb <= a.time and ref <= na for (_kid, _pk, nb, na) in signers):
+                broken += 1
+                result.checks.append(Check(
+                    f"renewal:stamp:c{ci}a{ai}:window", False,
+                    f"the key {_rs(signers[0][0])} that signed this stamp is outside its window "
+                    f"[{_rs(signers[0][2])}, {_rs(signers[0][3])}] at the stamp's time {_rs(a.time)} or its "
+                    f"reference time {_rs(ref)}"))
+            alg = _zeichen_von(a.hash_alg)
+            horizon = pol.hash_horizons.get(alg) if alg is not None else None
+            if horizon is None:
+                broken += 1
+                result.checks.append(Check(
+                    f"renewal:stamp:c{ci}a{ai}:horizon", False,
+                    f"the stamp policy names no horizon for {_rs(a.hash_alg)}; a missing horizon is never read as "
+                    "no limit (fail-closed)"))
+            elif ref >= horizon:
+                broken += 1
+                result.checks.append(Check(
+                    f"renewal:stamp:c{ci}a{ai}:horizon", False,
+                    f"{_rs(alg)} is relied on at the reference time {_rs(ref)}, not before its horizon "
+                    f"{_rs(horizon)}"))
+    if broken:
+        result.checks.append(Check("renewal:every_stamp", False,
+                                   f"{broken} rule(s) of the stamp policy broken over {len(flat)} ArchiveTimeStamp"))
+    else:
+        result.checks.append(Check(
+            "renewal:every_stamp", True,
+            f"every one of {len(flat)} ArchiveTimeStamp signatures verified under a policy key whose window holds "
+            f"its time and its reference time, every hash before its horizon, verification time V={_rs(v)}"))
+
+
 @_ein_stand(aussen={"anchor_verifier": "rueckruf"}, rp_trust=_abbild_stand)
 @_never_raise_verdict("renewal:internal_fail_closed")
 def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequence[str], *,
@@ -922,6 +1144,7 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
                     rp_trust: Optional[dict] = None,
                     require_external_token: bool = False,
                     known_newest_token_digest: Optional[str] = None,
+                    stamp_policy: Optional[StampPolicy] = None,
                     ) -> VerificationResult:
     """Verify an ArchiveTimeStampSequence end-to-end, walking the newest strong anchor back to the origin.
 
@@ -931,7 +1154,19 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
       * each timestamp-renewal ATS covers exactly the prior ATS in its chain, and each new chain's first
         ATS covers all-prior-ATS + the data objects (``break_in_sequence_fails``);
       * the covered data recomputes from ``data_digests`` (``tamper_after_renewal_fails``);
-      * the newest ATS is authenticated (see the anchor modes below).
+      * the newest ATS is authenticated (see the anchor modes below);
+      * with ``stamp_policy``, EVERY ATS (see ``stamp_policy`` below).
+
+    ``stamp_policy`` (a `StampPolicy`, the relying party's input, never part of the sequence): every ATS's
+    signature is verified under a policy key whose window holds the stamp's time and its reference time (the
+    signed time of the next stamp, V for the newest), every hash algorithm is before its horizon at the reference
+    time, and every hash-tree renewal is before the horizon of the chain it renews (``renewal:stamp:*``,
+    ``renewal:renewal_before_horizon:*``, aggregate ``renewal:every_stamp``). Without ``authority_keys`` and
+    ``anchor_verifier`` the policy keys also anchor the newest ATS (mode "stamp policy"). WITHOUT a stamp policy
+    only the newest ATS is authenticated, as before, and the result says so in a passing check of its own,
+    ``renewal:older_stamps_unchecked`` (NOT CHECKED: the older signatures, windows and horizons), so an ``.ok``
+    without a stamp policy is never the same result as one with it. A malformed policy fails closed
+    (``renewal:stamp_policy_malformed``).
 
     ANCHOR — safe by default. An authenticated anchor is REQUIRED unless the caller explicitly opts into
     the weak structural-only mode:
@@ -1041,6 +1276,17 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
         with _draussen():
             return anchor_verifier(a)  # type: ignore[misc]
 
+    _politik = None
+    if stamp_policy is not None:
+        _gelesen = _stamp_policy_once(stamp_policy)
+        if isinstance(_gelesen, str):
+            result.checks.append(Check("renewal:stamp_policy_malformed", False, _gelesen))
+            return result
+        _politik = _gelesen
+
+    def _policy_anchor(a: ArchiveTimeStamp) -> bool:
+        return bool(_signed_by_policy_key(a, cast(_GelesenePolitik, _politik)))
+
     anchor_mode: str
     if authority_keys is not None:
         verify_anchor: Callable[[ArchiveTimeStamp], bool] = _signature_anchor
@@ -1048,6 +1294,9 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
     elif anchor_verifier is not None:
         verify_anchor = _caller_anchor
         anchor_mode = "caller anchor_verifier"
+    elif _politik is not None:
+        verify_anchor = _policy_anchor
+        anchor_mode = "stamp policy"
     elif allow_unauthenticated_anchor is True:
         verify_anchor = _default_anchor
         anchor_mode = "structural-only (unauthenticated, opted-in)"
@@ -1220,6 +1469,17 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
             "known_newest_token_digest is not present anywhere in this sequence — possible truncation/"
             "rollback to an older prefix (fail-closed)"))
 
+    # 3c) every stamp (RFC 4998 section 5.3) under the relying party's stamp policy. Without one only the newest
+    #     ATS is authenticated below, and the result says what was NOT checked, so that `.ok` without a policy is
+    #     never the same result as `.ok` with one.
+    if _politik is None:
+        result.checks.append(Check(
+            "renewal:older_stamps_unchecked", True,
+            "NOT CHECKED: no stamp_policy supplied, so only the newest ArchiveTimeStamp is authenticated; the "
+            "signatures of the older stamps, the key windows and the hash horizons were NOT checked"))
+    else:
+        _check_every_stamp(result, sequence, flat, _politik)
+
     # 4) the newest ATS must be anchored (only the last ATS is watched, RFC 4998 operating rule). The
     #    anchor_mode is surfaced in the detail so a reader can tell a real signature from the weak
     #    structural fallback (API-safety audit: the PASS text must not conflate the two).
@@ -1295,12 +1555,20 @@ def verify_sequence(sequence: list[list[ArchiveTimeStamp]], data_digests: Sequen
         # fix-the-CLASS: a non-str sig_alg (attacker-built ATS) crashed `"mldsa" in (int or "")` with a
         # raw TypeError; normalize for the membership test, render every field through _rs.
         _sig_label = _neuester_sig if isinstance(_neuester_sig, str) else ""
+        _sig_modes = ("authority signature", "stamp policy")
         pq_verified = anchored and anchor_mode == "authority signature" and "mldsa" in _sig_label
+        # A stamp policy verifies the newest stamp's signature as well, whatever the anchor mode: beside
+        # authority_keys or an anchor_verifier the policy check still runs (Codex review round 1 on PR 560, P2: with
+        # an anchor_verifier answering True the mode was "caller anchor_verifier" and a PQ leg the policy had
+        # verified did not count). So a PQ leg verified under a policy key counts in every mode. A line of its own:
+        # the mutation operator F1 names the line above.
+        pq_verified = pq_verified or (anchored and _politik is not None and "mldsa" in _sig_label
+                                      and _policy_anchor(newest))
         if pq_verified:
             pq_detail = (f"newest ATS carries a VERIFIED PQ leg (sig_alg {_rs(_neuester_sig)}, authority "
                          "signature)")
-        elif anchor_mode != "authority signature":
-            pq_detail = (f"require_pq needs authority_keys to verify a PQ signature; anchor mode is "
+        elif anchor_mode not in _sig_modes and _politik is None:
+            pq_detail = (f"require_pq needs authority_keys or a stamp_policy to verify a PQ signature; anchor mode is "
                          f"{anchor_mode!r} (a PQ label on sig_alg alone is not verification, fail-closed)")
         else:
             pq_detail = f"newest ATS sig_alg {_rs(_neuester_sig)} has no verified PQ leg (require_pq)"

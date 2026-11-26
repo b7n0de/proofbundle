@@ -68,7 +68,8 @@ def _is_closed_record(rel: str, released: set) -> bool:
     is out they are history like CHANGELOG.md; the record of the release in preparation stays read.
     """
     parent = rel.rpartition("/")[0]
-    if parent not in ("", "docs/release_scope"):
+    # The records of releases sit at the root (600 and 610) or under docs/residual_risk/ (all others).
+    if parent not in ("", "docs/release_scope", "docs/residual_risk"):
         return False
     m = _RECORD_NAME.match(rel.rpartition("/")[2])
     if not m:
@@ -332,6 +333,26 @@ class TestDocsTruth(unittest.TestCase):
         self.assertIn(f"``{default}`` (the default", doc, "intoto docstring does not name the default profile")
         for ptype in intoto.EVAL_RESULT_PREDICATE_TYPES:
             self.assertIn(ptype, doc, f"intoto docstring does not name {ptype}")
+
+
+class TestRecordsUnderResidualRisk(unittest.TestCase):
+    """The residual-risk records moved to docs/residual_risk/.
+
+    The future-tense guard treats a record of a release that is out as history in that folder too. The
+    one link a moved record carried to a record that stayed at the root (RESTRISIKO_640.md to
+    RESTRISIKO_600.md) is written from the new folder, so `test_no_broken_internal_doc_links` holds it
+    with no exception in the link check.
+    """
+
+    def test_a_closed_record_under_residual_risk_is_history_and_RED_for_the_open_one(self):
+        released = {"6.6.0", "6.6.1"}
+        self.assertTrue(_is_closed_record("docs/residual_risk/RESTRISIKO_661.md", released))
+        self.assertTrue(_is_closed_record("docs/residual_risk/RESTRISIKO_610_NACHTRAG_20260924.md",
+                                          {"6.1.0"}))
+        self.assertFalse(_is_closed_record("docs/residual_risk/RESTRISIKO_670.md", released),
+                         "the record of the release in preparation stays read")
+        self.assertFalse(_is_closed_record("docs/other/RESTRISIKO_661.md", released),
+                         "only the folders of records count")
 
 
 if __name__ == "__main__":
