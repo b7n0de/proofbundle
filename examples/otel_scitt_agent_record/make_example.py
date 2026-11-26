@@ -168,16 +168,18 @@ def fingerprint(value_or_text, salt_hex: str) -> str:
     return salted_commit(text, bytes.fromhex(salt_hex))
 
 
-def approval_receipt(run, tool, *, verdict="ALLOW", call_id=None, decided="2026-11-20T10:00:04Z") -> bytes:
-    """The gate's decision receipt for the call. It lives in the agent's domain and is disclosed in a dispute."""
+def approval_receipt(run, tool, *, verdict="ALLOW", call_id=None, decided="2026-11-20T10:00:04Z",
+                     change=None) -> bytes:
+    """The gate's decision receipt for the call. It lives in the agent's domain and is disclosed in a dispute.
+    ``change``, when given, edits the predicate before it is signed; measure_cases.py uses it for its cases."""
     a = attributes(tool)
     args = jcs(json.loads(a["gen_ai.tool.call.arguments"]))
     p = {
         "schemaVersion": "0.1.0", "decisionType": "preActionAuthorization", "decisionMaker": {"id": "approval-gate-1"},
         "decisionId": "dec-otel-0001", "decidedAt": decided,
-        "agent": {"id": "payments-assistant"}, "principal": {"id": "person-1"},
+        "agent": {"id": a["gen_ai.agent.name"]}, "principal": {"id": "person-1"},
         "proposedAction": {"actionType": "tool.call", "method": "write",
-                           "target": {"name": a["gen_ai.tool.name"], "uri": "urn:example:tool:transfer_funds"},
+                           "target": {"name": a["gen_ai.tool.name"], "uri": "urn:example:tool:" + a["gen_ai.tool.name"]},
                            "parametersDigest": {"sha256": sha256(args)}},
         "inputSnapshot": [{"name": "proposed arguments", "digest": {"sha256": sha256(args)},
                            "mediaType": "application/json"}],
@@ -194,6 +196,8 @@ def approval_receipt(run, tool, *, verdict="ALLOW", call_id=None, decided="2026-
         "validity": {"audience": [AUDIENCE], "nonce": "dec-otel-0001", "expiresAt": "2026-11-20T10:15:04Z"}}
     if verdict != "ALLOW":
         p["actionOutcome"] = {"status": "blocked", "performedAt": None, "outcomeRef": None}
+    if change:
+        change(p)
     errs = decision.validate_decision_predicate(p, strict=True)
     if errs:
         raise ValueError(errs)

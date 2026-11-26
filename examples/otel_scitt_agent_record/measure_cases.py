@@ -183,6 +183,57 @@ def c_approval_late(b):
     return dict(rebuilt(b, st), receipt=receipt, spans=doc)
 
 
+def approval_changed(b, change):
+    """b with an approval receipt whose predicate ``change`` edits before the gate's test key signs it, the record's
+    approval fingerprint over the new receipt, and the record signed and anchored again. Spans and arguments stay."""
+    run, tool = mk.span_list(b["spans"])
+    receipt = mk.approval_receipt(run, tool, change=change)
+    st = copy.deepcopy(b["statement"])
+    entry(st, "approval")["fingerprint"] = mk.fingerprint({"receiptSha256": mk.sha256(receipt)},
+                                                          b["salts"]["approval"])
+    return dict(rebuilt(b, st), receipt=receipt)
+
+
+def c_approval_other_tool(b):
+    return approval_changed(b, lambda p: p["proposedAction"]["target"].update(name="close_account"))
+
+
+def c_approval_other_tool_uri(b):
+    return approval_changed(b, lambda p: p["proposedAction"]["target"].update(uri="urn:example:tool:close_account"))
+
+
+def c_approval_other_agent(b):
+    return approval_changed(b, lambda p: p["agent"].update(id="another-assistant"))
+
+
+def c_approval_other_action_type(b):
+    return approval_changed(b, lambda p: p["proposedAction"].update(actionType="tool.read"))
+
+
+def c_approval_post_hoc(b):
+    return approval_changed(b, lambda p: p.update(decisionType="postHocReview"))
+
+
+def spans_changed(b, role, key, value):
+    """b with one attribute of the run or the action span changed, the record built over the changed spans and
+    signed and anchored again, so the fingerprints still match and the check reaches the span check."""
+    doc = copy.deepcopy(b["spans"])
+    run, tool = mk.span_list(doc)
+    for a in (run if role == "run" else tool)["attributes"]:
+        if a["key"] == key:
+            a["value"]["stringValue"] = value
+    st = mk.record_statement(doc, b["receipt"], b["salts"], b["rule"])
+    return dict(rebuilt(b, st), spans=doc)
+
+
+def c_spans_other_agent(b):
+    return spans_changed(b, "run", "gen_ai.agent.name", "another-assistant")
+
+
+def c_spans_other_conversation(b):
+    return spans_changed(b, "run", "gen_ai.conversation.id", "conv-example-0002")
+
+
 def c_rule_changed(b):
     return dict(b, rule=mk.pretty(dict(mk.RULE, threshold="500.00")))
 
@@ -230,6 +281,17 @@ CASES = [
     ("F22", "the approval was decided after the action started", True, "FAILED", "D4", c_approval_late),
     ("F23", "the disclosed rule is not the one the record names", True, "FAILED", "D5", c_rule_changed),
     ("F24", "the record's conclusion is not what the rule gives", True, "FAILED", "D5", c_conclusion_false),
+    ("F25", "the disclosed approval is for another tool, same arguments, signed by the gate's key", True, "FAILED",
+     "D4", c_approval_other_tool),
+    ("F26", "the disclosed approval names the tool but the URI of another tool", True, "FAILED", "D4",
+     c_approval_other_tool_uri),
+    ("F27", "the disclosed approval is for another agent", True, "FAILED", "D4", c_approval_other_agent),
+    ("F28", "the disclosed approval is for another kind of action than a tool call", True, "FAILED", "D4",
+     c_approval_other_action_type),
+    ("F29", "the disclosed approval is a review after the fact, not an authorization before the action", True,
+     "FAILED", "D4", c_approval_post_hoc),
+    ("F30", "run and action span name different agents", True, "FAILED", "D2", c_spans_other_agent),
+    ("F31", "run and action span name different conversations", True, "FAILED", "D2", c_spans_other_conversation),
 ]
 
 

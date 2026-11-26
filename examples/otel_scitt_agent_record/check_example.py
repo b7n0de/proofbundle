@@ -73,6 +73,8 @@ ACTION_ATTRIBUTES = ("gen_ai.operation.name", "gen_ai.tool.name", "gen_ai.tool.c
                      "gen_ai.agent.name", "gen_ai.conversation.id", "gen_ai.tool.call.arguments",
                      "gen_ai.tool.call.result")
 SPAN_KIND_INTERNAL = 1
+#: Attributes both spans carry; they name one agent and one conversation, so they must agree.
+BOTH_SPANS = ("gen_ai.agent.name", "gen_ai.conversation.id")
 
 OPEN_ITEMS = ["that the fingerprints of run, approval and action belong to the real spans and the real approval",
               "that the content of the spans is true",
@@ -287,10 +289,15 @@ def check_spans(rep, d: Path):
              and run["traceId"] == tool["traceId"] and tool["parentSpanId"] == run["spanId"]
              and run["parentSpanId"] == "", "D2",
              "the action span is not a child of the run span in one trace")
+    ra = attributes(run)
+    for key in BOTH_SPANS:
+        rep.need(isinstance(ra.get(key), str) and ra[key] and ra[key] == ta.get(key), "D2",
+                 "run and action span name different values for %s, or one names none" % key)
     t = {k: (int(s["startTimeUnixNano"]), int(s["endTimeUnixNano"])) for k, s in (("run", run), ("tool", tool))}
     rep.need(t["run"][0] <= t["tool"][0] <= t["tool"][1] <= t["run"][1], "D2",
              "the action span does not lie inside the run span",
-             "one invoke_agent and one execute_tool span, both INTERNAL, the action a child of the run inside its time")
+             "one invoke_agent and one execute_tool span, both INTERNAL, of one agent and one conversation, the "
+             "action a child of the run inside its time")
     json.loads(ta["gen_ai.tool.call.arguments"])
     return run, tool
 
@@ -330,13 +337,27 @@ def check_approval(rep, st, run, tool, approval_bytes):
     tc = pred.get("traceContext") or {}
     rep.need(tc.get("parentId") == ta["gen_ai.tool.call.id"] and tc.get("traceId") == run["traceId"], "D4",
              "the approval receipt names another tool call or trace than the disclosed action span")
+    # Every other field of the approval that names the call: the tool, the agent, the kind of action and the kind
+    # of decision. action_bytes binds only the arguments, so an approval for another tool with the same arguments
+    # would otherwise pass.
+    pa = pred.get("proposedAction") or {}
+    target = pa.get("target") or {}
+    bound = {"proposedAction.target.name": (target.get("name"), ta["gen_ai.tool.name"]),
+             "proposedAction.target.uri": (target.get("uri"), "urn:example:tool:" + ta["gen_ai.tool.name"]),
+             "proposedAction.actionType": (pa.get("actionType"), "tool.call"),
+             "agent.id": ((pred.get("agent") or {}).get("id"), ta.get("gen_ai.agent.name")),
+             "decisionType": (pred.get("decisionType"), "preActionAuthorization")}
+    for field, (got, want) in bound.items():
+        rep.need(isinstance(want, str) and want and got == want, "D4",
+                 "the approval receipt's %s is %r, not %r as the disclosed action span gives it" % (field, got, want))
     decided = when(pred["decidedAt"])
     rep.need(int(run["startTimeUnixNano"]) <= decided <= start, "D4",
              "the approval was decided at %s, not between the run's start and the action's start" % pred["decidedAt"])
     rep.need(pred["policyBoundary"]["policyDigest"]["sha256"] == st["predicate"]["policyDigest"]["sha256"], "D4",
              "the approval receipt names another rule than the record",
              "the approval verifies under the pinned gate key (proofbundle decision verify, strict) for the "
-             "arguments of the call, names the call and its trace, and was decided before the action")
+             "arguments of the call, names the call, its trace, its tool and its agent as a pre-action "
+             "authorization of a tool call, and was decided before the action")
     return pred
 
 

@@ -109,9 +109,12 @@ content is true, and recomputing the rule. That is OPEN, not passed and not fail
 A fingerprint that is an unsalted SHA-256 but claims sha256-salted-v1 also stays open here (case F02); only the
 disclosure shows it (case F03).
 
-With `--disclosure`, the check adds D1 to D6 (salts of at least 16 bytes, the spans after the conventions, the
-fingerprints recomputed, the approval receipt with its link and time, the rule recomputed, no identifier in
-clear) and ends in PASSED when all of it holds.
+With `--disclosure`, the check adds D1 to D6 (salts of at least 16 bytes, the spans after the conventions and of
+one agent and one conversation, the fingerprints recomputed, the approval receipt with its link and time, the rule
+recomputed, no identifier in clear) and ends in PASSED when all of it holds. The approval must name the call's
+tool, the tool's URI, the call's agent, a tool call as the kind of action and an authorization before the action
+as the kind of decision. Its signature covers the arguments only through their digest, so an approval for another
+tool with the same arguments would otherwise pass (cases F25 to F29).
 
 **Never checkable through the record:** that the recording is complete, and that the action really ran as the
 spans say. The record repeats what the recorder was given.
