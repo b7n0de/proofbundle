@@ -132,7 +132,7 @@ Moment ist nicht die Eigenschaft, um die es geht.
 
 - CI: `.github/workflows/release-integrity.yml:60` runs `python3 scripts/check_version_and_changelog.py --repo .` on main and on pull requests
 - Release workflow (from 6.6.1): `.github/workflows/release.yml:165` runs the whole gate with `--tag "$GITHUB_REF_NAME"` before the build, check 8 included
-- Release checklist: `RELEASE.md:184`, after the publish `--external --require-external` must be green; before the owner GO, `RELEASE.md:29` checks without the external surfaces
+- Release checklist: `RELEASE.md:191`, after the publish `--external --require-external` must be green; before the owner GO, `RELEASE.md:29` checks without the external surfaces
 
 ## Ehrliche Grenzen
 
