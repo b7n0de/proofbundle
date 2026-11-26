@@ -975,7 +975,7 @@ class ABAIsMeasuredUpToThePublicVerdict(_Registriert):
         print(f"\nABA: verdict {aus} over a list whose held states give {m['gehalten']}")
         if aus == "PASS":
             ohne = [str(p.relative_to(REPO)) for p in (REPO / "src" / "proofbundle" / "canonical.py",
-                                                      REPO / "RESTRISIKO_620.md")
+                                                      REPO / "docs" / "residual_risk" / "RESTRISIKO_620.md")
                     if _ERSATZSATZ not in " ".join(p.read_text(encoding="utf-8").split())]
             self.assertEqual(ohne, [], "ABA reaches the public verdict of verify_anchors (PASS over a list that held "
                              "no such state), and these texts describe the reading without the owner's sentence")

@@ -1524,7 +1524,7 @@ class TestExternalReviewRound2OfD97f6e7b:
         """R2-3 and R2-4: the CHANGELOG names the refusal of the LISTED families, not of every program-selecting
         configuration; RESTRISIKO_620 no longer generalises one measured Debian build to every Debian and Ubuntu build."""
         changelog = " ".join((REPO / "CHANGELOG.md").read_text(encoding="utf-8").split())
-        restrisiko = " ".join((REPO / "RESTRISIKO_620.md").read_text(encoding="utf-8").split())
+        restrisiko = " ".join((REPO / "docs" / "residual_risk" / "RESTRISIKO_620.md").read_text(encoding="utf-8").split())
         assert "selects a program from the listed families" in changelog
         assert "On Debian and Ubuntu builds" not in restrisiko
         assert "On the measured Debian build of Python 3.10.12" in restrisiko
@@ -1609,7 +1609,7 @@ class TestExternalReviewRound3Of12d5a7cb:
         and R620-REV-OPEN-1 stays open. R3-4: neither RELEASE.md nor the refusal says that a fresh clone carries no
         such driver."""
         changelog = " ".join((REPO / "CHANGELOG.md").read_text(encoding="utf-8").split())
-        restrisiko = " ".join((REPO / "RESTRISIKO_620.md").read_text(encoding="utf-8").split())
+        restrisiko = " ".join((REPO / "docs" / "residual_risk" / "RESTRISIKO_620.md").read_text(encoding="utf-8").split())
         release = " ".join((REPO / "RELEASE.md").read_text(encoding="utf-8").split())
         verifier = " ".join((SCRIPTS / VERIFIER).read_text(encoding="utf-8").split())
         # count, not `not in`: a failing `not in` over a whole file makes pytest diff the file, minutes per run
@@ -1627,7 +1627,7 @@ class TestExternalReviewRound3Of12d5a7cb:
         quelle = (REPO / "tests" / "test_budget_kostenkurve.py").read_text(encoding="utf-8")
         assert "\nEXPONENT_MAX = 1.2\n" in quelle
         assert "\nWIEDERHOLUNGEN = 3\n" in quelle
-        restrisiko = " ".join((REPO / "RESTRISIKO_620.md").read_text(encoding="utf-8").split())
+        restrisiko = " ".join((REPO / "docs" / "residual_risk" / "RESTRISIKO_620.md").read_text(encoding="utf-8").split())
         assert ("The time exponent exceeded the limit in the first run under foreign load; isolated repeats at both "
                 "heads and the full rerun passed, so the cause of the deviation is not conclusively established."
                 ) in restrisiko
@@ -1710,7 +1710,7 @@ class TestCodexAt6d081424:
         for committed FILES with the gitlink named, with the open line for 6.2.1 in RESTRISIKO_620.md (P2)."""
         verifier = " ".join((SCRIPTS / VERIFIER).read_text(encoding="utf-8").split())
         release = " ".join((REPO / "RELEASE.md").read_text(encoding="utf-8").split())
-        restrisiko = " ".join((REPO / "RESTRISIKO_620.md").read_text(encoding="utf-8").split())
+        restrisiko = " ".join((REPO / "docs" / "residual_risk" / "RESTRISIKO_620.md").read_text(encoding="utf-8").split())
         for name, text in (("verifier", verifier), ("RELEASE.md", release)):
             assert "names a directory of the clone or a directory that contains it" in text, name
         assert verifier.count("Every committed path whose EFFECTIVE") == 0
@@ -1791,7 +1791,7 @@ class TestCodexAt553989ae:
     def test_P1_the_risk_sheet_records_the_root_case(self):
         """RESTRISIKO_620.md carries the finding with its state, and the verifier's helper names it."""
         verifier = " ".join((SCRIPTS / VERIFIER).read_text(encoding="utf-8").split())
-        restrisiko = " ".join((REPO / "RESTRISIKO_620.md").read_text(encoding="utf-8").split())
+        restrisiko = " ".join((REPO / "docs" / "residual_risk" / "RESTRISIKO_620.md").read_text(encoding="utf-8").split())
         assert "R620-CODEX-5539-1, serious, fixed after 553989ae" in restrisiko
         assert "thread 4175430079" in verifier
 
@@ -1852,7 +1852,7 @@ class TestCodexAt6cab813e:
     def test_P1_P2_the_risk_sheet_records_both_threads(self):
         """RESTRISIKO_620.md carries the P1 as fixed and the P2 as open for 6.2.1, and the helper names the P1."""
         verifier = " ".join((SCRIPTS / VERIFIER).read_text(encoding="utf-8").split())
-        restrisiko = " ".join((REPO / "RESTRISIKO_620.md").read_text(encoding="utf-8").split())
+        restrisiko = " ".join((REPO / "docs" / "residual_risk" / "RESTRISIKO_620.md").read_text(encoding="utf-8").split())
         assert "R620-CODEX-6CAB-1, serious, fixed after 6cab813e" in restrisiko
         assert "R620-CODEX-6CAB-2, P3 on the tests, open for 6.2.1" in restrisiko
         assert "thread 4175660286" in verifier
@@ -1994,7 +1994,7 @@ class TestReview5Question4:
 
     def test_Q4_R5_1_the_risk_sheet_records_both_lines(self):
         """RESTRISIKO_620.md carries the requirement as met and R5-1 with the reviewer's wording for 6.2.1."""
-        restrisiko = " ".join((REPO / "RESTRISIKO_620.md").read_text(encoding="utf-8").split())
+        restrisiko = " ".join((REPO / "docs" / "residual_risk" / "RESTRISIKO_620.md").read_text(encoding="utf-8").split())
         assert "R620-REV5-Q4, requirement on R620-CODEX-6CAB-1, met after 4e3779d5" in restrisiko
         assert "R5-1, small, open for 6.2.1" in restrisiko
         assert '"for a committed file (a gitlink is not asked)"' in restrisiko

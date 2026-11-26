@@ -14,7 +14,7 @@ The pre-tag receipt is to be produced from a fresh checkout of the final release
 
 ## Recorded findings
 
-[The 6.6.0 residual-risk record](../../RESTRISIKO_660.md) lists the findings that stay open after this release and the limits of the changes it carries. A target release is not a completed fix.
+[The 6.6.0 residual-risk record](../../docs/residual_risk/RESTRISIKO_660.md) lists the findings that stay open after this release and the limits of the changes it carries. A target release is not a completed fix.
 
 | Record | Status in this preparation snapshot |
 |---|---|

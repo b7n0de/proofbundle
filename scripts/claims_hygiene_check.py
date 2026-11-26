@@ -283,6 +283,11 @@ def scan_text(raw: str, rel: str) -> list[dict]:
     return violations
 
 
+#: The folder of the residual-risk records. RESTRISIKO_600.md and RESTRISIKO_610.md stay at the root
+#: with their OBJEKTKLASSEN files, because receipts and register carriers name them there.
+RISIKO_REGISTER_ORDNER = "docs/residual_risk"
+
+
 def release_flaeche_docs() -> list[str]:
     """Die Dokumente der RELEASE-FLAECHE — ABGELEITET aus dem Baum, nicht getippt.
 
@@ -299,6 +304,9 @@ def release_flaeche_docs() -> list[str]:
     Funktion LEITET die Menge ab — jedes Markdown unter ``audit_artifacts/`` und jedes
     ``RESTRISIKO_*.md`` der Wurzel gehoert dazu, weil beides Release-Behauptungen traegt. Ein neuer
     Beleg faellt damit automatisch in die Pruefung, ohne dass jemand daran denkt.
+
+    The records moved to ``docs/residual_risk/`` (RESTRISIKO_600.md and RESTRISIKO_610.md stay at the
+    root), so both places are globbed (``RISIKO_REGISTER_ORDNER``).
 
     Die Menge ist nach Konstruktion nicht leer, solange ein Release-Beleg existiert; ist sie es,
     faellt das im Vollstaendigkeits-Test auf (``tests/test_claims_hygiene_deckt_die_release_flaeche.py``).
@@ -319,8 +327,11 @@ def release_flaeche_docs() -> list[str]:
         if token:
             aktuell = max(token, key=lambda q: int(q.name))
             aus.extend(str(q.relative_to(REPO)) for q in sorted(aktuell.rglob("*.md")))
-    # Die Risiko-Register der Wurzel tragen Release-Aussagen und gehoeren derselben Flaeche an.
-    aus.extend(str(q.relative_to(REPO)) for q in sorted(REPO.glob("RESTRISIKO_*.md")))
+    # The residual-risk records carry release statements and belong to the same surface. They live
+    # under docs/residual_risk/, while RESTRISIKO_600.md and RESTRISIKO_610.md stay at the root. Both
+    # places are read; reading only one would drop a record from the scan without a word.
+    for ort in (REPO, REPO / RISIKO_REGISTER_ORDNER):
+        aus.extend(str(q.relative_to(REPO)) for q in sorted(ort.glob("RESTRISIKO_*.md")))
     return aus
 
 
