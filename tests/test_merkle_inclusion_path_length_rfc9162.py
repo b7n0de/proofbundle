@@ -182,7 +182,9 @@ def _bundle(key, n, m, d, path, root) -> dict:
 
 
 def _bundle_cases():
-    key = Ed25519PrivateKey.from_private_bytes(hashlib.sha256(b"rfc9162-path-length-key").digest())
+    # A seed written out in the source: tests/test_sdist_ohne_signierwerkzeug.py refuses a key loaded
+    # from anything else in a shipped file, a hash call included.
+    key = Ed25519PrivateKey.from_private_bytes(bytes(range(64, 96)))
     for name, n, m, d, path, root, ok in _cases():
         yield name, _bundle(key, n, m, d, path, root), ok
     d, root, _path, padded = _padded_5_4()

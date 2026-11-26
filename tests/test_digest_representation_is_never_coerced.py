@@ -89,7 +89,9 @@ class InclusionTakesRawBytes(unittest.TestCase):
 class BundleDigestsHaveOneSpelling(unittest.TestCase):
 
     def _cases(self):
-        key = Ed25519PrivateKey.from_private_bytes(hashlib.sha256(b"digest-representation-key").digest())
+        # A seed written out in the source: tests/test_sdist_ohne_signierwerkzeug.py refuses a key
+        # loaded from anything else in a shipped file, a hash call included.
+        key = Ed25519PrivateKey.from_private_bytes(bytes(range(32, 64)))
         payload = b"payload-digest-representation"
         leaves = [b"a", b"b", payload]
         root = _ref_head([_ref_leaf(x) for x in leaves])
