@@ -29,9 +29,10 @@ Properties checked:
   own begins with Verify (the catalog's Claude Code row with Verifies) and marks receipt signing as
   experimental;
 - the plugin directory is not part of the Python distribution;
-- the server starts the CLI with `python -I`, which PYTHONPATH does not reach, so a case that calls the CLI
-  skips with both versions named where that child loads another proofbundle than the tree under test (a
-  witness whose interpreter carries an older release), runs where the child loads the tree, and must run in CI.
+- the server starts the CLI with `python -I`, which PYTHONPATH does not reach, so a case skips at its first
+  answer from the CLI, with both versions named, where that child loads other Python sources than this
+  checkout's (a witness whose interpreter carries an older release); it runs where the child loads the checkout,
+  and in CI it must run.
 """
 from __future__ import annotations
 
@@ -40,6 +41,7 @@ import functools
 import hashlib
 import importlib.util
 import json
+import locale
 import os
 import pathlib
 import re
@@ -73,7 +75,9 @@ def _frontmatter(text: str) -> dict[str, str]:
     return fields
 
 
-TREE_PACKAGE = pathlib.Path(proofbundle.__file__).resolve().parent
+#: The package of this checkout, the state under test; not whatever `import proofbundle` found in this process.
+TREE_PACKAGE = ROOT / "src" / "proofbundle"
+TREE_VERSION = re.search(r'^__version__ = "([^"]+)"$', (TREE_PACKAGE / "__init__.py").read_text(encoding="utf-8"), re.M).group(1)
 
 
 def _cli_tools() -> set[str]:
@@ -88,7 +92,8 @@ CLI_TOOLS = _cli_tools()
 
 
 def _package_digest(package: pathlib.Path) -> str:
-    """sha256 over every .py file of a package directory, by relative path and bytes."""
+    """sha256 over the Python source files of a package directory, by relative path and bytes. It shows that two
+    packages carry the same Python sources, nothing about data files, metadata or dependencies."""
     digest = hashlib.sha256()
     for path in sorted(p for p in package.rglob("*.py") if "__pycache__" not in p.parts):
         digest.update(path.relative_to(package).as_posix().encode() + b"\0" + path.read_bytes() + b"\0")
@@ -97,13 +102,13 @@ def _package_digest(package: pathlib.Path) -> str:
 
 @functools.lru_cache(maxsize=None)
 def _cli_skip_reason(python: str) -> str | None:
-    """None where `python -I`, as the server's _run_cli starts the CLI, loads the tree under test; otherwise the
-    reason for skipping a case that calls the CLI, naming both versions and where each comes from."""
+    """None where `python -I`, as the server's _run_cli starts the CLI, loads the Python sources of this checkout;
+    otherwise the reason for skipping a case whose answer comes from the CLI, naming both versions and their paths."""
     probe = "import json, proofbundle; print(json.dumps([proofbundle.__file__, proofbundle.__version__]))"
     with tempfile.TemporaryDirectory(prefix="proofbundle-child-") as clean:
         child = subprocess.run([python, "-I", "-c", probe], cwd=clean, capture_output=True, text=True,
                                timeout=120, check=False)
-    tree = f"the tree under test, proofbundle {proofbundle.__version__} from {TREE_PACKAGE}"
+    tree = f"the checkout under test, proofbundle {TREE_VERSION} from {TREE_PACKAGE}"
     if child.returncode != 0:
         last = (child.stderr.strip().splitlines() or ["no output"])[-1]
         return f"the server starts the CLI with `python -I`, which cannot import proofbundle ({last}), not {tree}"
@@ -141,12 +146,14 @@ class _Server:
         return reply
 
     def tool(self, name: str, **arguments) -> tuple[dict, bool]:
-        if name in CLI_TOOLS:
+        result = self.request("tools/call", {"name": name, "arguments": arguments})["result"]
+        payload = json.loads(result["content"][0]["text"])
+        # An answer that carries exit_code came from the CLI; a refusal before it ran stays measured.
+        if name in CLI_TOOLS and "exit_code" in payload:
             reason = _cli_skip_reason(self.python)
             if reason:
                 pytest.skip(reason)
-        result = self.request("tools/call", {"name": name, "arguments": arguments})["result"]
-        return json.loads(result["content"][0]["text"]), result["isError"]
+        return payload, result["isError"]
 
     def close(self) -> int:
         self.proc.stdin.close()
@@ -685,8 +692,10 @@ def test_the_cli_tools_are_the_four_that_start_the_cli():
 
 
 def _interpreter_whose_isolated_child_loads_the_tree(tmp_path: pathlib.Path) -> str:
-    """A throwaway venv whose site directory puts the tree under test first and this interpreter's site
-    directories after it, so `python -I` there imports the tree, as an install of the tree in CI does."""
+    """A throwaway venv whose site directory puts this checkout's src first and this interpreter's site directories
+    after it, so `python -I` there imports the checkout, as the editable install of every pytest job in CI does.
+    The .pth file is written in the locale encoding site reads it in; .pth files inside the appended site
+    directories are not processed, so a dependency installed editable would be missing there."""
     venv = tmp_path / "venv"
     made = subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(venv)], capture_output=True, text=True,
                           timeout=120, check=False)
@@ -697,7 +706,7 @@ def _interpreter_whose_isolated_child_loads_the_tree(tmp_path: pathlib.Path) -> 
                              capture_output=True, text=True, timeout=60, check=True).stdout.strip()
     sites = [p for p in sys.path if os.path.isdir(p) and p.rstrip(os.sep).endswith(("site-packages", "dist-packages"))]
     pathlib.Path(purelib, "aa_tree_under_test.pth").write_text("\n".join([str(TREE_PACKAGE.parent), *sites]) + "\n",
-                                                                 encoding="utf-8")
+                                                                 encoding=locale.getpreferredencoding(False))
     return str(python)
 
 
@@ -724,8 +733,10 @@ def test_the_cli_cases_run_where_the_isolated_child_loads_the_tree(tmp_path):
 
 
 def test_in_ci_the_isolated_child_loads_the_tree_under_test():
-    """CI installs the tree, so there every CLI case must run: a skip there would hide the cases from the one
-    measurement that sees them, and this test turns that into a red result."""
+    """Every pytest job in ci.yml installs this checkout editable, so there the isolated child loads its Python
+    sources and no case is skipped for this reason; a skip there would hide the cases from the one measurement
+    that sees them, and this test turns that into a red result. It checks this one skip condition, not a test
+    selection or other skip reasons, and outside GitHub Actions it does not run."""
     if os.environ.get("GITHUB_ACTIONS") != "true":
         pytest.skip("checked only in CI, where the tree under test is installed")
     assert _cli_skip_reason(sys.executable) is None, _cli_skip_reason(sys.executable)
