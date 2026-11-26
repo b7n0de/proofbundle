@@ -14,12 +14,12 @@ The pre-tag receipt is to be produced from a fresh checkout of the final release
 
 ## Recorded findings
 
-[The 6.6.1 residual-risk record](../../RESTRISIKO_661.md) lists the findings that stay open after this release and the limits of the changes it carries. A target release is not a completed fix.
+[The 6.6.1 residual-risk record](../../docs/residual_risk/RESTRISIKO_661.md) lists the findings that stay open after this release and the limits of the changes it carries. A target release is not a completed fix.
 
 | Record | Status in this preparation snapshot |
 |---|---|
 | Final pre-tag audit and signed receipt, with the tracked audit output | Pending |
-| Mutation run | Running at bb018ea6, the last commit before this preparation: 60 of the 118 operators in four parts on the reference machine, the other 58 one each in separate containers, where the 20 tests bound to the reference machine are skipped and an operator that survives runs again on the reference machine; not finished at this snapshot. Its result is stated in the message of the tag, not in this tree ([the 6.6.1 residual-risk record](../../RESTRISIKO_661.md)). Since then the preparation changes four modules the run mutates and files under `tests/`, and the list holds 136 operators; the 28 that mutate those modules run again at dc13aa70 and, after a further change to `sdjwt.py`, the six that mutate that module at 6684b63d, each as one part, as that record describes |
+| Mutation run | Running at bb018ea6, the last commit before this preparation: 60 of the 118 operators in four parts on the reference machine, the other 58 one each in separate containers, where the 20 tests bound to the reference machine are skipped and an operator that survives runs again on the reference machine; not finished at this snapshot. Its result is stated in the message of the tag, not in this tree ([the 6.6.1 residual-risk record](../../docs/residual_risk/RESTRISIKO_661.md)). Since then the preparation changes four modules the run mutates and files under `tests/`, and the list holds 136 operators; the 28 that mutate those modules run again at dc13aa70 and, after a further change to `sdjwt.py`, the six that mutate that module at 6684b63d, each as one part, as that record describes |
 | Reference measurement of the budget cost axis | Measured on the reference machine on 2026-11-23 using the code at 9749d371; all 12 expected axes and all 7 expected combinations passed and no axis was skipped, from [the measurement record](../360/budget_axis_latest.json) |
 | Short soak at the release candidate (C6.2) and Rust differential (C8.2), signed and bound to the candidate | Pending |
 | Full 24-hour soak (C6.3) | Informative since 6.6.0; it runs beside the release and does not withhold readiness |

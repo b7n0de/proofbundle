@@ -11,7 +11,13 @@ takes a policy object (`requireSignedCheckpoint`, `trustedLogOrigins`/`trustedLo
 (`LOG_ORIGIN`, `CHECKPOINT_SIGNATURE`, `ROOT_BYTES_AUTHENTICITY`,
 `TREE_CONTEXT_AUTHENTICITY`, `CONSISTENCY`, `WITNESS_QUORUM`,
 `PUBLIC_TRANSPARENCY`), fail-closed (a required-but-unevaluable check is FAIL,
-an optional un-requested check is `NOT_EVALUATED` and stays visible). What is
+an optional un-requested check is `NOT_EVALUATED` and stays visible). Since
+issue 557 `CONSISTENCY` is `PASS` only when a `ConsistencyProof` between the
+older state the relying party holds and the checkpoint verifies on that call
+(`merkle.verify_consistency` for an RFC 6962 path,
+`scitt_ccf.verify_consistency_receipt` for a CCF consistency receipt); a
+caller's `consistency_confirmed` or typed `consistency_result` alone is a
+statement and gives `FAIL`. What is
 still **proposed, not built** is wiring that library into the `--policy` FILE
 of `proofbundle verify` the way `--policy` already lets a relying party
 declare "I require this signer" or "I require this assurance level" — so the

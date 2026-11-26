@@ -14,7 +14,7 @@ The pre-tag receipt is to be produced from a fresh checkout of the final release
 
 The signed register reports 36 register entries for version `6.3.1`, with 27 closed, 9 open and no open P0 or P1 entries under the maintainer's classifications. K3 to K10, open at 6.3.0 and targeted for 6.3.1, are recorded as closed through pull request 393, each with the test that is red at v6.3.0 and green at the release candidate.
 
-These totals count register entries only. [The 6.3.1 residual-risk record](../../RESTRISIKO_631.md) lists the targets of 6.3.0 that this release carries, the findings that stay open after it and the limits of the fixes it carries. A target release is not a completed fix.
+These totals count register entries only. [The 6.3.1 residual-risk record](../../docs/residual_risk/RESTRISIKO_631.md) lists the targets of 6.3.0 that this release carries, the findings that stay open after it and the limits of the fixes it carries. A target release is not a completed fix.
 
 | Record | Status in this preparation snapshot |
 |---|---|

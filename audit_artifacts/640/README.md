@@ -14,7 +14,7 @@ The pre-tag receipt is to be produced from a fresh checkout of the final release
 
 The signed register reports 39 register entries for version `6.4.0`, with 27 closed, 12 open and no open P0 or P1 entries under the maintainer's classifications. Against 6.3.1 it adds BUILD-PATH-TEST-READS-WORKFLOW-TEXT-01, LOCAL-BUILD-COMMANDS-WITHOUT-PIN-01 and R640-B10-1, each open at P3, and no entry is removed or changes content.
 
-These totals count register entries only. [The 6.4.0 residual-risk record](../../RESTRISIKO_640.md) lists the findings that stay open after this release and the limits of the changes it carries. A target release is not a completed fix.
+These totals count register entries only. [The 6.4.0 residual-risk record](../../docs/residual_risk/RESTRISIKO_640.md) lists the findings that stay open after this release and the limits of the changes it carries. A target release is not a completed fix.
 
 | Record | Status in this preparation snapshot |
 |---|---|
