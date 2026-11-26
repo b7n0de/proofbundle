@@ -29,10 +29,10 @@ Properties checked:
   own begins with Verify (the catalog's Claude Code row with Verifies) and marks receipt signing as
   experimental;
 - the plugin directory is not part of the Python distribution;
-- the server starts the CLI with `python -I`, which PYTHONPATH does not reach, so a case skips at its first
-  answer from the CLI, with both versions named, where that child loads other Python sources than this
-  checkout's (a witness whose interpreter carries an older release); it runs where the child loads the checkout,
-  and in CI it must run.
+- the server starts the CLI with `python -I`, which PYTHONPATH does not reach, so a case that calls one of
+  the four CLI tools skips as a whole, before that call and with both versions named, where that child loads
+  other Python sources than this checkout's (a witness whose interpreter carries an older release); it runs
+  where the child loads the checkout, and in CI it must run.
 """
 from __future__ import annotations
 
@@ -41,7 +41,6 @@ import functools
 import hashlib
 import importlib.util
 import json
-import locale
 import os
 import pathlib
 import re
@@ -52,7 +51,6 @@ import tempfile
 
 import pytest
 
-import proofbundle
 from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -124,9 +122,9 @@ class _Server:
     def __init__(self, cwd: pathlib.Path, data: pathlib.Path, python: str = sys.executable):
         env = plugin_env(CLAUDE_PLUGIN_DATA=str(data))
         # The server runs from a temporary directory, where a relative PYTHONPATH would resolve to
-        # nothing and the child could import some other installed proofbundle. Put the package this
-        # test imported first, so the server is measured against the code under test. The CLI the server
-        # starts runs with `-I` and does not see this path; tool() skips a CLI case where it loads another one.
+        # nothing and the child could import some other installed proofbundle. Put this checkout's src
+        # first, so the server is measured against the code under test. The CLI the server starts runs
+        # with `-I` and does not see this path; tool() skips a CLI case where that child loads another one.
         package_root = str(TREE_PACKAGE.parent)
         env["PYTHONPATH"] = os.pathsep.join(p for p in (package_root, env.get("PYTHONPATH")) if p)
         self.python = python
@@ -146,14 +144,14 @@ class _Server:
         return reply
 
     def tool(self, name: str, **arguments) -> tuple[dict, bool]:
-        result = self.request("tools/call", {"name": name, "arguments": arguments})["result"]
-        payload = json.loads(result["content"][0]["text"])
-        # An answer that carries exit_code came from the CLI; a refusal before it ran stays measured.
-        if name in CLI_TOOLS and "exit_code" in payload:
+        # Decided before the call, so no answer of another CLI (a verdict, an error, a timeout) is ever read.
+        # A case that calls one of these tools skips as a whole, its other checks included.
+        if name in CLI_TOOLS:
             reason = _cli_skip_reason(self.python)
             if reason:
                 pytest.skip(reason)
-        return payload, result["isError"]
+        result = self.request("tools/call", {"name": name, "arguments": arguments})["result"]
+        return json.loads(result["content"][0]["text"]), result["isError"]
 
     def close(self) -> int:
         self.proc.stdin.close()
@@ -222,7 +220,7 @@ def test_an_emitted_receipt_verifies_and_a_changed_one_does_not(server, tmp_path
 
     verified, failed = server.tool("verify_receipt", kind="decision", path=str(tmp_path / "r.json"), public_key=key)
     assert (failed, verified["exit_code"], verified["verified"]) == (False, 0, True)
-    assert verified["proofbundle_version"] == proofbundle.__version__
+    assert verified["proofbundle_version"] == TREE_VERSION
 
     envelope = json.loads((tmp_path / "r.json").read_text(encoding="utf-8"))
     payload = bytearray(base64.b64decode(envelope["payload"]))
@@ -694,8 +692,9 @@ def test_the_cli_tools_are_the_four_that_start_the_cli():
 def _interpreter_whose_isolated_child_loads_the_tree(tmp_path: pathlib.Path) -> str:
     """A throwaway venv whose site directory puts this checkout's src first and this interpreter's site directories
     after it, so `python -I` there imports the checkout, as the editable install of every pytest job in CI does.
-    The .pth file is written in the locale encoding site reads it in; .pth files inside the appended site
-    directories are not processed, so a dependency installed editable would be missing there."""
+    The .pth file holds ASCII paths only, which every encoding site may read it in decodes alike; with any other
+    path the proof skips. .pth files inside the appended site directories are not processed, so a dependency
+    installed editable would be missing there."""
     venv = tmp_path / "venv"
     made = subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(venv)], capture_output=True, text=True,
                           timeout=120, check=False)
@@ -705,8 +704,10 @@ def _interpreter_whose_isolated_child_loads_the_tree(tmp_path: pathlib.Path) -> 
     purelib = subprocess.run([str(python), "-I", "-c", "import sysconfig; print(sysconfig.get_paths()['purelib'])"],
                              capture_output=True, text=True, timeout=60, check=True).stdout.strip()
     sites = [p for p in sys.path if os.path.isdir(p) and p.rstrip(os.sep).endswith(("site-packages", "dist-packages"))]
-    pathlib.Path(purelib, "aa_tree_under_test.pth").write_text("\n".join([str(TREE_PACKAGE.parent), *sites]) + "\n",
-                                                                 encoding=locale.getpreferredencoding(False))
+    lines = "\n".join([str(TREE_PACKAGE.parent), *sites]) + "\n"
+    if not lines.isascii():
+        pytest.skip("a path for the .pth file is not ASCII, and site reads .pth files in an encoding that varies")
+    pathlib.Path(purelib, "aa_tree_under_test.pth").write_text(lines, encoding="ascii")
     return str(python)
 
 
