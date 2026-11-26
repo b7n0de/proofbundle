@@ -14,6 +14,7 @@ exporters write here are pinned to the bytes the tree before this change wrote.
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import json
 import tempfile
@@ -26,6 +27,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from proofbundle import dsse
 from proofbundle import intoto as I
+from proofbundle.errors import BundleFormatError
 
 REPO = Path(__file__).resolve().parents[1]
 _G2_JCS = REPO / "tests/fixtures/eval_result_v0_1/envelope_jcs.json"
@@ -214,6 +216,71 @@ class V02ReadsBothSpellings(unittest.TestCase):
         self.assertIs(res["ok"], True, res)
         rc, text = _cli_verify(env)
         self.assertEqual(rc, 0, text)
+
+
+def _exports() -> dict:
+    """What the exporters write for each profile under the fixed seed, as the bytes of the JSON envelope."""
+    out = {}
+    for profile in I.SUBJECT_PROFILES:
+        extra = {} if profile == "receipt" else dict(_DISCLOSED)
+        v01 = I.export_eval_result_dsse(CLAIM, _SIGNER, subject_profile=profile, root_b64=ROOT, **extra)
+        model = None if profile != "public-model" else {"name": _DISCLOSED["subject_name"],
+                                                        "digest": {"sha256": _DISCLOSED["subject_sha256"]}}
+        v02 = I.export_eval_result_v02_dsse(CLAIM, _SIGNER, evaluator_id=EVALUATOR, subject_profile=profile,
+                                            root_b64=ROOT, model=model,
+                                            evidence=[I.receipt_evidence(b"{}\n")], **extra)
+        for version, env in (("v0.1", v01), ("v0.2", v02)):
+            out[f"{version} {profile}"] = json.dumps(env, indent=2).encode("utf-8") + b"\n"
+    return out
+
+
+#: sha256 of each `_exports()` entry, measured on the tree before this change (main c6a32bf7) with PYTHONPATH set
+#: to its src; the measurement is in the change's report. The bytes equal what `proofbundle intoto --out` writes
+#: for the same envelope (json.dump with indent 2 and a newline).
+WRITTEN_BEFORE = {
+    "v0.1 receipt": "60a78fa4c806d69a5155f72f1f22bf743474731a38116aa8804c585e4e1d84a0",
+    "v0.1 public-model": "d77e06365a773ff1fefe3a6b30fd1c5a0c6e2da24cc30ca30e9dff17d7aa5275",
+    "v0.1 release-gate": "3464936faeecfc4f96f62a5a09df777f7924a5c9d47f7aa3463172825645229d",
+    "v0.2 receipt": "7078dfe0393528df3179e0ecfec4bc0b2c7f84f270f937bbd86204ad73330c9d",
+    "v0.2 public-model": "d1d1ef06b293e68ca004f808f45a2ac8d3fd67b9d44754b562e9283ac2d4a5ad",
+    "v0.2 release-gate": "46f5d79e575b3ec64a6a63d5e1d2d1fb9ed15d3a75da0ae1ef98720554be24e9",
+}
+
+
+class WritingIsUnchanged(unittest.TestCase):
+    def test_the_exporters_write_the_bytes_they_wrote_before(self):
+        written = {k: hashlib.sha256(v).hexdigest() for k, v in _exports().items()}
+        self.assertEqual(written, WRITTEN_BEFORE)
+
+    def test_the_exporters_write_the_hyphen_form(self):
+        for key, raw in _exports().items():
+            with self.subTest(key=key):
+                statement = json.loads(base64.b64decode(json.loads(raw)["payload"]))
+                self.assertEqual(statement["predicate"]["subjectProfile"], key.split(" ", 1)[1])
+
+    def test_an_exporter_does_not_take_the_underscore_form(self):
+        for spelling in ("public_model", "release_gate"):
+            with self.subTest(spelling=spelling):
+                with self.assertRaises(BundleFormatError):
+                    I.resolve_subject(spelling, CLAIM, **_DISCLOSED)
+                with self.assertRaises(BundleFormatError):
+                    I.export_eval_result_dsse(CLAIM, _SIGNER, subject_profile=spelling, root_b64=ROOT, **_DISCLOSED)
+                with self.assertRaises(BundleFormatError):
+                    I.export_eval_result_v02_dsse(CLAIM, _SIGNER, evaluator_id=EVALUATOR, subject_profile=spelling,
+                                                  root_b64=ROOT, evidence=[I.receipt_evidence(b"{}\n")],
+                                                  **_DISCLOSED)
+                # The v0.2 predicate builder writes no spelling its emitter would not write.
+                with self.assertRaises(BundleFormatError) as ctx:
+                    I.to_eval_result_v02_predicate(CLAIM, evaluator_id=EVALUATOR, subject_profile=spelling)
+                self.assertIn("subjectProfile must be one of receipt, public-model, release-gate", str(ctx.exception))
+
+    def test_the_cli_choice_keeps_the_hyphen_form(self):
+        for spelling in ("public_model", "release_gate"):
+            with self.subTest(spelling=spelling):
+                rc, text = _cli("intoto", "receipt.json", "--out", "out.json", "--subject-profile", spelling)
+                self.assertEqual(rc, 2, text)
+                self.assertIn("invalid choice", text)
+                self.assertIn("'receipt', 'public-model', 'release-gate'", text)
 
 
 if __name__ == "__main__":
