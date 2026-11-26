@@ -185,6 +185,11 @@ in-toto matches on the subject digest, so the subject must be chosen deliberatel
   deployment is gated on the passing eval — the "deploy only if the eval passed" hook, the natural
   attach point for SLSA/policy. You supply the artifact's `sha256`.
 
+**Spelling.** proofbundle writes the hyphen forms `public-model` and `release-gate`, and every check that
+reads a `subjectProfile` also accepts `public_model` and `release_gate` as the same profiles, because
+in-toto/attestation pull request 575 spells the values in snake_case; proofbundle switches what it writes
+to the underscore forms once that pull request is merged.
+
 ## Reading the export with foreign tools
 
 Measured with the export of 6.1.0 against five foreign readers (Z225, `tools/intoto_external` on the
