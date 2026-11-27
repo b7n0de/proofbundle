@@ -1973,7 +1973,46 @@ def canonicalize_statement(statement: Any, *, require_statement_shape: bool = Fa
     # A plain copy, so a key is sorted by its characters and not by its own `encode`, and a value is
     # written as what it holds (see `_plain_for_jcs`). A plain statement, which is every parsed one,
     # gives the same bytes as before.
-    return rfc8785.dumps(_plain_for_jcs(statement, rfc8785.CanonicalizationError))
+    kopie = _plain_for_jcs(statement, rfc8785.CanonicalizationError)
+    wert = _integral_double_outside_ijson(kopie)
+    if wert is not None:
+        # The literal named is the one RFC 8785 writes, not int(wert): for 2.0**68 those are
+        # 295147905179352830000 and 295147905179352825856.
+        raise rfc8785.CanonicalizationError(
+            f"the double {wert!r} is written by RFC 8785 as the integer literal "
+            f"{rfc8785.dumps(wert).decode('ascii')}, which is outside the I-JSON range +-(2**53 - 1) "
+            "(RFC 7493 section 2.2) that loads_strict reads; refused so the producer signs no bytes "
+            "its verifier refuses")
+    return rfc8785.dumps(kopie)
+
+
+#: RFC 8785 writes an integral double below 1e21 as an integer literal (ECMAScript Number::toString), and
+#: `_strict_json.loads_strict` refuses an integer literal outside +-(2**53 - 1) (owner choice A, 2026-10-22).
+_IJSON_INT_MAX = 2**53 - 1
+
+
+def _integral_double_outside_ijson(kopie: Any) -> Union[float, None]:
+    """The first double in ``kopie`` that RFC 8785 writes as an integer literal the verifier's parser
+    refuses, or None when ``kopie`` holds none.
+
+    The doubles 2**53, 2**68 and 999999999999999700000 of RFC 8785 appendix B are written
+    ``9007199254740992``, ``295147905179352830000`` and ``999999999999999700000``; ``loads_strict``
+    refuses each of these literals. Measured on main c6a32bf7: ``export_eval_result_dsse`` signed a
+    statement whose harness held 2.0**53, and ``verify_eval_result_dsse`` refused its own export at the
+    parser. The producer now refuses it before signing, as it refuses the int 2**53. ``kopie`` is the
+    plain copy of `_plain_for_jcs`, so only dict, list, str, int, float, bool and None are met, and no
+    code of the caller runs here."""
+    stapel = [kopie]
+    while stapel:
+        wert = stapel.pop()
+        typ = type(wert)
+        if typ is dict:
+            stapel.extend(wert.values())
+        elif typ is list:
+            stapel.extend(wert)
+        elif typ is float and wert.is_integer() and _IJSON_INT_MAX < abs(wert) < 1e21:
+            return wert
+    return None
 
 
 @_ein_stand
