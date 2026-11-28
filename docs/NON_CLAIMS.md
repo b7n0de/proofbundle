@@ -32,6 +32,8 @@ A proofbundle receipt (and any in-toto export or SVR derived from it) does **not
 - **That the model or dataset is what its name suggests.** The identifiers are **salted commitments**;
   a receipt binds to a commitment, not to a verified real-world identity. Disclosure (identifier +
   salt) is a separate, later step.
+- **When a revocation took effect.** A timestamp, from an RFC 3161 TSA or an OpenTimestamps proof,
+  shows that the stamped bytes existed no later than its time T, not from when a revocation takes effect.
 
 It also does **not**:
 

@@ -112,6 +112,35 @@ Nothing here depends on any other implementation's vectors, and none were seen.
 - No claim about the correctness of the draft, of any deployment, or of any other implementation.
 - Only the Python versions named in the run record were run.
 
+## Revision -02 and where this reading stops
+
+Everything above follows revision -01. Revision -02 (dated 11 October 2026) renumbers and tightens
+the thirty Minimum Conformance Cases and cites an earlier commit of this directory as implementation
+evidence for -01. The -02 text was read for its Section 12, Section 14 and the case list; no copy of
+it is stored here and no line number above refers to it.
+
+`tests/check_draft02_cases.py` builds an input for each of the thirty -02 cases from the -02 text
+alone and checks every statement the case makes. 26 cases are met. Case 7 was brought in line: a
+malformed receiver record keeps its one primary class `invalid_receiver`, and its instruction and
+target identity now stay visible in that record's diagnostic and on the correlated obligation.
+
+Four cases are not met, and meeting them needs a new function or a changed reading of -01, not a
+correction. The test asserts each limit below, so it fails when one goes away and this list has to
+change with it.
+
+| -02 case | what -02 asks | what this reading does |
+|---|---|---|
+| 5 | a pre-boundary rejection is a scoped EXPLICIT_FAILURE only when bound to one attempt, target and issuer boundary; without those bindings it stays an instruction diagnostic and is not fanned out | an `emission_failed` record without an `emitted` one makes every obligation of the instruction EXPLICIT_FAILURE (reading S5.4-5); an issuer record carries no target binding |
+| 6 | a missing issuer observation reports dispatch NOT_ESTABLISHED, and a receiver record that correlates with an expected obligation is not ORPHAN | `dispatched` is a boolean, false both for a missing record and for a failed emission; a receiver record of an attempt the issuer never recorded is accounted `orphan` (S5.1-4). The obligation is INDETERMINATE, the receiver fact stays linked to it, and PASS is prevented, as -02 asks |
+| 16 | an issuer-side exclusion is per candidate target, with C_i, E_i and T_i counted, the instruction kept as exclusion-induced zero-obligation | exclusion rules remove a whole instruction before population construction; there are no per-target candidates |
+| 22 | EXPLICIT_FAILURE and SUBSTITUTION prevent PASS but give FAIL only under a positive FAIL condition the profile froze before evaluation | any EXPLICIT_FAILURE or SUBSTITUTION gives FAIL (reading S6.5-3); a profile declares no FAIL conditions |
+
+Two further points hold for the inputs the test builds but not for every input. Case 15 says age
+alone is not invalidity; the profile check accepts `resolution_failure.stale = INVALID`, so a profile
+can make a stale target set INVALID. Case 20 asks for no synthetic obligation for an open target set;
+for an open set with `known_targets`, each known target becomes an obligation marked `open_scope`,
+and PASS stays prevented.
+
 ## Running
 
 ```
@@ -119,6 +148,8 @@ python -m pytest interop/acde_01/tests
 python interop/acde_01/vectors/generate_vectors.py --check
 ACDE01_DRAFT_TXT=<path to the pinned copy> python -m pytest interop/acde_01/tests
 ```
+
+`tests/check_draft02_cases.py` holds the -02 cases and runs with the first command.
 
 The third form also re-extracts the requirement table from the draft copy and compares it. The
 test files are named `check_*.py` and `interop/acde_01/pytest.ini` collects them, so they run when
