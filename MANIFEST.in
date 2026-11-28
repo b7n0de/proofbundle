@@ -215,6 +215,10 @@ include scripts/branch_base_check.py
 include scripts/build_reproducible.py
 include scripts/cargo_audit_gate.py
 include scripts/check_version_and_changelog.py
+# IN (2026-11-26): scripts/changelog_fragments.py. The shipped check_version_and_changelog.py loads it
+# for check 3 by path, and the shipped tests/test_changelog_fragments_*.py load it the same way. It reads
+# and writes changelog.d/ and CHANGELOG.md of the repository it is given and holds no key.
+include scripts/changelog_fragments.py
 include scripts/claims_hygiene_check.py
 include scripts/core_layer_gate.py
 include scripts/doc_link_check.py

@@ -153,7 +153,14 @@ after the merge (see *Release ordering* above).
 - [ ] Bump `version` in `pyproject.toml`, `__version__` in `src/proofbundle/__init__.py` **and**
       `version:` in `CITATION.cff` (all three must match — `scripts/check_version_and_changelog.py`
       and the release-integrity CI job enforce the three-file single-sourcing).
-- [ ] Update `CHANGELOG.md` (Keep-a-Changelog + SemVer; note any breaking change explicitly).
+- [ ] Collect the fragments first, before the cut:
+      `python3 scripts/changelog_fragments.py collect`. It moves every file in `changelog.d/` under
+      `## [Unreleased]` of `CHANGELOG.md`, by section and then by file name, and removes it; on a
+      finding it changes nothing and exits 1. Commit its result as a commit of its own and review
+      that diff, since it is the only step that writes the lines of many pull requests at once; a
+      second `collect` must then report 0 fragments. After that the section is cut and every gate
+      runs as before.
+- [ ] Then update `CHANGELOG.md` (Keep-a-Changelog + SemVer; note any breaking change explicitly).
 - [ ] README.md deliberately hard-codes no test-count or version strings (live badges + CI output are the source); only touch README claims that the release genuinely changes.
 - [ ] `make all` green locally (lint + typecheck + tests); `make tamper-demo` exits 0;
       `make mutation` reports all operators killed (documented-equivalent survivor excepted).

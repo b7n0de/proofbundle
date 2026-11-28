@@ -829,8 +829,12 @@ class EinNichtAusgelieferteSkriptIstDIESELBEKlasse(unittest.TestCase):
         # tree: an sdist built by `build_reproducible.py` under the pins of .github/build-constraints.txt
         # (build 1.6.1, setuptools 84.2.1) carries 42 files under scripts/, the include lines read 42,
         # symmetric difference zero.
-        self.assertEqual(len(alt), 42,
-                         "42 shipped scripts were measured against a real build; a different number "
+        # 43 SINCE THE CHANGELOG FRAGMENTS (2026-11-26): MANIFEST.in decided scripts/changelog_fragments.py
+        # in, and the measurement was redone the same way on that tree: an sdist built by
+        # `build_reproducible.py` under the pins of .github/build-constraints.txt (build 1.6.1, setuptools
+        # 84.2.1) carries 43 files under scripts/, the include lines read 43, symmetric difference zero.
+        self.assertEqual(len(alt), 43,
+                         "43 shipped scripts were measured against a real build; a different number "
                          "here means the file moved and that measurement needs redoing")
 
     def test_gegenrichtung_ein_ausgeliefertes_skript_ist_kein_befund(self):

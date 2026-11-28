@@ -70,6 +70,11 @@ re-conflicts on `CHANGELOG.md` on every single PR. `CHANGELOG.md` is structured
 newest-first: `## [Unreleased]` at the top, then released versions in descending
 order — a branch cut from an old tag always collides there.
 
+A pull request writes its CHANGELOG lines as a fragment, one file per section in
+`changelog.d/` (see `changelog.d/README.md`), instead of under `## [Unreleased]`, and
+checks it with `python3 scripts/changelog_fragments.py check`. Two open pull requests
+then never edit the same lines; writing directly under `## [Unreleased]` stays valid.
+
 A non-blocking CI check (`scripts/branch_base_check.py`) warns if a PR branch was
 forked from a release tag; it is advisory only and never fails the build. To fix a
 branch that was cut from a tag:

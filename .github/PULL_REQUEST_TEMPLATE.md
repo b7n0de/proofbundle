@@ -21,6 +21,8 @@ Closes #
 - [ ] `ruff check .` and `mypy src` pass locally (or CI will tell me)
 - [ ] Tests pass (`python -m unittest discover -s tests`) and I added a test if this fixes a bug
       or adds behaviour
+- [ ] A user-visible change has its CHANGELOG lines as a fragment `changelog.d/<stem>.<section>.md`
+      (see `changelog.d/README.md`; `python3 scripts/changelog_fragments.py check` passes)
 - [ ] The library keeps its core promise: it proves authorship and integrity, deliberately **not**
       that a number is true — I did not add a claim it cannot back
 
