@@ -723,6 +723,9 @@ _RULE_SITES = {
                                                                      "the plain bytes `_ein_stand` read at the "
                                                                      "call; verify_ed25519_pinned judges them "
                                                                      "again and decides; writes nothing"),
+    ("src/proofbundle/receipt_cose.py", "_statement_keys"): (1, "verifier: the relying party's statement keys, "
+                                                                 "each read once by plain_bytes and used as "
+                                                                 "read; compared and verified, never written"),
     ("src/proofbundle/sdjwt_issue.py", "issue_sd_jwt"): (1, "PRODUCER, ProducersOfRawKeys"),
     ("src/proofbundle/signature.py", "verify_ed25519_pinned"): (1, "the verify primitive"),
     ("src/proofbundle/trust_pack.py", "validate_trust_pack_predicate"): (

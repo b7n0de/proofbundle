@@ -1,0 +1,2352 @@
+
+
+
+
+Network Working Group                                         K. Gruszka
+Internet-Draft                                                    b7n0de
+Intended status: Informational                           26 October 2026
+Expires: 29 April 2027
+
+
+                       Signed Evaluation Receipts
+              draft-gruszka-signed-evaluation-receipts-04
+
+Abstract
+
+   This document defines a Signed Evaluation Receipt: one JSON object
+   that records one evaluation result, whether a stated threshold held
+   for a stated metric of a stated test suite, and signs it with Ed25519
+   over a domain-separated encoding of its canonical bytes.  A receipt
+   shows who signed the recorded bytes.  It does not show that the
+   recorded result is true.  A receipt does not prove registration with
+   a Transparency Service.  In SCITT, transparency additionally requires
+   registering a Signed Statement carrying the receipt or its digest
+   with a Transparency Service and verifying the resulting SCITT
+   Receipt.  Registration and verification of the resulting SCITT
+   Receipt are outside this document.
+
+Status of This Memo
+
+   This Internet-Draft is submitted in full conformance with the
+   provisions of BCP 78 and BCP 79.
+
+   Internet-Drafts are working documents of the Internet Engineering
+   Task Force (IETF).  Note that other groups may also distribute
+   working documents as Internet-Drafts.  The list of current Internet-
+   Drafts is at https://datatracker.ietf.org/drafts/current/.
+
+   Internet-Drafts are draft documents valid for a maximum of six months
+   and may be updated, replaced, or obsoleted by other documents at any
+   time.  It is inappropriate to use Internet-Drafts as reference
+   material or to cite them other than as "work in progress."
+
+   This Internet-Draft will expire on 29 April 2027.
+
+Copyright Notice
+
+   Copyright (c) 2026 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents (https://trustee.ietf.org/
+   license-info) in effect on the date of publication of this document.
+
+
+
+Gruszka                   Expires 29 April 2027                 [Page 1]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   Please review these documents carefully, as they describe your rights
+   and restrictions with respect to this document.  Code Components
+   extracted from this document must include Revised BSD License text as
+   described in Section 4.e of the Trust Legal Provisions and are
+   provided without warranty as described in the Revised BSD License.
+
+Table of Contents
+
+   1.  Introduction  . . . . . . . . . . . . . . . . . . . . . . . .   3
+   2.  Conventions and Terminology . . . . . . . . . . . . . . . . .   4
+   3.  Receipt Format  . . . . . . . . . . . . . . . . . . . . . . .   4
+     3.1.  The Receipt Object  . . . . . . . . . . . . . . . . . . .   4
+     3.2.  The Payload . . . . . . . . . . . . . . . . . . . . . . .   5
+     3.3.  Salted Commitments  . . . . . . . . . . . . . . . . . . .   7
+     3.4.  The Bytes B . . . . . . . . . . . . . . . . . . . . . . .   8
+     3.5.  The Criteria Digest . . . . . . . . . . . . . . . . . . .   8
+   4.  Signature . . . . . . . . . . . . . . . . . . . . . . . . . .   8
+     4.1.  Pre-Authentication Encoding . . . . . . . . . . . . . . .   8
+     4.2.  The Type  . . . . . . . . . . . . . . . . . . . . . . . .   9
+     4.3.  Signing . . . . . . . . . . . . . . . . . . . . . . . . .   9
+     4.4.  Verification Profile  . . . . . . . . . . . . . . . . . .   9
+   5.  Verification Procedure  . . . . . . . . . . . . . . . . . . .  10
+   6.  What a Receipt Does Not Prove . . . . . . . . . . . . . . . .  16
+   7.  Related Work  . . . . . . . . . . . . . . . . . . . . . . . .  17
+   8.  Security Considerations . . . . . . . . . . . . . . . . . . .  19
+   9.  Privacy Considerations  . . . . . . . . . . . . . . . . . . .  21
+   10. IANA Considerations . . . . . . . . . . . . . . . . . . . . .  21
+     10.1.  Media Type Registration Template . . . . . . . . . . . .  21
+   11. Implementation Status . . . . . . . . . . . . . . . . . . . .  23
+   12. References  . . . . . . . . . . . . . . . . . . . . . . . . .  24
+     12.1.  Normative References . . . . . . . . . . . . . . . . . .  24
+     12.2.  Informative References . . . . . . . . . . . . . . . . .  25
+   Appendix A.  Test Vectors . . . . . . . . . . . . . . . . . . . .  27
+     A.1.  Constants and Test Material . . . . . . . . . . . . . . .  27
+     A.2.  Vector Set  . . . . . . . . . . . . . . . . . . . . . . .  29
+       A.2.1.  P1 (pass; expected PASS, step all)  . . . . . . . . .  29
+       A.2.2.  P2 (recorded-failure; expected PASS, step all)  . . .  30
+       A.2.3.  P4 (escaped-receipt-string; expected PASS, step
+               all)  . . . . . . . . . . . . . . . . . . . . . . . .  32
+       A.2.4.  P6 (no-key-hint; expected PASS, step all) . . . . . .  33
+       A.2.5.  N5 (jcs-form; expected FAIL, step 5)  . . . . . . . .  33
+       A.2.6.  N7 (pae-type; expected FAIL, step 11 (profile 4)) . .  35
+       A.2.7.  N12 (small-order-key; expected FAIL, step 11 (profile
+               2, key))  . . . . . . . . . . . . . . . . . . . . . .  36
+       A.2.8.  N13 (canonical-base64; expected FAIL, step 3) . . . .  37
+       A.2.9.  N14 (receipt-duplicate-names; expected FAIL, step
+               1)  . . . . . . . . . . . . . . . . . . . . . . . . .  38
+
+
+
+
+Gruszka                   Expires 29 April 2027                 [Page 2]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+       A.2.10. N59 (mixed-order-R; expected FAIL, step 11 (profile 2,
+               R)) . . . . . . . . . . . . . . . . . . . . . . . . .  39
+     A.3.  The Complete Vector Set . . . . . . . . . . . . . . . . .  40
+   Changes (to be removed before publication)  . . . . . . . . . . .  41
+     Since draft-gruszka-signed-evaluation-receipts-03 . . . . . . .  41
+     Since draft-gruszka-signed-evaluation-receipts-02 . . . . . . .  41
+     Since draft-gruszka-signed-evaluation-receipts-01 . . . . . . .  41
+     Since draft-gruszka-signed-evaluation-receipts-00 . . . . . . .  42
+   Author's Address  . . . . . . . . . . . . . . . . . . . . . . . .  42
+
+1.  Introduction
+
+   Evaluation results for software and models are often reported as
+   numbers in documents, dashboards or logs.  A reader who receives such
+   a number later has no means to tell whether the bytes they see are
+   the bytes the reporting party produced.  This document defines a
+   small, fixed format that gives that means and nothing more.
+
+   A Signed Evaluation Receipt (receipt) holds exactly one assertion:
+   for a named test suite and metric, whether the score met a threshold
+   under a stated comparator.  The model and the dataset are named only
+   through salted commitments.  The assertion is serialized with the
+   JSON Canonicalization Scheme [RFC8785], and the resulting bytes are
+   signed with Ed25519 [RFC8032] over a pre-authentication encoding that
+   binds a fixed type.
+
+   Two parties that share no infrastructure can use this format: an
+   Issuer that ran an evaluation, such as the provider of a model or a
+   test laboratory, and a Receiver that decides on the result, such as
+   an operator that admits a model into service or an auditor.  The
+   Issuer hands over one receipt; the Receiver checks it under a key it
+   fixed beforehand, without access to the Issuer's systems, and learns
+   which result the Issuer reports for which committed model and
+   dataset, under which threshold and comparator.  The receipt object
+   exists next to the DSSE-compatible signature because it carries,
+   together with B, the fixed type and the payload schema identifier and
+   is verified by one procedure (Section 5), so that every Receiver
+   reaches the same verdict on the same receipt bytes and verification
+   key, provided verification completes.  A DSSE signature check alone
+   is not that verdict.
+
+   A receipt establishes integrity and origin: the holder of the signing
+   key signed exactly these bytes.  It does not establish truth.
+   Section 6 lists what a receipt does not prove, and that list is part
+   of the definition.  A receipt carries no inclusion proof and names no
+   log.  A receipt does not prove registration with a Transparency
+   Service.  In SCITT [RFC9943], transparency additionally requires
+   registering a Signed Statement carrying the receipt or its digest
+
+
+
+Gruszka                   Expires 29 April 2027                 [Page 3]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   with a Transparency Service and verifying the resulting SCITT
+   Receipt.  Registration and verification of the resulting SCITT
+   Receipt are outside this document.
+
+   This document defines an application payload and a receipt that
+   carries it with a signature.  Its interoperability target is that
+   independent Receivers reach the same format, consistency and
+   signature verdict on the same receipt bytes and verification key,
+   provided verification completes.  It does not define an evaluation
+   method or decide whether a reported result is sufficient for an
+   application.  A separate profile can specify how this format is
+   carried or cited in SCITT.  This document defines no envelope mapping
+   and no transport.
+
+2.  Conventions and Terminology
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+   "OPTIONAL" in this document are to be interpreted as described in BCP
+   14 [RFC2119] [RFC8174] when, and only when, they appear in all
+   capitals, as shown here.
+
+   Issuer:  The party that creates and signs a receipt.
+
+   Receiver:  The party that verifies a receipt.  The Receiver fixes the
+      verification key before verification, by means outside this
+      document.
+
+   Payload:  The JSON object that holds the assertion (Section 3.2).
+
+   B:  The RFC 8785 byte string of the Payload.  B is what is signed
+      (through PAE).
+
+   PAE:  The pre-authentication encoding of Section 4.1.
+
+   Commitment:  A string that binds an identifier without revealing it
+      (Section 3.3).
+
+3.  Receipt Format
+
+3.1.  The Receipt Object
+
+   A receipt is one JSON text [RFC8259] that is an I-JSON message
+   [RFC7493]: UTF-8 without a byte order mark, no string (member names
+   included) that contains a surrogate or noncharacter code point
+   ([RFC7493] Section 2.1), no duplicate member names at any level, and
+   nothing before or after the JSON text other than insignificant
+   whitespace ([RFC8259] Section 2).  Member names are compared after
+
+
+
+Gruszka                   Expires 29 April 2027                 [Page 4]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   unescaping ([RFC8259] Section 8.3), and so are string values: the
+   receipt object is not canonicalized, so \/ and / are the same
+   character.  Its top-level value is an object with exactly these
+   members:
+
+   schema:  The type of Section 4.2, as a string.
+
+   payload_b64:  The base64 encoding of B ([RFC4648] Section 4, with
+      padding).  It MUST be the canonical encoding: re-encoding the
+      decoded bytes yields the same string ([RFC4648] Section 3.5).
+
+   signature:  An object with exactly the members alg and sig, or
+      exactly alg, sig and key. alg is the string ed25519; sig is the
+      canonical base64 encoding, as for payload_b64, of the 64-byte
+      Ed25519 signature; key, when present, is the canonical base64
+      encoding, as for payload_b64, of a 32-byte Ed25519 public key and
+      is only a hint (Section 5).
+
+   The receipt object has no number member.  The number rules of I-JSON
+   are not checked when the receipt is parsed: a number where a string
+   belongs fails the step that checks that member.
+
+   The receipt names no trust instance: it carries no certificate, no
+   address from which a key could be fetched, and no list of trusted
+   parties.
+
+3.2.  The Payload
+
+   The Payload is a JSON object with exactly the members of Table 1.
+   criteria_digest is the only optional member: a Payload either has it
+   or not, and has no member that Table 1 does not list.  The Type
+   column states every constraint a member has except two: the pattern
+   sha256: followed by 64 lowercase hexadecimal digits that the
+   commitments of Section 3.3 and criteria_digest (Section 3.5) share,
+   and the agreement of passed with the comparison.  A member that
+   violates its row fails step 6 of Section 5, a commitment or a
+   criteria_digest without that pattern fails step 7, and a passed that
+   disagrees fails step 8.
+
+   +===================+====================+==========================+
+   | Member            | Type               | Meaning                  |
+   +===================+====================+==========================+
+   | schema            | string, exactly    | version of the payload   |
+   |                   | the payload schema | format                   |
+   |                   | identifier below   |                          |
+   +-------------------+--------------------+--------------------------+
+   | suite             | non-empty string   | name of the test suite   |
+   +-------------------+--------------------+--------------------------+
+
+
+
+Gruszka                   Expires 29 April 2027                 [Page 5]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   | suite_version     | non-empty string   | version of the test      |
+   |                   |                    | suite                    |
+   +-------------------+--------------------+--------------------------+
+   | metric            | non-empty string   | name of the metric       |
+   +-------------------+--------------------+--------------------------+
+   | comparator        | string, one of >=, | how the score is         |
+   |                   | >, <=, <           | compared with the        |
+   |                   |                    | threshold                |
+   +-------------------+--------------------+--------------------------+
+   | threshold         | decimal string     | the threshold the        |
+   |                   |                    | score is compared with   |
+   +-------------------+--------------------+--------------------------+
+   | score             | decimal string     | the score the Issuer     |
+   |                   |                    | reports                  |
+   +-------------------+--------------------+--------------------------+
+   | passed            | true or false      | whether score            |
+   |                   |                    | comparator threshold     |
+   |                   |                    | holds                    |
+   +-------------------+--------------------+--------------------------+
+   | n                 | integer from 1 to  | number of samples the    |
+   |                   | 2^53 - 1           | Issuer reports; not      |
+   |                   |                    | checked against          |
+   |                   |                    | anything                 |
+   +-------------------+--------------------+--------------------------+
+   | model_id_commit   | string             | commitment               |
+   |                   |                    | (Section 3.3) to the     |
+   |                   |                    | model identifier         |
+   +-------------------+--------------------+--------------------------+
+   | dataset_id_commit | string             | commitment               |
+   |                   |                    | (Section 3.3) to the     |
+   |                   |                    | dataset identifier       |
+   +-------------------+--------------------+--------------------------+
+   | commit_alg        | string, exactly    | the commitment           |
+   |                   | sha256-salted-v1   | construction             |
+   +-------------------+--------------------+--------------------------+
+   | timestamp         | string, a          | when the Issuer states   |
+   |                   | timestamp as       | the evaluation ran       |
+   |                   | defined below      |                          |
+   +-------------------+--------------------+--------------------------+
+   | criteria_digest   | string; OPTIONAL   | digest (Section 3.5)     |
+   |                   |                    | of the criteria set      |
+   |                   |                    | the Issuer states this   |
+   |                   |                    | result belongs to        |
+   +-------------------+--------------------+--------------------------+
+
+                                  Table 1
+
+   The payload schema identifier is
+
+
+
+Gruszka                   Expires 29 April 2027                 [Page 6]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   https://signed-evidence.org/eval-receipt/v1
+
+   In this document a digit is one of the ASCII digits 0 to 9 (0x30 to
+   0x39); no other Unicode digit counts.  A lowercase hexadecimal digit
+   is a digit or one of the ASCII letters a to f (0x61 to 0x66).  A non-
+   empty string has at least one character.  A decimal string is an
+   optional minus sign, then either the digit 0 or a digit from 1 to 9
+   followed by any digits, then optionally a full stop followed by one
+   or more digits; it has no exponent and no plus sign.  A timestamp is
+   a UTC date-time of [RFC3339] in exactly this form, with an uppercase
+   T and Z:
+
+   YYYY-MM-DDTHH:MM:SSZ
+
+   The date exists in the proleptic Gregorian calendar: the day of the
+   month is at most the maximum that [RFC3339] Section 5.7 gives for its
+   month and year, under the leap-year rule of [RFC3339] Appendix C, so
+   the year 0000 exists and is a leap year; the hour is 00 to 23, the
+   minute 00 to 59 and the second 00 to 59.  A timestamp has no
+   fractional seconds and no offset other than Z, and this format does
+   not represent a leap second. passed MUST equal the result of
+   comparing score with threshold under comparator as exact decimal
+   numbers.  The Payload thus carries one assertion, and a Receiver can
+   check that its parts agree with each other; it cannot check that they
+   agree with any evaluation.
+
+   The version of the format lives in the schema identifier.  The test
+   vectors of this version are the vector set of Appendix A: this
+   document gives ten of them in full and fixes the file that holds all
+   of them by its URL, size and SHA-256.  A later version uses a
+   different identifier under
+
+   https://signed-evidence.org/eval-receipt/
+
+   and comes with its own test vectors.  The identifier above keeps
+   naming the format of this document.
+
+3.3.  Salted Commitments
+
+   sha256-salted-v1 is defined as follows.  The Issuer takes a salt of
+   exactly 16 bytes from a cryptographically secure random source and
+   keeps it.  The commitment is the string sha256: followed by the 64
+   lowercase hexadecimal digits of SHA-256 over the salt bytes
+   immediately followed by the UTF-8 bytes of the identifier.  There is
+   no separator and no length prefix.  SHA-256 is the hash function
+   specified in [RFC6234].  A Receiver checks only the pattern sha256:
+   followed by 64 lowercase hexadecimal digits; it can check the binding
+   only when the Issuer discloses salt and identifier.  Reusing the same
+
+
+
+Gruszka                   Expires 29 April 2027                 [Page 7]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   salt and identifier produces the same commitment across receipts.
+   Fresh salts avoid this equality link but do not make receipts
+   unlinkable, because verification keys and other shared values may
+   still link them (Section 9).
+
+3.4.  The Bytes B
+
+   B is the serialization of the Payload under [RFC8785].  For a valid
+   Payload that means: members sorted by name, no insignificant
+   whitespace, the integer n as its decimal digits, and strings with the
+   escaping of [RFC8785] Section 3.2.2.2.  A Receiver MUST reject
+   payload bytes that are not their own RFC 8785 serialization, so that
+   exactly one B exists for each Payload.  The check (step 5 of
+   Section 5) runs before the member checks of step 6, so it applies RFC
+   8785 in full, including the number serialization of its
+   Section 3.2.2.3: a B that carries 1.0, 1e0 or 9007199254740993 is not
+   its own serialization.
+
+3.5.  The Criteria Digest
+
+   criteria_digest is OPTIONAL.  When present, it is the string sha256:
+   followed by the 64 lowercase hexadecimal digits of SHA-256 over the
+   bytes of a criteria set, exactly as the publisher of that criteria
+   set fixed them.  A criteria set is any document that states how an
+   evaluation is to be judged, for example its metric, comparator and
+   threshold; this document defines no format and no canonical form for
+   it.  A Receiver checks only the pattern (step 7 of Section 5).  It
+   can check the binding only when it holds the bytes of the criteria
+   set, by computing SHA-256 over them.  What the member does not show
+   is part of Section 6.
+
+   As an informative example, the profile of
+   [I-D.ozturk-scitt-prml-profile] carries in its hash-only mode the 32
+   octets of SHA-256 over the canonical bytes of a criteria set written
+   in [PRML] as the payload of a Signed Statement.  When the bytes of
+   the criteria set are those canonical bytes, the 64 hexadecimal digits
+   of criteria_digest are those 32 octets written in lowercase
+   hexadecimal.
+
+4.  Signature
+
+4.1.  Pre-Authentication Encoding
+
+   PAE(type, body) = "DSSEv1" SP LEN(type) SP type SP LEN(body) SP body
+
+
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                 [Page 8]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   SP is the byte 0x20.  LEN(x) is the number of bytes of x as ASCII
+   decimal digits without leading zeros. type is the UTF-8 string of
+   Section 4.2, body is B.  "DSSEv1" is the six ASCII bytes of that
+   literal.  This is the pre-authentication encoding of DSSE [DSSE]; it
+   is defined here so that this document can be implemented without it.
+
+4.2.  The Type
+
+   The type is the fixed string
+
+   application/vnd.signed-evidence.eval-receipt+json
+
+   It enters every signature.  It MUST NOT change for this format,
+   because a change would invalidate every signature made under it; a
+   new format uses a new type.  The string is a media type name in the
+   vendor tree ([RFC6838] Section 3.2) with the +json structured syntax
+   suffix ([RFC6839] Section 3.1).  It is the same string that a DSSE
+   envelope would carry as payloadType.
+
+4.3.  Signing
+
+   The signature is Ed25519 as defined in [RFC8032] Section 5.1, in its
+   pure form, without context and without prehashing (not Ed25519ctx,
+   not Ed25519ph):
+
+   sig = Ed25519-Sign(secret key, PAE(type, B))
+
+4.4.  Verification Profile
+
+   Ed25519 implementations differ on inputs that RFC 8032 leaves to
+   choice [TAMING].  A Receiver MUST use this profile.  In it, x*P is
+   the scalar multiplication of the point P by the integer x, B' is the
+   base point, and L is the order of B' ([RFC8032] Section 5.1).
+
+   1.  The public key A and the signature's first half R MUST be
+       canonical encodings: decoding as in [RFC8032] Section 5.1.3
+       succeeds.  That decoding rejects a y-coordinate that is not below
+       p and the encoding of x = 0 with the sign bit set.
+
+   2.  A and R MUST have order L: L*A and L*R are the neutral element,
+       and A and R are not the neutral element.
+
+   3.  The scalar S, the second half of the signature read as a little-
+       endian integer, MUST be below L ([RFC8032] Section 5.1.7).
+
+
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                 [Page 9]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   4.  With k = SHA-512(R || A || PAE(type, B)) read as a little-endian
+       integer reduced modulo L, the equation S*B' = R + k*A MUST hold
+       (the cofactorless equation).  In the hash input, R and A are the
+       32-byte encodings exactly as received: the first 32 bytes of the
+       64-byte signature and the verification key.
+
+   A signature that fails any rule is invalid.  The rules are checked in
+   the order given, and within rules 1 and 2 the key before R.  Because
+   A and R have order L, the cofactorless equation of rule 4 and the
+   cofactored equation 8*S*B' = 8*R + 8*k*A of [RFC8032] Section 5.1.7
+   accept exactly the same signatures.  This specification defines
+   individual verification only.  A randomized batch result MUST NOT
+   substitute for checking all four rules for each signature.  A
+   Receiver MUST NOT leave out any of the four rules.
+
+5.  Verification Procedure
+
+   Input: the receipt bytes and the verification key that the Receiver
+   fixed.  The verification-key input is exactly 32 octets containing
+   the compressed Edwards-point encoding of A defined by [RFC8032]
+   Section 5.1.2.  A verification-key input that is not exactly 32
+   octets is an input error: the steps below are not run, and the result
+   is neither PASS nor the FAIL of one of them.  Any textual or file
+   representation used to supply those octets is outside this
+   specification.  The steps are evaluated in order; the result is PASS
+   only when every step succeeds, and the first step that fails gives
+   FAIL.  String values are compared after unescaping.  A Receiver that
+   stops because it reached a resource limit (Section 8) reports a
+   resource-limit error; that is neither PASS nor the FAIL of one of the
+   steps below.
+
+   1.   Parse the receipt as one I-JSON text (Section 3.1).  A byte
+        order mark, bytes that are not UTF-8, a surrogate or
+        noncharacter code point, duplicate member names at any level,
+        anything before or after the JSON text other than insignificant
+        whitespace ([RFC8259] Section 2), a top-level value that is not
+        an object with exactly the members schema, payload_b64 and
+        signature, or a signature that is not an object with exactly alg
+        and sig or exactly alg, sig and key: FAIL.
+
+   2.   schema is not the type of Section 4.2: FAIL.
+
+   3.   payload_b64 is not a string of the base64 alphabet with padding,
+        or not the canonical encoding of the bytes it decodes to: FAIL.
+        Otherwise those bytes are B.
+
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 10]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   4.   B is not one I-JSON text whose value is an object, under the
+        rules of step 1 (byte order mark, UTF-8, surrogates and
+        noncharacters, duplicate names as in [RFC7493] Section 2.3,
+        which [RFC8785] Section 3.1 requires of its input, trailing
+        data): FAIL.  Numbers are not judged here: each is read as an
+        IEEE 754 double, rounded to nearest with ties to even and
+        overflowing to infinity, and a number that so has no finite
+        double, such as 1e400, fails step 5.
+
+   5.   B is not the RFC 8785 serialization of the value parsed in step
+        4 (Section 3.4): FAIL.  This step alone would also reject every
+        B that step 4 rejects for a byte order mark, duplicate names or
+        trailing data; step 4 is kept so that every Receiver reports the
+        same failing step.
+
+   6.   The Payload's member set differs from Section 3.2 (every member
+        of Table 1, with criteria_digest optional), or a member violates
+        its row of Table 1 (its type, the schema and commit_alg values,
+        a non-empty string, the comparator set, the decimal grammar, the
+        range of n, the timestamp form): FAIL.
+
+   7.   A commitment, or criteria_digest when present, is not sha256:
+        followed by 64 lowercase hexadecimal digits: FAIL.
+
+   8.   passed differs from the comparison of score with threshold:
+        FAIL.
+
+   9.   signature.alg is not the string ed25519, or signature.sig is not
+        a string that is the canonical base64 encoding of exactly 64
+        bytes: FAIL.
+
+   10.  signature.key is present and is not a string that is the
+        canonical base64 encoding of the verification key: FAIL.  A key
+        in the receipt is only a hint.
+
+   11.  The signature is invalid under the profile of Section 4.4 for
+        the verification key and PAE(type, B) with the fixed type: FAIL.
+        A signature made over PAE with another type fails here.
+
+   Table 2 lists every vector of the vector set (Appendix A) with the
+   step at which it fails first; each of the eleven steps is the first
+   failing step of at least one vector.  A vector shows the first
+   failing step under in-order evaluation; it does not show that a later
+   step would also reject it.  Of the profile, the vectors cover rule 1
+   for the key (N18) and for R (N17), rule 2 for the key (N12, and N61
+   for a key of mixed order) and for R (N16, and N59 for an R of mixed
+   order), rule 3 (N6) and rule 4 (N7).  No vector isolates rule 1 from
+   rule 2.  Rule 1 rejects 40 encodings that a decoder reducing y modulo
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 11]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   p would try (y from p to p + 18 with either sign bit, and x = 0 with
+   the sign bit set); read by such a decoder, 14 of them give no point,
+   6 give points of small order and 20 give points of mixed order.  None
+   of these 26 points has order L, so a Receiver without rule 1 would
+   still reject each of them under rule 2; N17 and N18 use y = p + 1,
+   which such a decoder reads as the neutral element.  P6 has no key
+   hint, so step 10 has nothing to compare.  N61 uses the mixed-order
+   test key, the issuer's public point plus a point of order 8, with a
+   signature that satisfies the cofactorless equation; only rule 2
+   rejects it.  Its expected result is FAIL at step 11, rule 2 for the
+   verification key.  N59 uses the issuer test key and an R of mixed
+   order, the point r*B' plus the same point of order 8, with S = r +
+   k*a mod L; the cofactored equation holds and the cofactorless one
+   does not, and rule 2 rejects R before rule 4 is reached.  P9 and N51
+   to N55 pin rules that no other vector reaches: the year 0000 (P9),
+   ASCII digits (N51), a number without a finite double (N52), the key
+   before R in rules 1 and 2 (N53, N54), and no number rule at step 1
+   (N55).  N56 writes n as 1800.0, which a Receiver that skipped the
+   number serialization of RFC 8785 would accept.  P10 carries the
+   optional criteria_digest; N57 gives it uppercase hexadecimal digits
+   and N58 the value null.  The receipts without the member are the
+   other positive vectors.  P12 is the receipt of P1 followed by a line
+   feed, insignificant whitespace that step 1 admits.  N60 is B of P1
+   followed by a line feed, signed anew: step 4 admits the line feed
+   under the rules of step 1, and step 5 rejects B, because its RFC 8785
+   serialization has no insignificant whitespace.  P13 is a line feed
+   followed by the receipt of P1, insignificant whitespace before the
+   JSON text that step 1 admits.
+
+   +=====+=============+==========+====================================+
+   | ID  | Step        | Expected | What it shows                      |
+   +=====+=============+==========+====================================+
+   | P1  | all         | PASS     | pass                               |
+   +-----+-------------+----------+------------------------------------+
+   | P2  | all         | PASS     | recorded-failure                   |
+   +-----+-------------+----------+------------------------------------+
+   | P4  | all         | PASS     | escaped-receipt-string             |
+   +-----+-------------+----------+------------------------------------+
+   | P6  | all         | PASS     | no-key-hint                        |
+   +-----+-------------+----------+------------------------------------+
+   | P7  | all         | PASS     | comparator-le                      |
+   +-----+-------------+----------+------------------------------------+
+   | P8  | all         | PASS     | exact-decimal                      |
+   +-----+-------------+----------+------------------------------------+
+   | P9  | all         | PASS     | year-0000                          |
+   +-----+-------------+----------+------------------------------------+
+   | P10 | all         | PASS     | criteria-digest                    |
+   +-----+-------------+----------+------------------------------------+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 12]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   | P12 | all         | PASS     | receipt-trailing-whitespace        |
+   +-----+-------------+----------+------------------------------------+
+   | P13 | all         | PASS     | receipt-leading-whitespace         |
+   +-----+-------------+----------+------------------------------------+
+   | N1  | 4           | FAIL     | no-duplicate-names                 |
+   +-----+-------------+----------+------------------------------------+
+   | N2  | 2           | FAIL     | receipt-schema                     |
+   +-----+-------------+----------+------------------------------------+
+   | N3  | 4           | FAIL     | no-trailing-data                   |
+   +-----+-------------+----------+------------------------------------+
+   | N4  | 7           | FAIL     | commitment-pattern                 |
+   +-----+-------------+----------+------------------------------------+
+   | N5  | 5           | FAIL     | jcs-form                           |
+   +-----+-------------+----------+------------------------------------+
+   | N6  | 11          | FAIL     | s-less-than-L                      |
+   |     | (profile    |          |                                    |
+   |     | 3)          |          |                                    |
+   +-----+-------------+----------+------------------------------------+
+   | N7  | 11          | FAIL     | pae-type                           |
+   |     | (profile    |          |                                    |
+   |     | 4)          |          |                                    |
+   +-----+-------------+----------+------------------------------------+
+   | N9  | 10          | FAIL     | key-hint                           |
+   +-----+-------------+----------+------------------------------------+
+   | N10 | 6           | FAIL     | payload-schema                     |
+   +-----+-------------+----------+------------------------------------+
+   | N11 | 8           | FAIL     | result-consistency                 |
+   +-----+-------------+----------+------------------------------------+
+   | N12 | 11          | FAIL     | small-order-key                    |
+   |     | (profile    |          |                                    |
+   |     | 2, key)     |          |                                    |
+   +-----+-------------+----------+------------------------------------+
+   | N13 | 3           | FAIL     | canonical-base64                   |
+   +-----+-------------+----------+------------------------------------+
+   | N14 | 1           | FAIL     | receipt-duplicate-names            |
+   +-----+-------------+----------+------------------------------------+
+   | N15 | 9           | FAIL     | signature-alg                      |
+   +-----+-------------+----------+------------------------------------+
+   | N16 | 11          | FAIL     | small-order-R                      |
+   |     | (profile    |          |                                    |
+   |     | 2, R)       |          |                                    |
+   +-----+-------------+----------+------------------------------------+
+   | N17 | 11          | FAIL     | noncanonical-R                     |
+   |     | (profile    |          |                                    |
+   |     | 1, R)       |          |                                    |
+   +-----+-------------+----------+------------------------------------+
+   | N18 | 11          | FAIL     | noncanonical-key                   |
+   |     | (profile    |          |                                    |
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 13]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   |     | 1, key)     |          |                                    |
+   +-----+-------------+----------+------------------------------------+
+   | N19 | 1           | FAIL     | receipt-trailing-data              |
+   +-----+-------------+----------+------------------------------------+
+   | N20 | 1           | FAIL     | receipt-member-set                 |
+   +-----+-------------+----------+------------------------------------+
+   | N21 | 1           | FAIL     | signature-member-set               |
+   +-----+-------------+----------+------------------------------------+
+   | N22 | 1           | FAIL     | receipt-duplicate-after-unescaping |
+   +-----+-------------+----------+------------------------------------+
+   | N23 | 1           | FAIL     | receipt-bom                        |
+   +-----+-------------+----------+------------------------------------+
+   | N24 | 3           | FAIL     | payload-not-base64                 |
+   +-----+-------------+----------+------------------------------------+
+   | N25 | 9           | FAIL     | signature-length                   |
+   +-----+-------------+----------+------------------------------------+
+   | N26 | 9           | FAIL     | signature-canonical-base64         |
+   +-----+-------------+----------+------------------------------------+
+   | N30 | 6           | FAIL     | commit-alg                         |
+   +-----+-------------+----------+------------------------------------+
+   | N31 | 6           | FAIL     | payload-member-missing             |
+   +-----+-------------+----------+------------------------------------+
+   | N32 | 6           | FAIL     | payload-member-extra               |
+   +-----+-------------+----------+------------------------------------+
+   | N33 | 6           | FAIL     | payload-member-type                |
+   +-----+-------------+----------+------------------------------------+
+   | N34 | 6           | FAIL     | decimal-grammar                    |
+   +-----+-------------+----------+------------------------------------+
+   | N35 | 6           | FAIL     | n-at-least-1                       |
+   +-----+-------------+----------+------------------------------------+
+   | N36 | 6           | FAIL     | timestamp-calendar                 |
+   +-----+-------------+----------+------------------------------------+
+   | N37 | 6           | FAIL     | timestamp-leap-second              |
+   +-----+-------------+----------+------------------------------------+
+   | N38 | 6           | FAIL     | comparator-set                     |
+   +-----+-------------+----------+------------------------------------+
+   | N39 | 6           | FAIL     | non-empty-string                   |
+   +-----+-------------+----------+------------------------------------+
+   | N40 | 4           | FAIL     | payload-utf8                       |
+   +-----+-------------+----------+------------------------------------+
+   | N41 | 4           | FAIL     | payload-lone-surrogate             |
+   +-----+-------------+----------+------------------------------------+
+   | N42 | 4           | FAIL     | payload-noncharacter               |
+   +-----+-------------+----------+------------------------------------+
+   | N43 | 4           | FAIL     | payload-bom                        |
+   +-----+-------------+----------+------------------------------------+
+   | N44 | 1           | FAIL     | receipt-utf8                       |
+   +-----+-------------+----------+------------------------------------+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 14]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   | N45 | 1           | FAIL     | receipt-lone-surrogate             |
+   +-----+-------------+----------+------------------------------------+
+   | N46 | 1           | FAIL     | receipt-noncharacter               |
+   +-----+-------------+----------+------------------------------------+
+   | N48 | 8           | FAIL     | comparator-gt                      |
+   +-----+-------------+----------+------------------------------------+
+   | N49 | 8           | FAIL     | comparator-lt                      |
+   +-----+-------------+----------+------------------------------------+
+   | N50 | 6           | FAIL     | n-below-2-53                       |
+   +-----+-------------+----------+------------------------------------+
+   | N51 | 6           | FAIL     | ascii-digits                       |
+   +-----+-------------+----------+------------------------------------+
+   | N52 | 5           | FAIL     | number-without-double              |
+   +-----+-------------+----------+------------------------------------+
+   | N53 | 11          | FAIL     | key-before-R-rule-1                |
+   |     | (profile    |          |                                    |
+   |     | 1, key)     |          |                                    |
+   +-----+-------------+----------+------------------------------------+
+   | N54 | 11          | FAIL     | key-before-R-rule-2                |
+   |     | (profile    |          |                                    |
+   |     | 2, key)     |          |                                    |
+   +-----+-------------+----------+------------------------------------+
+   | N55 | 2           | FAIL     | receipt-number-at-step-2           |
+   +-----+-------------+----------+------------------------------------+
+   | N56 | 5           | FAIL     | number-serialization               |
+   +-----+-------------+----------+------------------------------------+
+   | N57 | 7           | FAIL     | criteria-digest-pattern            |
+   +-----+-------------+----------+------------------------------------+
+   | N58 | 6           | FAIL     | criteria-digest-type               |
+   +-----+-------------+----------+------------------------------------+
+   | N59 | 11          | FAIL     | mixed-order-R                      |
+   |     | (profile    |          |                                    |
+   |     | 2, R)       |          |                                    |
+   +-----+-------------+----------+------------------------------------+
+   | N60 | 5           | FAIL     | payload-trailing-whitespace        |
+   +-----+-------------+----------+------------------------------------+
+   | N61 | 11          | FAIL     | mixed-order-key                    |
+   |     | (profile    |          |                                    |
+   |     | 2, key)     |          |                                    |
+   +-----+-------------+----------+------------------------------------+
+
+                                  Table 2
+
+
+
+
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 15]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+6.  What a Receipt Does Not Prove
+
+   Verification establishes that the receipt passes the format,
+   consistency and signature checks in Section 5 under the Receiver's
+   selected key.  PASS does not mean that passed is true or that the
+   result meets the Receiver's requirements for its intended use.
+   Establishing who controls that key and whether that party is
+   authorized to make the claim is outside this procedure.  Verification
+   does not establish that the Issuer's claims are true.  In particular:
+
+   *  The score can be false.  The evaluation can be wrong, badly
+      designed or not run at all; the receipt records what the Issuer
+      states.
+
+   *  The run need not have been the only run.  An Issuer can evaluate
+      many times and record only the run it prefers.
+
+   *  The Issuer can lie.  A valid signature binds the statement to the
+      key, not to the truth.
+
+   *  A receipt does not show that it was published, logged or shown to
+      anyone else.  A receipt does not prove registration with a
+      Transparency Service.  In SCITT, transparency additionally
+      requires registering a Signed Statement carrying the receipt or
+      its digest with a Transparency Service and verifying the resulting
+      SCITT Receipt.  Registration and verification of the resulting
+      SCITT Receipt are outside this document.
+
+   *  The receipt bytes are not a stable name for the receipt.  Only B
+      is signed; the receipt object around it is not canonicalized, and
+      its key hint can be present or absent.  A party that cites a
+      receipt cites SHA-256 over B.
+
+   *  A commitment is computationally binding under the collision
+      resistance of SHA-256.  A Receiver can check a claimed opening
+      only after receiving the salt and identifier.  Hiding depends on
+      keeping an unpredictable salt secret.
+
+   *  The timestamp is the Issuer's statement, not a time attested by
+      another party.
+
+   *  The receipt says nothing about individual samples: n is the
+      Issuer's statement, and no sample result is committed or can be
+      disclosed against the receipt.  A sample-level audit is outside
+      this document and is left to a separate document.
+
+   *  A receipt does not show that the threshold was fixed before the
+      run.
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 16]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   *  criteria_digest binds only the Issuer's statement that this result
+      belongs to the criteria set with that digest.  It shows neither
+      that the criteria set existed before the run nor that the metric,
+      comparator and threshold in it equal those in the receipt.
+
+   *  Even with salt and identifier disclosed, the receipt does not show
+      that the named model or dataset was the one actually evaluated.
+
+   *  A receipt does not show where B came from.  B carries no reference
+      to another receipt or record that it was made from, for example
+      when an Issuer translates the result of another format into a
+      receipt; this format has no member for it.
+
+7.  Related Work
+
+   The following individual drafts also define signed receipts; each
+   sentence states a difference in construction as read on 2026-10-25.
+
+   *  [I-D.farley-acta-signed-receipts] records access control
+      decisions, serializes them with RFC 8785, makes Ed25519 mandatory
+      to implement, permits ES256 and recommends ML-DSA-65, and offers
+      an optional commitment mode that places salted field values in a
+      Merkle tree hashed as in Certificate Transparency ([RFC9162]
+      Section 2.1.1).
+
+   *  [I-D.chueayen-attestation-receipts] defines two records signed
+      with Ed25519: an attestation receipt for an AI inference decision,
+      with twelve required members, the signature among them, three
+      optional members and no other member; and an action record for the
+      decision an enforcement point takes before a proposed agent action
+      runs, with thirteen required members and no other member, all
+      strings or arrays of strings.  Both use a canonicalization that,
+      by its own statement, differs from RFC 8785 only in forbidding
+      numbers that RFC 8785 writes in exponential notation.
+
+   *  [I-D.marques-asqav-compliance-receipts] profiles action receipts
+      with RFC 8785, requires ML-DSA-65 for new issuance, accepts
+      Ed25519 only under a separately selected historical format, and
+      requires a hash chain between receipts.
+
+   None of the three, as read on that date, has a member for an
+   evaluation threshold.  Two further individual drafts concern
+   evaluation evidence without defining a signed result:
+
+   *  [I-D.abak-ai-evaluation-claim-preservation] states format-neutral
+      requirements for converting and consuming evaluation evidence so
+      that claim-relevant loss stays visible; it defines no wire format,
+      while this document defines one signed format for one result.
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 17]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   *  [I-D.ozturk-scitt-prml-profile] carries pre-run evaluation
+      criteria in the format of [PRML] as a SCITT Signed Statement, in
+      full or as the 32-octet SHA-256 of their canonical bytes; it
+      records criteria before a run, while a receipt records one result
+      after it and names such criteria at most by criteria_digest
+      (Section 3.5).
+
+   The following individual drafts were read on 2026-10-19.  The
+   summaries describe their scope and construction in the cited
+   revisions and identify differences from this document.  The first
+   three concern receipts for decisions or actions:
+
+   *  [I-D.sirkkavaara-vaara-receipt] records decisions about autonomous
+      actions as allow, block or escalate, optionally with decimal-
+      string scores and thresholds.  It authenticates an RFC 8785
+      encoding of a fixed set of members with ES256 or RS256 signatures
+      or an HS256 MAC.  Its required backLink follows the applicable
+      profile; the initial receipt in the engine decision profile uses
+      the SHA-256 digest of the empty string.
+
+   *  [I-D.sahu-agent-action-receipts] records agent actions with a
+      boolean success member.  A detached Ed25519 signature covers
+      compact UTF-8 JSON with signed top-level members in a fixed, non-
+      lexicographic order; objects within params are recursively sorted.
+      In its receipt log, the first entry omits prev_hash.  Each later
+      entry carries the SHA-256 digest of the preceding serialized line,
+      including its public key and signature but excluding its
+      terminating newline.
+
+   *  [I-D.wang-jep-receipt-profile] binds a JSON behavior record to an
+      event of the Judgment Event Protocol through a critical extension.
+      The record identifies an agent and an action and contains zero or
+      more evidence descriptors, each carrying a digest.  It is
+      addressed by SHA-256 over its RFC 8785 serialization.  The profile
+      defines no independent signature format and leaves signature
+      processing to that protocol.
+
+   Among these three revisions, Vaara explicitly defines optional
+   thresholdAllow and thresholdBlock members for decision scores.  This
+   document requires score, comparator, threshold and passed for an
+   evaluation result and checks their consistency using exact decimal
+   comparison.  That check does not establish that the reported score is
+   correct.  Three further individual drafts concern evaluation or
+   measurement records:
+
+   *  [I-D.watts-agent-evidence-boundary] defines an Evidence
+      Qualification Receipt that binds an exact proposition digest to a
+      versioned evidence-requirements profile, evidence digests and one
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 18]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+      of three evaluation results, PASS, FAIL or INDETERMINATE, as one
+      input to an authorization system; it defines no signature format
+      and requires a receipt exchanged between domains to be integrity
+      protected by a mechanism acceptable to the verifier, while this
+      document defines the signature of a receipt.
+
+   *  [I-D.watts-scientific-admissibility-evidence] describes a JSON
+      evidence record whose members include a preregistered decision
+      procedure and an admissibility evaluation of binding gate results,
+      serializes the core of each event with RFC 8785 before hashing
+      when an event digest is used, and requires every event but the
+      first to reference the digest of the preceding one; it names
+      SHA-256 and Ed25519 only for profiles that use them, while this
+      document fixes both for every receipt.
+
+   *  [I-D.templeman-scitt-measurement-capsule] defines capsules that
+      compare declarations with observations, carry no decision and
+      distinguish UNCHECKABLE from pass or failure.  Self-measurement is
+      permitted.  A capsule's identifier is SHA-256 over its RFC 8785
+      serialization with capsule_id omitted; batches use an RFC 9162
+      Merkle Tree Hash over those identifiers.  The profile describes
+      COSE_Sign1 registration of a capsule, batch record or index.  The
+      draft reports comparisons with evaluation reruns but states that
+      its implementation does not yet encode COSE and has made no SCITT
+      registration.  This document instead fixes a signed format for one
+      Issuer-reported evaluation result and defines no SCITT
+      registration profile.
+
+8.  Security Considerations
+
+   This section follows the guidance of [RFC3552].  The attacker
+   considered can read, create, modify, replay and reorder receipts, and
+   controls every input except the Receiver's choice of verification
+   key.
+
+   Forgery.  Without the secret key an attacker cannot produce a receipt
+   that verifies under the Receiver's key, given the security of
+   Ed25519.  The Receiver fixes the key out of band; a key carried in
+   the receipt is only compared with it and never used on its own.  A
+   Receiver that took the key from the receipt would accept any receipt
+   from anyone.
+
+
+
+
+
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 19]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   Domain separation.  The signature covers PAE(type, B), not B alone.
+   A signature made by the same key for another purpose over the same
+   bytes, or over the same bytes under another type, does not verify as
+   a receipt, and a receipt signature does not verify as a signature
+   over B in another protocol that also signs with PAE under a different
+   type.  The type is fixed (Section 4.2) so that this separation does
+   not depend on a value the attacker controls.
+
+   Ambiguous bytes.  Duplicate member names (also when they differ only
+   in escapes), trailing data, a byte order mark, surrogate or
+   noncharacter code points, non-canonical base64 and payload bytes that
+   are not their own RFC 8785 form, for example a number written as
+   1800.0, would let two parsers see different content behind one
+   signature.  The procedure of Section 5 rejects each of them, so that
+   one B has one meaning.  The receipt object around B is not canonical
+   and not signed (Section 6).
+
+   Ed25519 edge cases.  Implementations of Ed25519 differ in whether
+   they accept a non-reduced S, non-canonical point encodings, points of
+   small or mixed order, and whether they use the cofactored or the
+   cofactorless equation [TAMING].  A receipt format whose verdict
+   depends on the library would let one Receiver accept what another
+   rejects.  The profile of Section 4.4 fixes each choice.  Vector N12
+   shows why rule 2 refuses points of small order: with the neutral
+   element as verification key, R = S*B' satisfies the cofactorless
+   equation for every message.  N61 and N59 show why rule 2 requires
+   order L: under a key or with an R of mixed order the cofactored and
+   the cofactorless equation can disagree (N59), and a verifier that
+   does not check the order accepts N61 under either equation.  In the
+   measurements of Section 11, the plain Ed25519 verification of a
+   general library accepted the signatures of vectors N12, N16, N18 and
+   N61 and rejected those of N6, N17 and N59; the profile of Section 4.4
+   rejects all seven.  A Receiver that relies on a library verdict alone
+   therefore does not implement this format.
+
+   Resource limits.  This document defines no universal input-size
+   limit.  Oversized inputs, long strings and deeply nested invalid JSON
+   can exhaust memory or processing time before verification completes.
+   Implementations SHOULD apply documented resource limits before and
+   during processing of untrusted input.  Reaching a limit MUST NOT
+   produce PASS and is reported as a resource-limit error, not as a
+   completed format or signature verdict under Section 5.
+
+   Commitments.  A commitment with a short or guessable salt can be
+   tested against candidate identifiers.  The salt is therefore 16 bytes
+   from a cryptographically secure source and stays with the Issuer.
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 20]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   Criteria digest. criteria_digest binds the bytes of a criteria set,
+   not a time.  Whoever wants to show that the criteria set existed
+   before the run needs an anchor outside the receipt, for example the
+   digest of the criteria set registered with a Transparency Service
+   before the run began.  The member also carries weight only when the
+   Receiver compares it with bytes of the criteria set that it obtained
+   independently of the state it checks: criteria bytes taken from the
+   same place as the result can have been changed together with it, and
+   their digest then matches.
+
+   Replay.  A receipt is a static statement, not an authentication
+   token.  Showing a valid receipt proves nothing about the party that
+   shows it.
+
+   Key compromise.  A compromised key can sign receipts with any
+   content.  This document defines no revocation; a Receiver that needs
+   it uses means outside this document.
+
+9.  Privacy Considerations
+
+   Model and dataset identifiers appear only as salted commitments.
+   Reusing the same salt and identifier produces the same commitment
+   across receipts.  Fresh salts avoid this equality link but do not
+   make receipts unlinkable, because verification keys and other shared
+   values may still link them: identical suite, metric and timestamp
+   values link receipts, and so does the same criteria_digest.
+   Disclosing salt and identifier to one Receiver discloses them to
+   everyone that Receiver passes them on to.
+
+10.  IANA Considerations
+
+   This document has no IANA actions.  Registering the media type of
+   Section 10.1 in the vendor tree goes directly to IANA ([RFC6838]
+   Section 3.2) and is not an action of this document.
+
+10.1.  Media Type Registration Template
+
+   The following template for application/vnd.signed-evidence.eval-
+   receipt+json is the one for its registration in the vendor tree; it
+   is given for information.
+
+   This media type identifies the canonical payload bytes B defined in
+   Section 3.4.  It does not identify the receipt object of Section 3.1,
+   which may be transferred as application/json.  The receipt object's
+   schema member remains the fixed format discriminator defined in
+   Section 4.2.
+
+   Type name:  application
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 21]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   Subtype name:  vnd.signed-evidence.eval-receipt+json
+
+   Required parameters:  N/A
+
+   Optional parameters:  N/A
+
+   Encoding considerations:  Binary.  The representation is B, a UTF-8
+      JSON text in the canonical form defined in Section 3.4, without a
+      byte order mark.
+
+   Security considerations:  B is data and contains no active content:
+      it carries no directive and nothing a recipient executes.  B is
+      not compressed.  A receipt that carries B gives integrity and
+      origin of B only under a key the Receiver fixed before
+      verification, and only with the procedure of Section 5; a key
+      named in the receipt is never used on its own.  B gives no
+      confidentiality: its members are readable by anyone who holds it,
+      and model and dataset identifiers appear in it only as salted
+      commitments (Section 3.3, Section 9).  Parsing untrusted input
+      needs documented resource limits; reaching a limit is not a
+      verdict.  See Section 8 of this document and [RFC8259] Section 12.
+
+   Interoperability considerations:  When the verification-key input is
+      32 octets and processing completes without a resource-limit error,
+      the procedure of Section 5 and the signature profile of
+      Section 4.4 determine the verdict and first failing step on the
+      vectors of Appendix A.  The type string enters every signature
+      (Section 4.2).
+
+   Published specification:  This document.
+
+   Applications that use this media type:  Issuers and Receivers of
+      evaluation payloads, including DSSE envelopes that carry B and
+      digest references that identify B.
+
+   Fragment identifier considerations:  As specified for the +json
+      structured syntax suffix in [RFC6839] Section 3.1.  This document
+      defines no fragment identifier of its own.
+
+   Additional information:  Deprecated alias names for this type: N/A.
+      Magic number(s): N/A.  File extension(s): N/A.  Macintosh file
+      type code(s): N/A.
+
+   Person & email address to contact for further information:  Konrad
+      Gruszka <kontakt@b7n0de.com>
+
+   Intended usage:  COMMON
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 22]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   Restrictions on usage:  N/A
+
+   Author:  Konrad Gruszka
+
+   Change controller:  Konrad Gruszka <kontakt@b7n0de.com>
+
+11.  Implementation Status
+
+   This section records the status of known implementations at the time
+   of writing, following [RFC7942], and is to be removed before
+   publication.
+
+   The vectors of Appendix A were produced by a generator script whose
+   two runs are byte-identical, and verified by two verifiers: one
+   written by the author of the generator, and one written from the text
+   of this document alone, without access to the generator.  Both
+   verifiers reach the expected verdict and the expected first failing
+   step on every vector.  An implementation of this format in the
+   proofbundle project, behind an explicit option and with these vectors
+   as conformance tests, is under way on a work branch and not released.
+   The show-eval command of that implementation with --expect-issuer
+   refuses a verification key whose y-coordinate is not below p or that
+   is a point of small order, as in vectors N12, N18, N53 and N54,
+   before starting the receipt verification procedure, with exit
+   status 2.  The receipt verification function reads the receipt first.
+   It refuses a key of mixed order, as in N61, at step 11.  The early
+   refusals are checks the command makes before the procedure runs;
+   under Section 5, a 32-octet key of these kinds is not an input error,
+   and the procedure gives FAIL unless it stops at a resource limit.
+
+   On 2026-10-12, the implementation named above, at commit
+   a339424e07fd58fa261d8ca3f41af5de4dcbf751 of its work branch, was run
+   on the 66 vectors of Appendix A with the bytes given there, and for
+   each vector its verdict and first failing step were compared with the
+   expected ones: it reached the expected verdict and the expected first
+   failing step on all 66 vectors.  A further verifier, written from the
+   published text of this document alone, agreed with the verifier
+   written by the author of the generator on the verdict and the first
+   failing step of each of the 66 vectors, on 23000 targeted inputs
+   across all eleven steps and on 4002 serializations of numbers by
+   [RFC8785], with no deviation on these inputs (measured on
+   2026-10-11).
+
+   In the measurements behind Appendix A, the plain Ed25519 verification
+   of pyca/cryptography 41.0.7 accepted the signatures of vectors N12
+   (small-order key), N16 (small-order R), N18 (non-canonical key) and
+   N61 (mixed-order key), and rejected those of N6 (S not below L), N17
+   (non-canonical R) and N59 (mixed-order R).
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 23]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   In a local measurement on 2026-10-10, a receipt made from the result
+   of a test run was checked by the implementation named above and by
+   the verifier written from the text of this document alone.  Both
+   passed it, and both refused the same receipt with one byte of B
+   changed, at step 11.
+
+12.  References
+
+12.1.  Normative References
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119, March 1997,
+              <https://www.rfc-editor.org/info/rfc2119>.
+
+   [RFC3339]  Klyne, G. and C. Newman, "Date and Time on the Internet:
+              Timestamps", RFC 3339, July 2002,
+              <https://www.rfc-editor.org/info/rfc3339>.
+
+   [RFC4648]  Josefsson, S., "The Base16, Base32, and Base64 Data
+              Encodings", RFC 4648, October 2006,
+              <https://www.rfc-editor.org/info/rfc4648>.
+
+   [RFC6234]  Eastlake 3rd, D. and T. Hansen, "US Secure Hash Algorithms
+              (SHA and SHA-based HMAC and HKDF)", RFC 6234, May 2011,
+              <https://www.rfc-editor.org/info/rfc6234>.
+
+   [RFC6838]  Freed, N., Klensin, J., and T. Hansen, "Media Type
+              Specifications and Registration Procedures", BCP 13,
+              RFC 6838, January 2013,
+              <https://www.rfc-editor.org/info/rfc6838>.
+
+   [RFC6839]  Hansen, T. and A. Melnikov, "Additional Media Type
+              Structured Syntax Suffixes", RFC 6839, January 2013,
+              <https://www.rfc-editor.org/info/rfc6839>.
+
+   [RFC7493]  Bray, T., Ed., "The I-JSON Message Format", RFC 7493,
+              March 2015, <https://www.rfc-editor.org/info/rfc7493>.
+
+   [RFC8032]  Josefsson, S. and I. Liusvaara, "Edwards-Curve Digital
+              Signature Algorithm (EdDSA)", RFC 8032, January 2017,
+              <https://www.rfc-editor.org/info/rfc8032>.
+
+   [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC
+              2119 Key Words", BCP 14, RFC 8174, May 2017,
+              <https://www.rfc-editor.org/info/rfc8174>.
+
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 24]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   [RFC8259]  Bray, T., Ed., "The JavaScript Object Notation (JSON) Data
+              Interchange Format", STD 90, RFC 8259, December 2017,
+              <https://www.rfc-editor.org/info/rfc8259>.
+
+   [RFC8785]  Rundgren, A., Jordan, B., and S. Erdtman, "JSON
+              Canonicalization Scheme (JCS)", RFC 8785, June 2020,
+              <https://www.rfc-editor.org/info/rfc8785>.
+
+12.2.  Informative References
+
+   [DSSE]     Secure Systems Lab, "DSSE: Dead Simple Signing Envelope,
+              protocol specification, version 1.0.2", 28 May 2024,
+              <https://github.com/secure-systems-lab/dsse/blob/v1.0.2/
+              protocol.md>.
+
+   [I-D.abak-ai-evaluation-claim-preservation]
+              Abak, A. T., "Claim-Preserving Exchange of AI Evaluation
+              Evidence", Work in Progress, Internet-Draft, draft-abak-
+              ai-evaluation-claim-preservation-00, 23 September 2026,
+              <https://datatracker.ietf.org/doc/draft-abak-ai-
+              evaluation-claim-preservation/00/>.
+
+   [I-D.chueayen-attestation-receipts]
+              Chueayen, A., "Enforcement Attestation Receipts for AI
+              Inference and Agent Action Decisions", Work in Progress,
+              Internet-Draft, draft-chueayen-attestation-receipts-05, 25
+              October 2026, <https://datatracker.ietf.org/doc/draft-
+              chueayen-attestation-receipts/05/>.
+
+   [I-D.farley-acta-signed-receipts]
+              Farley, T., "Signed Decision Receipts for Machine-to-
+              Machine Access Control", Work in Progress, Internet-Draft,
+              draft-farley-acta-signed-receipts-03, 29 August 2026,
+              <https://datatracker.ietf.org/doc/draft-farley-acta-
+              signed-receipts/03/>.
+
+   [I-D.marques-asqav-compliance-receipts]
+              Gomes Marques, J. A., "Compliance Profile of Signed Action
+              Receipts for AI Agents", Work in Progress, Internet-Draft,
+              draft-marques-asqav-compliance-receipts-09, 21 September
+              2026, <https://datatracker.ietf.org/doc/draft-marques-
+              asqav-compliance-receipts/09/>.
+
+
+
+
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 25]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   [I-D.ozturk-scitt-prml-profile]
+              Öztürk, C., "A SCITT Profile for Pre-Run Evaluation
+              Criteria (PRML)", Work in Progress, Internet-Draft, draft-
+              ozturk-scitt-prml-profile-00, 11 September 2026,
+              <https://datatracker.ietf.org/doc/draft-ozturk-scitt-prml-
+              profile/00/>.
+
+   [I-D.sahu-agent-action-receipts]
+              Sahu, N., "Signed, Hash-Chained Action Receipts for AI
+              Agents", Work in Progress, Internet-Draft, draft-sahu-
+              agent-action-receipts-00, 16 August 2026,
+              <https://datatracker.ietf.org/doc/draft-sahu-agent-action-
+              receipts/00/>.
+
+   [I-D.sirkkavaara-vaara-receipt]
+              Sirkkavaara, H., "The Vaara Receipt: A Recomputable
+              Receipt Format for Decisions About Autonomous Actions",
+              Work in Progress, Internet-Draft, draft-sirkkavaara-vaara-
+              receipt-14, 15 October 2026,
+              <https://datatracker.ietf.org/doc/draft-sirkkavaara-vaara-
+              receipt/14/>.
+
+   [I-D.templeman-scitt-measurement-capsule]
+              Templeman, N., "Declared-versus-Observed Measurement
+              Capsules: A Profile for Third-Party Measurement Statements
+              in SCITT", Work in Progress, Internet-Draft, draft-
+              templeman-scitt-measurement-capsule-00, 27 September 2026,
+              <https://datatracker.ietf.org/doc/draft-templeman-scitt-
+              measurement-capsule/00/>.
+
+   [I-D.wang-jep-receipt-profile]
+              Wang, Y., "JEP Receipt Profile: Verifiable Behavior and
+              Evidence Receipts", Work in Progress, Internet-Draft,
+              draft-wang-jep-receipt-profile-01, 5 October 2026,
+              <https://datatracker.ietf.org/doc/draft-wang-jep-receipt-
+              profile/01/>.
+
+   [I-D.watts-agent-evidence-boundary]
+              Watts, D., "Evidence-Bounded Authorization for Agentic
+              Systems: Evidence Qualification Receipts", Work in
+              Progress, Internet-Draft, draft-watts-agent-evidence-
+              boundary-00, 12 September 2026,
+              <https://datatracker.ietf.org/doc/draft-watts-agent-
+              evidence-boundary/00/>.
+
+   [I-D.watts-scientific-admissibility-evidence]
+              Watts, D., "Scientific Admissibility Evidence Records for
+              Verifiable Research Provenance", Work in Progress,
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 26]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+              Internet-Draft, draft-watts-scientific-admissibility-
+              evidence-00, 1 September 2026,
+              <https://datatracker.ietf.org/doc/draft-watts-scientific-
+              admissibility-evidence/00/>.
+
+   [PRML]     Öztürk, C., Ed., "PRML: Pre-Registered ML Manifest
+              Specification, Version 0.1", 1 May 2026,
+              <https://spec.falsify.dev/v0.1>.
+
+   [RFC3552]  Rescorla, E. and B. Korver, "Guidelines for Writing RFC
+              Text on Security Considerations", BCP 72, RFC 3552, July
+              2003, <https://www.rfc-editor.org/info/rfc3552>.
+
+   [RFC7942]  Sheffer, Y. and A. Farrel, "Improving Awareness of Running
+              Code: The Implementation Status Section", BCP 205,
+              RFC 7942, July 2016,
+              <https://www.rfc-editor.org/info/rfc7942>.
+
+   [RFC9162]  Laurie, B., Messeri, E., and R. Stradling, "Certificate
+              Transparency Version 2.0", RFC 9162, December 2021,
+              <https://www.rfc-editor.org/info/rfc9162>.
+
+   [RFC9943]  Birkholz, H., Delignat-Lavaud, A., Fournet, C., Deshpande,
+              Y., and S. Lasker, "An Architecture for Trustworthy and
+              Transparent Digital Supply Chains", RFC 9943, June 2026,
+              <https://www.rfc-editor.org/info/rfc9943>.
+
+   [TAMING]   Chalkias, K., Garillot, F., and V. Nikolaenko, "Taming the
+              Many EdDSAs", Security Standardisation Research (SSR
+              2020), LNCS 12529, 2020,
+              <https://eprint.iacr.org/2020/1244>.
+
+Appendix A.  Test Vectors
+
+   Vector identifiers are labels: a P vector expects PASS, an N vector
+   expects FAIL, and gaps in the numbering carry no meaning.
+
+   The vector set has 66 vectors, those of Table 2 (Section 5).
+   Appendix A.2 gives ten of them in full; the file of Appendix A.3
+   holds all of them.  A verifier needs only the bytes of a vector and
+   the verification key named for it.
+
+A.1.  Constants and Test Material
+
+   Receipt schema, also the type of Section 4.2:
+
+   application/vnd.signed-evidence.eval-receipt+json
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 27]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   Payload schema:
+
+   https://signed-evidence.org/eval-receipt/v1
+
+   commit_alg:
+
+   sha256-salted-v1
+
+   PURE TEST KEYS AND SALTS.  They MUST NOT be used for any real
+   receipt.
+
+   Issuer test key, Ed25519 seed (hex, 32 bytes) and public key (base64,
+   32 bytes):
+
+   2365520410748de8778b544410b15792fcf174e0fba4806a8c1afbdbb0946b07
+   x7ppA99DtumHO/Au0M/gumSK8IwCzNwPiID92BSFbak=
+
+   Second test key, used only as a wrong hint, Ed25519 seed (hex, 32
+   bytes) and public key (base64, 32 bytes):
+
+   1497efc27315bf3c5fbfa514c8761efa81b669f0b354dd22b762be7209da3b6a
+   tvFn0pKiOvm4eNHsrH3T6OsiYk7X0aMfy60UyuObvMQ=
+
+   Mixed-order test key, used only by vector N61: the public point of
+   the issuer test key plus a point of order 8.  It has no RFC 8032
+   seed; the discrete logarithm of its prime-order part is the secret
+   scalar of the issuer test key.  The point of order 8, which vector
+   N59 also adds to its R (hex, 32 bytes), and the public key (base64,
+   32 bytes):
+
+   c7176a703d4dd84fba3c0b760d10670f2a2053fa2c39ccc64ec7fd7792ac037a
+   JBz17qgxoLE067Bf5k3hKZ6Pfmfx/iD8IEaped1NGoM=
+
+   The model commitment: salt (hex, 16 bytes), identifier, commitment:
+
+ 2d1845bc523b3c2635ab90af343f33eb
+ acme/model-x@2026-09
+ sha256:904de42562f9a19651e19eb7ab165e4ffe114ce5a2f98e57da5838959684fb0f
+
+   The dataset commitment: salt (hex, 16 bytes), identifier, commitment:
+
+ 6233feb59b670c391abeed0a61973c40
+ acme/suite-data@v3
+ sha256:a21ba4d96c803d4263dd3d2161bc039a30f4462bd59470e31ba5a9ab0a9b3b63
+
+   The example criteria set of vectors P10 and N57: its bytes (hex), and
+   criteria_digest over them:
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 28]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+ 7b22636f6d70617261746f72223a223e3d222c226d6574726963223a22616363
+ 7572616379222c227375697465223a2261636d652d7361666574792d73756974
+ 65222c227468726573686f6c64223a22302e383030227d0a
+ sha256:7ccedb152aba3740dcde20e4f4014e2875b863ed4a4062879558bf78df9ce41a
+
+A.2.  Vector Set
+
+   The ten vectors below are P1, P2, P4, P6, N5, N7, N12, N13, N14 and
+   N59.  Where the payload bytes of a vector are those of P1, their hex
+   is not repeated: the list item gives their size and SHA-256, and the
+   bytes are B of P1.
+
+A.2.1.  P1 (pass; expected PASS, step all)
+
+   A well-formed receipt: the signature over PAE(TYPE, B) verifies under
+   the verification key, the commitments have the fixed pattern, and
+   passed = true agrees with score >= threshold.
+
+   *  verification key: the issuer test key
+
+   *  payload bytes B: 458 bytes, SHA-256
+      8cd849a6dcce08aee334511d7b2f31c54e478885dda1795d3c8f972dd0d4811c
+
+   *  receipt bytes: 871 bytes, SHA-256
+      02036d1f57509858330383755ec16c532bdc58b0f2d949464488d57abc9f95e7
+
+   B (hex):
+
+   7b22636f6d6d69745f616c67223a227368613235362d73616c7465642d763122
+   2c22636f6d70617261746f72223a223e3d222c22646174617365745f69645f63
+   6f6d6d6974223a227368613235363a6132316261346439366338303364343236
+   3364643364323136316263303339613330663434363262643539343730653331
+   626135613961623061396233623633222c226d6574726963223a226163637572
+   616379222c226d6f64656c5f69645f636f6d6d6974223a227368613235363a39
+   3034646534323536326639613139363531653139656237616231363565346666
+   6531313463653561326639386535376461353833383935393638346662306622
+   2c226e223a313830302c22706173736564223a747275652c22736368656d6122
+   3a2268747470733a2f2f7369676e65642d65766964656e63652e6f72672f6576
+   616c2d726563656970742f7631222c2273636f7265223a22302e383334222c22
+   7375697465223a2261636d652d7361666574792d7375697465222c2273756974
+   655f76657273696f6e223a22312e322e30222c227468726573686f6c64223a22
+   302e383030222c2274696d657374616d70223a22323032362d31302d30325430
+   303a30303a30305a227d
+
+   Receipt (hex):
+
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 29]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   7b227061796c6f61645f623634223a2265794a6a62323174615852665957786e
+   496a6f69633268684d6a55324c584e686248526c5a4331324d534973496d4e76
+   62584268636d4630623349694f69492b50534973496d52686447467a5a585266
+   615752665932397462576c30496a6f69633268684d6a55324f6d45794d574a68
+   4e4751354e6d4d344d444e6b4e4449324d32526b4d3251794d545978596d4d77
+   4d7a6c684d7a426d4e4451324d6d4a6b4e546b304e7a426c4d7a466959545668
+   4f5746694d474535596a4e694e6a4d694c434a745a58527961574d694f694a68
+   59324e31636d466a65534973496d31765a47567358326c6b58324e7662573170
+   64434936496e4e6f595449314e6a6f354d44526b5a5451794e5459795a6a6c68
+   4d546b324e54466c4d546c6c596a6468596a45324e5755305a6d5a6c4d544530
+   5932553159544a6d4f54686c4e54646b595455344d7a67354e546b324f44526d
+   596a426d49697769626949364d5467774d4377696347467a6332566b496a7030
+   636e566c4c434a7a5932686c625745694f694a6f64485277637a6f764c334e70
+   5a32356c5a43316c646d6c6b5a57356a5a533576636d63765a585a6862433179
+   5a574e6c615842304c3359784969776963324e76636d55694f6949774c6a677a
+   4e434973496e4e316158526c496a6f6959574e745a53317a59575a6c64486b74
+   63335670644755694c434a7a64576c305a5639325a584a7a61573975496a6f69
+   4d5334794c6a41694c434a3061484a6c63326876624751694f6949774c6a6777
+   4d434973496e52706257567a6447467463434936496a49774d6a59744d544174
+   4d444a554d4441364d4441364d444261496e303d222c22736368656d61223a22
+   6170706c69636174696f6e2f766e642e7369676e65642d65766964656e63652e
+   6576616c2d726563656970742b6a736f6e222c227369676e6174757265223a7b
+   22616c67223a2265643235353139222c226b6579223a22783770704139394474
+   756d484f2f4175304d2f67756d534b384977437a4e7750694944393242534662
+   616b3d222c22736967223a22434247744e323639464f68505372357865307a6c
+   4a4753424e427a47696e457a38693031664d36312b4a4e614a50646e5a793148
+   626f596934656d686d384b5a715055337973546d726d434578537653786f637a
+   42413d3d227d7d
+
+A.2.2.  P2 (recorded-failure; expected PASS, step all)
+
+   A recorded failure (score below the threshold, passed = false)
+   verifies exactly like a recorded success.
+
+   *  verification key: the issuer test key
+
+   *  payload bytes B: 459 bytes, SHA-256
+      07182e9bff69baa8ab9a5646d69b5118ccf3780b903b9a9d5b4bd0d9c9d70b87
+
+   *  receipt bytes: 871 bytes, SHA-256
+      2405d1783d1803ddea207c027622fba40b3e82161686505ee96988e306e17278
+
+   B (hex):
+
+
+
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 30]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   7b22636f6d6d69745f616c67223a227368613235362d73616c7465642d763122
+   2c22636f6d70617261746f72223a223e3d222c22646174617365745f69645f63
+   6f6d6d6974223a227368613235363a6132316261346439366338303364343236
+   3364643364323136316263303339613330663434363262643539343730653331
+   626135613961623061396233623633222c226d6574726963223a226163637572
+   616379222c226d6f64656c5f69645f636f6d6d6974223a227368613235363a39
+   3034646534323536326639613139363531653139656237616231363565346666
+   6531313463653561326639386535376461353833383935393638346662306622
+   2c226e223a313830302c22706173736564223a66616c73652c22736368656d61
+   223a2268747470733a2f2f7369676e65642d65766964656e63652e6f72672f65
+   76616c2d726563656970742f7631222c2273636f7265223a22302e373632222c
+   227375697465223a2261636d652d7361666574792d7375697465222c22737569
+   74655f76657273696f6e223a22312e322e30222c227468726573686f6c64223a
+   22302e383030222c2274696d657374616d70223a22323032362d31302d303254
+   30303a30303a30305a227d
+
+   Receipt (hex):
+
+   7b227061796c6f61645f623634223a2265794a6a62323174615852665957786e
+   496a6f69633268684d6a55324c584e686248526c5a4331324d534973496d4e76
+   62584268636d4630623349694f69492b50534973496d52686447467a5a585266
+   615752665932397462576c30496a6f69633268684d6a55324f6d45794d574a68
+   4e4751354e6d4d344d444e6b4e4449324d32526b4d3251794d545978596d4d77
+   4d7a6c684d7a426d4e4451324d6d4a6b4e546b304e7a426c4d7a466959545668
+   4f5746694d474535596a4e694e6a4d694c434a745a58527961574d694f694a68
+   59324e31636d466a65534973496d31765a47567358326c6b58324e7662573170
+   64434936496e4e6f595449314e6a6f354d44526b5a5451794e5459795a6a6c68
+   4d546b324e54466c4d546c6c596a6468596a45324e5755305a6d5a6c4d544530
+   5932553159544a6d4f54686c4e54646b595455344d7a67354e546b324f44526d
+   596a426d49697769626949364d5467774d4377696347467a6332566b496a706d
+   5957787a5a53776963324e6f5a573168496a6f696148523063484d364c79397a
+   615764755a5751745a585a705a4756755932557562334a6e4c32563259577774
+   636d566a5a576c77644339324d534973496e4e6a62334a6c496a6f694d433433
+   4e6a49694c434a7a64576c305a534936496d466a625755746332466d5a585235
+   4c584e316158526c496977696333567064475666646d567963326c7662694936
+   496a45754d69347749697769644768795a584e6f6232786b496a6f694d433434
+   4d4441694c434a306157316c63335268625841694f6949794d4449324c544577
+   4c544179564441774f6a41774f6a417757694a39222c22736368656d61223a22
+   6170706c69636174696f6e2f766e642e7369676e65642d65766964656e63652e
+   6576616c2d726563656970742b6a736f6e222c227369676e6174757265223a7b
+   22616c67223a2265643235353139222c226b6579223a22783770704139394474
+   756d484f2f4175304d2f67756d534b384977437a4e7750694944393242534662
+   616b3d222c22736967223a226c4e61433357554f6c4566486b676c646e576266
+   31756e6b6a655a49677057325856306d6c31416953356e647975312b79525578
+   4b3070673435304b2b66387058794156477631326a4a427471546677587a4873
+   44773d3d227d7d
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 31]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+A.2.3.  P4 (escaped-receipt-string; expected PASS, step all)
+
+   The receipt writes the schema with the JSON escape \/ for each
+   solidus; compared after unescaping it is the receipt media type.  The
+   receipt object is not canonicalized.
+
+   *  verification key: the issuer test key
+
+   *  payload bytes B: 458 bytes, SHA-256
+      8cd849a6dcce08aee334511d7b2f31c54e478885dda1795d3c8f972dd0d4811c
+
+   *  receipt bytes: 872 bytes, SHA-256
+      c2a7943f0ea3de6e9da88c11925b1e112d32f697a403f07fcfbc3776bca10e72
+
+   Receipt (hex):
+
+   7b227061796c6f61645f623634223a2265794a6a62323174615852665957786e
+   496a6f69633268684d6a55324c584e686248526c5a4331324d534973496d4e76
+   62584268636d4630623349694f69492b50534973496d52686447467a5a585266
+   615752665932397462576c30496a6f69633268684d6a55324f6d45794d574a68
+   4e4751354e6d4d344d444e6b4e4449324d32526b4d3251794d545978596d4d77
+   4d7a6c684d7a426d4e4451324d6d4a6b4e546b304e7a426c4d7a466959545668
+   4f5746694d474535596a4e694e6a4d694c434a745a58527961574d694f694a68
+   59324e31636d466a65534973496d31765a47567358326c6b58324e7662573170
+   64434936496e4e6f595449314e6a6f354d44526b5a5451794e5459795a6a6c68
+   4d546b324e54466c4d546c6c596a6468596a45324e5755305a6d5a6c4d544530
+   5932553159544a6d4f54686c4e54646b595455344d7a67354e546b324f44526d
+   596a426d49697769626949364d5467774d4377696347467a6332566b496a7030
+   636e566c4c434a7a5932686c625745694f694a6f64485277637a6f764c334e70
+   5a32356c5a43316c646d6c6b5a57356a5a533576636d63765a585a6862433179
+   5a574e6c615842304c3359784969776963324e76636d55694f6949774c6a677a
+   4e434973496e4e316158526c496a6f6959574e745a53317a59575a6c64486b74
+   63335670644755694c434a7a64576c305a5639325a584a7a61573975496a6f69
+   4d5334794c6a41694c434a3061484a6c63326876624751694f6949774c6a6777
+   4d434973496e52706257567a6447467463434936496a49774d6a59744d544174
+   4d444a554d4441364d4441364d444261496e303d222c22736368656d61223a22
+   6170706c69636174696f6e5c2f766e642e7369676e65642d65766964656e6365
+   2e6576616c2d726563656970742b6a736f6e222c227369676e6174757265223a
+   7b22616c67223a2265643235353139222c226b6579223a227837707041393944
+   74756d484f2f4175304d2f67756d534b384977437a4e77506949443932425346
+   62616b3d222c22736967223a22434247744e323639464f68505372357865307a
+   6c4a4753424e427a47696e457a38693031664d36312b4a4e614a50646e5a7931
+   48626f596934656d686d384b5a715055337973546d726d434578537653786f63
+   7a42413d3d227d7d
+
+
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 32]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+A.2.4.  P6 (no-key-hint; expected PASS, step all)
+
+   The signature object has exactly alg and sig, without a key hint;
+   step 10 has nothing to compare.
+
+   *  verification key: the issuer test key
+
+   *  payload bytes B: 458 bytes, SHA-256
+      8cd849a6dcce08aee334511d7b2f31c54e478885dda1795d3c8f972dd0d4811c
+
+   *  receipt bytes: 818 bytes, SHA-256
+      2c8144d50b4cc42a712d84e4d0417e52b0d8cbc484ad8e6d8d4b36a429b94ec1
+
+   Receipt (hex):
+
+   7b227061796c6f61645f623634223a2265794a6a62323174615852665957786e
+   496a6f69633268684d6a55324c584e686248526c5a4331324d534973496d4e76
+   62584268636d4630623349694f69492b50534973496d52686447467a5a585266
+   615752665932397462576c30496a6f69633268684d6a55324f6d45794d574a68
+   4e4751354e6d4d344d444e6b4e4449324d32526b4d3251794d545978596d4d77
+   4d7a6c684d7a426d4e4451324d6d4a6b4e546b304e7a426c4d7a466959545668
+   4f5746694d474535596a4e694e6a4d694c434a745a58527961574d694f694a68
+   59324e31636d466a65534973496d31765a47567358326c6b58324e7662573170
+   64434936496e4e6f595449314e6a6f354d44526b5a5451794e5459795a6a6c68
+   4d546b324e54466c4d546c6c596a6468596a45324e5755305a6d5a6c4d544530
+   5932553159544a6d4f54686c4e54646b595455344d7a67354e546b324f44526d
+   596a426d49697769626949364d5467774d4377696347467a6332566b496a7030
+   636e566c4c434a7a5932686c625745694f694a6f64485277637a6f764c334e70
+   5a32356c5a43316c646d6c6b5a57356a5a533576636d63765a585a6862433179
+   5a574e6c615842304c3359784969776963324e76636d55694f6949774c6a677a
+   4e434973496e4e316158526c496a6f6959574e745a53317a59575a6c64486b74
+   63335670644755694c434a7a64576c305a5639325a584a7a61573975496a6f69
+   4d5334794c6a41694c434a3061484a6c63326876624751694f6949774c6a6777
+   4d434973496e52706257567a6447467463434936496a49774d6a59744d544174
+   4d444a554d4441364d4441364d444261496e303d222c22736368656d61223a22
+   6170706c69636174696f6e2f766e642e7369676e65642d65766964656e63652e
+   6576616c2d726563656970742b6a736f6e222c227369676e6174757265223a7b
+   22616c67223a2265643235353139222c22736967223a22434247744e32363946
+   4f68505372357865307a6c4a4753424e427a47696e457a38693031664d36312b
+   4a4e614a50646e5a793148626f596934656d686d384b5a715055337973546d72
+   6d434578537653786f637a42413d3d227d7d
+
+A.2.5.  N5 (jcs-form; expected FAIL, step 5)
+
+   The payload bytes are a valid JSON text of the same object but not
+   its own RFC 8785 form (insignificant whitespace, member order).
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 33]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   Note: the signature over these bytes is valid; re-serializing the
+   parsed payload gives other bytes.
+
+   *  verification key: the issuer test key
+
+   *  payload bytes B: 498 bytes, SHA-256
+      fa97d7e9e6e2560d3025761ebfbae46635427dd2856b8c9b965679456cef2318
+
+   *  receipt bytes: 923 bytes, SHA-256
+      f4573f3c66570e347f4fa305b61cd189211824d9c02c603942766ff082c391c4
+
+   B (hex):
+
+   7b0a2022736368656d61223a202268747470733a2f2f7369676e65642d657669
+   64656e63652e6f72672f6576616c2d726563656970742f7631222c0a20227375
+   697465223a202261636d652d7361666574792d7375697465222c0a2022737569
+   74655f76657273696f6e223a2022312e322e30222c0a20226d6574726963223a
+   20226163637572616379222c0a2022636f6d70617261746f72223a20223e3d22
+   2c0a20227468726573686f6c64223a2022302e383030222c0a202273636f7265
+   223a2022302e383334222c0a2022706173736564223a20747275652c0a20226e
+   223a20313830302c0a20226d6f64656c5f69645f636f6d6d6974223a20227368
+   613235363a393034646534323536326639613139363531653139656237616231
+   3635653466666531313463653561326639386535376461353833383935393638
+   3466623066222c0a2022646174617365745f69645f636f6d6d6974223a202273
+   68613235363a6132316261346439366338303364343236336464336432313631
+   6263303339613330663434363262643539343730653331626135613961623061
+   396233623633222c0a2022636f6d6d69745f616c67223a20227368613235362d
+   73616c7465642d7631222c0a202274696d657374616d70223a2022323032362d
+   31302d30325430303a30303a30305a220a7d
+
+   Receipt (hex):
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 34]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   7b227061796c6f61645f623634223a2265776f67496e4e6a6147567459534936
+   49434a6f64485277637a6f764c334e705a32356c5a43316c646d6c6b5a57356a
+   5a533576636d63765a585a68624331795a574e6c615842304c3359784969774b
+   49434a7a64576c305a53493649434a685932316c4c584e685a6d56306553317a
+   64576c305a534973436941696333567064475666646d567963326c7662694936
+   494349784c6a49754d4349734369416962575630636d6c6a496a6f67496d466a
+   5933567959574e354969774b49434a6a6232317759584a6864473979496a6f67
+   496a34394969774b49434a3061484a6c63326876624751694f6941694d433434
+   4d4441694c416f67496e4e6a62334a6c496a6f67496a41754f444d304969774b
+   49434a7759584e7a5a5751694f694230636e566c4c416f67496d34694f694178
+   4f4441774c416f67496d31765a47567358326c6b58324e766257317064434936
+   49434a7a614745794e5459364f5441305a4755304d6a55324d6d593559544535
+   4e6a55785a5445355a574933595749784e6a566c4e475a6d5a5445784e474e6c
+   4e5745795a6a6b345a5455335a4745314f444d344f5455354e6a67305a6d4977
+   5a694973436941695a47463059584e6c644639705a46396a6232317461585169
+   4f694169633268684d6a55324f6d45794d574a684e4751354e6d4d344d444e6b
+   4e4449324d32526b4d3251794d545978596d4d774d7a6c684d7a426d4e445132
+   4d6d4a6b4e546b304e7a426c4d7a4669595456684f5746694d474535596a4e69
+   4e6a4d694c416f67496d4e766257317064463968624763694f69416963326868
+   4d6a55324c584e686248526c5a4331324d5349734369416964476c745a584e30
+   59573177496a6f67496a49774d6a59744d5441744d444a554d4441364d444136
+   4d44426149677039222c22736368656d61223a226170706c69636174696f6e2f
+   766e642e7369676e65642d65766964656e63652e6576616c2d72656365697074
+   2b6a736f6e222c227369676e6174757265223a7b22616c67223a226564323535
+   3139222c226b6579223a22783770704139394474756d484f2f4175304d2f6775
+   6d534b384977437a4e7750694944393242534662616b3d222c22736967223a22
+   745a4e2f5145764a714d50596169426d6f4663346d34683572374e4d77474138
+   4f55556e70526531462f6153424d4e6766754d556c31456f6746655151315878
+   4379304f4855714159436d733372672b6d59597142413d3d227d7d
+
+A.2.6.  N7 (pae-type; expected FAIL, step 11 (profile 4))
+
+   The signature was made over PAE with a different type string; under
+   the fixed type it does not verify.
+
+   *  verification key: the issuer test key
+
+   *  payload bytes B: 458 bytes, SHA-256
+      8cd849a6dcce08aee334511d7b2f31c54e478885dda1795d3c8f972dd0d4811c
+
+   *  receipt bytes: 871 bytes, SHA-256
+      18b1b6dc631cf0f00d8b0d2c237b28a67b12c2d7088ae0313a2fb27760f96bdd
+
+   Receipt (hex):
+
+
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 35]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   7b227061796c6f61645f623634223a2265794a6a62323174615852665957786e
+   496a6f69633268684d6a55324c584e686248526c5a4331324d534973496d4e76
+   62584268636d4630623349694f69492b50534973496d52686447467a5a585266
+   615752665932397462576c30496a6f69633268684d6a55324f6d45794d574a68
+   4e4751354e6d4d344d444e6b4e4449324d32526b4d3251794d545978596d4d77
+   4d7a6c684d7a426d4e4451324d6d4a6b4e546b304e7a426c4d7a466959545668
+   4f5746694d474535596a4e694e6a4d694c434a745a58527961574d694f694a68
+   59324e31636d466a65534973496d31765a47567358326c6b58324e7662573170
+   64434936496e4e6f595449314e6a6f354d44526b5a5451794e5459795a6a6c68
+   4d546b324e54466c4d546c6c596a6468596a45324e5755305a6d5a6c4d544530
+   5932553159544a6d4f54686c4e54646b595455344d7a67354e546b324f44526d
+   596a426d49697769626949364d5467774d4377696347467a6332566b496a7030
+   636e566c4c434a7a5932686c625745694f694a6f64485277637a6f764c334e70
+   5a32356c5a43316c646d6c6b5a57356a5a533576636d63765a585a6862433179
+   5a574e6c615842304c3359784969776963324e76636d55694f6949774c6a677a
+   4e434973496e4e316158526c496a6f6959574e745a53317a59575a6c64486b74
+   63335670644755694c434a7a64576c305a5639325a584a7a61573975496a6f69
+   4d5334794c6a41694c434a3061484a6c63326876624751694f6949774c6a6777
+   4d434973496e52706257567a6447467463434936496a49774d6a59744d544174
+   4d444a554d4441364d4441364d444261496e303d222c22736368656d61223a22
+   6170706c69636174696f6e2f766e642e7369676e65642d65766964656e63652e
+   6576616c2d726563656970742b6a736f6e222c227369676e6174757265223a7b
+   22616c67223a2265643235353139222c226b6579223a22783770704139394474
+   756d484f2f4175304d2f67756d534b384977437a4e7750694944393242534662
+   616b3d222c22736967223a224e66464c314f4b356b3374784951424459695956
+   6d71746d50303668533269434777736e573142637376727953646d2f49703463
+   5542546e61384a30646a6f57664658346659494c51686231654e6a6b7339436c
+   42513d3d227d7d
+
+A.2.7.  N12 (small-order-key; expected FAIL, step 11 (profile 2, key))
+
+   The verification key is the neutral element (a point of small order).
+   The signature R || S with R = S*B' satisfies the cofactorless
+   equation for any message under that key; the profile rejects small-
+   order keys.
+
+   Note: the receiver fixed this key; the vector shows why the profile
+   refuses it.
+
+   *  verification key: the neutral element, canonical encoding (01
+      followed by 31 zero bytes)
+
+   *  payload bytes B: 458 bytes, SHA-256
+      8cd849a6dcce08aee334511d7b2f31c54e478885dda1795d3c8f972dd0d4811c
+
+   *  receipt bytes: 871 bytes, SHA-256
+      19d798c4199635a8bc637e09466633a270f1502ce5f802e57908a063443b3e60
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 36]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   Receipt (hex):
+
+   7b227061796c6f61645f623634223a2265794a6a62323174615852665957786e
+   496a6f69633268684d6a55324c584e686248526c5a4331324d534973496d4e76
+   62584268636d4630623349694f69492b50534973496d52686447467a5a585266
+   615752665932397462576c30496a6f69633268684d6a55324f6d45794d574a68
+   4e4751354e6d4d344d444e6b4e4449324d32526b4d3251794d545978596d4d77
+   4d7a6c684d7a426d4e4451324d6d4a6b4e546b304e7a426c4d7a466959545668
+   4f5746694d474535596a4e694e6a4d694c434a745a58527961574d694f694a68
+   59324e31636d466a65534973496d31765a47567358326c6b58324e7662573170
+   64434936496e4e6f595449314e6a6f354d44526b5a5451794e5459795a6a6c68
+   4d546b324e54466c4d546c6c596a6468596a45324e5755305a6d5a6c4d544530
+   5932553159544a6d4f54686c4e54646b595455344d7a67354e546b324f44526d
+   596a426d49697769626949364d5467774d4377696347467a6332566b496a7030
+   636e566c4c434a7a5932686c625745694f694a6f64485277637a6f764c334e70
+   5a32356c5a43316c646d6c6b5a57356a5a533576636d63765a585a6862433179
+   5a574e6c615842304c3359784969776963324e76636d55694f6949774c6a677a
+   4e434973496e4e316158526c496a6f6959574e745a53317a59575a6c64486b74
+   63335670644755694c434a7a64576c305a5639325a584a7a61573975496a6f69
+   4d5334794c6a41694c434a3061484a6c63326876624751694f6949774c6a6777
+   4d434973496e52706257567a6447467463434936496a49774d6a59744d544174
+   4d444a554d4441364d4441364d444261496e303d222c22736368656d61223a22
+   6170706c69636174696f6e2f766e642e7369676e65642d65766964656e63652e
+   6576616c2d726563656970742b6a736f6e222c227369676e6174757265223a7b
+   22616c67223a2265643235353139222c226b6579223a22415141414141414141
+   4141414141414141414141414141414141414141414141414141414141414141
+   41413d222c22736967223a22466233322f334579647a382b78377242636e2f42
+   777657366d4b64574f58492f614f566b327331572f2f3248596f68534d567536
+   61663049746d4f7052654d627a377473396c5645356f55587a3338786c537079
+   43773d3d227d7d
+
+A.2.8.  N13 (canonical-base64; expected FAIL, step 3)
+
+   payload_b64 decodes to the same B but is not its canonical base64
+   encoding (non-zero padding bits, RFC 4648 Section 3.5).
+
+   *  verification key: the issuer test key
+
+   *  payload bytes carried (not B: the procedure stops at step 3 before
+      it obtains B): 458 bytes, SHA-256
+      8cd849a6dcce08aee334511d7b2f31c54e478885dda1795d3c8f972dd0d4811c
+
+   *  receipt bytes: 871 bytes, SHA-256
+      31a34194edd90bade6568a3cb00dbb983dabab9efccfd7a8b38650bd3e8d5201
+
+   Receipt (hex):
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 37]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   7b227061796c6f61645f623634223a2265794a6a62323174615852665957786e
+   496a6f69633268684d6a55324c584e686248526c5a4331324d534973496d4e76
+   62584268636d4630623349694f69492b50534973496d52686447467a5a585266
+   615752665932397462576c30496a6f69633268684d6a55324f6d45794d574a68
+   4e4751354e6d4d344d444e6b4e4449324d32526b4d3251794d545978596d4d77
+   4d7a6c684d7a426d4e4451324d6d4a6b4e546b304e7a426c4d7a466959545668
+   4f5746694d474535596a4e694e6a4d694c434a745a58527961574d694f694a68
+   59324e31636d466a65534973496d31765a47567358326c6b58324e7662573170
+   64434936496e4e6f595449314e6a6f354d44526b5a5451794e5459795a6a6c68
+   4d546b324e54466c4d546c6c596a6468596a45324e5755305a6d5a6c4d544530
+   5932553159544a6d4f54686c4e54646b595455344d7a67354e546b324f44526d
+   596a426d49697769626949364d5467774d4377696347467a6332566b496a7030
+   636e566c4c434a7a5932686c625745694f694a6f64485277637a6f764c334e70
+   5a32356c5a43316c646d6c6b5a57356a5a533576636d63765a585a6862433179
+   5a574e6c615842304c3359784969776963324e76636d55694f6949774c6a677a
+   4e434973496e4e316158526c496a6f6959574e745a53317a59575a6c64486b74
+   63335670644755694c434a7a64576c305a5639325a584a7a61573975496a6f69
+   4d5334794c6a41694c434a3061484a6c63326876624751694f6949774c6a6777
+   4d434973496e52706257567a6447467463434936496a49774d6a59744d544174
+   4d444a554d4441364d4441364d444261496e313d222c22736368656d61223a22
+   6170706c69636174696f6e2f766e642e7369676e65642d65766964656e63652e
+   6576616c2d726563656970742b6a736f6e222c227369676e6174757265223a7b
+   22616c67223a2265643235353139222c226b6579223a22783770704139394474
+   756d484f2f4175304d2f67756d534b384977437a4e7750694944393242534662
+   616b3d222c22736967223a22434247744e323639464f68505372357865307a6c
+   4a4753424e427a47696e457a38693031664d36312b4a4e614a50646e5a793148
+   626f596934656d686d384b5a715055337973546d726d434578537653786f637a
+   42413d3d227d7d
+
+A.2.9.  N14 (receipt-duplicate-names; expected FAIL, step 1)
+
+   The signature object repeats the member name "sig"; a parser that
+   keeps the last value and one that keeps the first disagree.
+
+   *  verification key: the issuer test key
+
+   *  payload bytes carried (not B: the procedure stops at step 1 before
+      it obtains B): 458 bytes, SHA-256
+      8cd849a6dcce08aee334511d7b2f31c54e478885dda1795d3c8f972dd0d4811c
+
+   *  receipt bytes: 968 bytes, SHA-256
+      8966f27c5f2566d986b0ab7821060ea0c901504fe984d450dfc7f8ca7d1c27e1
+
+   Receipt (hex):
+
+
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 38]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   7b227061796c6f61645f623634223a2265794a6a62323174615852665957786e
+   496a6f69633268684d6a55324c584e686248526c5a4331324d534973496d4e76
+   62584268636d4630623349694f69492b50534973496d52686447467a5a585266
+   615752665932397462576c30496a6f69633268684d6a55324f6d45794d574a68
+   4e4751354e6d4d344d444e6b4e4449324d32526b4d3251794d545978596d4d77
+   4d7a6c684d7a426d4e4451324d6d4a6b4e546b304e7a426c4d7a466959545668
+   4f5746694d474535596a4e694e6a4d694c434a745a58527961574d694f694a68
+   59324e31636d466a65534973496d31765a47567358326c6b58324e7662573170
+   64434936496e4e6f595449314e6a6f354d44526b5a5451794e5459795a6a6c68
+   4d546b324e54466c4d546c6c596a6468596a45324e5755305a6d5a6c4d544530
+   5932553159544a6d4f54686c4e54646b595455344d7a67354e546b324f44526d
+   596a426d49697769626949364d5467774d4377696347467a6332566b496a7030
+   636e566c4c434a7a5932686c625745694f694a6f64485277637a6f764c334e70
+   5a32356c5a43316c646d6c6b5a57356a5a533576636d63765a585a6862433179
+   5a574e6c615842304c3359784969776963324e76636d55694f6949774c6a677a
+   4e434973496e4e316158526c496a6f6959574e745a53317a59575a6c64486b74
+   63335670644755694c434a7a64576c305a5639325a584a7a61573975496a6f69
+   4d5334794c6a41694c434a3061484a6c63326876624751694f6949774c6a6777
+   4d434973496e52706257567a6447467463434936496a49774d6a59744d544174
+   4d444a554d4441364d4441364d444261496e303d222c22736368656d61223a22
+   6170706c69636174696f6e2f766e642e7369676e65642d65766964656e63652e
+   6576616c2d726563656970742b6a736f6e222c227369676e6174757265223a7b
+   22616c67223a2265643235353139222c226b6579223a22783770704139394474
+   756d484f2f4175304d2f67756d534b384977437a4e7750694944393242534662
+   616b3d222c22736967223a224141414141414141414141414141414141414141
+   4141414141414141414141414141414141414141414141414141414141414141
+   4141414141414141414141414141414141414141414141414141414141414141
+   41413d3d222c22736967223a22434247744e323639464f68505372357865307a
+   6c4a4753424e427a47696e457a38693031664d36312b4a4e614a50646e5a7931
+   48626f596934656d686d384b5a715055337973546d726d434578537653786f63
+   7a42413d3d227d7d
+
+A.2.10.  N59 (mixed-order-R; expected FAIL, step 11 (profile 2, R))
+
+   R is the point r*B' plus the point of order 8, a canonical encoding
+   of a point of mixed order, and S = r + k*a mod L with the issuer's
+   secret scalar a.  The cofactored equation 8*S*B' = 8*R + 8*k*A holds
+   and the cofactorless equation does not; rule 2 rejects R before rule
+   4 is reached.
+
+   *  verification key: the issuer test key
+
+   *  payload bytes B: 458 bytes, SHA-256
+      8cd849a6dcce08aee334511d7b2f31c54e478885dda1795d3c8f972dd0d4811c
+
+   *  receipt bytes: 871 bytes, SHA-256
+      2c913638dc4b977574a2582a60aeb934a87b3492a0da5dc451e1de84d9e4c3cc
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 39]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   Receipt (hex):
+
+   7b227061796c6f61645f623634223a2265794a6a62323174615852665957786e
+   496a6f69633268684d6a55324c584e686248526c5a4331324d534973496d4e76
+   62584268636d4630623349694f69492b50534973496d52686447467a5a585266
+   615752665932397462576c30496a6f69633268684d6a55324f6d45794d574a68
+   4e4751354e6d4d344d444e6b4e4449324d32526b4d3251794d545978596d4d77
+   4d7a6c684d7a426d4e4451324d6d4a6b4e546b304e7a426c4d7a466959545668
+   4f5746694d474535596a4e694e6a4d694c434a745a58527961574d694f694a68
+   59324e31636d466a65534973496d31765a47567358326c6b58324e7662573170
+   64434936496e4e6f595449314e6a6f354d44526b5a5451794e5459795a6a6c68
+   4d546b324e54466c4d546c6c596a6468596a45324e5755305a6d5a6c4d544530
+   5932553159544a6d4f54686c4e54646b595455344d7a67354e546b324f44526d
+   596a426d49697769626949364d5467774d4377696347467a6332566b496a7030
+   636e566c4c434a7a5932686c625745694f694a6f64485277637a6f764c334e70
+   5a32356c5a43316c646d6c6b5a57356a5a533576636d63765a585a6862433179
+   5a574e6c615842304c3359784969776963324e76636d55694f6949774c6a677a
+   4e434973496e4e316158526c496a6f6959574e745a53317a59575a6c64486b74
+   63335670644755694c434a7a64576c305a5639325a584a7a61573975496a6f69
+   4d5334794c6a41694c434a3061484a6c63326876624751694f6949774c6a6777
+   4d434973496e52706257567a6447467463434936496a49774d6a59744d544174
+   4d444a554d4441364d4441364d444261496e303d222c22736368656d61223a22
+   6170706c69636174696f6e2f766e642e7369676e65642d65766964656e63652e
+   6576616c2d726563656970742b6a736f6e222c227369676e6174757265223a7b
+   22616c67223a2265643235353139222c226b6579223a22783770704139394474
+   756d484f2f4175304d2f67756d534b384977437a4e7750694944393242534662
+   616b3d222c22736967223a22474b44624f565966752b682b4b6962376c355859
+   374a5a3461544975714f53586f46784a715a726c7a4e306576355855764d444f
+   745a78436849674c7552684d696a76464937786c5830416c667a68425355786e
+   44513d3d227d7d
+
+A.3.  The Complete Vector Set
+
+   All 66 vectors, the ten of Appendix A.2 included, are in one file:
+
+   *  URL: https://signed-evidence.org/eval-receipt/v1/test-vectors.json
+
+   *  size: 232309 bytes
+
+   *  SHA-256:
+      710cb8abab7ca51cf61b85c5610018f9a153add4c3db4f71b2d597e57b1671d1
+
+   A verifier uses the file only after its size and SHA-256 are those
+   above.  The file is one JSON text [RFC8259] in UTF-8: an object with
+   the members document, the name of this draft; title and note, two
+   strings for a human reader; count, the number of vectors; and
+   vectors, an array with one object per vector, in the order of
+   Table 2.  Each object has the members id, label, expected and step,
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 40]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   as in the vector's heading; description, an array of the paragraphs
+   that describe the vector; items, an array of its list items, which
+   name the verification key and the size and SHA-256 of each byte
+   string; and bytes, an array with one object per byte string, with the
+   members label (B, Receipt, or Payload bytes carried), length, sha256
+   and hex.  For the ten vectors of Appendix A.2 the file holds the same
+   words and bytes as this appendix, the payload bytes included.
+
+Changes (to be removed before publication)
+
+Since draft-gruszka-signed-evaluation-receipts-03
+
+   *  The vector set is unchanged.  Appendix A.2 gives ten of its 66
+      vectors in full, without repeating B of P1, and Appendix A.3 names
+      the file that holds all of them by its URL, size and SHA-256.
+      Section 3.2, the text before Table 2 and the opening of Appendix A
+      say so.
+
+   *  Section 7 cites draft-chueayen-attestation-receipts-05 and
+      describes the two records that revision defines; its first three
+      drafts are now as read on 2026-10-25.
+
+   *  Section 5 states that a verification-key input that is not exactly
+      32 octets is an input error and not a verdict, and Sections 10.1
+      and 11 are worded to match; no vector changes.
+
+Since draft-gruszka-signed-evaluation-receipts-02
+
+   *  Section 7 adds six individual drafts, read on 2026-10-19, and the
+      informative references to them.
+
+   *  Section 3.5 calls the mode of [I-D.ozturk-scitt-prml-profile]
+      hash-only, as that draft does.
+
+Since draft-gruszka-signed-evaluation-receipts-01
+
+   *  Section 1 ends with the scope of this document and its
+      interoperability target.
+
+   *  Section 6 opens with what PASS does not mean and says that
+      establishing who controls the key is outside the procedure.
+
+   *  The security considerations of Section 10.1 also refer to
+      [RFC8259] Section 12.
+
+
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 41]
+
+Internet-Draft         Signed Evaluation Receipts           October 2026
+
+
+   *  Section 11 adds the conformance run of the implementation named
+      there, at commit a339424e, on the vectors of Appendix A, and the
+      result of a further verifier written from the text.  It also
+      limits the description of early key rejection to the command-line
+      interface.
+
+   *  The Open Items section is removed.  The references were checked
+      against the published documents on 2026-10-12, and Section 11 now
+      gives the conformance result it asked for.
+
+   *  This appendix is added.
+
+Since draft-gruszka-signed-evaluation-receipts-00
+
+   *  Section 1 names the two parties the format serves, an Issuer and a
+      Receiver that share no infrastructure, and says why the receipt
+      object stands next to the DSSE-compatible signature.
+
+   *  Section 3.2 states that the vectors of this version are maintained
+      in Appendix A and that a later version of the format uses a
+      different identifier with its own vectors.
+
+   *  Section 6 adds that a receipt does not show where B came from.
+
+   *  Section 8 adds that criteria_digest binds bytes, not a time, and
+      carries weight only against criteria bytes the Receiver obtained
+      independently.
+
+   *  Section 10.1 writes out the security considerations of the
+      registration template and names contact, author and change
+      controller.
+
+   *  Section 11 adds a local measurement on 2026-10-10 of a receipt
+      made from the result of a test run.
+
+Author's Address
+
+   Konrad Gruszka
+   b7n0de
+   Germany
+   Email: kontakt@b7n0de.com
+
+
+
+
+
+
+
+
+
+
+Gruszka                   Expires 29 April 2027                [Page 42]

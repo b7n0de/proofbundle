@@ -144,6 +144,9 @@ def _benign_fixtures() -> dict[str, object]:
         # measured here; the parser itself is fuzzed by tests/test_never_raise_surface_family_property.py.
         "trusted_root": b'{"mediaType": "application/vnd.dev.sigstore.trustedroot+json;version=0.1"}',
         "artifact_digest": "sha256:" + "00" * 32, "profile": "github-artifact-attestation",
+        # The verifier of draft-gruszka-signed-evaluation-receipts-04 (signed_eval_receipt): the relying
+        # party's raw 32-octet Ed25519 public key. Context only; the fuzzed primary is the receipt's bytes.
+        "key": pub,
     }
 
 

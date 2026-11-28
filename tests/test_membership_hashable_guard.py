@@ -1287,6 +1287,10 @@ _LOOKUPS_CLASSIFIED = {
         (1, "own value: f runs over _WAHLFELDER, a tuple of two string literals of the module"),
     # The reader of draft-gruszka-scitt-statement-identification-03 and its command, read at the source and at the
     # one caller of each (2026-11-10).
+    # The CBOR reader of the receipt <-> COSE_Sign1 translator (receipt_cose, from the branch of PR 356).
+    ("proofbundle/receipt_cose.py", "_argument", "_SHORTEST", "size"):
+        (1, "own value: size is 1 << (info - 24), and the one caller of _argument refuses info 28 to 31 before it, "
+            "so size is 1, 2, 4 or 8, the four keys of _SHORTEST"),
     ("proofbundle/scitt_statement_id.py", "_reference_usable", "HASHES", "r_alg"):
         (1, "guarded: type(r_alg) is int and is_member(r_alg, HASHES) return before it"),
     ("proofbundle/cli.py", "_cmd_scitt_match", "HASHES", "res['alg']"):
@@ -1358,6 +1362,25 @@ _OWN_SET = "own value: set({x}) is built from {what}, so the set operation hashe
 #: until it is classified here, and a classified read that is gone has to leave the list or lower its
 #: count.
 _OTHER_USES_CLASSIFIED = {
+    ("proofbundle/signed_eval_receipt.py", "<modulebene>", "frozenset({'alg', 'sig'})", "Tuple"):
+        (1, "own value: one of the two member sets of step 1 of the receipts draft, held in a tuple that is compared "
+         "with frozenset(r[\"signature\"]), the key set of a dict that isinstance checked before"),
+    ("proofbundle/signed_eval_receipt.py", "<modulebene>", "frozenset({'alg', 'sig', 'key'})", "Tuple"):
+        (1, "own value: the other member set of step 1, in the same tuple and compared the same way"),
+    ("proofbundle/signed_eval_receipt.py", "_payload_violation", "_PAYLOAD_MEMBERS",
+     "NotEq set(p) - {_OPTIONAL_PAYLOAD_MEMBER}"):
+        (1, "own value: set(p) is the key set of a dict that isinstance(p, dict) checked before, and comparing "
+         "two sets of text hashes nothing new"),
+    ("proofbundle/signed_eval_receipt.py", "_payload_violation", "_PAYLOAD_MEMBERS", "BitOr {_OPTIONAL_PAYLOAD_MEMBER}"):
+        (1, "passed to is_member: the union of two constants of the module, and is_member reads the issuer's "
+         "name before any hashing"),
+    ("proofbundle/receipt_cose.py", "_rule_broken", "_LABELS", "NotEq set(ph)"):
+        (1, "own value: any(type(k) is not int for k in ph) returns before the comparison, so set(ph) hashes only ints"),
+    ("proofbundle/receipt_cose.py", "_rule_broken", "_CLAIMS", "NotEq set(claims)"):
+        (1, "own value: type(claims) is dict and every key an int are checked before, so set(claims) hashes only ints"),
+    ("proofbundle/signed_eval_receipt.py", "_procedure", "_RECEIPT_MEMBERS", "NotEq set(r)"):
+        (1, "own value: set(r) is the key set of a dict that isinstance(r, dict) checked before, and comparing two "
+         "sets of text hashes nothing new"),
     ("proofbundle/agent_review.py", "_validate_coverage", "_COVERAGE_FIELDS_V02", "LtE zusatz"):
         (1, "own value: zusatz comes from the package (_COVERAGE_FIELDS_V02 or the empty default), and a "
          "subset test between two frozensets hashes nothing new"),

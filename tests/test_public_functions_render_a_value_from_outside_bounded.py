@@ -115,6 +115,12 @@ _DOCUMENTED_BUILTIN = {
     # One function, not the module: verify_trace_record never raises in its body, and a module-wide
     # entry would let a planted ValueError there pass as typed (counter-reading 2026-10-22, F-1).
     "proofbundle.adapters.trace_record.jwk_thumbprint": (ValueError,),  # "Raises ValueError otherwise"
+    # Three functions from the branch of PR 356, each documenting its builtin refusal at the function.
+    "proofbundle.receipt_cose.cose_key_thumbprint": (ValueError,),  # "Raises ValueError for a key that is not ..."
+    "proofbundle.signed_eval_receipt.payload_bytes": (ValueError,),  # "Raises ValueError naming the first violation"
+    "proofbundle.signed_eval_receipt.salted_commitment": (ValueError,),  # "Raises ValueError for an identifier ..."
+    # "Raises ValueError ... and TypeError for a signer that is not an Ed25519PrivateKey"
+    "proofbundle.signed_eval_receipt.emit_signed_eval_receipt": (ValueError, TypeError),
     # One function again: "Raises ValueError for a scheme or algorithm this reader does not know or an input that
     # is not bytes"; its other refusal, NoVerdict, is a class of the package.
     "proofbundle.scitt_statement_id.match_statement": (ValueError,),
@@ -570,6 +576,59 @@ def _sigstore_verdict(tmp: Path):
     return [((verify_sigstore_bundle(*a, **k),), {})]
 
 
+def _ser_call():
+    """Vector P1 of tests/fixtures/signed_eval_receipt/draft1_vectors.json, expanded as the conformance test
+    expands it: each @NAME@ of the receipt text becomes the base64 of its payload."""
+    fix = Path(__file__).resolve().parent / "fixtures" / "signed_eval_receipt" / "draft1_vectors.json"
+    doc = json.loads(fix.read_text(encoding="utf-8"))
+    v = next(x for x in doc["vectors"] if x["id"] == "P1")
+    raw = v["receipt_text"].encode("utf-8")
+    for name, p in doc["payloads"].items():
+        b = p["text"].encode("utf-8") if "text" in p else base64.b64decode(p["b64"])
+        raw = raw.replace(b"@" + name.encode("ascii") + b"@", base64.b64encode(b))
+    return (raw, base64.b64decode(v["key_b64"])), {}
+
+
+def _ser_payload() -> dict:
+    """The Payload of vector P1, read back from the receipt `_ser_call` expands."""
+    (raw, _key), _ = _ser_call()
+    return json.loads(base64.b64decode(json.loads(raw)["payload_b64"]))
+
+
+def _receipt_cose_needs_cbor2():
+    """The receipt <-> COSE_Sign1 translator reads back with cbor2, the [scitt] extra. WITHOUT IT THE SEED IS NOT
+    MEASURED, BY NAME, as for the scitt-ccf reader above."""
+    import importlib.util
+    if importlib.util.find_spec("cbor2") is None:
+        pytest.skip("NOT MEASURED: the receipt <-> COSE_Sign1 translator needs the [scitt] extra here")
+
+
+def _receipt_cose_statement() -> tuple:
+    """(statement, receipt, receipt key, issuer) of the translator's forward direction over a receipt the producer
+    writes for the Payload of P1 under fixed key a."""
+    from proofbundle import receipt_cose, signed_eval_receipt
+    _receipt_cose_needs_cbor2()
+    signer = _fixed_key("a")
+    pub = signer.public_key().public_bytes_raw()
+    receipt = signed_eval_receipt.emit_signed_eval_receipt(_ser_payload(), signer)
+    issuer = "https://issuer.example"
+    return receipt_cose.receipt_to_statement(receipt, pub, signer, issuer=issuer), receipt, pub, issuer
+
+
+def _receipt_cose_check(tmp: Path):
+    statement, receipt, pub, issuer = _receipt_cose_statement()
+    return [((statement,), {"receipt": receipt, "receipt_key": pub, "statement_keys": [(issuer, pub)]})]
+
+
+def _receipt_cose_forward(tmp: Path):
+    from proofbundle import signed_eval_receipt
+    _receipt_cose_needs_cbor2()
+    signer = _fixed_key("a")
+    pub = signer.public_key().public_bytes_raw()
+    receipt = signed_eval_receipt.emit_signed_eval_receipt(_ser_payload(), signer)
+    return [((receipt, pub, signer), {"issuer": "https://issuer.example"})]
+
+
 def _p384_call(tmp: Path):
     """A P-384 key derived from a fixed scalar, never read from a file, and its signature over a message."""
     from cryptography.hazmat.primitives import hashes
@@ -684,10 +743,32 @@ _HAND_SEEDS = {
     # The Sigstore bundle reader for GitHub Artifact Attestations and npm provenance (2026-10-26).
     "proofbundle.adapters.sigstore_bundle.exit_code": _sigstore_verdict,
     "proofbundle.adapters.sigstore_bundle.verify_sigstore_bundle": lambda tmp: [_sigstore_call()],
+    # The verifier of draft-gruszka-signed-evaluation-receipts-04 behind EXPERIMENTAL (2026-11-01):
+    # vector P1 of the draft as the conformance test reads it.
+    "proofbundle.signed_eval_receipt.verify_signed_eval_receipt": lambda tmp: [_ser_call()],
+    # The producer and the dispatch of the same module, and the receipt <-> COSE_Sign1 translator, from the branch
+    # of PR 356 (merged tree, not main).
+    "proofbundle.signed_eval_receipt.pae": lambda tmp: [(("application/vnd.signed-evidence.eval-receipt+json",
+                                                          b"{}"), {})],
+    "proofbundle.signed_eval_receipt.payload_bytes": lambda tmp: [((_ser_payload(),), {})],
+    "proofbundle.signed_eval_receipt.emit_signed_eval_receipt": lambda tmp: [((_ser_payload(), _fixed_key("a")),
+                                                                              {})],
+    # sha256-salted-v1 of -04 Section 3.3, with the PURE TEST salt of Appendix A.1.
+    "proofbundle.signed_eval_receipt.salted_commitment": lambda tmp: [(("acme/model-x@2026-09",
+                                                                        bytes.fromhex("2d1845bc523b3c2635ab90af343f33eb")),
+                                                                       {})],
+    "proofbundle.receipt_cose.cose_key_thumbprint": lambda tmp: [((_fixed_key("a").public_key().public_bytes_raw(),),
+                                                                  {})],
+    "proofbundle.receipt_cose.receipt_to_statement": _receipt_cose_forward,
+    "proofbundle.receipt_cose.check_statement": _receipt_cose_check,
 }
 
 #: Family members with parameters that are not planted into, each with the reason.
-_NOT_SEEDED: dict = {}
+_NOT_SEEDED: dict = {
+    "proofbundle._receipt_cose_cbor2.read_back_problem": "the second reader of receipt_cose, called only by "
+                                                          "receipt_to_statement on bytes it wrote itself; it is "
+                                                          "swept through that seed",
+}
 
 
 def _seed_count(qual: str, tmp: Path) -> int:

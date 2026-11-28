@@ -220,6 +220,89 @@ def test_control_the_real_signature_in_any_buffer_writes_what_the_real_key_write
     assert erzeuge(signer_typ(ECHTE_FORMEN[form])) == erzeuge(HOLDER if signer_typ is _HolderSigner else KEY)
 
 
+#: Producers that take only an ``Ed25519PrivateKey`` and refuse a signer of another kind before they sign: the
+#: Signed Evaluation Receipt producer and its COSE_Sign1 translator, both EXPERIMENTAL, from the branch of PR 356.
+#: Their site is listed like the others; their odd outputs come from a subclass of the key class (`_Unterklasse`),
+#: since `_Signer` never reaches the site. name -> (producer, error, file:function of the site).
+def _ser_nutzlast():
+    from proofbundle import signed_eval_receipt as ser
+    return {"schema": ser.PAYLOAD_SCHEMA, "suite": "s", "suite_version": "1", "metric": "m", "comparator": ">=",
+            "threshold": "0.5", "score": "0.9", "passed": True, "n": 10, "model_id_commit": "sha256:" + "a" * 64,
+            "dataset_id_commit": "sha256:" + "b" * 64, "commit_alg": ser.COMMIT_ALG,
+            "timestamp": "2026-11-19T00:00:00Z"}
+
+
+def _ser_quittung(s):
+    from proofbundle import signed_eval_receipt as ser
+    return ser.emit_signed_eval_receipt(_ser_nutzlast(), s)
+
+
+def _cose_aussage(s):
+    from proofbundle import receipt_cose as rc
+    quittung = _ser_quittung(KEY)
+    return rc.receipt_to_statement(quittung, KEY.public_key().public_bytes_raw(), s, issuer="https://issuer.example")
+
+
+def _receipt_cose_fehler():
+    from proofbundle import receipt_cose as rc
+    return rc.ReceiptCoseError
+
+
+NUR_ECHTE_SCHLUESSEL = {
+    "emit_signed_eval_receipt": (_ser_quittung, ValueError, "signed_eval_receipt.py:emit_signed_eval_receipt"),
+    "receipt_to_statement": (_cose_aussage, None, "receipt_cose.py:receipt_to_statement"),
+}
+
+
+def _unterklasse(ausgabe):
+    """An ``Ed25519PrivateKey`` of another kind: it names KEY and returns ``ausgabe(real signature)``."""
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    class _Unterklasse(Ed25519PrivateKey):
+        def sign(self, data):
+            return ausgabe(KEY.sign(data))
+
+        def public_key(self):
+            return KEY.public_key()
+
+        def private_bytes(self, *a, **k):
+            return KEY.private_bytes(*a, **k)
+
+        def private_bytes_raw(self):
+            return KEY.private_bytes_raw()
+
+        def __copy__(self):
+            return self
+
+        def __deepcopy__(self, memo):
+            return self
+
+    return _Unterklasse()
+
+
+def _braucht_cbor2(name):
+    import importlib.util
+    if name == "receipt_to_statement" and importlib.util.find_spec("cbor2") is None:
+        pytest.skip("NOT MEASURED: the COSE_Sign1 translator needs the [scitt] extra here")
+
+
+@pytest.mark.parametrize("odd", sorted(ODD))
+@pytest.mark.parametrize("name", sorted(NUR_ECHTE_SCHLUESSEL))
+def test_a_key_subclass_whose_output_is_no_64_byte_signature_is_refused(name, odd):
+    _braucht_cbor2(name)
+    erzeuge, fehler, _ort = NUR_ECHTE_SCHLUESSEL[name]
+    with pytest.raises(fehler or _receipt_cose_fehler(), match="no 64-byte Ed25519 signature"):
+        erzeuge(_unterklasse(ODD[odd]))
+
+
+@pytest.mark.parametrize("form", sorted(ECHTE_FORMEN))
+@pytest.mark.parametrize("name", sorted(NUR_ECHTE_SCHLUESSEL))
+def test_control_a_key_subclass_with_the_real_signature_writes_what_the_real_key_writes(name, form):
+    _braucht_cbor2(name)
+    erzeuge = NUR_ECHTE_SCHLUESSEL[name][0]
+    assert erzeuge(_unterklasse(ECHTE_FORMEN[form])) == erzeuge(KEY)
+
+
 #: The two ML-DSA sites: one `.sign(` call each, outside the Ed25519 rule (their signature has another length).
 AUSSERHALB = {"checkpoint.py:cosign_checkpoint_mldsa": 1, "pqsig.py:sign_mldsa": 1}
 LESER = "_ed25519_signatur_von"
@@ -266,7 +349,8 @@ def _sign_ohne_aufruf(datei, text):
 
 def _befund(quellen):
     """What breaks the rule, per call: unread Ed25519 calls, unlisted functions, and counts off the list."""
-    gelistet = {ort for _e, _f, ort in PRODUCERS.values()} | {HOLDER_PRODUCER[2]}
+    gelistet = ({ort for _e, _f, ort in PRODUCERS.values()} | {HOLDER_PRODUCER[2]}
+                | {ort for _e, _f, ort in NUR_ECHTE_SCHLUESSEL.values()})
     erwartet = Counter({ort: 1 for ort in gelistet}) + Counter(AUSSERHALB)
     gezaehlt, ungelesen, ohne_aufruf = Counter(), [], []
     kanten = _huelle_kanten(quellen)
@@ -356,9 +440,10 @@ def _huelle_kanten(quellen):
 
 
 def test_the_list_binds_every_ed25519_signing_call_to_the_reader():
-    """Twelve `.sign(` calls: each of the ten Ed25519 ones is the one argument of the reader, in a listed function
-    with exactly one call; the two ML-DSA ones stand where they are named."""
-    assert sum(1 for d, t in _quellen().items() for _ in _sign_aufrufe(d, t)) == 12
+    """Fourteen `.sign(` calls: each of the twelve Ed25519 ones is the one argument of the reader, in a listed function
+    with exactly one call; the two ML-DSA ones stand where they are named. Twelve on main 11507531; the producer of
+    Signed Evaluation Receipts and its COSE_Sign1 translator (PR 356) add the two in `NUR_ECHTE_SCHLUESSEL`."""
+    assert sum(1 for d, t in _quellen().items() for _ in _sign_aufrufe(d, t)) == 14
     assert _befund(_quellen()) == LEER
 
 

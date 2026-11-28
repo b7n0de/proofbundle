@@ -200,6 +200,16 @@ class TestPopulationEnumeratesEveryDecidingShape(unittest.TestCase):
         self.assertIn("proofbundle.outcome.validate_outcome_predicate", echt)
         self.assertIn("proofbundle.run_ledger.validate_run_ledger_predicate", echt)
 
+    def test_the_receipt_verifier_is_exercised_and_not_owed_a_fixture(self):
+        # A surface in the population that the gate cannot call is NEEDS_FIXTURE, not evaluated, and the population
+        # is then incomplete. verify_signed_eval_receipt(receipt, key) stood there until the benign fixture table
+        # carried `key`, the verification key a Receiver fixes (32 raw bytes).
+        qname = "proofbundle.signed_eval_receipt.verify_signed_eval_receipt"
+        self.assertIn(qname, rpg.discover_python_verify_functions())
+        record = tcg._classify(qname)
+        self.assertEqual(record["status"], "NON_JSON", record.get("notes"))
+        self.assertEqual(len(record["extra_kwargs"]["key"]), 32)
+
 
 if __name__ == "__main__":
     unittest.main()

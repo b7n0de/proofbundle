@@ -94,6 +94,10 @@ rootcommit = ["ecdsa>=0.18"]
 # tests/test_scitt_pin_has_a_measured_run.py holds the pin to a run of exactly that version. `dev`
 # carries the same pin so the reader's tests run in CI; `test` does not, so the sdist run of `[test]`
 # shows the suite without the extra.
+# The same extra serves the EXPERIMENTAL translator between a Signed Evaluation Receipt and a COSE_Sign1 Hash
+# Envelope (proofbundle.receipt_cose): cbor2 reads a statement strictly and reads back every statement written;
+# without the extra its check returns no_lib, never a pass. Its tests were measured with 6.1.4 on the branch of
+# PR 356; under this pin 6.1.5 they are re-run with the merged tree.
 scitt = ["cbor2==6.1.5"]
 # EXPERIMENTAL: the versioned formal model of the relation-lineage ladder (Fundament F3, formal/model.py).
 # z3-solver enables the z3-EXTENDED symbolic proof (higher symbolic arity than bounded enumeration can
@@ -214,7 +218,7 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.288']
 # opposite directions, so both are stated:
 #
 #   NO FAILURE WAS FOUND. Every one of mypy 1.8.0 / 1.11.2 / 1.15.0 / 1.18.2 / 2.0.0 / 2.1.0 /
-#   2.2.0 / 2.3.0 exits 0 over `src` (83 files; re-derived by
+#   2.2.0 / 2.3.0 exits 0 over `src` (86 files; re-derived by
 #   tests/test_shipped_comment_numbers.py) — across BOTH major versions. So the declared
 #   floor `>=1.8` is not a guess, it is verified. That is the honest state and this bound does
 #   not pretend otherwise: it is prospective, not a fix for something broken.
@@ -244,8 +248,12 @@ inspect = ['inspect_ai>=0.3.112,<=0.3.288']
 #   (`src/proofbundle/_approval_record.py`, finding B3 of the 6.6.0 list) it became 82, and mypy
 #   **2.3.0** was re-run over the 82 and exits 0 (2026-11-06). With the reader of
 #   draft-gruszka-scitt-statement-identification-03 (`src/proofbundle/scitt_statement_id.py`) it became 83,
-#   and mypy **2.3.0** was re-run over the 83 and exits 0 (2026-11-10). The other seven versions were NOT
-#   re-run for any of the thirteen new files; that is the same boundary RESTRISIKO_610.md carries as SHIPPED-TOOL-VERDICT-NOT-RE-RUN-01,
+#   and mypy **2.3.0** was re-run over the 83 and exits 0 (2026-11-10). With the EXPERIMENTAL Signed Evaluation
+#   Receipt (`src/proofbundle/signed_eval_receipt.py`), its translator to a COSE_Sign1 Hash Envelope
+#   (`src/proofbundle/receipt_cose.py`) and that translator's second reader
+#   (`src/proofbundle/_receipt_cose_cbor2.py`) from the branches of PRs 356 and 467 it became 86 in a
+#   merged tree that is not main. The other seven versions were NOT
+#   re-run for any of the sixteen new files; that is the same boundary RESTRISIKO_610.md carries as SHIPPED-TOOL-VERDICT-NOT-RE-RUN-01,
 #   and it is stated here rather than absorbed into the sentence above.
 #
 #   THE MECHANISM IS REAL THOUGH. mypy changes CHECKING DEFAULTS at major versions: 2.0 turned on

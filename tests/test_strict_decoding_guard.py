@@ -189,6 +189,7 @@ STRICT_HOOKS = {"_reject_duplicate_keys", "no_duplicate_members",
 #: path -> number of functions defined there under a name of STRICT_HOOKS
 STRICT_HOOK_SITES = {
     "src/proofbundle/_strict_json.py": 1,
+    "src/proofbundle/signed_eval_receipt.py": 1,
     "tools/scitt_ccf_datahash_vector/json_strict.py": 1,
     "docs/scitt/statement_identification/package/verify.py": 1,
     "plugins/proofbundle-guard/hooks/proofbundle_gate.py": 2,
@@ -208,6 +209,12 @@ NOT_DECODING = {
 #: path -> (number of lax decode references, reason they lie outside a verify path, or for the second reader of
 #: scitt_ccf the reason it may stand on one)
 EXCEPTIONS = {
+    "src/proofbundle/_receipt_cose_cbor2.py": (
+        3, "the second reader of receipt_cose: a probe on the constant empty map that cbor2 takes the options to refuse "
+           "duplicate keys and indefinite lengths, and cbor2 in that strict mode reading back the statement the forward "
+           "direction has just written, twice; no function returns the module object or a decoded value, a hand-on "
+           "would be a fourth reference here, and every verdict on a statement comes from receipt_cose's own strict "
+           "reader"),
     "src/proofbundle/adapters/eee.py": (1, "reads the JSON schema file this package ships, not input"),
     # Moved here from dsse.py with the fix of finding Z7B of the deep gate 6.6.0 at c71eeb12: one function now holds
     # the budget check of every producer, the DSSE primitive and the status list and enclave issuers.
@@ -233,6 +240,9 @@ EXCEPTIONS = {
     "tools/merkle_accumulator/accumulator.py": (
         1, "reads back the canonical bytes of a state whose signature was verified one line before"),
     "tools/merkle_accumulator/render_runs.py": (1, "renders recorded run summaries for reading, decides nothing"),
+    "tools/receipt_cose_vectors/generate.py": (
+        3, "generator of tests/fixtures/receipt_cose/vectors.json: reads the Draft 1 fixture of this repository and a "
+           "receipt it has just built, writes test input and judges nothing"),
     "tools/pb_verify_rs/crosscheck.py": (
         20, "differential harness: the verdicts compared are those of the Python and the Rust verifier; two sites "
             "under the alias _json build its own test inputs; four read the shared Transparent Statement and "
