@@ -1,0 +1,10 @@
+{
+ "payload": 12,
+ "payloadType": "application/vnd.in-toto+json",
+ "signatures": [
+  {
+   "keyid": "SHA256:CbZb62BjvJ9wKyjQtgSE8esQEo6QYJxRDU2cnHoGTzo",
+   "sig": "bpaaxuGPC06rntEUgrDDz0pzI828UyAymN2bn33LDvkZ5qwDB0PTtXVXSwqaEZZFot/x1ZnU5WUsS+8RLpvqAQ=="
+  }
+ ]
+}

@@ -36,7 +36,7 @@ from .canonical import (KEIN_ZEITPUNKT, _ein_stand, _eine_kopie, _pruefkopie, _r
 from .errors import BundleFormatError, ProofBundleError
 from .signature import TRUST_ANCHOR_REFUSAL, ed25519_trust_anchor_weakness
 from ._membership import is_member
-from ._wire_b64 import decode_b64
+from ._wire_b64 import decode_b64, decode_b64_either
 # The schema's patterns in their ECMA-262 meaning (JSON Schema 2020-12 names that dialect for `pattern`),
 # from the one definition in _schema_shapes. The private copy that stood here was corrected to `\A..\Z`
 # with [0-9] in round 11 (lens run 10 at fa555f13, finding L8: a hex digest, `expires` and `schemaVersion`
@@ -844,7 +844,13 @@ def _verify_signature_for_alg(alg: str, pub: bytes, pq_pub_b64: Any, entry: dict
     fallback to a weaker check — a hybrid key is NEVER satisfied by only its Ed25519 ``sig`` leg (no
     downgrade); the ``sigPq`` leg over ``publicKeyPq`` MUST also verify. The alg label itself cannot be
     forged in isolation: it lives inside the signed predicate, so relabeling it invalidates every signature
-    over this pack (no separate alg-confusion surface, unlike a JWT ``alg`` header)."""
+    over this pack (no separate alg-confusion surface, unlike a JWT ``alg`` header).
+
+    ``sig`` and ``sigPq`` stand in a DSSE signature entry and are read as `dsse.verify_envelope` reads a signature,
+    in the standard or the URL-safe alphabet, each padded and canonical (`decode_b64_either`), for every ``alg``.
+    The Rust verifier's threshold check reads ``sig`` the same way (`b64_dsse`). Measured at 65bd4b7a and at
+    121cd089: a URL-safe root signature met the threshold in Rust and missed it here. The keys (``publicKey``,
+    ``publicKeyPq``) are fields of the predicate and stay standard base64."""
     from .pqsig import PQUnavailable, verify_hybrid, verify_mldsa  # noqa: PLC0415
     from .signature import verify_ed25519_pinned  # noqa: PLC0415
     sig_b64 = entry.get("sig")
@@ -857,7 +863,7 @@ def _verify_signature_for_alg(alg: str, pub: bytes, pq_pub_b64: Any, entry: dict
         if not isinstance(sig_b64, str):
             return False
         try:
-            sig = decode_b64(sig_b64)
+            sig = decode_b64_either(sig_b64)
         except Exception:  # noqa: BLE001
             return False
         try:
@@ -869,9 +875,9 @@ def _verify_signature_for_alg(alg: str, pub: bytes, pq_pub_b64: Any, entry: dict
         if not isinstance(pq_pub_b64, str) or not isinstance(sig_b64, str) or not isinstance(sig_pq_b64, str):
             return False
         try:
-            sig = decode_b64(sig_b64)
+            sig = decode_b64_either(sig_b64)
             pq_pub = decode_b64(pq_pub_b64)
-            sig_pq = decode_b64(sig_pq_b64)
+            sig_pq = decode_b64_either(sig_pq_b64)
         except Exception:  # noqa: BLE001
             return False
         try:
@@ -888,7 +894,7 @@ def _verify_signature_for_alg(alg: str, pub: bytes, pq_pub_b64: Any, entry: dict
     if not isinstance(sig_b64, str):
         return False
     try:
-        sig = decode_b64(sig_b64)
+        sig = decode_b64_either(sig_b64)
     except Exception:  # noqa: BLE001
         return False
     # root and old-root keys are trust anchors: a low-order key would count toward a threshold with a

@@ -206,6 +206,19 @@ def _policy_ohne_abschnitt(policy: dict, abschnitte: tuple, eigene_aussage: bool
     return True
 
 
+def _statement_crypto_line(result: dict) -> str:
+    """The CRYPTO line of `decision verify`, `outcome verify` and `relation-statement verify`.
+
+    `crypto_ok` is None when the library refused the envelope before any signature was checked
+    (`dsse._verify_and_load`: a payload that does not decode as base64, a payloadType or signatures
+    member of the wrong form, an envelope that is no object). No signature failed then, so the line
+    does not say FAIL; the command ends such a run as malformed input, exit 2 (vector F95 of the
+    audit decision receipts draft, a payload without its base64 padding)."""
+    if result["crypto_ok"] is None:
+        return "CRYPTO: NOT_EVALUATED (the envelope is malformed; no signature was checked)"
+    return f"CRYPTO: {'OK' if result['crypto_ok'] else 'FAIL'}"
+
+
 def _error_verify_fields(error: str) -> dict:
     """The stable single-field contract on the malformed-input (exit 2) path (verify-lens L2,
     2026-07-09): crypto could not even be evaluated, so crypto_ok is False and every check field is
@@ -2229,6 +2242,21 @@ def _dsse_verify_reasons(res: dict, envelope: object, shown: tuple) -> list:
     return reasons
 
 
+def _dsse_refused_before_signature(envelope, pub: bytes) -> bool:
+    """True when the DSSE layer refuses ``envelope`` before any signature is checked: a payload that is not
+    base64 in the required form, a payloadType or signatures member of the wrong form, signatures beyond the
+    budget, an envelope that is no object. The same reading the in-toto verifiers make
+    (`dsse._verify_and_load`), over the plain dict the strict reader returned. Such an envelope is malformed
+    input, exit 2, as under decision, outcome and relation-statement verify (vectors OP17, OP20, F95)."""
+    from . import dsse as _dsse  # noqa: PLC0415
+    from .intoto import INTOTO_STATEMENT_PAYLOAD_TYPE  # noqa: PLC0415
+    try:
+        _dsse._verify_and_load(envelope, pub, payload_type=INTOTO_STATEMENT_PAYLOAD_TYPE)
+    except (ProofBundleError, ValueError):
+        return True
+    return False
+
+
 def _cmd_intoto(args: argparse.Namespace) -> int:
 
     from .bundle import load_bundle  # noqa: PLC0415
@@ -2278,6 +2306,8 @@ def _cmd_intoto(args: argparse.Namespace) -> int:
                 types = ", ".join(EVAL_RESULT_PREDICATE_TYPES)
                 print(f"    {_safe_line(f'predicateType {pt!r} is neither of {types}')}")
         print("=> OK" if ok else "=> FAILED")
+        if not ok and _dsse_refused_before_signature(envelope, pub):
+            return 2
         return 0 if ok else 1
 
     from .evalclaim import decode_eval_claim  # noqa: PLC0415
@@ -2365,7 +2395,8 @@ def _cmd_svr(args: argparse.Namespace) -> int:
         try:
             with _open_input(args.receipt) as handle:
                 envelope = loads_strict(_read_capped(handle))   # WP-C1: duplicate keys rejected
-            res = verify_svr_dsse(envelope, decode_b64(args.pub))
+            pub = decode_b64(args.pub)
+            res = verify_svr_dsse(envelope, pub)
         except (OSError, ValueError, ProofBundleError, TypeError) as exc:
             _err(exc)
             return 2
@@ -2393,6 +2424,8 @@ def _cmd_svr(args: argparse.Namespace) -> int:
                 # its own row before the real one. One writer, one line per property.
                 print(f"    {_safe_line(str(p))}")
         print("=> OK" if res["ok"] else "=> FAILED")
+        if not res["ok"] and _dsse_refused_before_signature(envelope, pub):
+            return 2
         return 0 if res["ok"] else 1
 
     from .bundle import load_bundle  # noqa: PLC0415
@@ -2907,7 +2940,7 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         # Nachtrag 46g: the per-process origin token never travels in CLI output (also not nested in lineage).
         print(json.dumps(_without_origin_token(report), indent=2, default=str))
     else:
-        print(f"CRYPTO: {'OK' if result['crypto_ok'] else 'FAIL'}")
+        print(_statement_crypto_line(result))
         if result["policy_ok"] is None:
             print("POLICY: NOT_EVALUATED (no decision policy supplied)")
         else:
@@ -2929,6 +2962,10 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
             print(f"ANCHORS: {'OK' if result['anchors_ok'] else 'FAIL'}")
         if result["action_outcome_proven"] is False:
             print("ASSURANCE: actionOutcome=executed is self-asserted (no signed outcomeRef)")
+        # SPEC.md §7j: the lineage state is reported, as on the relation-statement verify path, so a
+        # DECLARED_UNRESOLVED edge never reads like a VERIFIED one in the text report.
+        if isinstance(result.get("lineage"), dict):
+            print(f"LINEAGE: {_safe_line(str(result['lineage'].get('lineage')))}")
         if result["subject_binding"] is not None:
             print(f"SUBJECT: {result['subject_binding']['mode']}")
         if result["subject_derived_ok"] is not None:
@@ -2954,6 +2991,8 @@ def _cmd_decision_verify(args: argparse.Namespace) -> int:
         elif result["crypto_ok"]:
             print(f"\nThe signature holds, but a check this command was asked to make did not hold (exit {code}); "
                   "nothing about the decision is attested beyond the CRYPTO line.")
+        elif result["crypto_ok"] is None:
+            print("\nThis receipt is malformed; no signature was checked and nothing about the decision is attested.")
         else:
             print("\nThis receipt did NOT verify (crypto failure); nothing about the decision is attested.")
     return code
@@ -2964,6 +3003,10 @@ def _decision_verify_exit(result: dict) -> int:
     unchanged so that the command knows its code before it prints its closing sentence (L6 Z6)."""
     # Exit contract (Phase B): 1 crypto fail · 2 malformed/confusion, expiry, or a requested binding, action, case
     # or lineage check that does not hold · 3 crypto OK but policy not satisfied, or the Section 4 refusal.
+    # An envelope refused before any signature was checked (crypto_ok None) is malformed input, never a
+    # crypto failure (vector F95, a payload without its base64 padding, ended with exit 1).
+    if result["crypto_ok"] is None:
+        return 2
     if not result["crypto_ok"]:
         return 1
     if not result["structure_ok"]:
@@ -3207,7 +3250,7 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
         # Nachtrag 46g: the per-process origin token never travels in CLI output (also not nested in lineage).
         print(json.dumps(_without_origin_token(report), indent=2, default=str))
     else:
-        print(f"CRYPTO: {'OK' if result['crypto_ok'] else 'FAIL'}")
+        print(_statement_crypto_line(result))
         print(f"STRUCTURE: {'OK' if result['structure_ok'] else 'FAIL'}")
         if result["policy_ok"] is not None:
             print(f"POLICY: {'OK' if result['policy_ok'] else 'FAIL'}")
@@ -3229,6 +3272,10 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
             print(f"NONCE: {'OK' if result['nonce_ok'] else 'MISMATCH'}")
         if result["execution_proven"] is False:
             print("ASSURANCE: status=executed is self-asserted (no effectDigest/actualActionDigest)")
+        # SPEC.md §7j: the lineage state is reported, as on the relation-statement verify path, so a
+        # DECLARED_UNRESOLVED edge never reads like a VERIFIED one in the text report.
+        if isinstance(result.get("lineage"), dict):
+            print(f"LINEAGE: {_safe_line(str(result['lineage'].get('lineage')))}")
         if result["subject_binding"] is not None:
             print(f"SUBJECT: {result['subject_binding']['mode']}")
         if result["subject_derived_ok"] is not None:
@@ -3246,6 +3293,8 @@ def _cmd_outcome_verify(args: argparse.Namespace) -> int:
         elif result["crypto_ok"]:
             print(f"\nThe signature holds, but a check this command was asked to make did not hold (exit {code}); "
                   "nothing about the outcome is attested beyond the CRYPTO line.")
+        elif result["crypto_ok"] is None:
+            print("\nThis receipt is malformed; no signature was checked and nothing about the outcome is attested.")
         else:
             print("\nThis receipt did NOT verify (crypto failure); nothing about the outcome is attested.")
     return code
@@ -3256,6 +3305,9 @@ def _outcome_verify_exit(result: dict) -> int:
     unchanged so that the command knows its code before it prints its closing sentence (L6 Z6)."""
     # Exit contract mirrors decision verify: 1 crypto · 2 malformed/confusion/binding-mismatch, a wrong
     # policyPurpose of the predicate included (a structure finding) · 3 a supplied trust policy not satisfied.
+    # An envelope refused before any signature was checked (crypto_ok None) is malformed input.
+    if result["crypto_ok"] is None:
+        return 2
     if not result["crypto_ok"]:
         return 1
     if not result["structure_ok"]:
@@ -3404,7 +3456,7 @@ def _cmd_relation_statement_verify(args: argparse.Namespace) -> int:
         # Nachtrag 46g: the per-process origin token never travels in CLI output (also not nested in lineage).
         print(json.dumps(_without_origin_token(report), indent=2, default=str))
     else:
-        print(f"CRYPTO: {'OK' if result['crypto_ok'] else 'FAIL'}")
+        print(_statement_crypto_line(result))
         print(f"STRUCTURE: {'OK' if result['structure_ok'] else 'FAIL'}")
         if result["policy_ok"] is not None:
             print(f"POLICY: {'OK' if result['policy_ok'] else 'FAIL'}")
@@ -3428,6 +3480,9 @@ def _cmd_relation_statement_verify(args: argparse.Namespace) -> int:
         elif result["crypto_ok"]:
             print(f"\nThe signature holds, but a check this command was asked to make did not hold (exit {code}); "
                   "nothing about the relation is attested beyond the CRYPTO line.")
+        elif result["crypto_ok"] is None:
+            print("\nThis statement is malformed; no signature was checked and nothing about the relation is "
+                  "attested.")
         else:
             print("\nThis statement did NOT verify (crypto failure); nothing about the relation is "
                   "attested.")
@@ -3438,6 +3493,9 @@ def _relation_statement_verify_exit(result: dict) -> int:
     """The exit code of `relation-statement verify` for its result. The ladder stood at the end of the command; it moved here
     unchanged so that the command knows its code before it prints its closing sentence (L6 Z6)."""
     # Exit contract mirrors decision/outcome verify: 1 crypto · 2 malformed/confusion/lineage-FAIL · 3 policy.
+    # An envelope refused before any signature was checked (crypto_ok None) is malformed input.
+    if result["crypto_ok"] is None:
+        return 2
     if not result["crypto_ok"]:
         return 1
     if not result["structure_ok"]:
