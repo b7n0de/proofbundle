@@ -134,7 +134,7 @@ def test_D85_an_ask_with_a_free_rewrite_becomes_a_deny_that_names_it(tmp_path, f
     answer, entry = _hook(repo, tmp_path, _form(form, repo))
     specific = answer["hookSpecificOutput"]
     assert specific["permissionDecision"] == "deny", answer
-    reason = specific["permissionDecisionReason"]
+    reason = ga.reason_of(specific["permissionDecisionReason"], "deny")   # D136: the verdict, then the rewrite
     assert reason.startswith("proofbundle gate, autonomous operation (D85)"), reason
     for call in calls:
         assert f"`{_form(call, repo)}`" in reason, (call, reason)

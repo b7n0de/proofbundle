@@ -25,6 +25,7 @@ import pytest
 
 import _worktree_layout as w
 from _plugin_env import plugin_env
+from _gate_answer import reason_of  # noqa: E402 - D136: the verdict before the reason
 
 pytestmark = w.d.pytestmark
 #: What the Bash tool of Claude Code 2.1.301 adds to the environment it inherits, with GIT_OPTIONAL_LOCKS=0.
@@ -66,7 +67,7 @@ def _answer(cwd, command: str, host: str = "claude", **values: str) -> tuple[int
     proc = subprocess.run([sys.executable, "-I", w.G, *args], input=event, capture_output=True, text=True,
                           env=plugin_env(**values), timeout=120, check=False)
     out = json.loads(proc.stdout).get("hookSpecificOutput", {}) if proc.stdout.strip() else {}
-    return proc.returncode, out.get("permissionDecision"), ((out.get("additionalContext") or "") if out.get("permissionDecision") else "")   # D53: the long reason
+    return proc.returncode, out.get("permissionDecision"), (reason_of(out.get("additionalContext") or "", out["permissionDecision"]) if out.get("permissionDecision") else "")   # D53: the long reason
 
 
 @pytest.mark.parametrize("form", FORMS)

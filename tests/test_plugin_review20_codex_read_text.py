@@ -17,6 +17,7 @@ import pytest
 
 import test_plugin_ask_load_a_read as a
 from _plugin_env import plugin_env
+from _gate_answer import reason_of  # noqa: E402 - D136: the verdict before the reason
 
 pytestmark = a.pytestmark
 _clean = a._clean
@@ -35,7 +36,7 @@ def _host(repo, command: str, host: str = "codex"):
                           capture_output=True, text=True, env=plugin_env(), timeout=120, check=False)
     answer = json.loads(proc.stdout) if proc.stdout.strip() else {}
     out = answer.get("hookSpecificOutput", {})
-    return proc.returncode, out.get("permissionDecision"), ((out.get("additionalContext") or "") if out.get("permissionDecision") else "")   # D53: the long reason
+    return proc.returncode, out.get("permissionDecision"), (reason_of(out.get("additionalContext") or "", out["permissionDecision"]) if out.get("permissionDecision") else "")   # D53: the long reason
 
 
 @pytest.mark.parametrize("command", ["git status", "git -C {REPO} status", "git log --oneline -1",
