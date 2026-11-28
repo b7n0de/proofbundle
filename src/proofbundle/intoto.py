@@ -70,6 +70,10 @@ EVAL_RESULT_PREDICATE_TYPE = "https://b7n0de.com/attestation/eval-result/v0.1"
 # entry carries a digest) is part of every verdict since 2026-10-17 (`_statement_layer_problem`).
 EVAL_RESULT_V02_PREDICATE_TYPE = "https://b7n0de.com/attestation/eval-result/v0.2"
 EVAL_RESULT_PREDICATE_TYPES = (EVAL_RESULT_PREDICATE_TYPE, EVAL_RESULT_V02_PREDICATE_TYPE)
+# The type URI of the upstream draft (in-toto/attestation#575, mirrored in docs/upstream/eval-result.md). The CLI
+# does not accept it (it reads only the two types above); the library verifies it only when a caller asks for it
+# with `expected_predicate_type` or opts out of the type check, and then judges `passed` as the draft does.
+_EVAL_RESULT_UPSTREAM_PREDICATE_TYPE = "https://in-toto.io/attestation/eval-result/v0.1"
 # DSSE payloadType for an in-toto Statement is the canonical Statement media type (in-toto spec v1
 # envelope.md), NOT a predicate-specific subtype. Pinned so sign and verify agree.
 INTOTO_STATEMENT_PAYLOAD_TYPE = "application/vnd.in-toto+json"
@@ -893,6 +897,38 @@ def _judge_v01_claim_members(res: dict) -> dict:
     return res
 
 
+def _judge_upstream_claim_passed(res: dict) -> dict:
+    """After `_judge_claim_fields` of a statement under the upstream type URI: the first claim object without
+    `passed`, only where no earlier claim reason was found, as ``predicate_member_detail`` and appended to
+    ``content_root_detail``; `predicate_claim_ok` and `ok` turn False.
+
+    The upstream draft writes `passed` in every claim, "the producer's signed threshold verdict"
+    (docs/upstream/eval-result.md, the `claims` field); only our v0.1 leaves it optional. Measured at 65bd4b7a and
+    at 121cd089: `verify_eval_result_dsse` with `expected_predicate_type` set to the upstream URI returned ok True
+    for a claim without `passed`, while `proofbundle intoto --verify` refuses that statement (exit 1). Library and
+    CLI are now equally strict about it. A `passed` that is present is judged by the claim rule as before."""
+    statement = res.get("statement")
+    # The claim rule judges our two types only, so for this type `predicate_claim_ok` arrives as None (not judged);
+    # only an earlier refusal (False) keeps its reason first.
+    if res.get("predicate_claim_ok") is False or not (
+            isinstance(statement, dict) and statement.get("predicateType") == _EVAL_RESULT_UPSTREAM_PREDICATE_TYPE):
+        return res
+    predicate = statement.get("predicate", {})
+    claims = predicate.get("claims") if isinstance(predicate, dict) else None
+    if not isinstance(claims, list):
+        return res
+    for i, eintrag in enumerate(claims):
+        if isinstance(eintrag, dict) and "passed" not in eintrag:
+            grund = (f"predicate claims[{i}].passed: is required by the upstream eval-result draft "
+                     f"({_EVAL_RESULT_UPSTREAM_PREDICATE_TYPE}) and absent")
+            res["predicate_claim_ok"] = False
+            res["ok"] = False
+            res["predicate_member_detail"] = grund
+            res["content_root_detail"] = (res["content_root_detail"] + "; " if res["content_root_detail"] else "") + grund
+            break
+    return res
+
+
 _CASE_LISTS = ("passedTests", "warnedTests", "failedTests")
 #: The members the in-toto test-result v0.1 predicate marks required (spec/predicates/test-result.md, and SPEC.md
 #: section 7b for `configuration`); `url` and the three case lists are the optional ones. Every statement
@@ -1425,7 +1461,9 @@ def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
     None); the Statement layer above applies to both versions. To verify v0.2, pass `expected_predicate_type=EVAL_RESULT_V02_PREDICATE_TYPE`.
     Pass `expected_predicate_type=None` to opt out of the type check; the shape of a v0.2 statement is
     checked all the same. ``expected_predicate_type`` must be a string or None, and the envelope is read
-    once, as for `verify_intoto_dsse`."""
+    once, as for `verify_intoto_dsse`. A statement that declares the upstream type URI
+    (https://in-toto.io/attestation/eval-result/v0.1) must carry `passed` in every claim, as that draft
+    writes it and as the CLI demands (`_judge_upstream_claim_passed`)."""
     from . import dsse  # noqa: PLC0415
     from .errors import ProofBundleError  # noqa: PLC0415
 
@@ -1456,6 +1494,7 @@ def verify_eval_result_dsse(envelope: dict, public_key: bytes, *,
                       else _eval_result_v01_statement_claim_fields))
     if eigener_typ == EVAL_RESULT_PREDICATE_TYPE:
         _judge_v01_claim_members(res)
+        _judge_upstream_claim_passed(res)
     else:
         res["predicate_member_detail"] = ""
     # THE CONTRACT FOLLOWS THE TYPE THE SIGNED STATEMENT DECLARES, not the type the caller expected: a
