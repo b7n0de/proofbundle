@@ -9,11 +9,13 @@ Usage:
       --agent-digest HEX --action-time 2026-11-25T10:15:00Z
   python3 verify_revocation.py --selftest [CASES_DIR]
 
-Final verdict, one of three fixed words:
+Final verdict, one of four fixed words:
   VALID_PROVIDER_CONFIRMED  customer revocation valid, provider countersignature valid  (exit 0)
   VALID_CUSTOMER_ONLY       customer revocation valid, no countersignature present      (exit 3)
   INVALID                   any check failed                                           (exit 1)
-Usage errors exit 2. VALID_CUSTOMER_ONLY is never a provider confirmation.
+  UNRESOLVED                revokedAt equals the action time and all applicable checks passed  (exit 4)
+Usage errors exit 2. VALID_CUSTOMER_ONLY is never a provider confirmation. UNRESOLVED does not show
+that the revocation covers the action: the two times come from two clocks, so equality shows no order.
 
 The type names under https://signed-evidence.org/ are provisional.
 """
@@ -273,8 +275,11 @@ def check_statement(st, ptype, results, prefix):
 
 def verify(bundle_bytes, customer_pub, provider_pub, authority_digest, agent_digest, action_time):
     results = []
+    at_exit = []   # rows that belong to the verdict, not to a check: appended last, so the first non-PASS row of
+    #                an INVALID verdict stays the check that failed
 
     def done(verdict):
+        results.extend(at_exit)
         return verdict, results
 
     try:
@@ -330,12 +335,22 @@ def verify(bundle_bytes, customer_pub, provider_pub, authority_digest, agent_dig
     ok = True
     if not (revoked_at is not None and revoked_at <= action_time):  # LOCK covers_action
         ok = False
-    failed |= mark("covers_action", ok)
+    # revokedAt is the customer's statement and the action time is the caller's record: two clocks. Where the two
+    # stated seconds are equal, nothing here shows which event came first, so coverage of the action is unresolved.
+    tie = ok and revoked_at == action_time
+    if tie:  # LOCK equal_times_unresolved
+        at_exit.append(("revocation.covers_action", "UNRESOLVED",
+                        "revokedAt equals the action time; they come from two clocks, so their order is not shown"))
+    else:
+        failed |= mark("covers_action", ok)
     if failed:
         return done("INVALID")
 
-    # provider countersignature
+    # provider countersignature: checked in full also where the times are equal, so that a broken countersignature
+    # still gives INVALID; UNRESOLVED is decided only after every applicable check has passed.
     if "countersignature" not in bundle:
+        if tie:  # LOCK equal_times_customer_only
+            return done("UNRESOLVED")
         results.append(("countersignature", "ABSENT", "customer-signed only, no provider confirmation"))
         return done("VALID_CUSTOMER_ONLY")
 
@@ -364,10 +379,12 @@ def verify(bundle_bytes, customer_pub, provider_pub, authority_digest, agent_dig
         results.append(("countersignature.time_order", "FAIL", "receivedAt before revokedAt"))
         return done("INVALID")
     results.append(("countersignature.time_order", "PASS", ""))
+    if tie:  # LOCK equal_times_countersigned
+        return done("UNRESOLVED")
     return done("VALID_PROVIDER_CONFIRMED")
 
 
-EXIT = {"VALID_PROVIDER_CONFIRMED": 0, "VALID_CUSTOMER_ONLY": 3, "INVALID": 1}
+EXIT = {"VALID_PROVIDER_CONFIRMED": 0, "VALID_CUSTOMER_ONLY": 3, "INVALID": 1, "UNRESOLVED": 4}
 
 
 def run_one(path, customer_key, provider_key, authority_digest, agent_digest, action_time):
