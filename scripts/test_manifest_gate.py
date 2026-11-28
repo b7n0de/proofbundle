@@ -26,8 +26,9 @@ No-Fake / fail-closed design:
 CLI:
   python scripts/test_manifest_gate.py [--json] [--update] [--tests-dir tests]
 
-``--update`` rewrites the lock file to the current live counts (a reviewed action, run by a human when
-tests are intentionally added). Exit 0 iff every floor is met and collection is clean.
+``--update`` rewrites the lock file from the current live counts, each floor ``FLOOR_TOLERANCE_PERCENT``
+below its live count (a reviewed action, run by a human when tests are intentionally added). Exit 0 iff
+every floor is met and collection is clean.
 """
 from __future__ import annotations
 
@@ -40,6 +41,11 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 LOCK_PATH = REPO / "tests" / "test_manifest_lock.json"
+#: How far below the live counts of the last reviewed ``--update`` each floor stands (owner decision of 2 November
+#: 2026 on card OA-9f9bd944a7, option A). Until then the floors stood at 1750 tests and 5 pytest-only modules while
+#: main collected 25875 and 514 at 5a460680: a loss of 24125 tests or 509 modules kept the gate green. Two percent
+#: leaves room for a refactor that drops redundant tests; a larger drop needs the same reviewed edit as a raise.
+FLOOR_TOLERANCE_PERCENT = 2
 _COLLECTED_RE = re.compile(r"(\d+)\s+tests?\s+collected")
 _ERROR_RE = re.compile(r"(\d+)\s+errors?\b")
 
@@ -368,6 +374,11 @@ def evaluate(tests_dir: Path | None = None, lock_path: Path = LOCK_PATH) -> dict
     }
 
 
+def floor_below(live: int) -> int:
+    """The floor ``FLOOR_TOLERANCE_PERCENT`` below a live count, rounded down, in integers only."""
+    return live * (100 - FLOOR_TOLERANCE_PERCENT) // 100
+
+
 def _write_lock(tests_dir: Path, lock_path: Path) -> dict:
     collected, errors, tail = collect_count(tests_dir)
     if collected < 0 or errors:
@@ -377,10 +388,12 @@ def _write_lock(tests_dir: Path, lock_path: Path) -> dict:
     lock = {
         "schema": "proofbundle.test_manifest_lock.v1",
         "note": "WP-B locked test manifest. FLOORs, never exact counts: adding tests is always fine; "
-                "a drop below these is a CI FAIL (no silent test schwund). Raising a floor is a "
+                "a drop below these is a CI FAIL (no silent test schwund). Each floor stands "
+                "tolerance_percent below the live count recorded at the last --update. Raising a floor is a "
                 "deliberate, reviewed edit (run scripts/test_manifest_gate.py --update).",
-        "min_collected_tests": collected,
-        "min_pytest_only_modules": len(pyonly),
+        "tolerance_percent": FLOOR_TOLERANCE_PERCENT,
+        "min_collected_tests": floor_below(collected),
+        "min_pytest_only_modules": floor_below(len(pyonly)),
         "recorded_live_counts": {"collected": collected, "pytest_only_modules": len(pyonly)},
     }
     lock_path.write_text(json.dumps(lock, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -391,14 +404,17 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--json", action="store_true")
     p.add_argument("--update", action="store_true",
-                   help="rewrite the lock file to the current live counts (a reviewed human action)")
+                   help="rewrite the lock file from the current live counts, each floor "
+                        f"{FLOOR_TOLERANCE_PERCENT} percent below its count (a reviewed human action)")
     p.add_argument("--tests-dir", type=Path, default=REPO / "tests")
     args = p.parse_args(argv)
 
     if args.update:
         lock = _write_lock(args.tests_dir, LOCK_PATH)
+        live = lock["recorded_live_counts"]
         print(f"[test-manifest] locked floor: {lock['min_collected_tests']} tests, "
-              f"{lock['min_pytest_only_modules']} pytest-only module(s) -> {LOCK_PATH.name}")
+              f"{lock['min_pytest_only_modules']} pytest-only module(s), {FLOOR_TOLERANCE_PERCENT} percent below "
+              f"{live['collected']} and {live['pytest_only_modules']} -> {LOCK_PATH.name}")
         return 0
 
     result = evaluate(args.tests_dir)
