@@ -59,6 +59,13 @@ try:
 except ModuleNotFoundError as exc:
     if exc.name != "_plugin_env":
         raise
+# Every child a test starts loads the proofbundle this process imports, and the session is red when one loaded it from
+# elsewhere, see tests/_child_tree.py (lesson L206). A throwaway tree without the helper is no error, as above.
+try:
+    from _child_tree import children_load_this_tree  # noqa: F401
+except ModuleNotFoundError as exc:
+    if exc.name != "_child_tree":
+        raise
 
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 # A git checkout always carries these; the sdist prunes/omits them (.github, the Rust tree, the spec
