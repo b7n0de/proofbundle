@@ -77,7 +77,8 @@ class TestMarkovianVerifier(unittest.TestCase):
         res = self.verify(_envelope(_upgraded_ots(height=850000)), _ROOT, frozen={}, rp_trust=rp)
         self.assertTrue(res["ok"], res["detail"])
         self.assertEqual(res["status"], "confirmed")
-        self.assertIn(_WALLET, res["detail"])          # PASS names the committing wallet
+        self.assertIn(_WALLET, res["detail"])          # PASS names the wallet of the envelope
+        self.assertIn("not authenticated", res["detail"])   # ... and says that nothing authenticates it
 
     def test_pending_is_warn_never_pass(self):
         res = self.verify(_envelope(_pending_ots()), _ROOT, frozen={})

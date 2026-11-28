@@ -17,7 +17,8 @@ Properties checked:
 - verify_receipt copies safeForAutomation and automationBlockers verbatim from the core's report
   (automation for decision and outcome, root_authenticity for a bundle), names where it took them, and
   gives null with "not reported by the core" where the report has no such field; it derives nothing;
-- the text for exit 1 does not rule out a structure failure, which is what a broken envelope gives;
+- the text for exit 1 does not rule out a structure failure, which is what a receipt changed after signing gives;
+  an envelope refused before any signature is checked is malformed input (exit 2) and gets the text for exit 2;
 - the rule on safe_for_automation stands in the server too, in verify_receipt's description and in the
   instructions, because a model can call the tool without the skill;
 - the server's version is the version of every manifest in the plugin folder, and every result carries
@@ -27,11 +28,17 @@ Properties checked:
   text (TX39, TX40, TX41, TX43 and TX44 of the review of review package -1); each but the marketplace's
   own begins with Verify (the catalog's Claude Code row with Verifies) and marks receipt signing as
   experimental;
-- the plugin directory is not part of the Python distribution.
+- the plugin directory is not part of the Python distribution;
+- the server starts the CLI with `python -I`, which PYTHONPATH does not reach, so a case that calls one of
+  the four CLI tools skips as a whole, before that call and with both versions named, where that child loads
+  other Python sources than this checkout's (a witness whose interpreter carries an older release); it runs
+  where the child loads the checkout, and in CI it must run.
 """
 from __future__ import annotations
 
 import base64
+import functools
+import hashlib
 import importlib.util
 import json
 import os
@@ -40,10 +47,10 @@ import re
 import select
 import subprocess
 import sys
+import tempfile
 
 import pytest
 
-import proofbundle
 from _plugin_env import plugin_env
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -66,15 +73,62 @@ def _frontmatter(text: str) -> dict[str, str]:
     return fields
 
 
+#: The package of this checkout, the state under test; not whatever `import proofbundle` found in this process.
+TREE_PACKAGE = ROOT / "src" / "proofbundle"
+TREE_VERSION = re.search(r'^__version__ = "([^"]+)"$', (TREE_PACKAGE / "__init__.py").read_text(encoding="utf-8"), re.M).group(1)
+
+
+def _cli_tools() -> set[str]:
+    """The tools whose function calls `_run_cli`, read from the server script, so the set cannot drift from it."""
+    text = SERVER.read_text(encoding="utf-8")
+    functions = dict(re.findall(r'^    "(\w+)": \((tool_\w+), \{', text, re.M))
+    bodies = dict(re.findall(r"^def (tool_\w+)\(.*?\n(.*?)(?=^def |\Z)", text, re.M | re.S))
+    return {name for name, function in functions.items() if "_run_cli(" in bodies.get(function, "")}
+
+
+CLI_TOOLS = _cli_tools()
+
+
+def _package_digest(package: pathlib.Path) -> str:
+    """sha256 over the Python source files of a package directory, by relative path and bytes. It shows that two
+    packages carry the same Python sources, nothing about data files, metadata or dependencies."""
+    digest = hashlib.sha256()
+    for path in sorted(p for p in package.rglob("*.py") if "__pycache__" not in p.parts):
+        digest.update(path.relative_to(package).as_posix().encode() + b"\0" + path.read_bytes() + b"\0")
+    return digest.hexdigest()
+
+
+@functools.lru_cache(maxsize=None)
+def _cli_skip_reason(python: str) -> str | None:
+    """None where `python -I`, as the server's _run_cli starts the CLI, loads the Python sources of this checkout;
+    otherwise the reason for skipping a case whose answer comes from the CLI, naming both versions and their paths."""
+    probe = "import json, proofbundle; print(json.dumps([proofbundle.__file__, proofbundle.__version__]))"
+    with tempfile.TemporaryDirectory(prefix="proofbundle-child-") as clean:
+        child = subprocess.run([python, "-I", "-c", probe], cwd=clean, capture_output=True, text=True,
+                               timeout=120, check=False)
+    tree = f"the checkout under test, proofbundle {TREE_VERSION} from {TREE_PACKAGE}"
+    if child.returncode != 0:
+        last = (child.stderr.strip().splitlines() or ["no output"])[-1]
+        return f"the server starts the CLI with `python -I`, which cannot import proofbundle ({last}), not {tree}"
+    path, version = json.loads(child.stdout)
+    package = pathlib.Path(path).resolve().parent
+    if _package_digest(package) == _package_digest(TREE_PACKAGE):
+        return None
+    return (f"the server starts the CLI with `python -I`, which loads proofbundle {version} from {package}, not {tree}; "
+            "this case is measured where the isolated child loads the tree, as in CI")
+
+
 class _Server:
-    def __init__(self, cwd: pathlib.Path, data: pathlib.Path):
+    def __init__(self, cwd: pathlib.Path, data: pathlib.Path, python: str = sys.executable):
         env = plugin_env(CLAUDE_PLUGIN_DATA=str(data))
         # The server runs from a temporary directory, where a relative PYTHONPATH would resolve to
-        # nothing and the child could import some other installed proofbundle. Put the package this
-        # test imported first, so the server is measured against the code under test.
-        package_root = str(pathlib.Path(proofbundle.__file__).resolve().parent.parent)
+        # nothing and the child could import some other installed proofbundle. Put this checkout's src
+        # first, so the server is measured against the code under test. The CLI the server starts runs
+        # with `-I` and does not see this path; tool() skips a CLI case where that child loads another one.
+        package_root = str(TREE_PACKAGE.parent)
         env["PYTHONPATH"] = os.pathsep.join(p for p in (package_root, env.get("PYTHONPATH")) if p)
-        self.proc = subprocess.Popen([sys.executable, str(SERVER)], stdin=subprocess.PIPE,
+        self.python = python
+        self.proc = subprocess.Popen([python, str(SERVER)], stdin=subprocess.PIPE,
                                      stdout=subprocess.PIPE, text=True, cwd=cwd, env=env)
         self.next_id = 0
 
@@ -90,6 +144,12 @@ class _Server:
         return reply
 
     def tool(self, name: str, **arguments) -> tuple[dict, bool]:
+        # Decided before the call, so no answer of another CLI (a verdict, an error, a timeout) is ever read.
+        # A case that calls one of these tools skips as a whole, its other checks included.
+        if name in CLI_TOOLS:
+            reason = _cli_skip_reason(self.python)
+            if reason:
+                pytest.skip(reason)
         result = self.request("tools/call", {"name": name, "arguments": arguments})["result"]
         return json.loads(result["content"][0]["text"]), result["isError"]
 
@@ -160,7 +220,7 @@ def test_an_emitted_receipt_verifies_and_a_changed_one_does_not(server, tmp_path
 
     verified, failed = server.tool("verify_receipt", kind="decision", path=str(tmp_path / "r.json"), public_key=key)
     assert (failed, verified["exit_code"], verified["verified"]) == (False, 0, True)
-    assert verified["proofbundle_version"] == proofbundle.__version__
+    assert verified["proofbundle_version"] == TREE_VERSION
 
     envelope = json.loads((tmp_path / "r.json").read_text(encoding="utf-8"))
     payload = bytearray(base64.b64decode(envelope["payload"]))
@@ -448,6 +508,7 @@ def test_the_scope_sentence_and_the_gate_note_the_instructions_name_are_in_the_r
 
 
 EXIT_1 = "verification failed: a signature, structure or other check did not hold; the report names which"
+EXIT_2 = "malformed input: the file, the key or an option could not be read as required"
 
 
 def test_a_valid_but_foreign_key_does_not_verify_and_the_issuers_does(server):
@@ -461,12 +522,20 @@ def test_a_valid_but_foreign_key_does_not_verify_and_the_issuers_does(server):
     assert (right["exit_code"], right["verified"]) == (0, True)
 
 
-def test_the_exit_1_text_names_structure_and_a_broken_envelope_gets_it(server, tmp_path):
+def test_the_exit_1_text_names_structure_and_a_changed_receipt_gets_it(server, tmp_path):
+    """A receipt changed after signing fails its signature and its structure together, and gets exit 1 with the
+    text that names structure. Until 6.6.1 a broken envelope was the case for this text; since the core ends an
+    envelope refused before any signature is checked with exit 2, that envelope gets the text for exit 2 and a
+    crypto_ok of null, and the text for exit 1 needs a case whose signature was checked."""
     key = (FIXTURES / "issuer.pub").read_text(encoding="utf-8").strip()
+    changed, _ = server.tool("verify_receipt", kind="decision", path=str(FIXTURES / "receipt-tampered.json"),
+                             public_key=key)
+    assert (changed["exit_code"], changed["verified"], changed["meaning"]) == (1, False, EXIT_1)
+    assert (changed["output"]["structure_ok"], changed["output"]["crypto_ok"]) == (False, False)
     broken = tmp_path / "broken.json"
     broken.write_text(json.dumps({"payloadType": 5}), encoding="utf-8")
     result, _ = server.tool("verify_receipt", kind="decision", path=str(broken), public_key=key)
-    assert (result["exit_code"], result["verified"], result["meaning"]) == (1, False, EXIT_1)
+    assert (result["exit_code"], result["verified"], result["meaning"]) == (2, False, EXIT_2)
     assert (result["output"]["structure_ok"], result["output"]["crypto_ok"]) == (False, None)
 
 
@@ -613,6 +682,65 @@ def test_every_description_carries_the_owners_text_word_for_word():
     assert "| emit (experimental) | `/proofbundle:emit" in table
     emit = _frontmatter((PLUGIN / "skills" / "emit" / "SKILL.md").read_text(encoding="utf-8"))
     assert emit["description"].startswith("Experimental.")
+
+
+def test_the_cli_tools_are_the_four_that_start_the_cli():
+    """CLI_TOOLS is read from the server; a parse that found nothing would skip nothing and hide the gap."""
+    assert CLI_TOOLS == {"receipt_template", "emit_receipt", "verify_receipt", "inspect_receipt"}
+
+
+def _interpreter_whose_isolated_child_loads_the_tree(tmp_path: pathlib.Path) -> str:
+    """A throwaway venv whose site directory puts this checkout's src first and this interpreter's site directories
+    after it, so `python -I` there imports the checkout, as the editable install of every pytest job in CI does.
+    The .pth file holds ASCII paths only, which every encoding site may read it in decodes alike; with any other
+    path the proof skips. .pth files inside the appended site directories are not processed, so a dependency
+    installed editable would be missing there."""
+    venv = tmp_path / "venv"
+    made = subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(venv)], capture_output=True, text=True,
+                          timeout=120, check=False)
+    if made.returncode != 0:
+        pytest.skip("this interpreter cannot build a venv: " + (made.stderr.strip().splitlines() or ["?"])[-1])
+    python = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    purelib = subprocess.run([str(python), "-I", "-c", "import sysconfig; print(sysconfig.get_paths()['purelib'])"],
+                             capture_output=True, text=True, timeout=60, check=True).stdout.strip()
+    sites = [p for p in sys.path if os.path.isdir(p) and p.rstrip(os.sep).endswith(("site-packages", "dist-packages"))]
+    lines = "\n".join([str(TREE_PACKAGE.parent), *sites]) + "\n"
+    if not lines.isascii():
+        pytest.skip("a path for the .pth file is not ASCII, and site reads .pth files in an encoding that varies")
+    pathlib.Path(purelib, "aa_tree_under_test.pth").write_text(lines, encoding="ascii")
+    return str(python)
+
+
+def test_the_cli_cases_run_where_the_isolated_child_loads_the_tree(tmp_path):
+    """The skip in tool() is a property of the environment, not of the cases: where `python -I` loads the tree,
+    no CLI case skips, and the case the skip was made for gives exit 2 for an envelope refused before any
+    signature is checked and exit 1 for a receipt changed after signing."""
+    python = _interpreter_whose_isolated_child_loads_the_tree(tmp_path)
+    assert _cli_skip_reason(python) is None
+    srv = _Server(tmp_path, tmp_path / "data", python=python)
+    try:
+        srv.request("initialize", {"protocolVersion": "2025-06-18", "capabilities": {},
+                                   "clientInfo": {"name": "test", "version": "0"}})
+        key = (FIXTURES / "issuer.pub").read_text(encoding="utf-8").strip()
+        broken = tmp_path / "broken.json"
+        broken.write_text(json.dumps({"payloadType": 5}), encoding="utf-8")
+        result, _ = srv.tool("verify_receipt", kind="decision", path=str(broken), public_key=key)
+        assert (result["exit_code"], result["meaning"]) == (2, EXIT_2)
+        changed, _ = srv.tool("verify_receipt", kind="decision", path=str(FIXTURES / "receipt-tampered.json"),
+                              public_key=key)
+        assert (changed["exit_code"], changed["meaning"]) == (1, EXIT_1)
+    finally:
+        assert srv.close() == 0
+
+
+def test_in_ci_the_isolated_child_loads_the_tree_under_test():
+    """Every pytest job in ci.yml installs this checkout editable, so there the isolated child loads its Python
+    sources and no case is skipped for this reason; a skip there would hide the cases from the one measurement
+    that sees them, and this test turns that into a red result. It checks this one skip condition, not a test
+    selection or other skip reasons, and outside GitHub Actions it does not run."""
+    if os.environ.get("GITHUB_ACTIONS") != "true":
+        pytest.skip("checked only in CI, where the tree under test is installed")
+    assert _cli_skip_reason(sys.executable) is None, _cli_skip_reason(sys.executable)
 
 
 def test_the_plugin_is_not_part_of_the_python_distribution():

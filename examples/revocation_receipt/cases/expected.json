@@ -61,6 +61,31 @@
       "verdict": "INVALID"
     },
     {
+      "file": "cases/revoked_at_action_time.json",
+      "firstNonPass": "revocation.covers_action",
+      "verdict": "UNRESOLVED"
+    },
+    {
+      "file": "cases/revoked_at_action_time_countersigned.json",
+      "firstNonPass": "revocation.covers_action",
+      "verdict": "UNRESOLVED"
+    },
+    {
+      "file": "cases/revoked_at_action_time_foreign_countersignature.json",
+      "firstNonPass": "countersignature.signature",
+      "verdict": "INVALID"
+    },
+    {
+      "file": "cases/revoked_at_action_time_countersignature_other_revocation.json",
+      "firstNonPass": "countersignature.binds_revocation",
+      "verdict": "INVALID"
+    },
+    {
+      "file": "cases/revoked_at_action_time_countersignature_before_revocation.json",
+      "firstNonPass": "countersignature.time_order",
+      "verdict": "INVALID"
+    },
+    {
       "file": "cases/wrong_authority.json",
       "firstNonPass": "revocation.authority_match",
       "verdict": "INVALID"

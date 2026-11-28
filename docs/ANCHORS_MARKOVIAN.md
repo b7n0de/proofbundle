@@ -11,15 +11,18 @@ register()   # anchors[] entries with type "markovian-provenance/v1" now verify
 
 ## What it adds over `opentimestamps`
 
-The built-in `opentimestamps` type proves *the data existed by a Bitcoin block time*. A Markovian stamp
-adds an **attributable issuer**: it binds the committed data to a wallet inside the stamp envelope,
+The built-in `opentimestamps` type proves *the data existed no later than the Bitcoin block at the attested
+height*; the block's time field is set by the miner and is not a trusted clock. A Markovian stamp
+adds a **named wallet**: the stamp envelope ties the committed data to a wallet name,
 
 ```
 merkle_root = sha256( data_hash ":" salt ":" wallet )
 ```
 
-so a verified anchor says *the target canonical root was committed **by wallet W** and existed by the
-OTS-attested Bitcoin block time* — issuer **and** time, not time alone.
+so a verified anchor says *the target canonical root existed no later than the Bitcoin block at the
+OTS-attested height, and the envelope names wallet W*. The envelope hash is self-consistent, but nothing
+authenticates the wallet or shows that the wallet made the commitment: anyone can name another wallet and
+recompute the hash without touching the OTS proof (see the trust model below).
 
 ## Composition, not reinvention
 
@@ -47,7 +50,7 @@ UTF-8 JSON, base64'd into the anchor's `proof` field:
   "schema": "markovian-provenance/v1",
   "data_hash": "<hex sha256 of the canonical pre-registration object == the target canonicalRoot>",
   "salt": "<hex>",
-  "wallet": "<Markovian wallet that committed it>",
+  "wallet": "<Markovian wallet the stamp names, not authenticated>",
   "merkle_root": "<hex sha256(data_hash:salt:wallet)>",
   "zk_commitment": "<BN128 Pedersen point, informative>",
   "block_height": 77810,
@@ -58,14 +61,15 @@ UTF-8 JSON, base64'd into the anchor's `proof` field:
 
 ## Trust model (honest)
 
-- **Time** is trust-minimized (Bitcoin PoW time): it comes from Bitcoin via the OTS proof, verified offline against a block header
+- **Time** is an upper bound at a block height: the block's time field is part of the header that proof of work commits,
+  but the miner chooses it, so it is not an accurate clock. It comes from Bitcoin via the OTS proof, verified offline against a block header
   the **relying party supplies** (WP-A1: `--bitcoin-header` / policy `anchors.bitcoin_block_headers`) from
   their own trusted (pruned) node — NOT the anchor's `frozen` header, which is producer-controlled evidence
   and is never trusted. proofbundle never fetches it. That value is the block's `hashMerkleRoot` in Bitcoin **internal (node) byte order**
   (what `bitcoind` returns and what the OTS attestation commits to), *not* the reversed display order a
   block explorer prints.
-- **Issuer binding** is *self-consistent within the stamp*: `merkle_root` cryptographically ties the
-  wallet to `data_hash`. In this v1 the OTS anchors `data_hash` directly, so a stronger future variant
+- **Wallet name** is *self-consistent within the stamp* and not authenticated: `merkle_root` ties the named
+  wallet to `data_hash` by a hash anyone can recompute, and no wallet signature is checked. In this v1 the OTS anchors `data_hash` directly, so a stronger future variant
   can anchor `merkle_root` itself, putting the wallet inside the Bitcoin-committed preimage.
 
 ## Worked fixture

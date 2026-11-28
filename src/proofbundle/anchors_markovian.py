@@ -5,11 +5,14 @@ A worked example of a *third-party* anchor ``type`` registered through
 evidence into the generic ``anchors[]`` layer without touching proofbundle's core, and it is deliberately
 NOT wired into the built-in set (``_ensure_builtin_types``) — a third-party type is opt-in by design.
 
-**What it proves.** A ``markovian-provenance/v1`` stamp is an *issuer-attributable* commitment: it binds
-the committed data to a wallet via ``merkle_root = sha256(data_hash ":" salt ":" wallet)``, and the data
-itself is Bitcoin-anchored with OpenTimestamps. A verified anchor therefore says: *the target canonical
-root was committed by wallet W and existed by the OTS-attested Bitcoin block time.* The time is
-trust-minimized (Bitcoin PoW time); the issuer binding is self-consistent inside the stamp envelope.
+**What it proves.** A ``markovian-provenance/v1`` stamp names a wallet next to the committed data:
+``merkle_root = sha256(data_hash ":" salt ":" wallet)``, and the data itself is Bitcoin-anchored with
+OpenTimestamps. A verified anchor therefore says: *the target canonical root existed no later than the
+Bitcoin block at the OTS-attested height, and the envelope names wallet W.* The envelope hash is
+self-consistent, but nothing here authenticates the wallet or shows that the wallet made the commitment:
+anyone can name another wallet and recompute the hash without touching the OTS proof. The block's time
+field is part of the header that proof of work commits, but the miner chooses it, so it is not a trusted
+clock; the trusted time is the height.
 
 **Composition, not reinvention.** The Bitcoin time proof is delegated verbatim to the built-in
 ``opentimestamps`` verifier (:func:`proofbundle.anchors_ots.verify_opentimestamps`), inheriting its exact
@@ -53,7 +56,7 @@ def verify_markovian(proof: bytes, canonical_root: bytes, *, frozen: dict,
       4. envelope integrity: ``merkle_root == sha256(data_hash ":" salt ":" wallet)`` (wallet bound to data);
       5. Bitcoin time: delegate the embedded OTS proof to the built-in opentimestamps verifier.
     The final status/warn mirror the OTS verifier (pending / upgraded_unverified / confirmed); a PASS also
-    names the committing wallet and Markovian chain height.
+    names the wallet of the envelope, as not authenticated, and the Markovian chain height.
     """
     # 0. The proof and the target root as the bytes they store, each read once (deep gate run 5 at d388ed3d,
     # the sweep of L4-620v5-T5-SECOND-READING-01: a verdict from two readings of one caller value). The binding compared one reading
@@ -147,7 +150,8 @@ def verify_markovian(proof: bytes, canonical_root: bytes, *, frozen: dict,
 
     if ots_res.get("ok"):
         out = {"ok": True, "warn": False, "status": "confirmed",
-               "detail": f"canonical root committed by {who}{chain_part}; {ots_res.get('detail', '')}"}
+               "detail": f"canonical root anchored; the envelope names {who}{chain_part} (not authenticated); "
+                         f"{ots_res.get('detail', '')}"}
         if isinstance(ots_res.get("trustedTime"), dict):   # WP-A2: delegate verbatim (compose)
             out["trustedTime"] = ots_res["trustedTime"]
         return _with_provenance(out)
