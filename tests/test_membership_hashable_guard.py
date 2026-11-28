@@ -1157,6 +1157,8 @@ _LOOKUPS_CLASSIFIED = {
         (1, "guarded: isinstance(art, str) and is_member(art, _POLICY_ACHSE) return before it"),
     ("proofbundle/hashalg.py", "resolve_hash_alg", "HASH_REGISTRY", "alg_id"):
         (1, "guarded: a non-str alg_id raises MissingHashAlgId before it"),
+    ("proofbundle/intoto.py", "_subject_profile_read", "_SUBJECT_PROFILE_SPELLINGS", "value"):
+        (1, "guarded: a value that is not a str returns None before it"),
     ("proofbundle/intoto.py", "to_test_result_statement", "_RESULT_ENUM", "verdikt"):
         (1, "own value: require_bool_verdict returns a bool or raises"),
     ("proofbundle/kbjwt.py", "verify_key_binding", "_HASH_ALG", "sd_alg"):

@@ -95,6 +95,24 @@ LEGACY_CONTENT_ROOT_ALG = "legacy-sortkeys-json-v0"
 #   release-gate — a release artifact gated on a passed eval ("deploy only if the eval passed"; SLSA hook).
 SUBJECT_PROFILES = ("receipt", "public-model", "release-gate")
 
+#: The spellings a verifier reads as each subject profile, and the one place that equates them. proofbundle writes
+#: the hyphen form of SUBJECT_PROFILES. in-toto/attestation pull request 575 spells the values in snake_case, as
+#: `assuranceLevel` is spelled, so `public_model` and `release_gate` are read as `public-model` and `release-gate`.
+#: Every check of a `subjectProfile` value goes through `_subject_profile_read`; no producer does.
+_SUBJECT_PROFILE_SPELLINGS = {
+    "receipt": "receipt",
+    "public-model": "public-model", "public_model": "public-model",
+    "release-gate": "release-gate", "release_gate": "release-gate",
+}
+
+
+def _subject_profile_read(value: Any) -> Optional[str]:
+    """The subject profile `value` names in a statement a verifier reads, in the form proofbundle writes, or None
+    for a value that names none (also for a value that is not a string)."""
+    if not isinstance(value, str):
+        return None
+    return _SUBJECT_PROFILE_SPELLINGS.get(value)
+
 # An export is commitment-only. If a caller hands us an enriched claim that still carries a plaintext
 # identifier or a raw salt, we REFUSE to export rather than risk leaking it into a portable attestation.
 _FORBIDDEN_PLAINTEXT_KEYS = (
@@ -792,8 +810,8 @@ _V01_REQUIRED_CLAIM = ("metric", "comparator", "threshold")
 def _eval_result_v01_member_forms(predicate: dict) -> list:
     """(label, reason) for each member of a v0.1 predicate whose form the claim rule does not judge: `verifier` an
     object carrying `verifier.id` as a URI, `evaluatedAt` an RFC 3339 date-time with an offset, `suite` carrying
-    both `name` and `version`, `subjectProfile` one of `SUBJECT_PROFILES` (docs/IN_TOTO_PROFILE.md, the v0.1
-    table), and `claims` carrying at least one claim. The URI and the date-time are read as eval-result v0.2 reads
+    both `name` and `version`, `subjectProfile` a value `_subject_profile_read` reads as one of `SUBJECT_PROFILES`
+    (docs/IN_TOTO_PROFILE.md, the v0.1 table), and `claims` carrying at least one claim. The URI and the date-time are read as eval-result v0.2 reads
     them (`_URI_RE`, `_is_rfc3339`), by the owner's choice of 2026-10-31; on main b55d736d "not a uri" and
     "yesterday" verified.
     An absent member is the reason of `_eval_result_v01_statement_claim_fields`, and a `suite` or `claims` that is
@@ -827,7 +845,7 @@ def _eval_result_v01_member_forms(predicate: dict) -> list:
                     for t in _V01_REQUIRED_SUITE if t not in suite]
     if "subjectProfile" in predicate:
         profil = predicate["subjectProfile"]
-        if not (isinstance(profil, str) and profil in SUBJECT_PROFILES):
+        if _subject_profile_read(profil) is None:
             gruende.append(("predicate subjectProfile",
                             f"must be one of {', '.join(SUBJECT_PROFILES)}, got {render_safe(profil)}"))
     return gruende
@@ -1647,10 +1665,11 @@ def _claim_problems(claim: Any, where: str) -> list:
     return out
 
 
-def _eval_result_v02_predicate_problems(pred: Any) -> list:
+def _eval_result_v02_predicate_problems(pred: Any, *, written: bool = False) -> list:
     """Every way `pred` departs from the v0.2 predicate. Unknown fields are ignored at every level (in-toto
     parsing rules); a KNOWN field that is present must be usable, and a present-but-unusable value is
-    refused rather than read as absent."""
+    refused rather than read as absent. `written` is the emitter's own check: it takes a `subjectProfile` in the
+    form of SUBJECT_PROFILES only, where a verifier also reads the snake_case spelling (`_subject_profile_read`)."""
     if not isinstance(pred, dict):
         return [f"predicate must be an object, got {type(pred).__name__}"]
     out = []
@@ -1697,7 +1716,7 @@ def _eval_result_v02_predicate_problems(pred: Any) -> list:
     if not (isinstance(level, str) and level in _V02_ASSURANCE_LEVELS):
         out.append("assuranceLevel must be one of " + ", ".join(_V02_ASSURANCE_LEVELS))
     profile = pred.get("subjectProfile")
-    if not (isinstance(profile, str) and profile in SUBJECT_PROFILES):
+    if _subject_profile_read(profile) is None or (written and profile not in SUBJECT_PROFILES):
         out.append("subjectProfile must be one of " + ", ".join(SUBJECT_PROFILES))
     if "preRegistration" in pred:
         prereg = pred["preRegistration"]
@@ -1847,7 +1866,9 @@ def to_eval_result_v02_predicate(claim: dict, *, evaluator_id: str, subject_prof
         predicate["evidence"] = copy.deepcopy(evidence)
     if harness is not None:
         predicate["harness"] = copy.deepcopy(harness)
-    problems = _eval_result_v02_predicate_problems(predicate)
+    # `written`: the emitter writes a subject profile in the form of SUBJECT_PROFILES only, never a spelling the
+    # verifier merely reads (`_subject_profile_read`).
+    problems = _eval_result_v02_predicate_problems(predicate, written=True)
     if problems:
         raise BundleFormatError(
             "refusing to emit an eval-result v0.2 predicate its own verifier refuses: " + "; ".join(problems))
