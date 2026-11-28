@@ -100,9 +100,10 @@ class _Basis(unittest.TestCase):
         ende = zeilen.index("=> FAILED")
         return zeilen[anfang + 1:ende]
 
-    def _faellt_mit(self, befehl: str, env: dict, worte: str, pub: bytes | None = None) -> list[str]:
+    def _faellt_mit(self, befehl: str, env: dict, worte: str, pub: bytes | None = None,
+                    rc_erwartet: int = 1) -> list[str]:
         rc, zeilen = self._lauf(befehl, env, pub)
-        self.assertEqual(rc, 1, zeilen)
+        self.assertEqual(rc, rc_erwartet, zeilen)
         gruende = self._gruende(befehl, zeilen)
         self.assertTrue(gruende, f"a FAIL line without a reason: {zeilen}")
         self.assertEqual(len(gruende), len(set(gruende)), f"a reason printed twice: {gruende}")
@@ -114,7 +115,8 @@ class _Basis(unittest.TestCase):
 class TestEachFailedCheckIsNamed(_Basis):
 
     def _faelle(self, befehl: str):
-        """(case, envelope, public key or None, the words the reason must give)."""
+        """(case, envelope, public key or None, the words the reason must give, the exit code). An envelope
+        refused before any signature is checked is malformed input, exit 2."""
         st = _mit_padding(_statement(befehl))
         gut = self._huelle(st)
         leer = dict(gut, signatures=[])
@@ -124,23 +126,23 @@ class TestEachFailedCheckIsNamed(_Basis):
         sig_ohne_padding = dict(gut, signatures=[dict(gut["signatures"][0], sig=sig.rstrip("="))])
         andere_art = dict(gut, payloadType="application/json")
         nicht_kanonisch = self._huelle(st, json.dumps(st, indent=1, sort_keys=True).encode("utf-8"))
-        yield "OP17 empty signatures", leer, None, "signatures must be a non-empty list"
-        yield "no signatures", ohne, None, "signatures must be a non-empty list"
-        yield "OP20 a payload without its padding", ohne_padding, None, "payload is not valid base64"
-        yield "a signature without its padding", sig_ohne_padding, None, "no signature verifies under the key"
-        yield "another key", gut, self.fremd, "no signature verifies under the key"
-        yield "another payloadType", andere_art, None, "payloadType 'application/json' is not"
-        yield "a payload that is not canonical", nicht_kanonisch, None, "payload is not canonical"
+        yield "OP17 empty signatures", leer, None, "signatures must be a non-empty list", 2
+        yield "no signatures", ohne, None, "signatures must be a non-empty list", 2
+        yield "OP20 a payload without its padding", ohne_padding, None, "payload is not valid base64", 2
+        yield "a signature without its padding", sig_ohne_padding, None, "no signature verifies under the key", 1
+        yield "another key", gut, self.fremd, "no signature verifies under the key", 1
+        yield "another payloadType", andere_art, None, "payloadType 'application/json' is not", 1
+        yield "a payload that is not canonical", nicht_kanonisch, None, "payload is not canonical", 1
 
     def test_each_case_names_its_reason_under_intoto_verify(self):
-        for name, env, pub, worte in self._faelle("intoto"):
+        for name, env, pub, worte, rc in self._faelle("intoto"):
             with self.subTest(fall=name):
-                self._faellt_mit("intoto", env, worte, pub)
+                self._faellt_mit("intoto", env, worte, pub, rc)
 
     def test_each_case_names_its_reason_under_svr_verify(self):
-        for name, env, pub, worte in self._faelle("svr"):
+        for name, env, pub, worte, rc in self._faelle("svr"):
             with self.subTest(fall=name):
-                self._faellt_mit("svr", env, worte, pub)
+                self._faellt_mit("svr", env, worte, pub, rc)
 
     def test_a_claim_field_the_claim_rule_refuses_is_named(self):
         st = _statement("intoto")
@@ -184,7 +186,7 @@ class TestEachFailedCheckIsNamed(_Basis):
             with self.subTest(befehl=befehl):
                 env = self._huelle(_mit_padding(_statement(befehl)))
                 env["signatures"] = []
-                gruende = self._faellt_mit(befehl, env, "signatures must be a non-empty list")
+                gruende = self._faellt_mit(befehl, env, "signatures must be a non-empty list", rc_erwartet=2)
                 self.assertNotIn("no signature verifies", "\n".join(gruende))
 
 

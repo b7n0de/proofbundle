@@ -274,6 +274,29 @@ class TheVerdictIgnoresIt(unittest.TestCase):
         self.assertIs(intoto.verify_eval_result_dsse(env, pub)["ok"], True, "control: the same envelope as written")
 
 
+def _nutzlast_oder_none(huelle: dict) -> "bytes | None":
+    """The payload bytes of a shipped envelope, or None when it carries none that decodes.
+
+    Read first as this test always read it (``base64.b64decode``), so every envelope it checked before
+    is checked on the same bytes. Only where that fails is the payload read as the verifiers read a DSSE
+    field (``decode_b64_either``, either alphabet, padded and canonical): the URL-safe control of
+    conformance/dsse_envelope_refused/ decodes there and is bound to its key like every other envelope.
+    The refused shapes of that directory (no payload, a number, no padding, a foreign character)
+    decode in neither and are None."""
+    import base64  # noqa: PLC0415
+    import binascii  # noqa: PLC0415
+    from proofbundle._wire_b64 import decode_b64_either  # noqa: PLC0415
+    nutzlast = huelle.get("payload")
+    try:
+        return base64.b64decode(nutzlast)
+    except (TypeError, ValueError, binascii.Error):
+        pass
+    try:
+        return decode_b64_either(nutzlast) if isinstance(nutzlast, str) else None
+    except (TypeError, ValueError, binascii.Error):
+        return None
+
+
 class TheShippedCorpusNamesItsKeys(unittest.TestCase):
     """Codex thread 4217984342 on pull request 287: the agent-review vectors were regenerated, and 117 envelopes
     under conformance/relation, shipped in the sdist by `graft conformance`, still had no keyid. Every DSSE
@@ -316,7 +339,18 @@ class TheShippedCorpusNamesItsKeys(unittest.TestCase):
                     with self.subTest(file=str(pfad.relative_to(REPO))):
                         keyid = eintrag.get("keyid")
                         self.assertRegex(keyid or "", r"\ASHA256:[A-Za-z0-9+/]{43}\Z")
-                        pae = dsse.pae(h["payloadType"], base64.b64decode(h["payload"]))
+                        roh = _nutzlast_oder_none(h)
+                        if roh is None:
+                            # A payload that does not decode is a malformed envelope by design: only a
+                            # case that declares exit 2 (malformed input) may ship one, and its keyid
+                            # was checked above all the same. Nothing is signed over bytes that do
+                            # not exist, so there is no fingerprint to bind it to.
+                            erklaert = json.loads(fall.read_text(encoding="utf-8")).get(
+                                "expected", {}).get("exitCode") if fall.is_file() else None
+                            self.assertEqual(erklaert, 2, "an envelope whose payload does not decode, "
+                                                          "in a case that does not declare exit 2")
+                            continue
+                        pae = dsse.pae(h["payloadType"], roh)
                         for k in (k for k in schluessel if len(k) == 32):
                             try:
                                 Ed25519PublicKey.from_public_bytes(k).verify(base64.b64decode(eintrag["sig"]), pae)
