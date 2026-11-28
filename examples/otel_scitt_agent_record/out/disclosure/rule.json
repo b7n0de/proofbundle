@@ -1,0 +1,7 @@
+{
+  "rule": "a transfer of more than the threshold needs the approval of a person before it runs",
+  "tool": "transfer_funds",
+  "threshold": "100.00",
+  "currency": "EUR",
+  "revision": 1
+}
